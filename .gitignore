@@ -1,0 +1,10 @@
+# 状态文件（运行时生成）
+state.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
