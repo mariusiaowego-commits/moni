@@ -3,7 +3,7 @@
 source_monitor.py - 同业信源自动抓取与增量检测脚本
 
 为 Hermes Agent cron job 提供数据预处理：
-- 抓取多个信源（36氪RSS、移动支付网、量子位）
+- 抓取多个信源（36氪RSS、移动支付网、量子位、微信公众号RSS）
 - 关键词过滤（银行/微信/AI 三组）
 - 增量检测（对比 state.json）
 - JSON 输出到 stdout
@@ -40,6 +40,9 @@ HEADERS = {
 
 # 北京时间
 CST = timezone(timedelta(hours=8))
+
+# WeChatRSS 配置
+WECHAT_RSS_URL = "https://wechatrss.waytomaster.com/api/rss/all?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMyIiwidHlwZSI6InJzcyJ9.gAFiD4UjeIrdQ4BNQSA5-QIV8YdpDVon4eNnisZu7NI"
 
 # ============================================================
 # 关键词定义（三组）
@@ -282,6 +285,48 @@ def parse_qbitai() -> list[dict]:
     return articles
 
 
+def parse_wechat_rss() -> list[dict]:
+    """
+    解析 WeChatRSS 聚合 RSS Feed，提取公众号文章。
+    标题格式：[公众号名] 文章标题
+    """
+    xml_text = fetch_url(WECHAT_RSS_URL)
+    if not xml_text:
+        return []
+
+    articles = []
+    try:
+        root = ET.fromstring(xml_text)
+        for item in root.findall(".//item"):
+            title_el = item.find("title")
+            link_el = item.find("link")
+            pub_date_el = item.find("pubDate")
+
+            title = title_el.text.strip() if title_el is not None and title_el.text else ""
+            link = link_el.text.strip() if link_el is not None and link_el.text else ""
+            pub_date_str = pub_date_el.text.strip() if pub_date_el is not None and pub_date_el.text else ""
+
+            # 解析日期: "Thu, 04 Jun 2026 02:00:00 +0000"
+            date = ""
+            if pub_date_str:
+                try:
+                    dt = datetime.strptime(pub_date_str, "%a, %d %b %Y %H:%M:%S %z")
+                    date = dt.strftime("%Y-%m-%d")
+                except ValueError:
+                    date = pub_date_str[:10]
+
+            if title and link:
+                articles.append({
+                    "title": title,
+                    "url": link,
+                    "date": date,
+                })
+    except ET.ParseError as e:
+        print(f"[警告] WeChatRSS 解析失败: {e}", file=sys.stderr)
+
+    return articles
+
+
 # ============================================================
 # 关键词过滤
 # ============================================================
@@ -458,6 +503,11 @@ def main():
             "name": "量子位",
             "url": "https://www.qbitai.com/",
             "parser": parse_qbitai,
+        },
+        {
+            "name": "微信公众号",
+            "url": WECHAT_RSS_URL,
+            "parser": parse_wechat_rss,
         },
     ]
 
