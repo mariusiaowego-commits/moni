@@ -216,6 +216,110 @@ class ShareTaskListResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Config: tag_definitions (v1.0.2)
+# ---------------------------------------------------------------------------
+
+
+class Tag(BaseModel):
+    """业务 tag 定义 (用于 source ↔ tag / article ↔ tag)."""
+    name: str
+    description: str | None = None
+    color: str | None = None
+    is_active: bool = True
+    created_at: str
+
+
+class TagCreate(BaseModel):
+    name: str
+    description: str | None = None
+    color: str | None = None
+
+
+class TagUpdate(BaseModel):
+    description: str | None = None
+    color: str | None = None
+    is_active: bool | None = None
+
+
+# ---------------------------------------------------------------------------
+# Config: sources (v1.0.2)
+# ---------------------------------------------------------------------------
+
+
+class Source(BaseModel):
+    """抓取源配置 (替代 config/sources.yaml 主用)."""
+    id: str
+    name: str
+    display_name: str | None = None
+    source_type: str
+    url: str
+    fetch_interval_min: int
+    is_active: bool
+    notes: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class SourceCreate(BaseModel):
+    id: str
+    name: str
+    display_name: str | None = None
+    source_type: str
+    url: str
+    fetch_interval_min: int = 30
+    is_active: bool = True
+    notes: str | None = None
+
+
+class SourceUpdate(BaseModel):
+    display_name: str | None = None
+    url: str | None = None
+    fetch_interval_min: int | None = None
+    is_active: bool | None = None
+    notes: str | None = None
+
+
+class SourceWithTags(Source):
+    """Source + 关联的 tag_name 列表."""
+    tags: list[str] = []
+
+
+# ---------------------------------------------------------------------------
+# Config: source_keyword_filters (v1.0.2)
+# ---------------------------------------------------------------------------
+
+
+class KeywordFilter(BaseModel):
+    """源关键词白/黑名单 filter."""
+    id: int
+    source_id: str
+    mode: str                       # 'whitelist' | 'blacklist'
+    match_field: str = "title+content"
+    keywords: list[str] = []
+    is_active: bool = True
+    notes: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class KeywordFilterCreate(BaseModel):
+    source_id: str
+    mode: str
+    match_field: str = "title+content"
+    keywords: list[str] = []
+    is_active: bool = True
+    notes: str | None = None
+
+
+class KeywordFilterUpdate(BaseModel):
+    mode: str | None = None
+    match_field: str | None = None
+    keywords: list[str] | None = None
+    is_active: bool | None = None
+    notes: str | None = None
+
+
+# ---------------------------------------------------------------------------
 # Standard ErrorResponse
 # ---------------------------------------------------------------------------
 
@@ -251,4 +355,8 @@ __all__ = [
     "ShareTaskResponseV1",
     "ShareTaskListResponse",
     "ErrorResponse",
+    # v1.0.2 config
+    "Tag", "TagCreate", "TagUpdate",
+    "Source", "SourceCreate", "SourceUpdate", "SourceWithTags",
+    "KeywordFilter", "KeywordFilterCreate", "KeywordFilterUpdate",
 ]
