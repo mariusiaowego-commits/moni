@@ -13,9 +13,9 @@ function app() {
       else if (view === 'share') { this.loadAllArticles(); this._startSharePoll(); }
       else if (view === 'config') {
         this.configTab = 'sources';
-        configLoadSources();
-        configLoadTags();
-        configLoadFilters();
+        this.configLoadSources();
+        this.configLoadTags();
+        this.configLoadFilters();
       }
     },
 
@@ -35,7 +35,181 @@ function app() {
     },
 
     filterFiltersBySource() {
-      configLoadFilters();
+      this.configLoadFilters();
+    },
+
+    // ── Tags CRUD ───────────────────────────────────────────────────
+    configLoadTags() {
+      fetch('/api/config/tags', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(data => { this.configTags = Array.isArray(data) ? data : []; })
+        .catch(err => { console.error('Failed to load tags:', err); this.configTags = []; });
+    },
+    configCreateTag() { this.openConfigModal('tag', null); },
+    configEditTag(tag) { this.openConfigModal('tag', tag); },
+    configDeleteTag(tag) {
+      if (!confirm(`确定删除 tag "${tag.name}"? (会级联清除 source_tags 和 article_tags)`)) return;
+      fetch(`/api/config/tags/${encodeURIComponent(tag.name)}`, {
+        method: 'DELETE', credentials: 'same-origin',
+      })
+        .then(r => { if (!r.ok) throw new Error('Delete failed'); this.configLoadTags(); })
+        .catch(err => alert('删除失败: ' + err.message));
+    },
+    configSaveTag(body, isEdit, originalName) {
+      const url = isEdit
+        ? `/api/config/tags/${encodeURIComponent(originalName)}`
+        : '/api/config/tags';
+      const method = isEdit ? 'PUT' : 'POST';
+      return fetch(url, {
+        method, credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then(r => {
+        if (!r.ok) return r.text().then(t => { throw new Error(t || `HTTP ${r.status}`); });
+        return r.json();
+      }).then(() => {
+        this.configLoadTags();
+        this.closeConfigModal();
+      }).catch(err => alert('保存失败: ' + err.message));
+    },
+
+    // ── Sources CRUD ───────────────────────────────────────────────
+    configLoadSources() {
+      fetch('/api/config/sources', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(data => { this.configSources = Array.isArray(data) ? data : []; })
+        .catch(err => { console.error('Failed to load sources:', err); this.configSources = []; });
+    },
+    configCreateSource() { this.openConfigModal('source', null); },
+    configEditSource(source) { this.openConfigModal('source', source); },
+    configDeleteSource(source) {
+      if (!confirm(`确定删除 source "${source.name}"?`)) return;
+      fetch(`/api/config/sources/${encodeURIComponent(source.id)}`, {
+        method: 'DELETE', credentials: 'same-origin',
+      })
+        .then(r => { if (!r.ok) throw new Error('Delete failed'); this.configLoadSources(); })
+        .catch(err => alert('删除失败: ' + err.message));
+    },
+    configSaveSource(body, isEdit) {
+      const url = isEdit
+        ? `/api/config/sources/${encodeURIComponent(body.id)}`
+        : '/api/config/sources';
+      const method = isEdit ? 'PUT' : 'POST';
+      return fetch(url, {
+        method, credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then(r => {
+        if (!r.ok) return r.text().then(t => { throw new Error(t || `HTTP ${r.status}`); });
+        return r.json();
+      }).then(() => {
+        this.configLoadSources();
+        this.closeConfigModal();
+      }).catch(err => alert('保存失败: ' + err.message));
+    },
+    configEditSourceTags(source) { this.openConfigModal('sourceTags', source); },
+    configSaveSourceTags(sourceId, tagNames) {
+      return fetch(`/api/config/sources/${encodeURIComponent(sourceId)}/tags`, {
+        method: 'PUT', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(tagNames),
+      }).then(r => {
+        if (!r.ok) return r.text().then(t => { throw new Error(t || `HTTP ${r.status}`); });
+        return r.json();
+      }).then(() => {
+        this.configLoadSources();
+        this.closeConfigModal();
+      }).catch(err => alert('保存 tags 失败: ' + err.message));
+    },
+
+    // ── Filters CRUD ───────────────────────────────────────────────
+    configLoadFilters() {
+      const sourceId = this.configFilterSourceFilter || '';
+      const url = sourceId
+        ? `/api/config/filters?source_id=${encodeURIComponent(sourceId)}`
+        : '/api/config/filters';
+      fetch(url, { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(data => { this.configFilters = Array.isArray(data) ? data : []; })
+        .catch(err => { console.error('Failed to load filters:', err); this.configFilters = []; });
+    },
+    configCreateFilter() { this.openConfigModal('filter', null); },
+    configEditFilter(filter) { this.openConfigModal('filter', filter); },
+    configDeleteFilter(filter) {
+      if (!confirm(`确定删除 filter id=${filter.id}?`)) return;
+      fetch(`/api/config/filters/${filter.id}`, {
+        method: 'DELETE', credentials: 'same-origin',
+      })
+        .then(r => { if (!r.ok) throw new Error('Delete failed'); this.configLoadFilters(); })
+        .catch(err => alert('删除失败: ' + err.message));
+    },
+    configSaveFilter(body, isEdit) {
+      const url = isEdit
+        ? `/api/config/filters/${body.id}`
+        : '/api/config/filters';
+      const method = isEdit ? 'PUT' : 'POST';
+      return fetch(url, {
+        method, credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then(r => {
+        if (!r.ok) return r.text().then(t => { throw new Error(t || `HTTP ${r.status}`); });
+        return r.json();
+      }).then(() => {
+        this.configLoadFilters();
+        this.closeConfigModal();
+      }).catch(err => alert('保存失败: ' + err.message));
+    },
+
+    // ── Modal helpers ───────────────────────────────────────────────
+    openConfigModal(type, target) {
+      this.configModalType = type;
+      // Deep clone to avoid mutating the table row
+      this.configModalTarget = target ? JSON.parse(JSON.stringify(target)) : {};
+      // Track original identifiers for PUT semantics (tag name, source id)
+      if (target && type === 'tag') {
+        this.configModalTargetOriginal = target.name;
+      } else if (target && type === 'source' && target.id) {
+        this.configModalTargetOriginal = target.id;
+      } else if (target && type === 'filter' && target.id) {
+        this.configModalTargetOriginal = target.id;
+      } else {
+        this.configModalTargetOriginal = null;
+      }
+      if (type === 'source' && !target) {
+        this.configModalTarget = {
+          id: '', name: '', display_name: '', source_type: 'html', url: '',
+          fetch_interval_min: 30, is_active: true, notes: '',
+        };
+      } else if (type === 'filter' && !target) {
+        this.configModalTarget = {
+          source_id: this.configSources[0]?.id || '',
+          mode: 'blacklist', match_field: 'title+content',
+          keywords: [], is_active: true, notes: '',
+        };
+      } else if (type === 'sourceTags' && target) {
+        this.configModalTarget = {
+          id: target.id, name: target.name,
+          tags: Array.isArray(target.tags) ? [...target.tags] : [],
+        };
+      }
+      this.configModalOpen = true;
+    },
+    closeConfigModal() {
+      this.configModalOpen = false;
+      this.configModalType = null;
+      this.configModalTarget = null;
+      this.configModalTargetOriginal = null;
+    },
+    toggleSourceTagInModal(tagName, checked) {
+      if (!this.configModalTarget.tags) this.configModalTarget.tags = [];
+      if (checked) {
+        if (!this.configModalTarget.tags.includes(tagName)) {
+          this.configModalTarget.tags.push(tagName);
+        }
+      } else {
+        this.configModalTarget.tags = this.configModalTarget.tags.filter(t => t !== tagName);
+      }
     },
 
     // ── Shared helpers ────────────────────────────────────────────
