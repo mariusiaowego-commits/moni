@@ -26,6 +26,25 @@ from urllib.error import URLError, HTTPError
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(SCRIPT_DIR, "state.json")
 
+# 加载 .env（极简实现，兼容 Python 3.9+，不依赖 python-dotenv）
+def _load_env(path: str) -> None:
+    """Mini .env loader: KEY=VALUE per line, ignores blanks/comments/quoted values."""
+    if not os.path.isfile(path):
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            # 已存在的环境变量优先（便于 cron / 容器注入覆盖本地 .env）
+            os.environ.setdefault(key, value)
+
+
+_load_env(os.path.join(SCRIPT_DIR, ".env"))
+
 # 网络请求超时（秒）
 REQUEST_TIMEOUT = 10
 
@@ -41,8 +60,16 @@ HEADERS = {
 # 北京时间
 CST = timezone(timedelta(hours=8))
 
-# WeChatRSS 配置
-WECHAT_RSS_URL = "https://wechatrss.waytomaster.com/api/rss/all?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMyIiwidHlwZSI6InJzcyJ9.gAFiD4UjeIrdQ4BNQSA5-QIV8YdpDVon4eNnisZu7NI"
+# WeChatRSS 配置（token 来自 .env / 环境变量，绝不入库）
+WECHAT_RSS_BASE_URL = "https://wechatrss.waytomaster.com/api/rss/all"
+_WECHAT_RSS_TOKEN = os.environ.get("WECHAT_RSS_TOKEN", "").strip()
+if not _WECHAT_RSS_TOKEN:
+    sys.stderr.write(
+        "ERROR: WECHAT_RSS_TOKEN 未设置。请在 .env 中填入或设置环境变量。\n"
+        "申请地址: https://wechatrss.waytomaster.com/\n"
+    )
+    sys.exit(2)
+WECHAT_RSS_URL = f"{WECHAT_RSS_BASE_URL}?token={_WECHAT_RSS_TOKEN}"
 
 # ============================================================
 # 关键词定义（三组）

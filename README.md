@@ -101,6 +101,28 @@
 }
 ```
 
+## 配置
+
+微信公众号 RSS 走 WeChatRSS 服务，需要访问 token。token 存在 `.env`（已 git ignore）里，不入库。
+
+```bash
+# 首次使用：复制模板并填入真实 token
+cp .env.example .env
+# 编辑 .env，把 WECHAT_RSS_TOKEN 改成你的 token
+chmod 600 .env
+```
+
+申请 token：https://wechatrss.waytomaster.com/
+
+**备选**：也可以不创建 `.env`，直接用环境变量注入（cron / Docker 场景推荐）：
+
+```bash
+export WECHAT_RSS_TOKEN=eyJhbG...
+python3 source_monitor.py
+```
+
+**未配置 token 的行为**：脚本在启动时会打印错误并以退出码 `2` 退出，不会发送请求、不会写 `state.json`。
+
 ## Hermes 集成方式
 
 cron job 配置：
