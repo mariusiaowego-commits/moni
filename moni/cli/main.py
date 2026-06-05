@@ -46,6 +46,8 @@ def cmd_init() -> None:
     migrate()
     from ..db.seed_llm import seed as seed_llm_seed
     seed_llm_seed()
+    from ..db.seed_config import seed as seed_config_seed
+    seed_config_seed()
     conn = get_db()
     row = conn.execute(
         "SELECT COUNT(*) as n FROM llm_providers"
@@ -64,10 +66,22 @@ def cmd_seed_llm() -> None:
     seed_llm_seed()
 
 
+seed_config_parser = db_sub.add_parser(
+    "seed-config",
+    help="Seed sources, source_tags, and source_keyword_filters (idempotent)",
+)
+
+
+def cmd_seed_config() -> None:
+    from ..db.seed_config import seed as seed_config_seed
+    seed_config_seed()
+
+
 def _table_counts(conn) -> dict[str, int]:
     tables = [
         "articles", "tag_definitions", "article_tags", "share_tasks",
         "llm_providers", "llm_models", "llm_settings",
+        "sources", "source_tags", "source_keyword_filters",
     ]
     out = {}
     for t in tables:
@@ -96,6 +110,7 @@ def _export_json(conn) -> str:
     tables = [
         "articles", "tag_definitions", "article_tags", "share_tasks",
         "llm_providers", "llm_models", "llm_settings",
+        "sources", "source_tags", "source_keyword_filters",
     ]
     data = {}
     for t in tables:
@@ -108,6 +123,7 @@ def _export_csv(conn) -> str:
     tables = [
         "articles", "tag_definitions", "article_tags", "share_tasks",
         "llm_providers", "llm_models", "llm_settings",
+        "sources", "source_tags", "source_keyword_filters",
     ]
     buf = io.StringIO()
     for t in tables:
@@ -300,6 +316,8 @@ def main(argv: list[str] | None = None) -> int:
             cmd_init()
         elif args.db_subcmd == "seed-llm":
             cmd_seed_llm()
+        elif args.db_subcmd == "seed-config":
+            cmd_seed_config()
         elif args.db_subcmd == "export":
             cmd_export(args.fmt)
         close_db()

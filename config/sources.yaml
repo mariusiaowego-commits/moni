@@ -23,11 +23,9 @@ sources:
   fetch_interval_min: 30
   enabled: true
   crawler_type: rss
-# WeChatRSS 真实 endpoint 来自 .env 的 WECHAT_RSS_TOKEN
-# (URL 在运行时由 moni/fetch/sources/wechat_rss.py 拼接)
 - source_name: wechat_rss
   type: rss
-  feed_url: https://wechatrss.waytomaster.com/api/rss/all  # token 由 .env 提供
+  feed_url: https://wechatrss.waytomaster.com/api/rss/all
   fetch_interval_min: 60
   enabled: true
   crawler_type: rss
