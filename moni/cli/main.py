@@ -3,6 +3,9 @@
 v1.0 subcommands:
     db stats          Show row count for each table
     db export <fmt>   Export data (fmt: json | csv)
+    cron start        Start the BackgroundScheduler (background daemon)
+    cron stop         Stop the running scheduler
+    cron status       Show scheduler running state
 """
 
 from __future__ import annotations
@@ -11,13 +14,15 @@ import argparse
 import csv
 import io
 import json
+import os
+import signal
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 from ..db.connection import close_db, get_db
 from ..db.migrate import migrate
-from ..fetch import run as fetch_run, fetch_all
+from ..fetch import fetch_all, run as fetch_run
 
 PARSER = argparse.ArgumentParser(prog="moni", description="moni — 同业信源新闻库")
 SUB = PARSER.add_subparsers(dest="subcmd", required=True)
@@ -87,7 +92,127 @@ def cmd_export(fmt: str) -> None:
         print(_export_csv(conn), end="")
 
 
-# ── fetch subcommand ───────────────────────────────────────────────────────────
+# ── cron subcommand ──────────────────────────────────────────────────────────
+
+cron_parser = SUB.add_parser("cron", help="Cron scheduler operations")
+cron_sub = cron_parser.add_subparsers(dest="cron_subcmd", required=True)
+
+cron_sub.add_parser("start", help="Start the BackgroundScheduler (background daemon)")
+cron_sub.add_parser("stop", help="Stop the running scheduler")
+cron_sub.add_parser("status", help="Show scheduler running state")
+
+
+def cmd_cron_start() -> int:
+    """Start the cron scheduler as a background daemon.
+
+    Forks a child process that:
+    1. Runs DB migration (so cron_runs/fetch_log tables exist).
+    2. Starts the BackgroundScheduler and blocks forever.
+    3. Writes its PID to data/.cron.pid.
+    """
+    from ..cron.scheduler import CronScheduler
+
+    # Ensure schema is up to date
+    migrate()
+
+    pid_path = Path("data") / ".cron.pid"
+    pid_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Check for stale PID file
+    if pid_path.exists():
+        try:
+            old_pid = int(pid_path.read_text().strip())
+            os.kill(old_pid, 0)
+            print(f"Scheduler already running (PID {old_pid}). Use 'moni cron stop' first.")
+            return 1
+        except (ValueError, OSError):
+            pid_path.unlink()
+
+    # Verify APScheduler is available
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+    except ImportError:
+        print("ERROR: apscheduler is not installed. Run: pip install apscheduler")
+        return 1
+
+    pid = os.fork()
+    if pid == 0:
+        # Child — daemon process
+        os.setsid()
+        # Detach from controlling terminal
+        devnull = os.open(os.devnull, os.O_RDWR)
+        os.dup2(devnull, 0)
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+        os.close(devnull)
+
+        pid_path.write_text(str(os.getpid()))
+
+        scheduler = CronScheduler()
+        scheduler.start()
+
+        # Block forever; shutdown is triggered by SIGTERM
+        import time
+        while True:
+            time.sleep(86400)
+    else:
+        print(f"Scheduler started in background (PID {pid})")
+        return 0
+
+
+def cmd_cron_stop() -> int:
+    """Stop the running cron scheduler via SIGTERM."""
+    pid_path = Path("data") / ".cron.pid"
+    if not pid_path.exists():
+        print("Scheduler PID file not found. Is it running?")
+        return 1
+
+    try:
+        pid = int(pid_path.read_text().strip())
+        os.kill(pid, signal.SIGTERM)
+        pid_path.unlink()
+        print(f"Sent SIGTERM to PID {pid}")
+        return 0
+    except (ValueError, OSError) as exc:
+        print(f"Failed to stop scheduler: {exc}")
+        pid_path.unlink()
+        return 1
+
+
+def cmd_cron_status() -> None:
+    """Print scheduler status."""
+    pid_path = Path("data") / ".cron.pid"
+    if not pid_path.exists():
+        print("Scheduler is NOT running (no PID file)")
+        return
+
+    try:
+        pid_text = pid_path.read_text().strip()
+        pid = int(pid_text)
+        os.kill(pid, 0)
+    except (ValueError, OSError) as exc:
+        print(f"Scheduler PID file is stale — removing ({exc})")
+        pid_path.unlink()
+        return
+
+    print(f"Scheduler is RUNNING (PID {pid})")
+
+    # Show recent cron_runs summary
+    try:
+        migrate()
+        conn = get_db()
+        row = conn.execute(
+            "SELECT COUNT(*) as total, "
+            "SUM(success=1) as succeeded, "
+            "SUM(success=0) as failed "
+            "FROM cron_runs"
+        ).fetchone()
+        print(f"cron_runs: {row['total']} total, {row['succeeded']} succeeded, {row['failed']} failed")
+    except Exception as exc:
+        print(f"(Could not read cron_runs: {exc})")
+
+
+# ── fetch subcommand ─────────────────────────────────────────────────────────────────
 
 fetch_parser = SUB.add_parser("fetch", help="Fetch articles from one or all sources")
 fetch_parser.add_argument(
@@ -100,7 +225,7 @@ fetch_parser.add_argument(
 
 def cmd_fetch(source_name: str | None) -> None:
     if source_name:
-        result = fetch_run(source_name)
+        result = fetch_run(source_name, force=True)
         if result is None:
             print(f"  ERROR: no fetcher registered for {source_name!r} or source not due")
         else:
@@ -131,7 +256,6 @@ def main(argv: list[str] | None = None) -> int:
     args = PARSER.parse_args(argv)
 
     if args.subcmd == "db":
-        # Auto-migrate on any db subcommand
         migrate()
         if args.db_subcmd == "stats":
             cmd_stats()
@@ -139,6 +263,16 @@ def main(argv: list[str] | None = None) -> int:
             cmd_export(args.fmt)
         close_db()
         return 0
+
+    if args.subcmd == "cron":
+        if args.cron_subcmd == "start":
+            return cmd_cron_start()
+        elif args.cron_subcmd == "stop":
+            return cmd_cron_stop()
+        elif args.cron_subcmd == "status":
+            cmd_cron_status()
+            close_db()
+            return 0
 
     if args.subcmd == "fetch":
         cmd_fetch(getattr(args, "source_name", None))
