@@ -26,6 +26,15 @@ _start() {
     # Change to repo root so uvicorn finds the module correctly
     cd "$REPO_DIR"
 
+    # Load secrets from .env if present (so WECHAT_RSS_TOKEN etc. reach the
+    # uvicorn process without requiring the user to export them manually).
+    if [ -f "$REPO_DIR/.env" ]; then
+        set -a
+        # shellcheck disable=SC1091
+        . "$REPO_DIR/.env"
+        set +a
+    fi
+
     python3 -c "
 import uvicorn
 from moni.web.server import create_app

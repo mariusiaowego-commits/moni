@@ -1,6 +1,7 @@
-"""FetcherWechatRSS — WeChat articles via WeChatRSS (https://api.wechatrss.waytomaster.com/feed).
+"""FetcherWechatRSS — WeChat articles via WeChatRSS aggregation endpoint.
 
-Requires WECHAT_RSS_TOKEN environment variable for authentication.
+聚合 RSS 入口: https://wechatrss.waytomaster.com/api/rss/all
+需要 ?token=... 查询参数 (WECHAT_RSS_TOKEN 环境变量提供).
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from ..base import BaseFetcher, register_fetcher
 
 logger = logging.getLogger(__name__)
 
-FEED_URL = "https://api.wechatrss.waytomaster.com/feed"
+FEED_URL = "https://wechatrss.waytomaster.com/api/rss/all"
 
 
 @register_fetcher

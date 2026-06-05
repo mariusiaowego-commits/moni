@@ -93,29 +93,66 @@ def summarize_article(
     article_id: str,
     body: ArticleSummaryRequest,
 ) -> dict[str, Any]:
-    """Generate a summary for an article using the LLM summarizer.
+    """Generate a summary for an article via the LLM (薄壳模式).
 
-    Calls ``moni.summarizer`` if available; otherwise returns a 503.
+    Reads the active summary model from ``llm_settings`` and dispatches
+    via ``moni.llm.call_llm`` (which subprocess-calls ``hermes chat``).
+    Writes the result back to ``articles.summary`` + ``summary_at``.
     """
     conn = get_db()
     row = conn.execute(
-        "SELECT id, title, raw_content FROM articles WHERE id = ?",
+        "SELECT id, title, raw_content, source, url, published_at FROM articles WHERE id = ?",
         (article_id,),
     ).fetchone()
     if row is None:
         raise NotFoundError(message=f"Article {article_id!r} not found")
 
-    try:
-        from moni.summarizer import summarize
+    article_dict = dict(row)
 
-        article_dict = dict(row)
-        result: str = summarize(article_dict)
-        return {"summary": result}
-    except ImportError:
+    # Resolve active model from llm_settings
+    active_model_id = conn.execute(
+        "SELECT value FROM llm_settings WHERE key = 'active_summary_model_id'"
+    ).fetchone()
+    if active_model_id is None or not active_model_id["value"]:
         raise ServiceUnavailableError(
-            message="Summarizer service is not available",
-            details={"article_id": article_id},
+            message="No active summary model configured",
+            details={"hint": "set llm_settings.active_summary_model_id"},
         )
+    model_row = conn.execute(
+        """
+        SELECT m.model_id, p.hermes_provider
+        FROM llm_models m
+        JOIN llm_providers p ON p.id = m.provider_id
+        WHERE m.id = ?
+        """,
+        (active_model_id["value"],),
+    ).fetchone()
+    if model_row is None:
+        raise ServiceUnavailableError(
+            message=f"Active summary model {active_model_id['value']!r} not found",
+        )
+
+    from moni.llm import call_llm
+    from moni.llm.prompts import render_summary
+
+    prompt = render_summary(article_dict)
+    try:
+        summary_text = call_llm(model_row["hermes_provider"], model_row["model_id"], prompt)
+    except RuntimeError as exc:
+        raise ServiceUnavailableError(
+            message=f"LLM call failed: {exc}",
+        )
+
+    # Persist
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "UPDATE articles SET summary = ?, summary_at = ? WHERE id = ?",
+        (summary_text, now, article_id),
+    )
+    conn.commit()
+
+    return {"summary": summary_text, "summary_at": now}
 
 
 @router.post("/{article_id}/fact-check")
@@ -123,26 +160,76 @@ def fact_check_article(
     article_id: str,
     body: FactCheckRequest,
 ) -> dict[str, Any]:
-    """Run a fact-check analysis on an article using the LLM fact-checker.
+    """Run a fact-check analysis on an article via the LLM (薄壳模式).
 
-    Calls ``moni.factcheck`` if available; otherwise returns a 503.
+    Reads the active fact-check model from ``llm_settings`` and dispatches
+    via ``moni.llm.call_llm_json`` (parses ```json``` fence). Writes the
+    result back to ``articles.fact_check_*`` fields.
     """
     conn = get_db()
     row = conn.execute(
-        "SELECT id, title, raw_content FROM articles WHERE id = ?",
+        "SELECT id, title, raw_content, source, url, published_at FROM articles WHERE id = ?",
         (article_id,),
     ).fetchone()
     if row is None:
         raise NotFoundError(message=f"Article {article_id!r} not found")
 
-    try:
-        from moni.factcheck import check
+    article_dict = dict(row)
 
-        article_dict = dict(row)
-        result: dict[str, Any] = check(article_dict)
-        return {"result": result}
-    except ImportError:
+    active_model_id = conn.execute(
+        "SELECT value FROM llm_settings WHERE key = 'active_fact_check_model_id'"
+    ).fetchone()
+    if active_model_id is None or not active_model_id["value"]:
         raise ServiceUnavailableError(
-            message="Fact-check service is not available",
-            details={"article_id": article_id},
+            message="No active fact_check model configured",
+            details={"hint": "set llm_settings.active_fact_check_model_id"},
         )
+    model_row = conn.execute(
+        """
+        SELECT m.model_id, p.hermes_provider
+        FROM llm_models m
+        JOIN llm_providers p ON p.id = m.provider_id
+        WHERE m.id = ?
+        """,
+        (active_model_id["value"],),
+    ).fetchone()
+    if model_row is None:
+        raise ServiceUnavailableError(
+            message=f"Active fact_check model {active_model_id['value']!r} not found",
+        )
+
+    from moni.llm import call_llm_json
+    from moni.llm.prompts import render_fact_check
+
+    prompt = render_fact_check(article_dict)
+    try:
+        result_obj = call_llm_json(
+            model_row["hermes_provider"], model_row["model_id"], prompt
+        )
+    except RuntimeError as exc:
+        raise ServiceUnavailableError(message=f"LLM call failed: {exc}")
+
+    # Persist
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    conclusion = result_obj.get("conclusion") or result_obj.get("result") or ""
+    note = result_obj.get("note") or result_obj.get("details") or ""
+    conn.execute(
+        """
+        UPDATE articles
+        SET fact_check_conclusion = ?,
+            fact_check_method    = 'llm_inference',
+            fact_checked_at       = ?,
+            fact_check_note       = ?
+        WHERE id = ?
+        """,
+        (str(conclusion)[:200], now, str(note)[:2000], article_id),
+    )
+    conn.commit()
+
+    return {
+        "conclusion": conclusion,
+        "note": note,
+        "checked_at": now,
+        "method": "llm_inference",
+    }

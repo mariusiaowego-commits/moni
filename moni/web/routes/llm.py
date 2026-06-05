@@ -19,7 +19,7 @@ from moni.web.exceptions import BadRequestError, NotFoundError
 from moni.web.models import ArticleSummaryRequest, FactCheckRequest
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/llm", tags=["llm"])
+router = APIRouter(prefix="/api/llm", tags=["llm"])
 
 _repo = ArticleRepository()
 _client: ChatClient | None = None

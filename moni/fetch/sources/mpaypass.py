@@ -14,7 +14,7 @@ from ..base import BaseFetcher, register_fetcher
 
 logger = logging.getLogger(__name__)
 
-FEED_URL = "https://mpaypass.com.cn/"
+FEED_URL = "https://www.mpaypass.com.cn/"
 
 
 @register_fetcher
