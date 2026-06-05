@@ -23,9 +23,22 @@ def set_db_path(path: Path) -> None:
 
 
 def get_db_path() -> Path:
-    """Return the configured DB path, defaulting to data/news.db relative to cwd."""
+    """Return the configured DB path.
+
+    Resolution order:
+    1. Explicitly set via set_db_path() (unit tests)
+    2. MONI_DB_PATH environment variable (integration tests, container deployments)
+    3. <MONI_DATA_DIR>/news.db if MONI_DATA_DIR is set
+    4. data/news.db relative to cwd (default for local dev)
+    """
     if _DB_PATH is not None:
         return _DB_PATH
+    env_path = os.environ.get("MONI_DB_PATH")
+    if env_path:
+        return Path(env_path)
+    data_dir = os.environ.get("MONI_DATA_DIR")
+    if data_dir:
+        return Path(data_dir) / "news.db"
     return Path("data") / "news.db"
 
 

@@ -1,0 +1,25 @@
+"""moni.web.routes — API router aggregation.
+
+Register all route modules here.  ``create_app()`` imports this package
+lazily and collects every router attached to ``_routers``.
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter
+
+from moni.web.routes.articles import router as articles_router
+from moni.web.routes.crud import router as crud_router
+from moni.web.routes.cron import router as cron_router
+from moni.web.routes.fetch import router as fetch_router
+from moni.web.routes.llm import router as llm_router
+from moni.web.routes.share import router as share_router
+
+_routers: list[APIRouter] = [
+    articles_router,
+    crud_router,
+    cron_router,
+    fetch_router,
+    llm_router,
+    share_router,
+]

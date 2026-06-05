@@ -6,6 +6,7 @@ v1.0 subcommands:
     cron start        Start the BackgroundScheduler (background daemon)
     cron stop         Stop the running scheduler
     cron status       Show scheduler running state
+    fetch [--source NAME] [--dry-run] [--health]
 """
 
 from __future__ import annotations
@@ -22,7 +23,8 @@ from pathlib import Path
 
 from ..db.connection import close_db, get_db
 from ..db.migrate import migrate
-from ..fetch import fetch_all, run as fetch_run
+from ..fetch import fetch_all
+from ..fetch.run import main as run_fetch
 
 PARSER = argparse.ArgumentParser(prog="moni", description="moni — 同业信源新闻库")
 SUB = PARSER.add_subparsers(dest="subcmd", required=True)
@@ -34,9 +36,39 @@ db_sub = db_parser.add_subparsers(dest="db_subcmd", required=True)
 
 stats_parser = db_sub.add_parser("stats", help="Show row count per table")
 
+init_parser = db_sub.add_parser(
+    "init",
+    help="Run migrations and seed default LLM data (providers, models, settings)",
+)
+
+
+def cmd_init() -> None:
+    migrate()
+    from ..db.seed_llm import seed as seed_llm_seed
+    seed_llm_seed()
+    conn = get_db()
+    row = conn.execute(
+        "SELECT COUNT(*) as n FROM llm_providers"
+    ).fetchone()
+    print(f"\nllm_providers: {row['n']} row(s)")
+
+
+seed_llm_parser = db_sub.add_parser(
+    "seed-llm",
+    help="Seed LLM providers, models, and settings (idempotent — safe to re-run)",
+)
+
+
+def cmd_seed_llm() -> None:
+    from ..db.seed_llm import seed as seed_llm_seed
+    seed_llm_seed()
+
 
 def _table_counts(conn) -> dict[str, int]:
-    tables = ["articles", "tag_definitions", "article_tags", "share_tasks"]
+    tables = [
+        "articles", "tag_definitions", "article_tags", "share_tasks",
+        "llm_providers", "llm_models", "llm_settings",
+    ]
     out = {}
     for t in tables:
         n = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
@@ -61,7 +93,10 @@ export_parser.add_argument("fmt", choices=["json", "csv"], help="Export format")
 
 
 def _export_json(conn) -> str:
-    tables = ["articles", "tag_definitions", "article_tags", "share_tasks"]
+    tables = [
+        "articles", "tag_definitions", "article_tags", "share_tasks",
+        "llm_providers", "llm_models", "llm_settings",
+    ]
     data = {}
     for t in tables:
         rows = conn.execute(f"SELECT * FROM {t}").fetchall()
@@ -70,7 +105,10 @@ def _export_json(conn) -> str:
 
 
 def _export_csv(conn) -> str:
-    tables = ["articles", "tag_definitions", "article_tags", "share_tasks"]
+    tables = [
+        "articles", "tag_definitions", "article_tags", "share_tasks",
+        "llm_providers", "llm_models", "llm_settings",
+    ]
     buf = io.StringIO()
     for t in tables:
         buf.write(f"\n===== {t} =====\n")
@@ -219,35 +257,34 @@ fetch_parser.add_argument(
     "--source",
     dest="source_name",
     metavar="NAME",
-    help="Source name (e.g. 36kr_rss). Omit to fetch all enabled sources.",
+    help="Source name prefix (e.g. 36kr). Omit to fetch all enabled sources.",
+)
+fetch_parser.add_argument(
+    "--dry-run",
+    action="store_true",
+    help="Fetch and parse but skip database insertion.",
+)
+fetch_parser.add_argument(
+    "--health",
+    action="store_true",
+    help="Run health checks only, print results, and exit.",
 )
 
 
-def cmd_fetch(source_name: str | None) -> None:
+def cmd_fetch(source_name: str | None, dry_run: bool, health: bool) -> None:
+    """Delegate to moni.fetch.run.main() which handles all fetch CLI modes."""
+    import sys as _sys
+
+    argv: list[str] = []
     if source_name:
-        result = fetch_run(source_name, force=True)
-        if result is None:
-            print(f"  ERROR: no fetcher registered for {source_name!r} or source not due")
-        else:
-            _print_fetch_result(result)
-    else:
-        results = fetch_all()
-        if not results:
-            print("  No sources were due for fetching.")
-        for result in results:
-            _print_fetch_result(result)
+        argv.extend(["--source", source_name])
+    if dry_run:
+        argv.append("--dry-run")
+    if health:
+        argv.append("--health")
 
-
-def _print_fetch_result(result: dict) -> None:
-    err = f"  ERROR: {result['error']}" if result["error"] else ""
-    print(
-        f"  [{result['source']}] "
-        f"fetched={result['fetched']}  "
-        f"parsed={result['parsed']}  "
-        f"inserted={result['inserted']}  "
-        f"parse_errors={result['parse_errors']}"
-        + (f"  {err}" if err else "")
-    )
+    exit_code = run_fetch(argv)
+    raise SystemExit(exit_code)
 
 
 # ── dispatch ─────────────────────────────────────────────────────────────────
@@ -259,6 +296,10 @@ def main(argv: list[str] | None = None) -> int:
         migrate()
         if args.db_subcmd == "stats":
             cmd_stats()
+        elif args.db_subcmd == "init":
+            cmd_init()
+        elif args.db_subcmd == "seed-llm":
+            cmd_seed_llm()
         elif args.db_subcmd == "export":
             cmd_export(args.fmt)
         close_db()
@@ -275,7 +316,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
     if args.subcmd == "fetch":
-        cmd_fetch(getattr(args, "source_name", None))
+        cmd_fetch(
+            source_name=getattr(args, "source_name", None),
+            dry_run=getattr(args, "dry_run", False),
+            health=getattr(args, "health", False),
+        )
         return 0
 
     PARSER.print_help()

@@ -24,13 +24,19 @@ class TokenLogger:
     def path(self) -> Path:
         return self._path
 
-    def log(self, *, model: str, prompt_tokens: int, completion_tokens: int, **extra: Any) -> None:
-        entry = {
+    def log(self, *, model: str, prompt_tokens: int, completion_tokens: int,
+             total_tokens: int = 0, cost_usd: float | None = None,
+             **extra: Any) -> None:
+        entry: dict[str, Any] = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "model": model,
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
-            **extra,
+            "total_tokens": total_tokens,
         }
+        if cost_usd is not None:
+            entry["cost_usd"] = cost_usd
+        if extra:
+            entry.update(extra)
         with open(self._path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")

@@ -108,47 +108,41 @@ class TestTokenLogger:
 
 
 class TestChatClientLogCreation:
-    def test_chat_logs_to_file(self, tmp_log, monkeypatch):
-        """A ChatClient call must produce a line in llm_usage.log."""
-        import moni.llm.client as client_mod
-        client_mod.ChatClient._instance = None
+    def test_call_llm_logs_to_file(self, tmp_log, monkeypatch):
+        """call_llm() must produce a line in llm_usage.log when invoked.
 
-        # Mock httpx so no real network call is made
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {
-            "reply": "Test reply",
-            "usage": {"prompt_tokens": 5, "completion_tokens": 3},
-        }
+        Subprocess is mocked so no real `hermes chat` is invoked.
+        """
+        from moni.llm.client import call_llm
+        from moni.llm.token_log import TokenLogger
 
-        from moni.llm.client import ChatClient
-        with patch("moni.llm.client.httpx.Client") as mock_client_cls:
-            mock_client_instance = MagicMock()
-            mock_client_cls.return_value.__enter__ = MagicMock(
-                return_value=mock_client_instance
-            )
-            mock_client_instance.post.return_value = mock_resp
+        # Patch TokenLogger to write to tmp_log
+        with patch("moni.llm.client.TokenLogger", lambda *a, **kw: TokenLogger(log_path=tmp_log)):
+            mock_proc = MagicMock()
+            mock_proc.returncode = 0
+            mock_proc.stdout = "session_id: test-session\nTest reply text"
+            mock_proc.stderr = ""
+            with patch("moni.llm.client.subprocess.run", return_value=mock_proc) as mock_run:
+                reply = call_llm("minimax-cn", "MiniMax-M3", "hello world")
+                assert reply == "Test reply text"
+                # Verify the subprocess invocation
+                args, kwargs = mock_run.call_args
+                cmd = args[0]
+                assert cmd[0] == "hermes"
+                assert cmd[1] == "chat"
+                assert "--provider" in cmd
+                assert "minimax-cn" in cmd
+                assert "-m" in cmd
+                assert "MiniMax-M3" in cmd
 
-            client = ChatClient.get_instance()
-            # Override the log path so we can assert against tmp_log
-            client._token_logger = TokenLogger(log_path=tmp_log)
-
-            # No Hermes env var set, falls through to OpenAI path
-            monkeypatch.delenv("HERMES_CHAT_URL", raising=False)
-            monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-            monkeypatch.setenv("OPENAI_BASE_URL", "https://api.test/v1")
-
-            try:
-                client.chat("hello")
-            except Exception:
-                pass  # We only care that the log was written
-
-        assert tmp_log.exists()
-        entry = json.loads(tmp_log.read_text(encoding="utf-8").strip())
+        # The log file should now have at least one line
+        log_content = tmp_log.read_text().strip().splitlines()
+        assert len(log_content) >= 1
+        entry = json.loads(log_content[-1])
+        assert entry["model"] == "MiniMax-M3"
+        assert entry["extra"]["provider"] == "minimax-cn"
         assert "prompt_tokens" in entry
         assert "completion_tokens" in entry
-
-        client_mod.ChatClient._instance = None
 
 
 # ---------------------------------------------------------------------------
