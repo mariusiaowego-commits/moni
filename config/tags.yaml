@@ -1,0 +1,16 @@
+tags:
+  - name: 银行
+    description: 银行机构/业务相关
+    color: '#4A90E2'
+  - name: 微信
+    description: 微信生态/小程序/企微
+    color: '#07C160'
+  - name: AI
+    description: 大模型/智能体
+    color: '#9B59B6'
+  - name: 财富管理
+    description: 财富/理财/基金
+    color: '#F39C12'
+  - name: 数字化
+    description: 数字化转型
+    color: '#1ABC9C'

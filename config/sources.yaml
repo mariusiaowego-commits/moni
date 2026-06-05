@@ -1,0 +1,42 @@
+# moni/fetch — data source registry
+# PRD §3.5
+#
+# Each entry:
+#   source_name      : unique identifier used throughout the pipeline
+#   type            : 'rss' | 'html' | 'api'
+#   feed_url        : for type=rss/api (RSS or API endpoint)
+#   api_url         : alias for feed_url (some sources call it this)
+#   fetch_interval_min : minimum minutes between fetches for this source
+#   enabled         : true/false — disabled sources are skipped by fetch_all()
+
+sources:
+  - source_name: 36kr_rss
+    type: rss
+    feed_url: https://36kr.com/feed
+    fetch_interval_min: 15
+    enabled: true
+
+  - source_name: 36kr_newsflash
+    type: html
+    feed_url: https://36kr.com/newsflashes
+    fetch_interval_min: 5
+    enabled: true
+
+  - source_name: mpaypass
+    type: html
+    feed_url: https://mpaypass.com.cn/
+    fetch_interval_min: 30
+    enabled: true
+
+  - source_name: qbitai
+    type: html
+    feed_url: https://www.qbitai.com/
+    fetch_interval_min: 30
+    enabled: true
+
+  - source_name: wechat_rss
+    type: rss
+    # WeChatRSS / WeRS S service — token comes from WECHAT_RSS_TOKEN env var
+    feed_url: https://api.wechatrss.waytomaster.com/feed
+    fetch_interval_min: 60
+    enabled: true
