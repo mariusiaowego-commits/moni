@@ -33,13 +33,14 @@ except Exception as exc:
 logger = logging.getLogger(__name__)
 
 
-def run(source_name: str, force: bool = False) -> dict[str, Any] | None:
+def run(source_name: str, force: bool = False, dry_run: bool = False) -> dict[str, Any] | None:
     """Instantiate and run the fetcher registered for ``source_name``.
 
     Args:
         source_name: Unique source identifier as defined in ``config/sources.yaml``.
         force: If True, bypass the scheduler's ``should_fetch()`` check.
                Use when a user explicitly requests a specific source.
+        dry_run: If True, fetch and parse articles but skip database insertion.
 
     Returns:
         Run result dict (same shape as ``BaseFetcher.run()``), or ``None`` if
@@ -57,7 +58,7 @@ def run(source_name: str, force: bool = False) -> dict[str, Any] | None:
 
     fetcher_cls = _FETCHER_REGISTRY[source_name]
     fetcher = fetcher_cls()
-    result = fetcher.run()
+    result = fetcher.run(dry_run=dry_run)
     if force or source_name in scheduler.last_run:
         scheduler.mark_fetched(source_name)
     return result

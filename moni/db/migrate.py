@@ -1,8 +1,8 @@
-"""Auto-migrate: apply schema.sql only if schema_version is behind.
+"""Auto-migrate: apply schema.sql and incremental migrations if schema_version is behind.
 
-v1.0 is single-schema: we always run the full schema on top of whatever
-exists — the CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS guards
-make it idempotent.  The schema_version table tracks applied_at.
+v1.0 is single-schema + incremental migrations: we always run the full schema
+on top of whatever exists — the CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS
+guards make it idempotent.  The schema_version table tracks applied_at.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path
 from .connection import get_db, get_db_path
 
 
-_CURRENT_VERSION = 2
+_CURRENT_VERSION = 3
 
 
 def current_version(conn: sqlite3.Connection) -> int:
@@ -29,18 +29,20 @@ def current_version(conn: sqlite3.Connection) -> int:
     return int(v)
 
 
-def migrate(schema_path: Path | str | None = None) -> None:
+def _run_sql_file(conn: sqlite3.Connection, path: Path) -> None:
+    """Execute a .sql file, stripping -- comments so they don't produce empty statements."""
+    raw = path.read_text(encoding="utf-8")
+    sql = re.sub(r"--+.*", "", raw)
+    conn.executescript(sql)
+
+
+def migrate() -> None:
     """Run pending migrations.
 
-    Args:
-        schema_path: Path to schema.sql.  Defaults to the sibling schema.sql
-                     of this file.
+    Applies schema.sql (v1 base schema) then any pending incremental migrations
+    in migrations/ directory.
     """
-    if schema_path is None:
-        schema_path = Path(__file__).parent / "schema.sql"
-    else:
-        schema_path = Path(schema_path)
-
+    migrations_dir = Path(__file__).parent / "migrations"
     conn = get_db()
     applied = current_version(conn)
 
@@ -48,17 +50,29 @@ def migrate(schema_path: Path | str | None = None) -> None:
         print(f"DB schema already at version {applied}, nothing to migrate.")
         return
 
-    print(f"Applying schema v{applied + 1} → v{_CURRENT_VERSION} ...")
-    raw = schema_path.read_text(encoding="utf-8")
+    # 1. Base schema (always re-runs safely due to IF NOT EXISTS guards)
+    schema_path = Path(__file__).parent / "schema.sql"
+    print(f"Applying base schema from {schema_path.name} ...")
+    _run_sql_file(conn, schema_path)
 
-    # Strip -- comments so they don't produce empty statements
-    sql = re.sub(r"--+.*", "", raw)
+    # 2. Incremental migrations
+    for mig_file in sorted(migrations_dir.glob("*.sql")):
+        mig_name = mig_file.stem  # e.g. "003_llm_tables"
+        # Extract version from prefix (e.g. "003" -> 3)
+        try:
+            mig_version = int(mig_name.split("_")[0])
+        except (ValueError, IndexError):
+            print(f"  Skipping {mig_file.name} (cannot parse version prefix)")
+            continue
 
-    # Execute the whole clean script in one call — sqlite3 executescript
-    # handles multi-statement correctly (unlike conn.executescript per-stmt
-    # which can put indexes before tables if split order is wrong)
-    conn.executescript(sql)
+        if mig_version <= applied:
+            continue  # already applied
 
+        print(f"Applying migration {mig_file.name} (v{applied} → v{mig_version}) ...")
+        _run_sql_file(conn, mig_file)
+        applied = mig_version
+
+    # 3. Record final version
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",

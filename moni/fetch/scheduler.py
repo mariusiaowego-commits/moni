@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,7 +25,20 @@ logger = logging.getLogger(__name__)
 
 # Path relative to the moni package root (two levels up from this file)
 _CONFIG_PATH = Path(__file__).parent.parent.parent / "config" / "sources.yaml"
-_LAST_RUN_PATH = Path(__file__).parent.parent.parent / "data" / ".last_run.json"
+
+
+def _default_data_dir() -> Path:
+    """Resolve the default data directory.
+
+    Priority: MONI_DATA_DIR env > cwd / "data".
+    """
+    env_dir = os.environ.get("MONI_DATA_DIR")
+    if env_dir:
+        return Path(env_dir)
+    return Path("data")
+
+
+_LAST_RUN_PATH = _default_data_dir() / ".last_run.json"
 
 
 class Scheduler:

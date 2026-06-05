@@ -126,11 +126,14 @@ class BaseFetcher(ABC):
 
     # ── run ─────────────────────────────────────────────────────────────────
 
-    def run(self) -> dict[str, Any]:
+    def run(self, dry_run: bool = False) -> dict[str, Any]:
         """Execute the full fetch pipeline.
 
-        Fetch → Parse → Dedupe-insert.  Parse failures are logged per-article
-        and do not stop the run.
+        Fetch → Parse → Dedupe-insert (unless dry_run=True).
+        Parse failures are logged per-article and do not stop the run.
+
+        Args:
+            dry_run: If True, skip the database insert step.
 
         Returns:
             Summary dict with keys: source, fetched, parsed, inserted, parse_errors.
@@ -177,12 +180,15 @@ class BaseFetcher(ABC):
                     source, len(parsed_articles), len(raw_articles), parse_errors)
 
         inserted = 0
-        if parsed_articles:
+        if parsed_articles and not dry_run:
             try:
                 inserted = self.dedupe_insert(parsed_articles)
             except Exception as exc:
                 logger.error("[%s] dedupe_insert() raised %s: %s",
                              source, type(exc).__name__, exc)
+        elif dry_run:
+            inserted = 0
+            logger.info("[%s] dry-run — skipped database insert", source)
 
         logger.info("[%s] done — inserted %d new articles", source, inserted)
 

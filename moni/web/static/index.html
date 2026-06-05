@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>moni</title>
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <div id="app" x-data="app()" x-init="init()">
+
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="sidebar-header">
+        <h2>moni</h2>
+      </div>
+      <ul class="nav-list">
+        <li><a href="#" @click.prevent="navigate('articles')" :class="{ active: currentView === 'articles' }">文章查阅</a></li>
+        <li><a href="#" @click.prevent="navigate('crud')"     :class="{ active: currentView === 'crud'     }">CRUD</a></li>
+        <li><a href="#" @click.prevent="navigate('cron')"     :class="{ active: currentView === 'cron'     }">跑批日志</a></li>
+        <li><a href="#" @click.prevent="navigate('fetch')"    :class="{ active: currentView === 'fetch'    }">抓取管理</a></li>
+        <li><a href="#" @click.prevent="navigate('share')"    :class="{ active: currentView === 'share'    }">分享</a></li>
+      </ul>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="content">
+
+      <!-- ══ Articles ══════════════════════════════════════════ -->
+      <section x-show="currentView === 'articles'" x-cloak>
+        <div class="panel-header">
+          <h3>文章查阅</h3>
+          <div class="search-box">
+            <input type="text" x-model="articlesSearch"
+              @input.debounce.300ms="loadArticles()" placeholder="搜索关键字...">
+          </div>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>标题</th><th>来源</th><th>分类</th><th>抓取时间</th><th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="a in articles" :key="a.id">
+                <tr>
+                  <td><span x-text="a.title"></span> <span class="badge badge-new" x-show="isNew(a.fetched_at)">NEW</span></td>
+                  <td x-text="a.source"></td>
+                  <td x-text="a.category"></td>
+                  <td x-text="formatTime(a.fetched_at)"></td>
+                  <td><a :href="a.url" target="_blank" class="link-btn">查看</a></td>
+                </tr>
+              </template>
+              <tr x-show="articles.length === 0">
+                <td colspan="5" class="empty-row">暂无数据</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ══ CRUD ═══════════════════════════════════════════════ -->
+      <section x-show="currentView === 'crud'" x-cloak>
+        <div class="panel-header"><h3>CRUD 管理</h3></div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr><th>标题</th><th>来源</th><th>URL</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              <template x-for="a in crudArticles" :key="a.id">
+                <tr>
+                  <td x-text="a.title"></td>
+                  <td x-text="a.source"></td>
+                  <td class="url-cell"><a :href="a.url" target="_blank" x-text="a.url"></a></td>
+                  <td><button class="btn-danger" @click="showDeleteModal(a)">删除</button></td>
+                </tr>
+              </template>
+              <tr x-show="crudArticles.length === 0">
+                <td colspan="4" class="empty-row">暂无数据</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ══ Cron ════════════════════════════════════════════════ -->
+      <section x-show="currentView === 'cron'" x-cloak>
+        <div class="panel-header">
+          <h3>跑批日志</h3>
+          <button class="btn-refresh" @click="loadCronJobs()">刷新</button>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr><th>任务名</th><th>执行时间</th><th>状态</th><th>耗时</th><th>日志链接</th></tr>
+            </thead>
+            <tbody>
+              <template x-for="job in cronJobs" :key="job.id">
+                <tr>
+                  <td x-text="job.name"></td>
+                  <td x-text="formatTime(job.run_at)"></td>
+                  <td><span class="status-badge" :class="'status-' + job.status" x-text="job.status"></span></td>
+                  <td x-text="job.duration ? job.duration + 's' : '-'"></td>
+                  <td>
+                    <a x-show="job.log_url" :href="job.log_url" target="_blank" class="link-btn">查看日志</a>
+                    <span x-show="!job.log_url">-</span>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="cronJobs.length === 0">
+                <td colspan="5" class="empty-row">暂无数据</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ══ Fetch ═══════════════════════════════════════════════ -->
+      <section x-show="currentView === 'fetch'" x-cloak>
+        <div class="panel-header">
+          <h3>抓取管理</h3>
+          <button class="btn-refresh" @click="loadSources()">刷新</button>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr><th>名称</th><th>URL</th><th>间隔</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              <template x-for="s in sources" :key="s.id">
+                <tr>
+                  <td x-text="s.name"></td>
+                  <td class="url-cell"><a :href="s.url" target="_blank" x-text="s.url"></a></td>
+                  <td x-text="s.interval ? s.interval + 'min' : '-'"></td>
+                  <td>
+                    <button class="btn-primary" @click="runSource(s.id)">立即抓取</button>
+                    <button class="btn-secondary" @click="pingSource(s.id)">连通性测试</button>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="sources.length === 0">
+                <td colspan="4" class="empty-row">暂无数据</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="result-box" x-show="fetchResult" x-text="fetchResult" x-cloak></div>
+      </section>
+
+      <!-- ══ Share ══════════════════════════════════════════════ -->
+      <section x-show="currentView === 'share'" x-cloak>
+        <div class="panel-header"><h3>分享</h3></div>
+
+        <div class="share-section">
+          <h4>选择文章</h4>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr><th><input type="checkbox" @change="toggleAllArticles($event)"></th><th>标题</th><th>来源</th></tr>
+              </thead>
+              <tbody>
+                <template x-for="a in allArticles" :key="a.id">
+                  <tr>
+                    <td><input type="checkbox" :value="a.id" x-model="selectedArticleIds"></td>
+                    <td x-text="a.title"></td>
+                    <td x-text="a.source"></td>
+                  </tr>
+                </template>
+                <tr x-show="allArticles.length === 0">
+                  <td colspan="3" class="empty-row">暂无数据</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="share-section">
+          <h4>选择格式</h4>
+          <div class="format-selector">
+            <label><input type="radio" value="markdown" x-model="shareFormat"> Markdown</label>
+            <label><input type="radio" value="plain"    x-model="shareFormat"> Plain Text</label>
+            <label><input type="radio" value="html"     x-model="shareFormat"> HTML</label>
+          </div>
+        </div>
+
+        <div class="share-section">
+          <button class="btn-primary" @click="addToQueue()" :disabled="selectedArticleIds.length === 0">加入队列</button>
+        </div>
+
+        <div class="share-section">
+          <h4>队列状态</h4>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr><th>任务ID</th><th>文章数</th><th>格式</th><th>状态</th><th>时间</th></tr>
+              </thead>
+              <tbody>
+                <template x-for="q in shareQueue" :key="q.id">
+                  <tr>
+                    <td x-text="q.id"></td>
+                    <td x-text="q.article_count"></td>
+                    <td x-text="q.format"></td>
+                    <td><span class="status-badge" :class="'status-' + q.status" x-text="q.status"></span></td>
+                    <td x-text="formatTime(q.created_at)"></td>
+                  </tr>
+                </template>
+                <tr x-show="shareQueue.length === 0">
+                  <td colspan="5" class="empty-row">暂无数据</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- ══ Delete Confirmation Modal ══════════════════════════════ -->
+    <div class="modal-overlay" x-show="showModal" x-cloak @click.self="closeModal()">
+      <div class="modal">
+        <div class="modal-header"><h3>确认删除</h3></div>
+        <div class="modal-body">
+          <p>确定要删除以下文章吗？</p>
+          <p class="modal-article-title" x-text="deleteTarget?.title"></p>
+          <p class="modal-article-url"  x-text="deleteTarget?.url"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" @click="closeModal()">取消</button>
+          <button class="btn-danger"     @click="confirmDelete()">确认删除</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

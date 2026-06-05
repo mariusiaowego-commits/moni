@@ -6,6 +6,7 @@ v1.0 subcommands:
     cron start        Start the BackgroundScheduler (background daemon)
     cron stop         Stop the running scheduler
     cron status       Show scheduler running state
+    fetch [--source NAME] [--dry-run] [--health]
 """
 
 from __future__ import annotations
@@ -22,7 +23,8 @@ from pathlib import Path
 
 from ..db.connection import close_db, get_db
 from ..db.migrate import migrate
-from ..fetch import fetch_all, run as fetch_run
+from ..fetch import fetch_all
+from ..fetch.run import main as run_fetch
 
 PARSER = argparse.ArgumentParser(prog="moni", description="moni — 同业信源新闻库")
 SUB = PARSER.add_subparsers(dest="subcmd", required=True)
@@ -33,6 +35,168 @@ db_parser = SUB.add_parser("db", help="Database operations")
 db_sub = db_parser.add_subparsers(dest="db_subcmd", required=True)
 
 stats_parser = db_sub.add_parser("stats", help="Show row count per table")
+
+init_parser = db_sub.add_parser(
+    "init",
+    help="Run migrations and seed default LLM data (providers, models, settings)",
+)
+
+
+def cmd_init() -> None:
+    migrate()
+    seed_llm()
+    conn = get_db()
+    row = conn.execute(
+        "SELECT COUNT(*) as n FROM llm_providers"
+    ).fetchone()
+    print(f"\nllm_providers: {row['n']} row(s)")
+
+
+seed_llm_parser = db_sub.add_parser(
+    "seed-llm",
+    help="Seed LLM providers, models, and settings (idempotent — safe to re-run)",
+)
+
+
+def _ensure_llm_tables(conn: "sqlite3.Connection") -> None:
+    """Create LLM tables if they don't exist (inline migration 003)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS llm_providers (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT    NOT NULL UNIQUE,
+            api_type    TEXT    NOT NULL DEFAULT 'gemini',
+            base_url    TEXT,
+            api_key     TEXT,
+            enabled     INTEGER NOT NULL DEFAULT 1,
+            created_at  TEXT    NOT NULL,
+            updated_at  TEXT    NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS llm_models (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider_id       INTEGER NOT NULL,
+            model_id          TEXT    NOT NULL,
+            name              TEXT    NOT NULL,
+            model_type        TEXT    NOT NULL DEFAULT 'chat',
+            context_window    INTEGER,
+            input_price_per_1m INTEGER,
+            output_price_per_1m INTEGER,
+            enabled           INTEGER NOT NULL DEFAULT 1,
+            created_at        TEXT    NOT NULL,
+            updated_at        TEXT    NOT NULL,
+            FOREIGN KEY (provider_id) REFERENCES llm_providers(id) ON DELETE CASCADE,
+            UNIQUE(provider_id, model_id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS llm_settings (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            key         TEXT    NOT NULL UNIQUE,
+            value       TEXT    NOT NULL,
+            description TEXT,
+            updated_at  TEXT    NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_models_provider ON llm_models(provider_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_models_enabled ON llm_models(enabled)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_settings_key ON llm_settings(key)")
+
+
+def seed_llm() -> None:
+    """Seed LLM providers, models, and settings from config/llm_providers.yaml.
+
+    Reads config/llm_providers.yaml and upserts into llm_providers / llm_models /
+    llm_settings tables.  Safe to re-run.
+    """
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    import yaml
+
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Ensure LLM tables exist (migration 003 may have been removed from the worktree)
+    _ensure_llm_tables(conn)
+
+    cfg_path = Path(__file__).parent.parent.parent / "config" / "llm_providers.yaml"
+    if not cfg_path.exists():
+        print(f"  WARNING: {cfg_path} not found — seeding from defaults")
+
+    data: dict = {}
+    if cfg_path.exists():
+        with cfg_path.open(encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+
+    # Seed providers
+    for p in data.get("providers", []):
+        conn.execute(
+            """
+            INSERT INTO llm_providers
+                (name, api_type, base_url, api_key, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET
+                api_type=excluded.api_type, base_url=excluded.base_url,
+                api_key=excluded.api_key, enabled=excluded.enabled, updated_at=excluded.updated_at
+            """,
+            (
+                p["name"], p.get("api_type", "gemini"), p.get("base_url"),
+                p.get("api_key"), p.get("enabled", 1), now, now,
+            ),
+        )
+
+    # Seed models
+    for m in data.get("models", []):
+        # Look up provider_id
+        row = conn.execute(
+            "SELECT id FROM llm_providers WHERE name = ?", (m["provider_name"],)
+        ).fetchone()
+        if row is None:
+            print(f"  WARNING: provider {m['provider_name']!r} not found, skipping model {m['model_id']!r}")
+            continue
+        provider_id = row[0]
+        conn.execute(
+            """
+            INSERT INTO llm_models
+                (provider_id, model_id, name, model_type, context_window,
+                 input_price_per_1m, output_price_per_1m, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(provider_id, model_id) DO UPDATE SET
+                name=excluded.name, model_type=excluded.model_type,
+                context_window=excluded.context_window,
+                input_price_per_1m=excluded.input_price_per_1m,
+                output_price_per_1m=excluded.output_price_per_1m,
+                enabled=excluded.enabled, updated_at=excluded.updated_at
+            """,
+            (
+                provider_id, m["model_id"], m["name"], m.get("model_type", "chat"),
+                m.get("context_window"), m.get("input_price_per_1m"),
+                m.get("output_price_per_1m"), m.get("enabled", 1), now, now,
+            ),
+        )
+
+    # Seed settings
+    for s in data.get("settings", []):
+        conn.execute(
+            """
+            INSERT INTO llm_settings (key, value, description, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value=excluded.value, description=excluded.description, updated_at=excluded.updated_at
+            """,
+            (s["key"], s["value"], s.get("description", ""), now),
+        )
+
+    conn.commit()
+    n_providers = conn.execute("SELECT COUNT(*) FROM llm_providers").fetchone()[0]
+    n_models = conn.execute("SELECT COUNT(*) FROM llm_models").fetchone()[0]
+    n_settings = conn.execute("SELECT COUNT(*) FROM llm_settings").fetchone()[0]
+    print(f"  LLM seed: {n_providers} providers, {n_models} models, {n_settings} settings")
+
+
+def cmd_seed_llm() -> None:
+    seed_llm()
 
 
 def _table_counts(conn) -> dict[str, int]:
@@ -219,35 +383,34 @@ fetch_parser.add_argument(
     "--source",
     dest="source_name",
     metavar="NAME",
-    help="Source name (e.g. 36kr_rss). Omit to fetch all enabled sources.",
+    help="Source name prefix (e.g. 36kr). Omit to fetch all enabled sources.",
+)
+fetch_parser.add_argument(
+    "--dry-run",
+    action="store_true",
+    help="Fetch and parse but skip database insertion.",
+)
+fetch_parser.add_argument(
+    "--health",
+    action="store_true",
+    help="Run health checks only, print results, and exit.",
 )
 
 
-def cmd_fetch(source_name: str | None) -> None:
+def cmd_fetch(source_name: str | None, dry_run: bool, health: bool) -> None:
+    """Delegate to moni.fetch.run.main() which handles all fetch CLI modes."""
+    import sys as _sys
+
+    argv: list[str] = []
     if source_name:
-        result = fetch_run(source_name, force=True)
-        if result is None:
-            print(f"  ERROR: no fetcher registered for {source_name!r} or source not due")
-        else:
-            _print_fetch_result(result)
-    else:
-        results = fetch_all()
-        if not results:
-            print("  No sources were due for fetching.")
-        for result in results:
-            _print_fetch_result(result)
+        argv.extend(["--source", source_name])
+    if dry_run:
+        argv.append("--dry-run")
+    if health:
+        argv.append("--health")
 
-
-def _print_fetch_result(result: dict) -> None:
-    err = f"  ERROR: {result['error']}" if result["error"] else ""
-    print(
-        f"  [{result['source']}] "
-        f"fetched={result['fetched']}  "
-        f"parsed={result['parsed']}  "
-        f"inserted={result['inserted']}  "
-        f"parse_errors={result['parse_errors']}"
-        + (f"  {err}" if err else "")
-    )
+    exit_code = run_fetch(argv)
+    raise SystemExit(exit_code)
 
 
 # ── dispatch ─────────────────────────────────────────────────────────────────
@@ -259,6 +422,10 @@ def main(argv: list[str] | None = None) -> int:
         migrate()
         if args.db_subcmd == "stats":
             cmd_stats()
+        elif args.db_subcmd == "init":
+            cmd_init()
+        elif args.db_subcmd == "seed-llm":
+            cmd_seed_llm()
         elif args.db_subcmd == "export":
             cmd_export(args.fmt)
         close_db()
@@ -275,7 +442,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
     if args.subcmd == "fetch":
-        cmd_fetch(getattr(args, "source_name", None))
+        cmd_fetch(
+            source_name=getattr(args, "source_name", None),
+            dry_run=getattr(args, "dry_run", False),
+            health=getattr(args, "health", False),
+        )
         return 0
 
     PARSER.print_help()

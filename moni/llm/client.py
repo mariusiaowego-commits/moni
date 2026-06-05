@@ -136,13 +136,16 @@ class ChatClient:
             self._last_reply = data.get("reply") or data.get("content", "")
             # Log token usage if provided
             usage = data.get("usage") or data.get("token_usage", {})
-            if usage:
-                self._token_logger.log(
-                    model=model,
-                    prompt_tokens=usage.get("prompt_tokens", 0),
-                    completion_tokens=usage.get("completion_tokens", 0),
-                    extra={"provider": "hermes"},
-                )
+            total_tokens = usage.get("total_tokens", usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0))
+            cost_usd = usage.get("cost_usd")
+            self._token_logger.log(
+                model=model,
+                prompt_tokens=usage.get("prompt_tokens", 0),
+                completion_tokens=usage.get("completion_tokens", 0),
+                total_tokens=total_tokens,
+                cost_usd=cost_usd,
+                extra={"provider": "hermes"},
+            )
             return True
 
         logger.debug("Hermes chat returned %s", resp.status_code)
@@ -191,12 +194,19 @@ class ChatClient:
 
             if resp.status_code == 200:
                 data = resp.json()
-                reply = data["choices"][0]["message"]["content"]
+                msg = data["choices"][0]["message"]
+                # Support both regular content and reasoning-model output (e.g. qwen3.5 via Ollama)
+                reply = msg.get("content") or msg.get("reasoning") or ""
                 usage = data.get("usage", {})
+                total_tokens = usage.get("total_tokens", usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0))
+                # Estimate cost at $0.01 / 1M tokens for local/Ollama providers (no actual billing)
+                cost_usd = round(total_tokens * 0.01 / 1_000_000, 6)
                 self._token_logger.log(
                     model=model,
                     prompt_tokens=usage.get("prompt_tokens", 0),
                     completion_tokens=usage.get("completion_tokens", 0),
+                    total_tokens=total_tokens,
+                    cost_usd=cost_usd,
                     extra={"provider": "openai"},
                 )
                 return reply
