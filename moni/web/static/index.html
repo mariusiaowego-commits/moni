@@ -20,6 +20,7 @@
         <li><a href="#" @click.prevent="navigate('cron')"     :class="{ active: currentView === 'cron'     }">跑批日志</a></li>
         <li><a href="#" @click.prevent="navigate('fetch')"    :class="{ active: currentView === 'fetch'    }">抓取管理</a></li>
         <li><a href="#" @click.prevent="navigate('share')"    :class="{ active: currentView === 'share'    }">分享</a></li>
+        <li><a href="#" @click.prevent="navigate('config')"   :class="{ active: currentView === 'config'   }">配置管理</a></li>
       </ul>
     </nav>
 
@@ -215,7 +216,328 @@
         </div>
       </section>
 
+      <!-- ══ Config Management (v1.0.2-F) ════════════════════════════════ -->
+      <section x-show="currentView === 'config'" x-cloak>
+        <div class="panel-header">
+          <h3>配置管理</h3>
+          <div class="config-tabs">
+            <button class="tab-btn" :class="{ active: configTab === 'sources' }" @click="switchConfigTab('sources')">抓取源</button>
+            <button class="tab-btn" :class="{ active: configTab === 'tags' }"    @click="switchConfigTab('tags')">业务 tag</button>
+            <button class="tab-btn" :class="{ active: configTab === 'filters' }" @click="switchConfigTab('filters')">关键词过滤</button>
+          </div>
+        </div>
+
+        <!-- ── Tab 1: 抓取源 ── -->
+        <div x-show="configTab === 'sources'">
+          <div class="toolbar">
+            <button class="btn-primary" @click="configCreateSource()">+ 新建 source</button>
+            <button class="btn-refresh" @click="configLoadSources()">刷新</button>
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>name</th><th>display</th><th>type</th><th>url</th>
+                  <th>interval</th><th>active</th><th>tags</th><th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="s in configSources" :key="s.id">
+                  <tr>
+                    <td x-text="s.name"></td>
+                    <td x-text="s.display_name || '-'"></td>
+                    <td x-text="s.source_type"></td>
+                    <td class="url-cell" x-text="s.url"></td>
+                    <td x-text="s.fetch_interval_min + 'm'"></td>
+                    <td>
+                      <span class="status-badge" :class="s.is_active ? 'status-ok' : 'status-paused'"
+                            x-text="s.is_active ? '启用' : '停用'"></span>
+                    </td>
+                    <td>
+                      <template x-for="t in s.tags" :key="t">
+                        <span class="tag-chip" x-text="t"></span>
+                      </template>
+                      <button class="link-btn" @click="configEditSourceTags(s)">改 tags</button>
+                    </td>
+                    <td>
+                      <button class="btn-link" @click="configEditSource(s)">编辑</button>
+                      <button class="btn-danger" @click="configDeleteSource(s)">删除</button>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="configSources.length === 0">
+                  <td colspan="8" class="empty-row">暂无 source</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ── Tab 2: 业务 tag ── -->
+        <div x-show="configTab === 'tags'">
+          <div class="toolbar">
+            <button class="btn-primary" @click="configCreateTag()">+ 新建 tag</button>
+            <button class="btn-refresh" @click="configLoadTags()">刷新</button>
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>name</th><th>色块</th><th>description</th>
+                  <th>active</th><th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="t in configTags" :key="t.name">
+                  <tr>
+                    <td><strong x-text="t.name"></strong></td>
+                    <td>
+                      <span class="tag-color-swatch"
+                            :style="`background: ${t.color || '#999'}`"
+                            x-text="t.color || '-'"></span>
+                    </td>
+                    <td x-text="t.description || '-'"></td>
+                    <td>
+                      <span class="status-badge" :class="t.is_active ? 'status-ok' : 'status-paused'"
+                            x-text="t.is_active ? '启用' : '停用'"></span>
+                    </td>
+                    <td>
+                      <button class="btn-link" @click="configEditTag(t)">编辑</button>
+                      <button class="btn-danger" @click="configDeleteTag(t)">删除</button>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="configTags.length === 0">
+                  <td colspan="5" class="empty-row">暂无 tag</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ── Tab 3: 关键词过滤 ── -->
+        <div x-show="configTab === 'filters'">
+          <div class="toolbar">
+            <button class="btn-primary" @click="configCreateFilter()">+ 新建 filter</button>
+            <button class="btn-refresh" @click="configLoadFilters()">刷新</button>
+            <select x-model="configFilterSourceFilter" @change="filterFiltersBySource()"
+                    style="margin-left: 12px; padding: 4px 8px;">
+              <option value="">所有 source</option>
+              <template x-for="s in configSources" :key="s.id">
+                <option :value="s.id" x-text="s.name"></option>
+              </template>
+            </select>
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>id</th><th>source</th><th>mode</th>
+                  <th>match_field</th><th>keywords</th><th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="f in configFilters" :key="f.id">
+                  <tr>
+                    <td x-text="f.id"></td>
+                    <td x-text="f.source_id"></td>
+                    <td>
+                      <span class="status-badge"
+                            :class="f.mode === 'blacklist' ? 'status-paused' : 'status-ok'"
+                            x-text="f.mode"></span>
+                    </td>
+                    <td x-text="f.match_field"></td>
+                    <td>
+                      <template x-for="kw in f.keywords" :key="kw">
+                        <span class="tag-chip" x-text="kw"></span>
+                      </template>
+                    </td>
+                    <td>
+                      <button class="btn-link" @click="configEditFilter(f)">编辑</button>
+                      <button class="btn-danger" @click="configDeleteFilter(f)">删除</button>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="configFilters.length === 0">
+                  <td colspan="6" class="empty-row">暂无 filter</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
     </main>
+
+    <!-- ══ Config Edit Modal (v1.0.2-F) ═════════════════════════════ -->
+    <div class="modal-overlay" x-show="configModalOpen" x-cloak @click.self="closeConfigModal()">
+      <div class="modal modal-config">
+
+        <!-- Tag modal -->
+        <template x-if="configModalType === 'tag'">
+          <div>
+            <div class="modal-header">
+              <h3 x-text="configModalTarget ? '编辑 tag' : '新建 tag'"></h3>
+            </div>
+            <div class="modal-body">
+              <div class="form-row">
+                <label>name <span class="required">*</span></label>
+                <input type="text" x-model="configModalTarget.name"
+                       :disabled="!!configModalTarget" placeholder="e.g. banking">
+              </div>
+              <div class="form-row">
+                <label>description</label>
+                <input type="text" x-model="configModalTarget.description" placeholder="银行 业务">
+              </div>
+              <div class="form-row">
+                <label>color</label>
+                <input type="text" x-model="configModalTarget.color" placeholder="#2563EB">
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn-secondary" @click="closeConfigModal()">取消</button>
+              <button class="btn-primary"
+                      @click="configSaveTag({
+                        name: configModalTarget.name,
+                        description: configModalTarget.description || null,
+                        color: configModalTarget.color || null
+                      }, !!$root.configModalTargetOriginal, $root.configModalTargetOriginal)">
+                保存
+              </button>
+            </div>
+          </div>
+        </template>
+
+        <!-- Source modal -->
+        <template x-if="configModalType === 'source'">
+          <div>
+            <div class="modal-header">
+              <h3 x-text="configModalTarget?.id ? '编辑 source' : '新建 source'"></h3>
+            </div>
+            <div class="modal-body">
+              <div class="form-row" x-show="!configModalTarget?.id">
+                <label>id <span class="required">*</span></label>
+                <input type="text" x-model="configModalTarget.id" placeholder="e.g. src-newsource">
+              </div>
+              <div class="form-row">
+                <label>name <span class="required">*</span></label>
+                <input type="text" x-model="configModalTarget.name">
+              </div>
+              <div class="form-row">
+                <label>display_name</label>
+                <input type="text" x-model="configModalTarget.display_name">
+              </div>
+              <div class="form-row">
+                <label>type <span class="required">*</span></label>
+                <select x-model="configModalTarget.source_type">
+                  <option value="rss">rss</option>
+                  <option value="html">html</option>
+                  <option value="api">api</option>
+                  <option value="wechat_aggregator">wechat_aggregator</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <label>url <span class="required">*</span></label>
+                <input type="text" x-model="configModalTarget.url">
+              </div>
+              <div class="form-row">
+                <label>fetch_interval_min</label>
+                <input type="number" x-model.number="configModalTarget.fetch_interval_min" min="1">
+              </div>
+              <div class="form-row">
+                <label>is_active</label>
+                <input type="checkbox" x-model="configModalTarget.is_active">
+              </div>
+              <div class="form-row">
+                <label>notes</label>
+                <textarea x-model="configModalTarget.notes" rows="2"></textarea>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn-secondary" @click="closeConfigModal()">取消</button>
+              <button class="btn-primary" @click="configSaveSource(configModalTarget, !!configModalTargetOriginal)">保存</button>
+            </div>
+          </div>
+        </template>
+
+        <!-- Source tags modal -->
+        <template x-if="configModalType === 'sourceTags'">
+          <div>
+            <div class="modal-header">
+              <h3>设置 source "<span x-text="configModalTarget.name"></span>" 的 tags</h3>
+            </div>
+            <div class="modal-body">
+              <p>勾选要关联的 tag (会替换现有):</p>
+              <template x-for="t in configTags" :key="t.name">
+                <label class="checkbox-row">
+                  <input type="checkbox" :value="t.name"
+                         :checked="configModalTarget.tags?.includes(t.name)"
+                         @change="toggleSourceTagInModal(t.name, $event.target.checked)">
+                  <span class="tag-chip" x-text="t.name"></span>
+                </label>
+              </template>
+            </div>
+            <div class="modal-footer">
+              <button class="btn-secondary" @click="closeConfigModal()">取消</button>
+              <button class="btn-primary" @click="configSaveSourceTags(configModalTarget.id, configModalTarget.tags)">保存</button>
+            </div>
+          </div>
+        </template>
+
+        <!-- Filter modal -->
+        <template x-if="configModalType === 'filter'">
+          <div>
+            <div class="modal-header">
+              <h3 x-text="configModalTarget?.id ? '编辑 filter' : '新建 filter'"></h3>
+            </div>
+            <div class="modal-body">
+              <div class="form-row">
+                <label>source <span class="required">*</span></label>
+                <select x-model="configModalTarget.source_id" :disabled="!!configModalTarget.id">
+                  <template x-for="s in configSources" :key="s.id">
+                    <option :value="s.id" x-text="s.name"></option>
+                  </template>
+                </select>
+              </div>
+              <div class="form-row">
+                <label>mode <span class="required">*</span></label>
+                <select x-model="configModalTarget.mode">
+                  <option value="blacklist">blacklist</option>
+                  <option value="whitelist">whitelist</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <label>match_field</label>
+                <select x-model="configModalTarget.match_field">
+                  <option value="title+content">title+content</option>
+                  <option value="title">title</option>
+                  <option value="content">content</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <label>keywords <span class="required">*</span> (逗号分隔)</label>
+                <input type="text"
+                       :value="(configModalTarget.keywords || []).join(', ')"
+                       @input="configModalTarget.keywords = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)">
+              </div>
+              <div class="form-row">
+                <label>is_active</label>
+                <input type="checkbox" x-model="configModalTarget.is_active">
+              </div>
+              <div class="form-row">
+                <label>notes</label>
+                <textarea x-model="configModalTarget.notes" rows="2"></textarea>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn-secondary" @click="closeConfigModal()">取消</button>
+              <button class="btn-primary" @click="configSaveFilter(configModalTarget, !!configModalTarget.id)">保存</button>
+            </div>
+          </div>
+        </template>
+
+      </div>
+    </div>
 
     <!-- ══ Delete Confirmation Modal ══════════════════════════════ -->
     <div class="modal-overlay" x-show="showModal" x-cloak @click.self="closeModal()">
@@ -237,5 +559,6 @@
 
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/config.js"></script>
 </body>
 </html>

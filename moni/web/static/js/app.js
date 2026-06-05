@@ -11,6 +11,31 @@ function app() {
       else if (view === 'cron') this.loadCronJobs();
       else if (view === 'fetch') this.loadSources();
       else if (view === 'share') { this.loadAllArticles(); this._startSharePoll(); }
+      else if (view === 'config') {
+        this.configTab = 'sources';
+        configLoadSources();
+        configLoadTags();
+        configLoadFilters();
+      }
+    },
+
+    // ── Config panel (v1.0.2-F) ────────────────────────────────────
+    configTab: 'sources',   // 'sources' | 'tags' | 'filters'
+    configTags: [],
+    configSources: [],
+    configFilters: [],
+    configFilterSourceFilter: '',
+    configModalOpen: false,
+    configModalType: null,  // 'tag' | 'source' | 'sourceTags' | 'filter'
+    configModalTarget: null,
+    configModalTargetOriginal: null,  // for tag edit: original name (immutable)
+
+    switchConfigTab(tab) {
+      this.configTab = tab;
+    },
+
+    filterFiltersBySource() {
+      configLoadFilters();
     },
 
     // ── Shared helpers ────────────────────────────────────────────
