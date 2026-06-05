@@ -20,3 +20,14 @@ env/
 *.egg-info/
 build/
 dist/
+
+# Worktrees + pending (v1.0.2 后)
+wt/
+.pending/
+
+# 本地收尾文档 (不上 GH, 4 个文件)
+# AGENTS.md, vibe-coding-log.md, HANDOFF.md, .pending/
+AGENTS.md
+vibe-coding-log.md
+HANDOFF.md
+.pending/
