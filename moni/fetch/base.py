@@ -179,10 +179,28 @@ class BaseFetcher(ABC):
         logger.info("[%s] parsed %d/%d articles (%d parse errors)",
                     source, len(parsed_articles), len(raw_articles), parse_errors)
 
+        # ── keyword filter (v1.0.2) ──────────────────────────────────────
+        # 应用 source_keyword_filters (黑/白名单). 无 filter 时全保留.
+        from .filters import apply_keyword_filters
+        filtered_articles, filter_stats = apply_keyword_filters(
+            source, parsed_articles
+        )
+        if filter_stats["filters_applied"] > 0:
+            logger.info(
+                "[%s] keyword filter: %d input, %d kept, "
+                "%d dropped_blacklist, %d dropped_whitelist (%d filter(s) active)",
+                source,
+                filter_stats["input"],
+                filter_stats["kept"],
+                filter_stats["dropped_blacklist"],
+                filter_stats["dropped_whitelist"],
+                filter_stats["filters_applied"],
+            )
+
         inserted = 0
-        if parsed_articles and not dry_run:
+        if filtered_articles and not dry_run:
             try:
-                inserted = self.dedupe_insert(parsed_articles)
+                inserted = self.dedupe_insert(filtered_articles)
             except Exception as exc:
                 logger.error("[%s] dedupe_insert() raised %s: %s",
                              source, type(exc).__name__, exc)
@@ -198,5 +216,9 @@ class BaseFetcher(ABC):
             "parsed": len(parsed_articles),
             "inserted": inserted,
             "parse_errors": parse_errors,
+            "filtered": filter_stats["kept"],
+            "dropped_blacklist": filter_stats["dropped_blacklist"],
+            "dropped_whitelist": filter_stats["dropped_whitelist"],
+            "filters_applied": filter_stats["filters_applied"],
             "error": None,
         }
