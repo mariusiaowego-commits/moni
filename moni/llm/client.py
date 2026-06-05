@@ -1,36 +1,151 @@
-"""ChatClient — singleton LLM client with Hermes-first fallback and token logging."""
+"""moni.llm.client — Thin-shell LLM caller.
 
+设计：moni 不持有任何 API key。所有 key 由用户在 ~/.hermes/config.yaml
+或 ~/.hermes/.env 配好。moni 通过 subprocess 调本机 `hermes chat` CLI，
+由 Hermes 负责实际 provider 调用 + key 管理。
+
+PRD §4.4 / §4.7 薄壳模式。
+"""
 from __future__ import annotations
 
 import logging
-import os
-import time
+import re
+import subprocess
 from typing import Any
-
-import httpx
 
 from .token_log import TokenLogger
 
 logger = logging.getLogger(__name__)
 
-#: Maximum retries on transient HTTP errors
-_MAX_RETRIES = 3
-#: Base delay for exponential backoff (seconds)
-_BACKOFF_BASE = 1.5
+#: Subprocess timeout for a single LLM call (seconds).
+_TIMEOUT_SECONDS = 60
+
+#: Rough token estimation: English ~4 chars/token, Chinese ~1.5 chars/token.
+#: (Coarse estimate — not meant to match provider billing exactly.)
+_CN_RANGE = re.compile(r"[\u4e00-\u9fff]")
 
 
+def estimate_tokens(text: str) -> int:
+    """Crude token estimation. PRD §4.4 用法。
+
+    - Chinese chars: ~1.5 chars/token  →  divide by 1.5 (= multiply by 2/3)
+    - Other chars:   ~4   chars/token  →  divide by 4
+
+    Returns 0 for empty / None.
+    """
+    if not text:
+        return 0
+    cn = sum(1 for _ in _CN_RANGE.findall(text))
+    other = len(text) - cn
+    # cn * 2 // 3 ≈ cn / 1.5 (rounded)
+    return cn * 2 // 3 + other // 4
+
+
+def call_llm(
+    provider: str,
+    model: str,
+    prompt: str,
+    *,
+    timeout: int = _TIMEOUT_SECONDS,
+    extra_args: list[str] | None = None,
+) -> str:
+    """Call Hermes chat CLI and return the text reply.
+
+    Args:
+        provider: hermes provider name (e.g. "google", "openrouter", "minimax-cn").
+        model: model id passed via `-m`.
+        prompt: full prompt text.
+        timeout: subprocess timeout in seconds.
+        extra_args: optional additional CLI flags.
+
+    Returns:
+        Reply text (stripped). Strips the leading "session_id: ..." line.
+
+    Raises:
+        RuntimeError: if hermes chat exits non-zero or times out.
+    """
+    cmd = [
+        "hermes", "chat",
+        "-q", prompt,
+        "--provider", provider,
+        "-m", model,
+        "-Q",
+    ]
+    if extra_args:
+        cmd.extend(extra_args)
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"hermes chat timeout after {timeout}s (provider={provider} model={model})"
+        ) from exc
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "hermes CLI not found on PATH. Install Hermes Agent or fix $PATH."
+        ) from exc
+
+    if result.returncode != 0:
+        err = (result.stderr or "").strip()[:300]
+        raise RuntimeError(
+            f"hermes chat failed (rc={result.returncode}): {err}"
+        )
+
+    # Parse stdout: first line is "session_id: <id>", remainder is content
+    lines = (result.stdout or "").splitlines()
+    content_lines = [ln for ln in lines if not ln.startswith("session_id:")]
+    reply = "\n".join(content_lines).strip()
+
+    # Log estimated usage
+    try:
+        TokenLogger().log(
+            model=model,
+            prompt_tokens=estimate_tokens(prompt),
+            completion_tokens=estimate_tokens(reply),
+            extra={"provider": provider, "source": "hermes_chat_cli"},
+        )
+    except Exception as exc:  # logging must not fail the call
+        logger.debug("TokenLogger.log failed: %s", exc)
+
+    return reply
+
+
+def call_llm_json(
+    provider: str,
+    model: str,
+    prompt: str,
+    *,
+    timeout: int = _TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    """Call LLM and parse the reply as JSON.
+
+    Strips leading/trailing ```json fences if present. Returns {} on parse error.
+    """
+    import json
+    raw = call_llm(provider, model, prompt, timeout=timeout)
+    text = raw.strip()
+    if text.startswith("```"):
+        # Strip ```json ... ``` or ``` ... ```
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        logger.warning("LLM reply is not valid JSON: %s; raw=%r", exc, raw[:200])
+        return {}
+
+
+# Backwards-compat shim — older callers may still use ChatClient.get_instance().
 class ChatClient:
-    """Singleton LLM chat client.
+    """Deprecated. Use the module-level call_llm() function instead.
 
-    Provider priority:
-    1. Hermes internal chat API (``HERMES_CHAT_URL`` env var or
-       ``http://localhost:8080/chat``).
-    2. OpenAI-compatible API (``OPENAI_API_KEY`` env var,
-       ``OPENAI_BASE_URL`` defaults to ``https://api.openai.com/v1``).
-
-    Each call is retried up to 3 times with exponential backoff on
-    HTTP 429 / 5xx responses.  Successful calls are logged by
-    :class:`TokenLogger`.
+    Kept so existing imports `from moni.llm.client import ChatClient` don't break
+    before the F4 routes are updated to use call_llm() directly.
     """
 
     _instance: "ChatClient | None" = None
@@ -38,13 +153,6 @@ class ChatClient:
     def __init__(self) -> None:
         if ChatClient._instance is not None:
             raise RuntimeError("Use ChatClient.get_instance() to obtain the singleton")
-        self._hermes_url = os.environ.get(
-            "HERMES_CHAT_URL", "http://localhost:8080/chat"
-        )
-        self._openai_key = os.environ.get("OPENAI_API_KEY", "")
-        self._openai_base = os.environ.get(
-            "OPENAI_BASE_URL", "https://api.openai.com/v1"
-        )
         self._token_logger = TokenLogger()
 
     @classmethod
@@ -53,181 +161,8 @@ class ChatClient:
             cls._instance = cls()
         return cls._instance
 
-    def chat(
-        self,
-        prompt: str,
-        *,
-        model: str = "claude-3-5-sonnet-latest",
-        max_tokens: int = 1024,
-        temperature: float = 0.3,
-        system: str | None = None,
-    ) -> str:
-        """Send a chat prompt and return the assistant's text reply.
-
-        Args:
-            prompt: The user message.
-            model: Model name to pass to the provider.
-            max_tokens: Maximum tokens in the completion.
-            temperature: Sampling temperature (0–2).
-            system: Optional system message.
-
-        Returns:
-            The assistant's reply text.
-
-        Raises:
-            RuntimeError: When neither Hermes nor OpenAI is configured.
-        """
-        # Try Hermes first
-        if self._try_hermes(prompt, model=model, max_tokens=max_tokens,
-                            temperature=temperature, system=system):
-            return self._last_reply  # type: ignore[return-value]
-
-        # Fallback to OpenAI-compatible
-        if self._openai_key:
-            return self._openai_chat(
-                prompt, model=model, max_tokens=max_tokens,
-                temperature=temperature, system=system
-            )
-
-        raise RuntimeError(
-            "No LLM provider available. Set HERMES_CHAT_URL or OPENAI_API_KEY."
-        )
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _try_hermes(
-        self,
-        prompt: str,
-        *,
-        model: str,
-        max_tokens: int,
-        temperature: float,
-        system: str | None,
-    ) -> bool:
-        """Attempt a Hermes internal chat call.
-
-        Returns:
-            True if the call succeeded (and self._last_reply is set).
-            False if Hermes is unavailable — caller should fall back.
-        """
-        messages: list[dict[str, str]] = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
-
-        payload: dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-        }
-
-        try:
-            with httpx.Client(timeout=30.0) as client:
-                resp = client.post(self._hermes_url, json=payload)
-        except Exception as exc:
-            logger.debug("Hermes chat unavailable: %s", exc)
-            return False
-
-        if resp.status_code == 200:
-            data = resp.json()
-            self._last_reply = data.get("reply") or data.get("content", "")
-            # Log token usage if provided
-            usage = data.get("usage") or data.get("token_usage", {})
-            total_tokens = usage.get("total_tokens", usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0))
-            cost_usd = usage.get("cost_usd")
-            self._token_logger.log(
-                model=model,
-                prompt_tokens=usage.get("prompt_tokens", 0),
-                completion_tokens=usage.get("completion_tokens", 0),
-                total_tokens=total_tokens,
-                cost_usd=cost_usd,
-                extra={"provider": "hermes"},
-            )
-            return True
-
-        logger.debug("Hermes chat returned %s", resp.status_code)
-        return False
-
-    def _openai_chat(
-        self,
-        prompt: str,
-        *,
-        model: str,
-        max_tokens: int,
-        temperature: float,
-        system: str | None,
-    ) -> str:
-        """Call an OpenAI-compatible endpoint with retry logic."""
-        messages: list[dict[str, str]] = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
-
-        payload: dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-        }
-
-        headers = {
-            "Authorization": f"Bearer {self._openai_key}",
-            "Content-Type": "application/json",
-        }
-
-        url = f"{self._openai_base.rstrip('/')}/chat/completions"
-        last_exc: Exception | None = None
-
-        for attempt in range(_MAX_RETRIES):
-            try:
-                with httpx.Client(timeout=60.0) as client:
-                    resp = client.post(url, json=payload, headers=headers)
-            except Exception as exc:
-                last_exc = exc
-                logger.warning("OpenAI request attempt %s failed: %s", attempt + 1, exc)
-                if attempt < _MAX_RETRIES - 1:
-                    time.sleep(_BACKOFF_BASE ** attempt)
-                continue
-
-            if resp.status_code == 200:
-                data = resp.json()
-                msg = data["choices"][0]["message"]
-                # Support both regular content and reasoning-model output (e.g. qwen3.5 via Ollama)
-                reply = msg.get("content") or msg.get("reasoning") or ""
-                usage = data.get("usage", {})
-                total_tokens = usage.get("total_tokens", usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0))
-                # Estimate cost at $0.01 / 1M tokens for local/Ollama providers (no actual billing)
-                cost_usd = round(total_tokens * 0.01 / 1_000_000, 6)
-                self._token_logger.log(
-                    model=model,
-                    prompt_tokens=usage.get("prompt_tokens", 0),
-                    completion_tokens=usage.get("completion_tokens", 0),
-                    total_tokens=total_tokens,
-                    cost_usd=cost_usd,
-                    extra={"provider": "openai"},
-                )
-                return reply
-
-            if resp.status_code in (429, 500, 502, 503, 504):
-                last_exc = RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
-                logger.warning(
-                    "OpenAI attempt %s returned %s, retrying...",
-                    attempt + 1, resp.status_code,
-                )
-                if attempt < _MAX_RETRIES - 1:
-                    time.sleep(_BACKOFF_BASE ** attempt)
-                continue
-
-            # Non-retryable error
-            resp.raise_for_status()
-            raise RuntimeError(f"Unexpected response: {resp.status_code}")
-
-        raise RuntimeError(
-            f"OpenAI call failed after {_MAX_RETRIES} attempts"
-        ) from last_exc
-
-    # Placeholder; set by _try_hermes on success
-    _last_reply: str = ""
+    def chat(self, prompt: str, **kwargs: Any) -> str:
+        """Deprecated pass-through. New code should call call_llm() directly."""
+        provider = kwargs.get("provider", "minimax-cn")
+        model = kwargs.get("model", "MiniMax-M3")
+        return call_llm(provider, model, prompt)

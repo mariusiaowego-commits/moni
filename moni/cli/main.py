@@ -44,7 +44,8 @@ init_parser = db_sub.add_parser(
 
 def cmd_init() -> None:
     migrate()
-    seed_llm()
+    from ..db.seed_llm import seed as seed_llm_seed
+    seed_llm_seed()
     conn = get_db()
     row = conn.execute(
         "SELECT COUNT(*) as n FROM llm_providers"
@@ -58,149 +59,16 @@ seed_llm_parser = db_sub.add_parser(
 )
 
 
-def _ensure_llm_tables(conn: "sqlite3.Connection") -> None:
-    """Create LLM tables if they don't exist (inline migration 003)."""
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS llm_providers (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            name        TEXT    NOT NULL UNIQUE,
-            api_type    TEXT    NOT NULL DEFAULT 'gemini',
-            base_url    TEXT,
-            api_key     TEXT,
-            enabled     INTEGER NOT NULL DEFAULT 1,
-            created_at  TEXT    NOT NULL,
-            updated_at  TEXT    NOT NULL
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS llm_models (
-            id                INTEGER PRIMARY KEY AUTOINCREMENT,
-            provider_id       INTEGER NOT NULL,
-            model_id          TEXT    NOT NULL,
-            name              TEXT    NOT NULL,
-            model_type        TEXT    NOT NULL DEFAULT 'chat',
-            context_window    INTEGER,
-            input_price_per_1m INTEGER,
-            output_price_per_1m INTEGER,
-            enabled           INTEGER NOT NULL DEFAULT 1,
-            created_at        TEXT    NOT NULL,
-            updated_at        TEXT    NOT NULL,
-            FOREIGN KEY (provider_id) REFERENCES llm_providers(id) ON DELETE CASCADE,
-            UNIQUE(provider_id, model_id)
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS llm_settings (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            key         TEXT    NOT NULL UNIQUE,
-            value       TEXT    NOT NULL,
-            description TEXT,
-            updated_at  TEXT    NOT NULL
-        )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_models_provider ON llm_models(provider_id)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_models_enabled ON llm_models(enabled)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_settings_key ON llm_settings(key)")
-
-
-def seed_llm() -> None:
-    """Seed LLM providers, models, and settings from config/llm_providers.yaml.
-
-    Reads config/llm_providers.yaml and upserts into llm_providers / llm_models /
-    llm_settings tables.  Safe to re-run.
-    """
-    from datetime import datetime, timezone
-    from pathlib import Path
-
-    import yaml
-
-    conn = get_db()
-    now = datetime.now(timezone.utc).isoformat()
-
-    # Ensure LLM tables exist (migration 003 may have been removed from the worktree)
-    _ensure_llm_tables(conn)
-
-    cfg_path = Path(__file__).parent.parent.parent / "config" / "llm_providers.yaml"
-    if not cfg_path.exists():
-        print(f"  WARNING: {cfg_path} not found — seeding from defaults")
-
-    data: dict = {}
-    if cfg_path.exists():
-        with cfg_path.open(encoding="utf-8") as fh:
-            data = yaml.safe_load(fh) or {}
-
-    # Seed providers
-    for p in data.get("providers", []):
-        conn.execute(
-            """
-            INSERT INTO llm_providers
-                (name, api_type, base_url, api_key, enabled, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(name) DO UPDATE SET
-                api_type=excluded.api_type, base_url=excluded.base_url,
-                api_key=excluded.api_key, enabled=excluded.enabled, updated_at=excluded.updated_at
-            """,
-            (
-                p["name"], p.get("api_type", "gemini"), p.get("base_url"),
-                p.get("api_key"), p.get("enabled", 1), now, now,
-            ),
-        )
-
-    # Seed models
-    for m in data.get("models", []):
-        # Look up provider_id
-        row = conn.execute(
-            "SELECT id FROM llm_providers WHERE name = ?", (m["provider_name"],)
-        ).fetchone()
-        if row is None:
-            print(f"  WARNING: provider {m['provider_name']!r} not found, skipping model {m['model_id']!r}")
-            continue
-        provider_id = row[0]
-        conn.execute(
-            """
-            INSERT INTO llm_models
-                (provider_id, model_id, name, model_type, context_window,
-                 input_price_per_1m, output_price_per_1m, enabled, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(provider_id, model_id) DO UPDATE SET
-                name=excluded.name, model_type=excluded.model_type,
-                context_window=excluded.context_window,
-                input_price_per_1m=excluded.input_price_per_1m,
-                output_price_per_1m=excluded.output_price_per_1m,
-                enabled=excluded.enabled, updated_at=excluded.updated_at
-            """,
-            (
-                provider_id, m["model_id"], m["name"], m.get("model_type", "chat"),
-                m.get("context_window"), m.get("input_price_per_1m"),
-                m.get("output_price_per_1m"), m.get("enabled", 1), now, now,
-            ),
-        )
-
-    # Seed settings
-    for s in data.get("settings", []):
-        conn.execute(
-            """
-            INSERT INTO llm_settings (key, value, description, updated_at)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(key) DO UPDATE SET
-                value=excluded.value, description=excluded.description, updated_at=excluded.updated_at
-            """,
-            (s["key"], s["value"], s.get("description", ""), now),
-        )
-
-    conn.commit()
-    n_providers = conn.execute("SELECT COUNT(*) FROM llm_providers").fetchone()[0]
-    n_models = conn.execute("SELECT COUNT(*) FROM llm_models").fetchone()[0]
-    n_settings = conn.execute("SELECT COUNT(*) FROM llm_settings").fetchone()[0]
-    print(f"  LLM seed: {n_providers} providers, {n_models} models, {n_settings} settings")
-
-
 def cmd_seed_llm() -> None:
-    seed_llm()
+    from ..db.seed_llm import seed as seed_llm_seed
+    seed_llm_seed()
 
 
 def _table_counts(conn) -> dict[str, int]:
-    tables = ["articles", "tag_definitions", "article_tags", "share_tasks"]
+    tables = [
+        "articles", "tag_definitions", "article_tags", "share_tasks",
+        "llm_providers", "llm_models", "llm_settings",
+    ]
     out = {}
     for t in tables:
         n = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
@@ -225,7 +93,10 @@ export_parser.add_argument("fmt", choices=["json", "csv"], help="Export format")
 
 
 def _export_json(conn) -> str:
-    tables = ["articles", "tag_definitions", "article_tags", "share_tasks"]
+    tables = [
+        "articles", "tag_definitions", "article_tags", "share_tasks",
+        "llm_providers", "llm_models", "llm_settings",
+    ]
     data = {}
     for t in tables:
         rows = conn.execute(f"SELECT * FROM {t}").fetchall()
@@ -234,7 +105,10 @@ def _export_json(conn) -> str:
 
 
 def _export_csv(conn) -> str:
-    tables = ["articles", "tag_definitions", "article_tags", "share_tasks"]
+    tables = [
+        "articles", "tag_definitions", "article_tags", "share_tasks",
+        "llm_providers", "llm_models", "llm_settings",
+    ]
     buf = io.StringIO()
     for t in tables:
         buf.write(f"\n===== {t} =====\n")
