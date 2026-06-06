@@ -32,3 +32,6 @@ AGENTS.md
 vibe-coding-log.md
 HANDOFF.md
 .pending/
+
+# 36kr persisted session cookies (含 userId 敏感信息, 不入库)
+config/36kr_cookies.json

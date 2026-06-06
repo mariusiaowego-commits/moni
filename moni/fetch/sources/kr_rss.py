@@ -11,6 +11,7 @@ from xml.etree import ElementTree as ET
 import httpx
 
 from ..base import BaseFetcher, register_fetcher
+from ..cookie_loader import load_cookies_for
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +23,27 @@ class Fetcher36krRSS(BaseFetcher):
     source_name: str = "36kr_rss"
 
     def fetch(self) -> list[dict[str, Any]]:
+        # v1.0.5.5: load persisted cookies from
+        # ``config/36kr_cookies.json`` (dumped by the user from a real
+        # Chrome session).  36kr.com returns the TTGCaptcha challenge
+        # page to vanilla httpx; a known krtoken/userId cookie set
+        # bypasses the challenge gate.  Cookie set is optional — if
+        # missing, the request still goes out and the parse path
+        # below handles the captcha page gracefully (return []).
+        cookies = load_cookies_for("36kr")
         try:
-            resp = httpx.get(FEED_URL, timeout=15.0)
+            resp = httpx.get(
+                FEED_URL,
+                timeout=15.0,
+                cookies=cookies or None,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/148.0.0.0 Safari/537.36"
+                    ),
+                },
+            )
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             logger.error("[36kr_rss] HTTP %s fetching %s", exc.response.status_code, exc.request.url)

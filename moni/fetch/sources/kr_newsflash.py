@@ -47,10 +47,17 @@ class Fetcher36krNewsflash(BaseFetcher):
     source_name: str = "36kr_newsflash"
 
     def fetch(self) -> list[dict[str, Any]]:
+        # v1.0.5.5: same cookie bypass as Fetcher36krRSS — see the
+        # note in that module.  load_cookies_for is a no-op if the
+        # cookie file is missing.
+        from ..cookie_loader import load_cookies_for
+
+        cookies = load_cookies_for("36kr")
         try:
             resp = httpx.get(
                 FEED_URL,
                 headers=DEFAULT_HEADERS,
+                cookies=cookies or None,
                 timeout=15.0,
                 follow_redirects=True,
             )
