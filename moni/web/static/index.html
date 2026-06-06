@@ -518,6 +518,12 @@
                 <label>color</label>
                 <input type="text" x-model="configModalTarget.color" placeholder="#2563EB">
               </div>
+              <div class="form-row">
+                <label>keywords <small class="muted">(v1.0.5.4 — 一行一个, OR 匹配抓取内容)</small></label>
+                <textarea x-model="configModalTarget.keywordsText" rows="4"
+                          placeholder="银行&#10;支付&#10;跨境支付"></textarea>
+                <small class="muted">留空 = 该 tag 仅用于分类显示,不影响抓取。配了关键词后,绑了此 tag 的源的文章必须命中至少一个关键词才入库。</small>
+              </div>
             </div>
             <div class="modal-footer">
               <button class="btn-secondary" @click="closeConfigModal()">取消</button>
@@ -525,7 +531,8 @@
                       @click="configSaveTag({
                         name: configModalTarget.name,
                         description: configModalTarget.description || null,
-                        color: configModalTarget.color || null
+                        color: configModalTarget.color || null,
+                        keywords: (configModalTarget.keywordsText || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)
                       }, !!configModalTargetOriginal, configModalTargetOriginal)">
                 保存
               </button>

@@ -170,6 +170,11 @@ function app() {
       // Track original identifiers for PUT semantics (tag name, source id)
       if (target && type === 'tag') {
         this.configModalTargetOriginal = target.name;
+        // v1.0.5.4: the tag carries an optional ``keywords`` list; the
+        // modal shows them as one-per-line text.  Pre-populate the
+        // textarea so the user sees (and can edit) what's saved.
+        const kws = Array.isArray(target.keywords) ? target.keywords : [];
+        this.configModalTarget.keywordsText = kws.join('\n');
       } else if (target && type === 'source' && target.id) {
         this.configModalTargetOriginal = target.id;
       } else if (target && type === 'filter' && target.id) {

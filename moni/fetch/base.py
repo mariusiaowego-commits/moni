@@ -216,6 +216,28 @@ class BaseFetcher(ABC):
                 filter_stats["filters_applied"],
             )
 
+        # ── tag-keyword filter (v1.0.5.4) ────────────────────────────────
+        # Apply AFTER source_keyword_filters so that source-level
+        # blacklists (e.g. "drop all 36kr articles about 明星/游戏")
+        # get a chance to fire first.  Articles that survive then
+        # need to hit at least one of the source's tag-keywords to be
+        # considered "in scope" for the user's tag taxonomy.  If no
+        # tag carries keywords, this step is a pass-through.
+        from .tag_filter import apply_tag_keyword_filter
+
+        filtered_articles, tag_stats = apply_tag_keyword_filter(
+            source, filtered_articles
+        )
+        if tag_stats["dropped_tag_filter"] > 0:
+            logger.info(
+                "[%s] tag-keyword filter: %d kept, "
+                "%d dropped (%d tag-keyword(s) in OR set)",
+                source,
+                tag_stats["kept"],
+                tag_stats["dropped_tag_filter"],
+                tag_stats["tags_used"],
+            )
+
         inserted = 0
         if filtered_articles and not dry_run:
             try:
@@ -240,5 +262,7 @@ class BaseFetcher(ABC):
             "dropped_blacklist": filter_stats["dropped_blacklist"],
             "dropped_whitelist": filter_stats["dropped_whitelist"],
             "filters_applied": filter_stats["filters_applied"],
+            "dropped_tag_filter": tag_stats["dropped_tag_filter"],
+            "tags_used": tag_stats["tags_used"],
             "error": None,
         }

@@ -222,24 +222,34 @@ class ShareTaskListResponse(BaseModel):
 
 
 class Tag(BaseModel):
-    """业务 tag 定义 (用于 source ↔ tag / article ↔ tag)."""
+    """业务 tag 定义 (用于 source ↔ tag / article ↔ tag).
+
+    v1.0.5.4: optional ``keywords`` is the OR-set used by
+    ``moni.fetch.tag_filter`` to decide which articles from the
+    bound sources are kept at fetch time.  When the field is empty
+    the tag still works for classification / display, it just does
+    NOT constrain fetched content.
+    """
     name: str
     description: str | None = None
     color: str | None = None
     is_active: bool = True
     created_at: str
+    keywords: list[str] = []
 
 
 class TagCreate(BaseModel):
     name: str
     description: str | None = None
     color: str | None = None
+    keywords: list[str] = []
 
 
 class TagUpdate(BaseModel):
     description: str | None = None
     color: str | None = None
     is_active: bool | None = None
+    keywords: list[str] | None = None
 
 
 # ---------------------------------------------------------------------------
