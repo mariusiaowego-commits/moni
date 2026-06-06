@@ -4,14 +4,24 @@
 
 ---
 
-## 当前状态: **v1.0.5** (2026-06-06)
+## 当前状态: **v1.0.5.1** (2026-06-06)
 
-**主分支**: main @ fa78f55 (tag: v1.0.5, 已 push gh, 12 个 tag)
-**Web 服务**: `127.0.0.1:8900` (200 OK)
-**数据库**: `data/news.db` — 10 张表, 150 articles (mpaypass 56 + 36kr_rss 43 + 36kr_newsflash 33 + qbitai 14 + wechat_rss 4)
+**主分支**: main @ 4574e68 (tag: v1.0.5.1, 已 push gh, 13 个 tag)
+**Web 服务**: `127.0.0.1:8900` (200 OK, 已重启加载新代码)
+**数据库**: `data/news.db` — 10 张表, 56+10 = 66 articles (历史 150 篇已删, 重抓 mpaypass + qbitai 验证 tag 自动复制)
 **测试**: **199/199 pytest pass**
 **Worktree**: 0 (全部清理)
-**Pip 缓存**: moni editable 装在主 checkout
+
+**2026-06-06 v1.0.5.1 进展** (3 个 UX bug 修复):
+- **Bug 1 文章无分类** — `ArticleRepository.dedupe_insert()` 入库时不复制 `source_tags` -> `article_tags`, DB 里 article_tags 0 条
+  - 修法: 加 `_copy_source_tags_to_article()`, fetcher 入库时自动调
+  - 加 `backfill_article_tags_from_source_tags()` 一次性回填 (供 moni cli)
+  - 验证: mpaypass 56 篇 -> 56*3=168 article_tags (banking+payment+regulation), qbitai 10 篇 -> 10*1=10 (ai-fintech)
+- **Bug 2 连通性测试 405** — 前端 `pingSource()` 调 `/api/fetch/sources/{id}/ping`, 后端只有 `/health` 路由
+  - 修法: 后端加 `/ping` alias 路由 (同 handler)
+- **Bug 3 立即抓取 404** — 前端传 DB 风格 id (`src-36kr-rss`), 后端 yaml 找 `source_name` (`36kr_rss`) 找不到
+  - 修法: 加 `_resolve_source_name()`, 同时认 YAML name 和 DB id (通过 sources.name 表 mapping)
+- **新增 tag v1.0.5.1** (4574e68)
 
 **2026-06-06 v1.0.5 进展** (P0 + P1 全做完):
 - **P0-1 修 60 pytest fail** → 197 pass (后随 captcha cooldown 解除 → 199 pass)
