@@ -240,12 +240,24 @@ tr:hover {
 .job-row.job-failed  td { background: rgba(239, 68, 68, 0.06); }
 
 .result-cell {
-  max-width: 360px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  max-width: 520px;
   font-size: 0.8rem;
   color: #cbd5e1;
+}
+.result-cell .result-text {
+  display: inline-block;
+  margin-top: 4px;
+  white-space: pre-wrap;       /* keep \n and word-wrap */
+  word-break: break-word;
+  line-height: 1.45;
+}
+.result-cell .result-text-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-height: 2.9em;            /* fallback for browsers without -webkit-line-clamp */
 }
 .result-cell .error-text { color: #fca5a5; font-family: monospace; }
 

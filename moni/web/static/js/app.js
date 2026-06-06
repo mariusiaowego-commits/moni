@@ -566,5 +566,30 @@ function app() {
       const rem = s % 60;
       return m + 'm' + rem + 's';
     },
+
+    // ── v1.0.5.2: per-row expand/collapse for result-cell ─────────────
+    //
+    // The job table truncates long LLM outputs (and long error
+    // messages) by default to keep the table compact.  Each row has a
+    // "查看全文" / "收起" toggle; the state is local to the SPA
+    // session, not persisted.
+    expandedJobIds: new Set(),
+
+    isJobExpanded(jobId) {
+      return this.expandedJobIds.has(jobId);
+    },
+
+    toggleJobExpand(jobId) {
+      if (this.expandedJobIds.has(jobId)) {
+        this.expandedJobIds.delete(jobId);
+      } else {
+        this.expandedJobIds.add(jobId);
+      }
+      // Force Alpine to re-render the bound classes.  Alpine 3
+      // generally tracks Set mutations but Set.add / Set.delete
+      // without re-assignment can sometimes be missed; trigger
+      // reactivity by reassigning the property.
+      this.expandedJobIds = new Set(this.expandedJobIds);
+    },
   };
 }

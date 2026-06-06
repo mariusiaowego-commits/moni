@@ -205,8 +205,20 @@
                 <td x-text="job.attempts + (job.status === 'failed' ? '/' + 2 : '')"></td>
                 <td x-text="job.created_at ? job.created_at.slice(0, 19).replace('T', ' ') : '-'"></td>
                 <td class="result-cell">
-                  <span x-show="job.status === 'done'" x-text="(job.result || '').slice(0, 120)"></span>
-                  <span x-show="job.status === 'failed'" class="error-text" x-text="job.error || ''"></span>
+                  <span x-show="job.status === 'done'">
+                    <button class="link-btn" @click="toggleJobExpand(job.id)"
+                            x-text="isJobExpanded(job.id) ? '收起' : '查看全文'"></button>
+                    <div class="result-text"
+                         :class="{ 'result-text-clamp': !isJobExpanded(job.id) }"
+                         x-text="job.result || ''"></div>
+                  </span>
+                  <span x-show="job.status === 'failed'">
+                    <button class="link-btn" @click="toggleJobExpand(job.id)"
+                            x-text="isJobExpanded(job.id) ? '收起' : '查看错误'"></button>
+                    <div class="result-text error-text"
+                         :class="{ 'result-text-clamp': !isJobExpanded(job.id) }"
+                         x-text="job.error || ''"></div>
+                  </span>
                   <span x-show="['pending', 'running', 'cancelled'].includes(job.status)" class="muted">-</span>
                 </td>
                 <td>
