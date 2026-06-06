@@ -8,7 +8,7 @@ function app() {
       this.currentView = view;
       if (view === 'articles') this.loadArticles();
       else if (view === 'crud') this.loadCrudArticles();
-      else if (view === 'cron') this.loadCronJobs();
+      else if (view === 'cron') this.loadCronRuns();
       else if (view === 'fetch') this.loadSources();
       else if (view === 'share') { this.loadAllArticles(); this._startSharePoll(); }
       else if (view === 'config') {
@@ -215,7 +215,8 @@ function app() {
     // ── Shared helpers ────────────────────────────────────────────
     formatTime(ts) {
       if (!ts) return '-';
-      const d = new Date(ts * 1000);
+      // Accept ISO 8601 string OR epoch seconds (legacy).
+      const d = typeof ts === 'number' ? new Date(ts * 1000) : new Date(ts);
       if (isNaN(d)) return '-';
       const pad = n => String(n).padStart(2, '0');
       return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ` +
@@ -224,7 +225,9 @@ function app() {
 
     isNew(fetchedAt) {
       if (!fetchedAt) return false;
-      return (Math.floor(Date.now() / 1000) - fetchedAt) < 86400;
+      // Accept ISO 8601 string OR epoch seconds.
+      const epoch = typeof fetchedAt === 'number' ? fetchedAt : Math.floor(new Date(fetchedAt).getTime() / 1000);
+      return (Math.floor(Date.now() / 1000) - epoch) < 86400;
     },
 
     // ── Articles panel ─────────────────────────────────────────────
@@ -278,13 +281,17 @@ function app() {
     },
 
     // ── Cron panel ────────────────────────────────────────────────
-    cronJobs: [],
+    cronRuns: [],
 
-    loadCronJobs() {
-      fetch('/api/cron/jobs', { credentials: 'same-origin' })
+    loadCronRuns() {
+      // v1.0.4: was /api/cron/jobs (returns synthetic jobs, not runs).
+      // Use /api/cron/runs which returns real run history from cron_runs.
+      fetch('/api/cron/runs', { credentials: 'same-origin' })
         .then(r => r.json())
-        .then(data => { this.cronJobs = Array.isArray(data) ? data : (data.jobs || []); })
-        .catch(err => console.error('loadCronJobs failed:', err));
+        .then(data => {
+          this.cronRuns = Array.isArray(data) ? data : (data.runs || []);
+        })
+        .catch(err => console.error('loadCronRuns failed:', err));
     },
 
     // ── Fetch panel ───────────────────────────────────────────────
@@ -292,10 +299,14 @@ function app() {
     fetchResult: '',
 
     loadSources() {
-      fetch('/api/fetch/sources', { credentials: 'same-origin' })
+      // v1.0.4: was /api/fetch/sources (404). Use /api/config/sources
+      // which returns the same data shape (Source + tags).
+      fetch('/api/config/sources', { credentials: 'same-origin' })
         .then(r => r.json())
-        .then(data => { this.sources = Array.isArray(data) ? data : (data.sources || []); })
-        .catch(err => console.error('loadSources failed:', err));
+        .then(data => {
+          this.sources = Array.isArray(data) ? data : (data.sources || []);
+        })
+        .catch(err => { console.error('loadSources failed:', err); this.fetchResult = '加载失败: ' + err.message; });
     },
 
     runSource(id) {
@@ -317,6 +328,20 @@ function app() {
     allArticles: [],
     selectedArticleIds: [],
     shareFormat: 'markdown',
+    shareFormats: [
+      // v1.0 11 format manifest (PRD §4.5 / moni/share/formats.py)
+      { value: 'markdown',  label: 'Markdown' },
+      { value: 'plain',     label: '纯文本' },
+      { value: 'html',      label: 'HTML' },
+      { value: 'pdf',       label: 'PDF 单文件' },
+      { value: 'pdf_bound', label: 'PDF 合订' },
+      { value: 'audio',     label: '音频 (TTS)' },
+      { value: 'video',     label: '视频' },
+      { value: 'image',     label: '单图摘要' },
+      { value: 'infographic', label: '信息图' },
+      { value: 'wechat',    label: '微信公众号' },
+      { value: 'weibo',     label: '微博' },
+    ],
     shareQueue: [],
     _sharePollInterval: null,
 
@@ -335,13 +360,19 @@ function app() {
 
     addToQueue() {
       if (!this.selectedArticleIds.length) { alert('请先选择文章'); return; }
+      // v1.0 manifest pipeline: POST /api/share 接受单 article_id 一次
+      // 当前是批量: 第一篇文章先建 task, 其余 article_ids 后续走 manifest 扩展
+      // 这里走 v1.0 batch endpoint /api/share/queue
       fetch('/api/share/queue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({ article_ids: this.selectedArticleIds, format: this.shareFormat }),
       })
-        .then(r => r.json())
+        .then(r => {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
         .then(() => { this.loadShareQueue(); this.selectedArticleIds = []; })
         .catch(err => { alert('加入队列失败: ' + err.message); });
     },
@@ -362,6 +393,81 @@ function app() {
     // ── Init ─────────────────────────────────────────────────────
     init() {
       this.loadArticles();
+    },
+
+    // ── Article detail modal (v1.0.4 — BUG #7) ─────────────────
+    articleDetail: null,
+    summaryLoading: false,
+    factCheckLoading: false,
+
+    showArticleDetail(article) {
+      // v1.0.4: sync fetch (Alpine method 中 async/await 兼容性不可靠)
+      const self = this;
+      fetch(`/api/articles/${article.id}`, { credentials: 'same-origin' })
+        .then(r => {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(data => { self.articleDetail = data; })
+        .catch(err => { alert('加载文章失败: ' + err.message); });
+    },
+
+    closeArticleDetail() {
+      this.articleDetail = null;
+      this.summaryLoading = false;
+      this.factCheckLoading = false;
+    },
+
+    generateSummary() {
+      if (!this.articleDetail) return;
+      const self = this;
+      self.summaryLoading = true;
+      fetch(`/api/articles/${this.articleDetail.id}/summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ article_id: this.articleDetail.id }),
+      })
+        .then(r => {
+          if (!r.ok) {
+            return r.json().catch(() => ({})).then(err => { throw new Error(err.message || 'HTTP ' + r.status); });
+          }
+          return r.json();
+        })
+        .then(data => {
+          self.articleDetail = { ...self.articleDetail, summary: data.summary };
+          const idx = self.articles.findIndex(a => a.id === self.articleDetail.id);
+          if (idx >= 0) self.articles[idx] = { ...self.articles[idx], summary: data.summary };
+        })
+        .catch(err => { alert('生成摘要失败: ' + err.message); })
+        .finally(() => { self.summaryLoading = false; });
+    },
+
+    generateFactCheck() {
+      if (!this.articleDetail) return;
+      const self = this;
+      self.factCheckLoading = true;
+      fetch(`/api/articles/${this.articleDetail.id}/fact-check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ article_id: this.articleDetail.id }),
+      })
+        .then(r => {
+          if (!r.ok) {
+            return r.json().catch(() => ({})).then(err => { throw new Error(err.message || 'HTTP ' + r.status); });
+          }
+          return r.json();
+        })
+        .then(data => {
+          self.articleDetail = {
+            ...self.articleDetail,
+            fact_check_conclusion: data.conclusion,
+            fact_check_note: data.note,
+          };
+        })
+        .catch(err => { alert('事实核查失败: ' + err.message); })
+        .finally(() => { self.factCheckLoading = false; });
     },
   };
 }

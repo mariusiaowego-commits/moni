@@ -46,11 +46,11 @@
             <tbody>
               <template x-for="a in articles" :key="a.id">
                 <tr>
-                  <td><span x-text="a.title"></span> <span class="badge badge-new" x-show="isNew(a.fetched_at)">NEW</span></td>
+                  <td><span x-text="a.title"></span> <span class="badge badge-new" x-show="isNew(a.created_at)">NEW</span></td>
                   <td x-text="a.source"></td>
-                  <td x-text="a.category"></td>
-                  <td x-text="formatTime(a.fetched_at)"></td>
-                  <td><a :href="a.url" target="_blank" class="link-btn">查看</a></td>
+                  <td><span class="tag-chip" x-text="a.tags?.join(', ') || '-'"></span></td>
+                  <td x-text="formatTime(a.created_at)"></td>
+                  <td><a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a></td>
                 </tr>
               </template>
               <tr x-show="articles.length === 0">
@@ -90,28 +90,29 @@
       <section x-show="currentView === 'cron'" x-cloak>
         <div class="panel-header">
           <h3>跑批日志</h3>
-          <button class="btn-refresh" @click="loadCronJobs()">刷新</button>
+          <button class="btn-refresh" @click="loadCronRuns()">刷新</button>
         </div>
         <div class="table-container">
           <table>
             <thead>
-              <tr><th>任务名</th><th>执行时间</th><th>状态</th><th>耗时</th><th>日志链接</th></tr>
+              <tr><th>任务名</th><th>触发时间</th><th>状态</th><th>新增文章</th><th>耗时</th><th>日志链接</th></tr>
             </thead>
             <tbody>
-              <template x-for="job in cronJobs" :key="job.id">
+              <template x-for="run in cronRuns" :key="run.id">
                 <tr>
-                  <td x-text="job.name"></td>
-                  <td x-text="formatTime(job.run_at)"></td>
-                  <td><span class="status-badge" :class="'status-' + job.status" x-text="job.status"></span></td>
-                  <td x-text="job.duration ? job.duration + 's' : '-'"></td>
+                  <td x-text="run.job_id"></td>
+                  <td x-text="formatTime(run.triggered_at)"></td>
+                  <td><span class="status-badge" :class="run.success ? 'status-success' : 'status-failed'" x-text="run.success ? 'success' : 'failed'"></span></td>
+                  <td x-text="run.new_articles || 0"></td>
+                  <td x-text="run.duration ? run.duration + 's' : '-'"></td>
                   <td>
-                    <a x-show="job.log_url" :href="job.log_url" target="_blank" class="link-btn">查看日志</a>
-                    <span x-show="!job.log_url">-</span>
+                    <a x-show="run.log_url" :href="run.log_url" target="_blank" class="link-btn">查看日志</a>
+                    <span x-show="!run.log_url">-</span>
                   </td>
                 </tr>
               </template>
-              <tr x-show="cronJobs.length === 0">
-                <td colspan="5" class="empty-row">暂无数据</td>
+              <tr x-show="cronRuns.length === 0">
+                <td colspan="6" class="empty-row">暂无数据</td>
               </tr>
             </tbody>
           </table>
@@ -132,9 +133,9 @@
             <tbody>
               <template x-for="s in sources" :key="s.id">
                 <tr>
-                  <td x-text="s.name"></td>
+                  <td x-text="s.display_name || s.name"></td>
                   <td class="url-cell"><a :href="s.url" target="_blank" x-text="s.url"></a></td>
-                  <td x-text="s.interval ? s.interval + 'min' : '-'"></td>
+                  <td x-text="s.fetch_interval_min ? s.fetch_interval_min + 'min' : '-'"></td>
                   <td>
                     <button class="btn-primary" @click="runSource(s.id)">立即抓取</button>
                     <button class="btn-secondary" @click="pingSource(s.id)">连通性测试</button>
@@ -180,9 +181,12 @@
         <div class="share-section">
           <h4>选择格式</h4>
           <div class="format-selector">
-            <label><input type="radio" value="markdown" x-model="shareFormat"> Markdown</label>
-            <label><input type="radio" value="plain"    x-model="shareFormat"> Plain Text</label>
-            <label><input type="radio" value="html"     x-model="shareFormat"> HTML</label>
+            <template x-for="fmt in shareFormats" :key="fmt.value">
+              <label class="format-chip">
+                <input type="radio" :value="fmt.value" x-model="shareFormat" :name="'shareFormat-' + fmt.value">
+                <span x-text="fmt.label"></span>
+              </label>
+            </template>
           </div>
         </div>
 
@@ -368,6 +372,44 @@
       </section>
 
     </main>
+
+    <!-- v1.0.4 — Article detail modal (BUG #7: "查看" internal modal) -->
+    <div class="modal-backdrop" x-show="articleDetail" x-cloak @click.self="closeArticleDetail()">
+      <div class="modal-content" x-show="articleDetail">
+        <div class="modal-header">
+          <h3 x-text="articleDetail?.title"></h3>
+          <button class="modal-close" @click="closeArticleDetail()">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="article-meta">
+            <span class="meta-chip"><b>来源:</b> <span x-text="articleDetail?.source"></span></span>
+            <span class="meta-chip"><b>抓取时间:</b> <span x-text="formatTime(articleDetail?.created_at)"></span></span>
+            <span class="meta-chip" x-show="articleDetail?.published_at"><b>原文时间:</b> <span x-text="formatTime(articleDetail?.published_at)"></span></span>
+            <span class="meta-chip" x-show="articleDetail?.author"><b>作者:</b> <span x-text="articleDetail?.author"></span></span>
+          </div>
+          <div class="article-content" x-text="articleDetail?.content || '(无内容)'"></div>
+          <div class="article-actions">
+            <button class="btn-primary" @click="generateSummary()" :disabled="summaryLoading">
+              <span x-show="!summaryLoading">生成摘要</span>
+              <span x-show="summaryLoading">生成中...</span>
+            </button>
+            <button class="btn-primary" @click="generateFactCheck()" :disabled="factCheckLoading">
+              <span x-show="!factCheckLoading">事实核查</span>
+              <span x-show="factCheckLoading">核查中...</span>
+            </button>
+            <a :href="articleDetail?.url" target="_blank" class="btn-secondary">查看原文</a>
+          </div>
+          <div class="summary-box" x-show="articleDetail?.summary" x-cloak>
+            <h4>摘要</h4>
+            <p x-text="articleDetail?.summary"></p>
+          </div>
+          <div class="summary-box" x-show="articleDetail?.fact_check_conclusion" x-cloak>
+            <h4>事实核查结论</h4>
+            <p x-text="articleDetail?.fact_check_conclusion"></p>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- ══ Config Edit Modal (v1.0.2-F) ═════════════════════════════ -->
     <div class="modal-overlay" x-show="configModalOpen" x-cloak @click.self="closeConfigModal()">
