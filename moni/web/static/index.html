@@ -181,10 +181,12 @@
         <div class="share-section">
           <h4>选择格式</h4>
           <div class="format-selector">
-            <label v-for="fmt in shareFormats" :key="fmt.value" class="format-chip">
-              <input type="radio" :value="fmt.value" x-model="shareFormat">
-              <span x-text="fmt.label"></span>
-            </label>
+            <template x-for="fmt in shareFormats" :key="fmt.value">
+              <label class="format-chip">
+                <input type="radio" :value="fmt.value" x-model="shareFormat" :name="'shareFormat-' + fmt.value">
+                <span x-text="fmt.label"></span>
+              </label>
+            </template>
           </div>
         </div>
 

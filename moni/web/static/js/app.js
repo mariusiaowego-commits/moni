@@ -8,7 +8,7 @@ function app() {
       this.currentView = view;
       if (view === 'articles') this.loadArticles();
       else if (view === 'crud') this.loadCrudArticles();
-      else if (view === 'cron') this.loadCronJobs();
+      else if (view === 'cron') this.loadCronRuns();
       else if (view === 'fetch') this.loadSources();
       else if (view === 'share') { this.loadAllArticles(); this._startSharePoll(); }
       else if (view === 'config') {
