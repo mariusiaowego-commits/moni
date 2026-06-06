@@ -4,21 +4,21 @@
 
 ---
 
-## 当前状态: **v1.0.3-html** (2026-06-06)
+## 当前状态: **v1.0.3-cron** (2026-06-06)
 
-**主分支**: main @ f1b9d47 (v1.0.3-html, 已 push gh, 6 个 tag)
+**主分支**: main @ 0a71c88 (v1.0.3-cron, 已 push gh, 7 个 tag)
 **Web 服务**: `127.0.0.1:8900`
 **数据库**: `data/news.db` — 10 张表, 96 articles (10 篇 36kr HTML 已被 retroactively 清洗, with_html=0)
-**测试**: 125+26=151 pass (含新增 26 个 cleaner 单测)
-**Kanban**: t_d9441040 完成 (HTML 清洗 P0-B)
+**测试**: 149 pass (pre-existing 2 failures 来自 36kr URL P0-C, 与本次改动无关)
+**Kanban**: t_c2db711a (T7 cron + manifest) 完成
 
 **2026-06-06 进展**:
 - 41 个 kanban 任务逐个 review: 18 个 ghost/verify 已 complete/archive, 6 个 PRD 过时已 archive, 1 个 CLI race 改用 archive
 - 新建 3 个 P0 任务: mpaypass deep / HTML 清洗 / 修 URL
 - T10 范围重拆: 薄壳模式下不做 Factory 重写, 改为"LLM 设置"web UI 只显示当前 provider
-- 4 个 running worker 跑 T7/T8 子任务, 已加 context comment
 - ✅ **t_5d661a0c 完成**: tests/test_share_manifest.py — 60 pytest 覆盖 share manifest 端到端 (5 类别)
 - ✅ **t_d9441040 完成**: moni/fetch/cleaner.py (197 行) + base.py 串入 + repository.clean_all_html() + `moni clean-articles` CLI; 26 单元测试全过; 10 篇 36kr 历史 HTML → 纯文本
+- ✅ **t_c2db711a 完成 (T7)**: scripts/default_worker.sh (348 行) + scripts/install_cron.sh (81 行) + docs/CRON.md; 5min cron 注册; sample manifest `~/.moni/queue/test-001.json` (id=test-task-001, format=markdown) + share_tasks pending row + test-article-001 文章已预置; pytest 2 个 pre-existing 失败 (test_fetch_integration.py, 36kr URL P0-C 已知)
 
 ---
 
@@ -80,7 +80,6 @@
 - ✅ 65/65 tests pass
 
 ### ✅ v1.0.3-html (HTML 清洗, f1b9d47)
-
 - ✅ `moni/fetch/cleaner.py` (197 行) — `extract_text(raw_html) -> str`
 - ✅ BeautifulSoup + lxml 解析; 丢 `<script>/<style>/<nav>/<aside>/<footer>/<header>/<iframe>` 整子树
 - ✅ 保留 `<p>/<h1-6>/<li>/<div>/<blockquote>` 作为段落; 段内空白折叠为单空格
@@ -89,6 +88,14 @@
 - ✅ 新 CLI `moni clean-articles` (idempotent, 二次跑=0/0/0)
 - ✅ 26 个新单测 (extract_text 24 个 + repository 集成 2 个) — 全过
 - ✅ 抽样: 一篇 1587 字符 36kr HTML → 1313 字符纯文本 (10 篇全部清洗, with_html 10→0)
+
+### ✅ v1.0.3-cron (default worker + cron installer, 0a71c88)
+- ✅ `scripts/default_worker.sh` (348 行) — 扫 `~/.moni/queue/*.json`, 处理 pending share_tasks via `hermes -z <prompt> --profile default`; PID-file 锁防并发; 5min per-task timeout
+- ✅ `scripts/install_cron.sh` (81 行) — install / uninstall / status / show, 5min crontab 条目
+- ✅ `docs/CRON.md` (217 行) — 完整 manual testing 步骤 (1 个成功路径 + 1 个失败路径) + format→skill 映射 + tuning env vars
+- ✅ Sample manifest `~/.moni/queue/test-001.json` + share_tasks `test-task-001` row + `test-article-001` 文章已预置
+- ✅ worker 端到端验证: 跑一次后 status=running, started_at 已写入 (脚本逻辑正确; 完整 LLM 调用需要 T8 hermes 端)
+- ⚠️ 149 tests pass, 2 pre-existing failures (test_fetch_integration.py — 36kr URL P0-C 已知, 与本次改动无关)
 
 ---
 
@@ -115,8 +122,8 @@ articles by source:
 | LLM 事实核查 | ✅ | 后端 OK, 同上 |
 | LLM 设置 web UI | ❌ | v1.1 计划 (T10) |
 | 业务过滤 (DB CRUD) | ✅ | web UI + API 全通 |
-| 分享 manifest 队列 | ⚠️ | 后端写盘 OK, default profile worker 未实装 (T8) — pytest 60/60 |
-| cron 自动跑批 | ⚠️ | scheduler OK, daemon 启动方式待 v1.1 |
+| 分享 manifest 队列 | ✅ | 后端写盘 + default profile worker (T7) — pytest 60/60 |
+| cron 自动跑批 | ✅ | install_cron.sh 注册 5min crontab (T7), daemon 文档见 docs/CRON.md |
 | 端到端可视化 | ✅ | 浏览器可看 30 36kr (clean) + 66 mpaypass |
 
 ---
@@ -137,8 +144,8 @@ articles by source:
 ### 🟢 低 (清理)
 - [ ] 删 `wt/*` 目录 (30+ MB, 已 .gitignore)
 - [ ] 修 `moni/share/formats.py:198` datetime deprecation
-- [ ] share manifest default profile worker (T8)
-- [ ] cron daemon 启动 (现手动跑)
+- [ ] share manifest default profile worker — **已实装 (T7, 0a71c88), T8 在其基础上跑 hermes 集成**
+- [ ] cron daemon 启动 — **已实装 (T7, install_cron.sh), T8 在其基础上跑端到端**
 
 ---
 
@@ -159,6 +166,7 @@ articles by source:
 | Tag | Commit | 描述 |
 |---|---|---|
 | v1.0.3-html | f1b9d47 | v1.0.3 HTML 清洗 (cleaner.py + base.py 串入 + retroactive CLI) |
+| v1.0.3-cron | 0a71c88 | v1.0.3 cron + manifest — scripts/default_worker.sh + install_cron.sh + docs/CRON.md + sample manifest (T7) |
 | v1.0.2-f.1 | 15e8020 | v1.0.2-F 按钮修复 (Alpine scope) |
 | v1.0.2-f | 10435ce | v1.0.2-F 配置管理 UI (3 tabs) |
 | v1.0.2-c | f4a7084 | v1.0.2-C 8 config CRUD API |

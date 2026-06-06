@@ -120,15 +120,30 @@ python3 -m moni fetch --health
 
 ### 4.2 自动抓取 (cron)
 
+moni 有**两套** cron 机制:
+
+**A. 进程内 APScheduler** (web 启动时跑, 调 `config/schedule.yaml`):
+
 ```bash
-# 启动 cron daemon
+# 启动 web 时自动跑 cron
 bash scripts/web.sh start
 # 或: python3 -m moni cron start
 python3 -m moni cron status
 python3 -m moni cron stop
 ```
 
-`config/schedule.yaml` 定义 cron job 调度。
+**B. 5min crontab + default worker** (T7, 0a71c88, 扫 `~/.moni/queue/*.json`):
+
+```bash
+# 安装 5min crontab 条目 (拉 default profile agent 处理 share manifest 队列)
+bash scripts/install_cron.sh install
+bash scripts/install_cron.sh status
+bash scripts/install_cron.sh uninstall
+```
+
+详细 manual testing 步骤见 [`docs/CRON.md`](docs/CRON.md).
+
+`config/schedule.yaml` 定义 APScheduler 调度。
 
 ### 4.3 抓取日志含义
 
@@ -247,7 +262,7 @@ python3 -m moni db export json > backup-$(date +%F).json
 - **36kr 30 篇老数据** 内容是 HTML 未清洗 (v1.0.2-E 待做)
 - **mpaypass 10/66** 是 `/download/` 误抓 (v1.0.2-D 待过滤)
 - **`/api/llm/token-log` 路径** 之前 404 (v1.0.1 已修)
-- **share 按钮** 部分 (manifest queue 写盘) 待 v1.1 接 default profile worker
+- **share 按钮** 部分 (manifest queue 写盘) — T7 (0a71c88) 已实装 default profile worker + 5min crontab; 详见 `docs/CRON.md`
 
 ---
 
