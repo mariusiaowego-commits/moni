@@ -4,13 +4,30 @@
 
 ---
 
-## 当前状态: **v1.0.5.1** (2026-06-06)
+## 当前状态: **v1.0.5.2** (2026-06-06)
 
-**主分支**: main @ 4574e68 (tag: v1.0.5.1, 已 push gh, 13 个 tag)
-**Web 服务**: `127.0.0.1:8900` (200 OK, 已重启加载新代码)
-**数据库**: `data/news.db` — 10 张表, 56+10 = 66 articles (历史 150 篇已删, 重抓 mpaypass + qbitai 验证 tag 自动复制)
-**测试**: **199/199 pytest pass**
-**Worktree**: 0 (全部清理)
+**主分支**: main @ ea238b2 (tag: v1.0.5.2, 已 push gh, 14 个 tag)
+**Web 服务**: `127.0.0.1:8900` (200 OK, 已重启加载 v1.0.5.2 新代码)
+**数据库**: `data/news.db` — 10 张表, 66 articles + 3 llm_jobs (1 done + 1 failed + 1 cancelled)
+**测试**: **197/199 pytest pass** (2 fail 是 36kr.com captcha 已知 blocker)
+**Worktree**: 0
+
+**2026-06-06 v1.0.5.2 进展** (LLM 异步化 + 进度面板):
+- **3 个 bug 统一根因**: 摘要/事实核查之前是同步调用, 60s timeout 直接报错给用户, 无进度反馈
+- **后端**:
+  - 005 migration: `llm_jobs` 表 (id/task_type/article_id/provider/model/status/result/error/attempts/duration_ms/created_at/started_at/finished_at)
+  - `moni/llm/jobs.py`: 一次性 daemon thread, 2s 轮询 pending, 调 LLM, 写 status/result/error
+  - `MAX_ATTEMPTS=2` (1 次重试); 修中途 user cancel: 检查 status 避免覆盖 cancelled
+  - `_TIMEOUT_SECONDS` 60 → 300 (MiniMax-M3 thinking 慢)
+  - `/api/articles/{id}/summary` `/fact-check` 改 202, 立即返 job_id + poll_url
+  - `/api/llm/jobs` 端点 (list/stats/{id}/cancel)
+- **前端**:
+  - 新菜单 "LLM 任务" (第 6 菜单, 抓取管理后, 分享前)
+  - 任务表格 + 状态徽章 (pending/running/done/failed/cancelled) + 自动轮询 (有任务 1s, 无任务 5s)
+  - 摘要/事实核查按钮点击后跳转到 LLM 任务面板 (替代之前的同步等待)
+  - nav-chip 显示 in-flight 数量; running 行高亮 + 脉冲动画
+- **Bug fix**: fact_check writeback SQL 占位符数量错 (3 个 ? 但传 4 个 params) → 修复
+- **新增 tag v1.0.5.2** (ea238b2)
 
 **2026-06-06 v1.0.5.1 进展** (3 个 UX bug 修复):
 - **Bug 1 文章无分类** — `ArticleRepository.dedupe_insert()` 入库时不复制 `source_tags` -> `article_tags`, DB 里 article_tags 0 条
