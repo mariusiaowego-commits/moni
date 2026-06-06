@@ -400,15 +400,16 @@ function app() {
     summaryLoading: false,
     factCheckLoading: false,
 
-    async showArticleDetail(article) {
-      // Fetch full article (includes content + summary if any)
-      try {
-        const r = await fetch(`/api/articles/${article.id}`, { credentials: 'same-origin' });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        this.articleDetail = await r.json();
-      } catch (err) {
-        alert('加载文章失败: ' + err.message);
-      }
+    showArticleDetail(article) {
+      // v1.0.4: sync fetch (Alpine method 中 async/await 兼容性不可靠)
+      const self = this;
+      fetch(`/api/articles/${article.id}`, { credentials: 'same-origin' })
+        .then(r => {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(data => { self.articleDetail = data; })
+        .catch(err => { alert('加载文章失败: ' + err.message); });
     },
 
     closeArticleDetail() {
@@ -417,57 +418,56 @@ function app() {
       this.factCheckLoading = false;
     },
 
-    async generateSummary() {
+    generateSummary() {
       if (!this.articleDetail) return;
-      this.summaryLoading = true;
-      try {
-        const r = await fetch(`/api/articles/${this.articleDetail.id}/summary`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ article_id: this.articleDetail.id }),
-        });
-        if (!r.ok) {
-          const err = await r.json().catch(() => ({ message: 'HTTP ' + r.status }));
-          throw new Error(err.message || 'HTTP ' + r.status);
-        }
-        const data = await r.json();
-        // Update modal + list in place
-        this.articleDetail = { ...this.articleDetail, summary: data.summary };
-        const idx = this.articles.findIndex(a => a.id === this.articleDetail.id);
-        if (idx >= 0) this.articles[idx] = { ...this.articles[idx], summary: data.summary };
-      } catch (err) {
-        alert('生成摘要失败: ' + err.message);
-      } finally {
-        this.summaryLoading = false;
-      }
+      const self = this;
+      self.summaryLoading = true;
+      fetch(`/api/articles/${this.articleDetail.id}/summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ article_id: this.articleDetail.id }),
+      })
+        .then(r => {
+          if (!r.ok) {
+            return r.json().catch(() => ({})).then(err => { throw new Error(err.message || 'HTTP ' + r.status); });
+          }
+          return r.json();
+        })
+        .then(data => {
+          self.articleDetail = { ...self.articleDetail, summary: data.summary };
+          const idx = self.articles.findIndex(a => a.id === self.articleDetail.id);
+          if (idx >= 0) self.articles[idx] = { ...self.articles[idx], summary: data.summary };
+        })
+        .catch(err => { alert('生成摘要失败: ' + err.message); })
+        .finally(() => { self.summaryLoading = false; });
     },
 
-    async generateFactCheck() {
+    generateFactCheck() {
       if (!this.articleDetail) return;
-      this.factCheckLoading = true;
-      try {
-        const r = await fetch(`/api/articles/${this.articleDetail.id}/fact-check`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ article_id: this.articleDetail.id }),
-        });
-        if (!r.ok) {
-          const err = await r.json().catch(() => ({ message: 'HTTP ' + r.status }));
-          throw new Error(err.message || 'HTTP ' + r.status);
-        }
-        const data = await r.json();
-        this.articleDetail = {
-          ...this.articleDetail,
-          fact_check_conclusion: data.conclusion,
-          fact_check_note: data.note,
-        };
-      } catch (err) {
-        alert('事实核查失败: ' + err.message);
-      } finally {
-        this.factCheckLoading = false;
-      }
+      const self = this;
+      self.factCheckLoading = true;
+      fetch(`/api/articles/${this.articleDetail.id}/fact-check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ article_id: this.articleDetail.id }),
+      })
+        .then(r => {
+          if (!r.ok) {
+            return r.json().catch(() => ({})).then(err => { throw new Error(err.message || 'HTTP ' + r.status); });
+          }
+          return r.json();
+        })
+        .then(data => {
+          self.articleDetail = {
+            ...self.articleDetail,
+            fact_check_conclusion: data.conclusion,
+            fact_check_note: data.note,
+          };
+        })
+        .catch(err => { alert('事实核查失败: ' + err.message); })
+        .finally(() => { self.factCheckLoading = false; });
     },
   };
 }

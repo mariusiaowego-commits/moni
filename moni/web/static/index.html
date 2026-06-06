@@ -373,6 +373,44 @@
 
     </main>
 
+    <!-- v1.0.4 — Article detail modal (BUG #7: "查看" internal modal) -->
+    <div class="modal-backdrop" x-show="articleDetail" x-cloak @click.self="closeArticleDetail()">
+      <div class="modal-content" x-show="articleDetail">
+        <div class="modal-header">
+          <h3 x-text="articleDetail?.title"></h3>
+          <button class="modal-close" @click="closeArticleDetail()">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="article-meta">
+            <span class="meta-chip"><b>来源:</b> <span x-text="articleDetail?.source"></span></span>
+            <span class="meta-chip"><b>抓取时间:</b> <span x-text="formatTime(articleDetail?.created_at)"></span></span>
+            <span class="meta-chip" x-show="articleDetail?.published_at"><b>原文时间:</b> <span x-text="formatTime(articleDetail?.published_at)"></span></span>
+            <span class="meta-chip" x-show="articleDetail?.author"><b>作者:</b> <span x-text="articleDetail?.author"></span></span>
+          </div>
+          <div class="article-content" x-text="articleDetail?.content || '(无内容)'"></div>
+          <div class="article-actions">
+            <button class="btn-primary" @click="generateSummary()" :disabled="summaryLoading">
+              <span x-show="!summaryLoading">生成摘要</span>
+              <span x-show="summaryLoading">生成中...</span>
+            </button>
+            <button class="btn-primary" @click="generateFactCheck()" :disabled="factCheckLoading">
+              <span x-show="!factCheckLoading">事实核查</span>
+              <span x-show="factCheckLoading">核查中...</span>
+            </button>
+            <a :href="articleDetail?.url" target="_blank" class="btn-secondary">查看原文</a>
+          </div>
+          <div class="summary-box" x-show="articleDetail?.summary" x-cloak>
+            <h4>摘要</h4>
+            <p x-text="articleDetail?.summary"></p>
+          </div>
+          <div class="summary-box" x-show="articleDetail?.fact_check_conclusion" x-cloak>
+            <h4>事实核查结论</h4>
+            <p x-text="articleDetail?.fact_check_conclusion"></p>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ══ Config Edit Modal (v1.0.2-F) ═════════════════════════════ -->
     <div class="modal-overlay" x-show="configModalOpen" x-cloak @click.self="closeConfigModal()">
       <div class="modal modal-config">
@@ -563,43 +601,5 @@
 
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <script src="js/app.js"></script>
-
-  <!-- v1.0.4 — Article detail modal (BUG #7: "查看" internal modal) -->
-  <div class="modal-backdrop" x-show="articleDetail" x-cloak @click.self="closeArticleDetail()">
-    <div class="modal-content" x-show="articleDetail">
-      <div class="modal-header">
-        <h3 x-text="articleDetail?.title"></h3>
-        <button class="modal-close" @click="closeArticleDetail()">×</button>
-      </div>
-      <div class="modal-body">
-        <div class="article-meta">
-          <span class="meta-chip"><b>来源:</b> <span x-text="articleDetail?.source"></span></span>
-          <span class="meta-chip"><b>抓取时间:</b> <span x-text="formatTime(articleDetail?.created_at)"></span></span>
-          <span class="meta-chip" x-show="articleDetail?.published_at"><b>原文时间:</b> <span x-text="formatTime(articleDetail?.published_at)"></span></span>
-          <span class="meta-chip" x-show="articleDetail?.author"><b>作者:</b> <span x-text="articleDetail?.author"></span></span>
-        </div>
-        <div class="article-content" x-text="articleDetail?.content || '(无内容)'"></div>
-        <div class="article-actions">
-          <button class="btn-primary" @click="generateSummary()" :disabled="summaryLoading">
-            <span x-show="!summaryLoading">生成摘要</span>
-            <span x-show="summaryLoading">生成中...</span>
-          </button>
-          <button class="btn-primary" @click="generateFactCheck()" :disabled="factCheckLoading">
-            <span x-show="!factCheckLoading">事实核查</span>
-            <span x-show="factCheckLoading">核查中...</span>
-          </button>
-          <a :href="articleDetail?.url" target="_blank" class="btn-secondary">查看原文</a>
-        </div>
-        <div class="summary-box" x-show="articleDetail?.summary" x-cloak>
-          <h4>摘要</h4>
-          <p x-text="articleDetail?.summary"></p>
-        </div>
-        <div class="summary-box" x-show="articleDetail?.fact_check_conclusion" x-cloak>
-          <h4>事实核查结论</h4>
-          <p x-text="articleDetail?.fact_check_conclusion"></p>
-        </div>
-      </div>
-    </div>
-  </div>
 </body>
 </html>
