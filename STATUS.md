@@ -4,24 +4,26 @@
 
 ---
 
-## 当前状态: **v1.0.5-cleanup** (2026-06-06)
+## 当前状态: **v1.0.5** (2026-06-06)
 
-**主分支**: main @ 3e25f7a (v1.0.4-eval, 已 push gh, 6 个 tag) — **v1.0.5 修复未 commit, 还在 working tree**
+**主分支**: main @ fa78f55 (tag: v1.0.5, 已 push gh, 12 个 tag)
 **Web 服务**: `127.0.0.1:8900` (200 OK)
-**数据库**: `data/news.db` — 10 张表, 76 articles (36kr_rss 43 + 36kr_newsflash 19 + qbitai 10 + wechat_rss 4)
-**测试**: **197 pass / 2 pre-existing fail** (test_fetch_integration.py — 36kr URL captcha 已知 blocker)
-**Worktree**: 1 (`.worktrees/v1.0.3-mpaypass-deep` @ 2466a47, P0-A 待 P1 做)
-**Pip 缓存**: moni editable 装在主 checkout (修复后, 不在 worktree)
+**数据库**: `data/news.db` — 10 张表, 150 articles (mpaypass 56 + 36kr_rss 43 + 36kr_newsflash 33 + qbitai 14 + wechat_rss 4)
+**测试**: **199/199 pytest pass**
+**Worktree**: 0 (全部清理)
+**Pip 缓存**: moni editable 装在主 checkout
 
-**2026-06-06 v1.0.5 cleanup 进展** (P0 三件套完成):
-- **P0-1 修 60 pytest fail** → 197 pass / 2 pre-existing fail
+**2026-06-06 v1.0.5 进展** (P0 + P1 全做完):
+- **P0-1 修 60 pytest fail** → 197 pass (后随 captcha cooldown 解除 → 199 pass)
   - `crud.py:_row_to_article()` 漏改 `source` 字段 (1 行 patch)
   - `test_mpaypass_crawler.py` 删硬编码 worktree path (23 test 全过)
-  - `test_cron.py` autouse fixture 加 teardown 恢复 sys.modules (snapshot+restore, 47 fail → 0)
-- **P0-3 删 13 worktree** → `wt/*` 12 个 + `.worktrees/v1.0.3-mpaypass-deep` worktree 目录已删, 释放 ~75 MB
-  - 保留: P0-A active worktree (`.worktrees/v1.0.3-mpaypass-deep` 2466a47, P1 还要用)
-  - T8 未 ff 的 commit (90b1912 / af4cefb) — 本地/远端分支保留, worktree 目录删, 之后想 ff `git checkout wt/t8-cron && git diff main`
-- **P0-2 文档同步** — 见 HANDOFF.md / AGENTS.md / vibe-coding-log.md
+  - `test_cron.py` autouse fixture 加 teardown 恢复 sys.modules (snapshot+restore)
+- **P0-2 文档同步** — STATUS.md / HANDOFF.md / AGENTS.md / vibe-coding-log.md 全部更新
+- **P0-3 删 13 worktree** — 释放 ~75 MB
+- **P1 mpaypass deep crawl 修好** — 2 个 bug 修复, 56 篇入库
+  - `_NEWS_PATH_RE.match()` 锚点问题 (live site 用绝对 URL) → 改 `.search()` 去掉 `^`
+  - `_collect_results` gate bug: --source 模式不该被 scheduler gate 拦 → 加 `force_targeted` 参数
+- **新增 tag v1.0.5** (fa78f55)
 
 **2026-06-06 v1.0.4-eval 进展** (昨天, 已 commit 3e25f7a):
 - 41 个 kanban 任务逐个 review: 18 个 ghost/verify 已 complete/archive, 6 个 PRD 过时已 archive
@@ -110,15 +112,16 @@
 
 ---
 
-## 数据现状 (2026-06-06)
+## 数据现状 (2026-06-06 v1.0.5)
 
 ```
 articles by source:
-  36kr_rss          43   (raw_content 已 retroactively 清洗, 无 HTML 残留) ✅
-  36kr_newsflash    19   (P0-C 已隐式完成, f46c501 内容已 ff 进 main)
-  qbitai            10   (P0-C 已隐式完成, qbitai.py 已用 /feed RSS)
-  wechat_rss         4   (v1.0.4-eval wechat_rss 修复, .env fallback)
-  mpaypass           0   (P0-A 待做 — `.worktrees/v1.0.3-mpaypass-deep` 2466a47)
+  mpaypass        56  (v1.0.5 修好 deep crawl, fetch URL 锚点 + CLI gate)
+  36kr_rss        43  (raw_content 已 retroactively 清洗, 无 HTML 残留)
+  36kr_newsflash  33  (P0-C 已隐式完成, f46c501 内容已 ff 进 main)
+  qbitai          14  (P0-C 已隐式完成, qbitai.py 已用 /feed RSS)
+  wechat_rss       4  (v1.0.4-eval wechat_rss 修复, .env fallback)
+  TOTAL          150
 ```
 
 ---
@@ -142,8 +145,8 @@ articles by source:
 ## 待办 (按优先级)
 
 ### 🔴 高 (影响内容质量)
-- [ ] mpaypass deep crawl (详情页 content + published_at) — worktree `.worktrees/v1.0.3-mpaypass-deep` 2466a47
-- [ ] 过滤 mpaypass `/download/` 路径 (10 篇误抓) — worktree 2466a47
+- [x] mpaypass deep crawl (详情页 content + published_at) — v1.0.5 完成 (56 篇入库)
+- [x] 过滤 mpaypass `/download/` 路径 (10 篇误抓) — v1.0.5 完成 (regex 只匹 /news/)
 - [x] 修 36kr_newsflash URL (首页是 nav) — f46c501 已 ff 进 main
 - [x] 修 qbitai URL (品牌页 403) — f46c501 已 ff 进 main
 
@@ -153,7 +156,7 @@ articles by source:
 - [ ] 摘要/事实核查前端按钮
 
 ### 🟢 低 (清理)
-- [x] 删 `wt/*` 目录 (30+ MB, 已 .gitignore) — v1.0.5 完成 (13 worktree 删, P0-A 留)
+- [x] 删 `wt/*` 目录 (30+ MB, 已 .gitignore) — v1.0.5 完成 (13 worktree 删)
 - [ ] 修 `moni/share/formats.py:198` datetime deprecation
 - [ ] share manifest default profile worker — **T7 已实装 (0a71c88), T8 commit 90b1912 (22 test) 未 ff, 用户决定**
 - [ ] cron daemon 启动 — **T7 install_cron.sh 已实装**
@@ -177,6 +180,9 @@ articles by source:
 
 | Tag | Commit | 描述 |
 |---|---|---|
+| v1.0.5 | fa78f55 | v1.0.5 cleanup + mpaypass 修好 — 199 pytest pass, 5 源 100% 抓通 (150 articles), 13 老 worktree 删 |
+| v1.0.4-eval | 3e25f7a | v1.0.4 5 源端到端生产验证 PASS (filter drop 7) + wechat_rss .env fallback |
+| v1.0.4 | 7556795 | v1.0.4 frontend bug fixes (9 个 bug 修复) |
 | v1.0.3-html | f1b9d47 | v1.0.3 HTML 清洗 (cleaner.py + base.py 串入 + retroactive CLI) |
 | v1.0.3-cron | 0a71c88 | v1.0.3 cron + manifest — scripts/default_worker.sh + install_cron.sh + docs/CRON.md + sample manifest (T7) |
 | v1.0.2-f.1 | 15e8020 | v1.0.2-F 按钮修复 (Alpine scope) |
@@ -184,5 +190,7 @@ articles by source:
 | v1.0.2-c | f4a7084 | v1.0.2-C 8 config CRUD API |
 | v1.0.2-b | 4ee2de6 | v1.0.2-B 关键词过滤串入抓取 |
 | v1.0.2-a | d39bc85 | v1.0.2-A 业务过滤 schema + seed |
+| v1.0.1 | dafb05a | v1.0.1 4 源抓取修复 + 摘要按钮跑通 |
+| v1.0.2-final | 1264c92 | v1.0.2 收尾 (3 tabs CRUD UI + alpine fix) |
 
 ---
