@@ -513,3 +513,68 @@ button, .btn-primary, .btn-secondary, .btn-danger, .btn-refresh {
   cursor: pointer;
 }
 .checkbox-row:hover { background: #f9f9f9; }
+
+/* v1.0.4 — Article detail modal (BUG #7) */
+.modal-backdrop {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.modal-content {
+  background: #fff; border-radius: 8px;
+  width: min(820px, 92vw);
+  max-height: 88vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+}
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid #e5e7eb;
+}
+.modal-header h3 { margin: 0; font-size: 18px; }
+.modal-close {
+  background: none; border: none; font-size: 28px; cursor: pointer;
+  color: #6b7280; padding: 0; line-height: 1;
+}
+.modal-close:hover { color: #111; }
+.modal-body { padding: 20px; overflow-y: auto; }
+.article-meta {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin-bottom: 16px; font-size: 13px; color: #6b7280;
+}
+.meta-chip { background: #f3f4f6; padding: 4px 10px; border-radius: 4px; }
+.article-content {
+  white-space: pre-wrap; line-height: 1.7; font-size: 15px;
+  padding: 16px; background: #fafafa; border-radius: 4px;
+  max-height: 360px; overflow-y: auto;
+}
+.article-actions {
+  display: flex; gap: 8px; margin: 16px 0;
+}
+.summary-box {
+  margin-top: 12px; padding: 12px 16px;
+  background: #f0f9ff; border-left: 3px solid #3b82f6;
+  border-radius: 4px;
+}
+.summary-box h4 { margin: 0 0 8px 0; font-size: 14px; color: #1e40af; }
+.summary-box p { margin: 0; line-height: 1.6; }
+
+/* v1.0.4 — Format chips (share) */
+.format-selector {
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+.format-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 6px 12px; border: 1px solid #d1d5db;
+  border-radius: 4px; cursor: pointer; font-size: 13px;
+  background: #fff;
+}
+.format-chip:hover { border-color: #3b82f6; }
+.format-chip input[type="radio"] { margin: 0; }
+
+/* v1.0.4 — Tag chip (article list) */
+.tag-chip {
+  display: inline-block; padding: 2px 8px; background: #e0e7ff;
+  color: #3730a3; border-radius: 12px; font-size: 12px;
+}
