@@ -46,10 +46,10 @@
             <tbody>
               <template x-for="a in articles" :key="a.id">
                 <tr>
-                  <td><span x-text="a.title"></span> <span class="badge badge-new" x-show="isNew(a.fetched_at)">NEW</span></td>
+                  <td><span x-text="a.title"></span> <span class="badge badge-new" x-show="isNew(a.created_at)">NEW</span></td>
                   <td x-text="a.source"></td>
-                  <td x-text="a.category"></td>
-                  <td x-text="formatTime(a.fetched_at)"></td>
+                  <td><span class="tag-chip" x-text="a.tags?.join(', ') || '-'"></span></td>
+                  <td x-text="formatTime(a.created_at)"></td>
                   <td><a :href="a.url" target="_blank" class="link-btn">查看</a></td>
                 </tr>
               </template>

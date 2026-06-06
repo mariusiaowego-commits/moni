@@ -15,7 +15,8 @@ class Article(BaseModel):
     """Full article record."""
 
     id: str
-    source_id: int
+    source: str  # source name (TEXT) — was wrongly typed as int source_id
+    tags: list[str] = []  # v1.0.4: tag names from article_tags JOIN
     title: str
     url: str
     author: str | None = None

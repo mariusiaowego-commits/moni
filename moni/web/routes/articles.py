@@ -21,10 +21,18 @@ router = APIRouter(prefix="/api/articles", tags=["articles"])
 
 
 def _row_to_article(row: dict[str, Any]) -> Article:
-    """Convert a sqlite3.Row (dict-like) to an Article Pydantic model."""
+    """Convert a sqlite3.Row (dict-like) to an Article Pydantic model.
+
+    v1.0.4: row now includes 'source' (TEXT, name) and 'tags' (comma-joined
+    string from GROUP_CONCAT) populated by the SQL in list_articles /
+    get_article.
+    """
+    tags_str = row.get("tags") or ""
+    tags = [t.strip() for t in tags_str.split(",") if t.strip()]
     return Article(
         id=row["id"],
-        source_id=0,  # legacy schema uses TEXT id; source_id not available
+        source=row["source"],
+        tags=tags,
         title=row["title"],
         url=row["url"],
         author=row["publisher"],
@@ -40,30 +48,40 @@ def _row_to_article(row: dict[str, Any]) -> Article:
 @router.get("", response_model=list[Article])
 def list_articles(
     source: str | None = Query(None, description="Filter by source name"),
-    tag: str | None = Query(None, description="Filter by tag (reserved for future use)"),
+    tag: str | None = Query(None, description="Filter by tag name"),
 ) -> list[Article]:
-    """List articles with optional source filter."""
+    """List articles with optional source / tag filter.
+
+    v1.0.4: LEFT JOIN article_tags + GROUP_CONCAT to surface tag names.
+    Source filter is now a real WHERE clause (was a no-op before).
+    """
     conn = get_db()
+
+    # Build WHERE + params dynamically. Source/tag filters are independent.
+    where_clauses: list[str] = []
+    params: list[Any] = []
     if source:
-        rows = conn.execute(
-            """
-            SELECT id, title, url, source, publisher, published_at,
-                   raw_content, summary, fetched_at
-            FROM articles
-            WHERE source = ?
-            ORDER BY published_at DESC, fetched_at DESC
-            """,
-            (source,),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """
-            SELECT id, title, url, source, publisher, published_at,
-                   raw_content, summary, fetched_at
-            FROM articles
-            ORDER BY published_at DESC, fetched_at DESC
-            """,
-        ).fetchall()
+        where_clauses.append("a.source = ?")
+        params.append(source)
+    if tag:
+        where_clauses.append(
+            "EXISTS (SELECT 1 FROM article_tags at "
+            "WHERE at.article_id = a.id AND at.tag_name = ?)"
+        )
+        params.append(tag)
+    where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+
+    sql = f"""
+        SELECT a.id, a.title, a.url, a.source, a.publisher, a.published_at,
+               a.raw_content, a.summary, a.fetched_at,
+               (SELECT GROUP_CONCAT(at.tag_name, ',')
+                  FROM article_tags at
+                 WHERE at.article_id = a.id) AS tags
+        FROM articles a
+        {where_sql}
+        ORDER BY a.published_at DESC, a.fetched_at DESC
+    """
+    rows = conn.execute(sql, params).fetchall()
 
     return [_row_to_article(dict(row)) for row in rows]
 
@@ -74,10 +92,13 @@ def get_article(article_id: str) -> Article:
     conn = get_db()
     row = conn.execute(
         """
-        SELECT id, title, url, source, publisher, published_at,
-               raw_content, summary, fetched_at
-        FROM articles
-        WHERE id = ?
+        SELECT a.id, a.title, a.url, a.source, a.publisher, a.published_at,
+               a.raw_content, a.summary, a.fetched_at,
+               (SELECT GROUP_CONCAT(at.tag_name, ',')
+                  FROM article_tags at
+                 WHERE at.article_id = a.id) AS tags
+        FROM articles a
+        WHERE a.id = ?
         """,
         (article_id,),
     ).fetchone()
