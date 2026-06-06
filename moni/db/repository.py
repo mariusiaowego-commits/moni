@@ -22,6 +22,12 @@ class ArticleRepository:
     def dedupe_insert(self, articles: Sequence[dict[str, Any]]) -> int:
         """Insert articles, skipping rows whose (source, url) already exist.
 
+        v1.0.5: also copies ``source_tags`` into ``article_tags`` for every
+        newly-inserted row, so the article list view can show a classification
+        badge immediately (and the source filter can be driven from a single
+        JOIN).  Pre-existing rows are not retroactively tagged — use
+        ``backfill_article_tags_from_source_tags`` for that.
+
         Args:
             articles: Sequence of normalised article dicts.
                 Required keys: ``title``, ``url``, ``source``.
@@ -69,11 +75,100 @@ class ArticleRepository:
                 # rowcount is 0 for IGNORE'd rows, 1 for inserted rows
                 n = conn.execute("SELECT changes()").fetchone()[0]
                 inserted += n
+                if n:
+                    # v1.0.5: copy source_tags -> article_tags for this
+                    # new row.  ``predicted = 0`` because the tag came
+                    # from the source-level config, not from an LLM call.
+                    self._copy_source_tags_to_article(aid, source, predicted=0)
             except Exception as exc:
                 logger.warning("Failed to insert article %s (%s): %s", url, source, exc)
 
         conn.commit()
         return inserted
+
+    @staticmethod
+    def _copy_source_tags_to_article(
+        article_id: str, source_name: str, *, predicted: int = 0
+    ) -> int:
+        """Copy every active tag the source has onto the given article.
+
+        Uses the source ``name`` (e.g. ``mpaypass``) to look up the source
+        row, then walks ``source_tags`` for the source id.  Returns the
+        number of ``article_tags`` rows actually inserted (i.e. excludes
+        rows that were already there from a prior fetch).
+
+        Why ``name`` not ``id``: the fetcher pipeline keys articles by
+        ``source_name`` (``moni.fetch.run`` / ``moni.fetch.base``) while
+        the API config UI keys sources by ``id`` (``src-mpaypass``).
+        Joining on ``name`` is the only point of overlap.
+        """
+        conn = get_db()
+        src_row = conn.execute(
+            "SELECT id FROM sources WHERE name = ?", (source_name,)
+        ).fetchone()
+        if not src_row:
+            return 0
+        source_id = src_row["id"]
+        tag_rows = conn.execute(
+            "SELECT tag_name FROM source_tags WHERE source_id = ?",
+            (source_id,),
+        ).fetchall()
+        if not tag_rows:
+            return 0
+        now = datetime.now(timezone.utc).isoformat()
+        copied = 0
+        for t in tag_rows:
+            cur = conn.execute(
+                """
+                INSERT OR IGNORE INTO article_tags
+                    (article_id, tag_name, predicted, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (article_id, t["tag_name"], predicted, now),
+            )
+            copied += cur.rowcount
+        return copied
+
+    @staticmethod
+    def backfill_article_tags_from_source_tags() -> dict[str, int]:
+        """One-shot backfill: copy ``source_tags`` -> ``article_tags`` for
+        every article in the DB whose tag list is currently empty.
+
+        Useful when:
+          * upgrading from a pre-v1.0.5 install where ``article_tags``
+            was never populated at insert time, or
+          * a user adds a new tag to a source and wants existing
+            articles from that source to inherit the new tag.
+
+        Returns a stats dict: ``scanned``, ``tagged``, ``already_tagged``.
+        Idempotent: re-running on an already-tagged DB is a no-op.
+        """
+        conn = get_db()
+        rows = conn.execute(
+            """
+            SELECT a.id AS aid, a.source AS sname
+            FROM articles a
+            LEFT JOIN article_tags t ON t.article_id = a.id
+            WHERE t.tag_name IS NULL
+            """
+        ).fetchall()
+        scanned = len(rows)
+        tagged = 0
+        already_tagged = 0
+        for r in rows:
+            n = ArticleRepository._copy_source_tags_to_article(
+                r["aid"], r["sname"], predicted=0
+            )
+            if n:
+                tagged += 1
+            else:
+                already_tagged += 1
+        conn.commit()
+        return {
+            "scanned": scanned,
+            "tagged": tagged,
+            "already_tagged": already_tagged,
+        }
 
     def get_by_id(self, article_id: str) -> dict[str, Any] | None:
         """Return a full article dict by its id, or None if not found."""
