@@ -4,12 +4,20 @@
 
 ---
 
-## 当前状态: **v1.0.2-f.1** (2026-06-05)
+## 当前状态: **v1.0.2-final → v1.0.3 路线** (2026-06-06)
 
-**主分支**: main @ 15e8020 (已 push gh, 5 个 tag)
-**Web 服务**: `127.0.0.1:8900` (pid 48486 上次)
+**主分支**: main @ d519b6d (v1.0.2-final, 已 push gh, 5 个 tag)
+**Web 服务**: `127.0.0.1:8900`
 **数据库**: `data/news.db` — 10 张表, 96 articles
-**测试**: 65/65 pass
+**测试**: 125/125 pass (65 已有 + 60 share manifest 新)
+**Kanban**: 41 任务 review 完, 5 活跃 (3 todo + 4 running worker + 3 新建 P0)
+
+**2026-06-06 进展**:
+- 41 个 kanban 任务逐个 review: 18 个 ghost/verify 已 complete/archive, 6 个 PRD 过时已 archive, 1 个 CLI race 改用 archive
+- 新建 3 个 P0 任务: mpaypass deep / HTML 清洗 / 修 URL
+- T10 范围重拆: 薄壳模式下不做 Factory 重写, 改为"LLM 设置"web UI 只显示当前 provider
+- 4 个 running worker 跑 T7/T8 子任务, 已加 context comment
+- ✅ **t_5d661a0c 完成**: tests/test_share_manifest.py — 60 pytest 覆盖 share manifest 端到端 (5 类别)
 
 ---
 
@@ -95,7 +103,7 @@ articles by source:
 | LLM 事实核查 | ✅ | 后端 OK, 同上 |
 | LLM 设置 web UI | ❌ | v1.1 计划 (T10) |
 | 业务过滤 (DB CRUD) | ✅ | web UI + API 全通 |
-| 分享 manifest 队列 | ⚠️ | 后端写盘 OK, default profile worker 未实装 (T8) |
+| 分享 manifest 队列 | ⚠️ | 后端写盘 OK, default profile worker 未实装 (T8) — pytest 60/60 |
 | cron 自动跑批 | ⚠️ | scheduler OK, daemon 启动方式待 v1.1 |
 | 端到端可视化 | ⚠️ | 浏览器可看 30 36kr + 66 mpaypass, 但 36kr HTML 杂质影响阅读 |
 
