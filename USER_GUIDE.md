@@ -133,15 +133,30 @@ python3 -m moni cron stop
 ### 4.3 抓取日志含义
 
 ```
-[36kr_rss]  fetched=30  parsed=30  inserted=24  parse_errors=0
+[36kr_rss]  fetched=30  parsed=30  cleaned=30  inserted=24  parse_errors=0
 [36kr_rss]  keyword filter: 30 input, 24 kept, 6 dropped_blacklist
 ```
 
 - `fetched` = 源返回的原始条数
 - `parsed` = parse 成功的
+- `cleaned` = HTML 清洗器处理的条数 (v1.0.3-html, 36kr 等源 raw_content 里的 `<h2>/<p>/<strong>` 标签被剥成纯文本)
 - `inserted` = 入库条数 (去重后)
 - `dropped_blacklist` = 黑名单 filter drop 掉的
 - `parse_errors` = parse 失败 (单条 error 不阻塞)
+
+### 4.4 清洗历史 HTML 文章 (v1.0.3-html)
+
+36kr_rss 抓的历史 30 篇 raw_content 仍是 HTML 格式, 跑一次 `clean-articles` 即可一次性清洗:
+
+```bash
+python3 -m moni clean-articles
+# clean-articles: scanned=10, updated=10, unchanged=0
+
+python3 -m moni clean-articles  # 再跑一次 = 幂等
+# clean-articles: scanned=0, updated=0, unchanged=0
+```
+
+清洗后 `articles.raw_content` 字段从 `<h2>...</h2><p>...</p>` 变成纯文本段落, LLM 摘要质量显著提升.
 
 ---
 

@@ -4,13 +4,13 @@
 
 ---
 
-## 当前状态: **v1.0.2-final → v1.0.3 路线** (2026-06-06)
+## 当前状态: **v1.0.3-html** (2026-06-06)
 
-**主分支**: main @ d519b6d (v1.0.2-final, 已 push gh, 5 个 tag)
+**主分支**: main @ f1b9d47 (v1.0.3-html, 已 push gh, 6 个 tag)
 **Web 服务**: `127.0.0.1:8900`
-**数据库**: `data/news.db` — 10 张表, 96 articles
-**测试**: 125/125 pass (65 已有 + 60 share manifest 新)
-**Kanban**: 41 任务 review 完, 5 活跃 (3 todo + 4 running worker + 3 新建 P0)
+**数据库**: `data/news.db` — 10 张表, 96 articles (10 篇 36kr HTML 已被 retroactively 清洗, with_html=0)
+**测试**: 125+26=151 pass (含新增 26 个 cleaner 单测)
+**Kanban**: t_d9441040 完成 (HTML 清洗 P0-B)
 
 **2026-06-06 进展**:
 - 41 个 kanban 任务逐个 review: 18 个 ghost/verify 已 complete/archive, 6 个 PRD 过时已 archive, 1 个 CLI race 改用 archive
@@ -18,6 +18,7 @@
 - T10 范围重拆: 薄壳模式下不做 Factory 重写, 改为"LLM 设置"web UI 只显示当前 provider
 - 4 个 running worker 跑 T7/T8 子任务, 已加 context comment
 - ✅ **t_5d661a0c 完成**: tests/test_share_manifest.py — 60 pytest 覆盖 share manifest 端到端 (5 类别)
+- ✅ **t_d9441040 完成**: moni/fetch/cleaner.py (197 行) + base.py 串入 + repository.clean_all_html() + `moni clean-articles` CLI; 26 单元测试全过; 10 篇 36kr 历史 HTML → 纯文本
 
 ---
 
@@ -78,13 +79,24 @@
 - ✅ 修 openConfigModal 对 source/filter 也设 configModalTargetOriginal
 - ✅ 65/65 tests pass
 
+### ✅ v1.0.3-html (HTML 清洗, f1b9d47)
+
+- ✅ `moni/fetch/cleaner.py` (197 行) — `extract_text(raw_html) -> str`
+- ✅ BeautifulSoup + lxml 解析; 丢 `<script>/<style>/<nav>/<aside>/<footer>/<header>/<iframe>` 整子树
+- ✅ 保留 `<p>/<h1-6>/<li>/<div>/<blockquote>` 作为段落; 段内空白折叠为单空格
+- ✅ `moni/fetch/base.py` run() 串入 cleaner (跑在 keyword filter 之前); 返回值加 `cleaned` 字段
+- ✅ `ArticleRepository.clean_all_html()` 一次性 retroactively 清洗历史文章 (LIKE '%<%' 过滤, 幂等)
+- ✅ 新 CLI `moni clean-articles` (idempotent, 二次跑=0/0/0)
+- ✅ 26 个新单测 (extract_text 24 个 + repository 集成 2 个) — 全过
+- ✅ 抽样: 一篇 1587 字符 36kr HTML → 1313 字符纯文本 (10 篇全部清洗, with_html 10→0)
+
 ---
 
-## 数据现状 (2026-06-05)
+## 数据现状 (2026-06-06)
 
 ```
 articles by source:
-  36kr_rss   30   (含 HTML 未清洗)
+  36kr_rss   30   (raw_content 已 retroactively 清洗, 无 HTML 残留)
   mpaypass   66   (含 10/66 /download/ 误抓)
   qbitai      0   (URL 首页问题, 未抓通)
   wechat_rss  0   (token 是 13 字符占位符)
@@ -98,14 +110,14 @@ articles by source:
 | 功能 | 状态 | 备注 |
 |---|---|---|
 | 5 菜单 SPA | ✅ | 6 菜单 (含配置管理) |
-| 抓取流程 | ✅ | 4/5 源跑通, filter 生效 |
+| 抓取流程 | ✅ | 4/5 源跑通, filter 生效, HTML 清洗 OK |
 | LLM 摘要 | ✅ | 后端 OK, 前端按钮待加 (v1.0.2-F 暂用 curl) |
 | LLM 事实核查 | ✅ | 后端 OK, 同上 |
 | LLM 设置 web UI | ❌ | v1.1 计划 (T10) |
 | 业务过滤 (DB CRUD) | ✅ | web UI + API 全通 |
 | 分享 manifest 队列 | ⚠️ | 后端写盘 OK, default profile worker 未实装 (T8) — pytest 60/60 |
 | cron 自动跑批 | ⚠️ | scheduler OK, daemon 启动方式待 v1.1 |
-| 端到端可视化 | ⚠️ | 浏览器可看 30 36kr + 66 mpaypass, 但 36kr HTML 杂质影响阅读 |
+| 端到端可视化 | ✅ | 浏览器可看 30 36kr (clean) + 66 mpaypass |
 
 ---
 
@@ -116,12 +128,10 @@ articles by source:
 - [ ] 过滤 mpaypass `/download/` 路径 (10 篇误抓)
 - [ ] 修 36kr_newsflash URL (首页是 nav)
 - [ ] 修 qbitai URL (品牌页 403)
-- [ ] HTML 清洗 (36kr raw_content 是 HTML)
 
 ### 🟡 中 (业务体验)
 - [ ] 填 .env 完整 WECHAT_RSS_TOKEN (13 字符占位符)
 - [ ] LLM 设置 web UI (PRD §4.7 第 6 菜单)
-- [ ] 回溯过滤老 30 篇 36kr
 - [ ] 摘要/事实核查前端按钮
 
 ### 🟢 低 (清理)
@@ -148,6 +158,7 @@ articles by source:
 
 | Tag | Commit | 描述 |
 |---|---|---|
+| v1.0.3-html | f1b9d47 | v1.0.3 HTML 清洗 (cleaner.py + base.py 串入 + retroactive CLI) |
 | v1.0.2-f.1 | 15e8020 | v1.0.2-F 按钮修复 (Alpine scope) |
 | v1.0.2-f | 10435ce | v1.0.2-F 配置管理 UI (3 tabs) |
 | v1.0.2-c | f4a7084 | v1.0.2-C 8 config CRUD API |
