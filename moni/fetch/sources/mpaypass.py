@@ -36,7 +36,10 @@ FEED_URL = "https://www.mpaypass.com.cn/"
 
 # Detail-page articles. We only deep-crawl /news/ (real editorial articles).
 # /download/ pages are PDF/资料 links with no editorial body.
-_NEWS_PATH_RE = re.compile(r"^/news/\d+/\d+\.html$")
+# Accept both relative ("/news/202606/...html") and absolute
+# ("https://www.mpaypass.com.cn/news/202606/...html") hrefs — the live
+# site renders absolute URLs, while some test fixtures use relative.
+_NEWS_PATH_RE = re.compile(r"/news/\d+/\d+\.html$")
 
 # Homepage link pattern. mpaypass uses /YYYYMM/NNNNNN.html across both
 # /news/ (articles) and /download/ (resources).
@@ -105,8 +108,10 @@ class FetcherMpaypass(BaseFetcher):
             # skip /download/ — they're resource pages, not articles
             if "/download/" in href:
                 continue
-            # must look like /news/YYYYMM/NNNNNN.html
-            if not _NEWS_PATH_RE.match(href):
+            # must look like /news/YYYYMM/NNNNNN.html (use search, not match,
+            # because the live site renders absolute URLs and the regex
+            # only anchors at the trailing end)
+            if not _NEWS_PATH_RE.search(href):
                 continue
             if href in seen:
                 continue

@@ -70,8 +70,14 @@ def _filter_sources(sources: list[dict], prefix: str) -> list[dict]:
 def _collect_results(
     source_names: list[str],
     dry_run: bool = False,
+    force_targeted: bool = False,
 ) -> tuple[list[dict], int, int]:
     """Run fetchers for source_names, respecting scheduler.should_fetch().
+
+    When ``force_targeted`` is True the caller passed --source on the CLI,
+    so the per-source scheduler gate is bypassed (the user is explicitly
+    asking for this source right now).  When False (the bulk path, no
+    --source), the gate is honoured so a 5-minute source is not hammered.
 
     Returns (results, total_fetched, total_skipped).
     """
@@ -82,9 +88,12 @@ def _collect_results(
     total_skipped = 0
 
     for name in source_names:
-        # Check scheduler gate (skip if not due), unless it's a targeted fetch
-        # where we always run and let the fetcher itself decide
-        if not scheduler.should_fetch(name):
+        # Check scheduler gate (skip if not due), unless it's a targeted
+        # fetch (caller passed --source) where we always run and let the
+        # fetcher itself decide.  ``force_targeted`` is True when the user
+        # passed --source; the bulk path (no --source) still honours the
+        # gate so we don't hammer a 5-min source every minute.
+        if not force_targeted and not scheduler.should_fetch(name):
             logger.info("[%s] skipped — not due for fetching", name)
             total_skipped += 1
             continue
@@ -149,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
     t0 = time.monotonic()
 
     results, total_fetched, total_skipped = _collect_results(
-        source_names, dry_run=args.dry_run
+        source_names, dry_run=args.dry_run, force_targeted=bool(args.source_name)
     )
 
     elapsed = time.monotonic() - t0
