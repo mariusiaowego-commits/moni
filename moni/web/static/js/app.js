@@ -10,6 +10,7 @@ function app() {
       else if (view === 'crud') this.loadCrudArticles();
       else if (view === 'cron') this.loadCronRuns();
       else if (view === 'fetch') this.loadSources();
+      else if (view === 'llmJobs') this.loadLlmJobs();  // v1.0.5.1
       else if (view === 'share') { this.loadAllArticles(); this._startSharePoll(); }
       else if (view === 'config') {
         this.configTab = 'sources';
@@ -435,9 +436,18 @@ function app() {
           return r.json();
         })
         .then(data => {
-          self.articleDetail = { ...self.articleDetail, summary: data.summary };
-          const idx = self.articles.findIndex(a => a.id === self.articleDetail.id);
-          if (idx >= 0) self.articles[idx] = { ...self.articles[idx], summary: data.summary };
+          // v1.0.5.1: server now returns 202 + job_id instead of the
+          // summary text.  Jump to the LLM jobs panel so the user can
+          // see the job's status (pending → running → done/failed) in
+          // real time.  We don't close the modal so the user can keep
+          // reading the source article while the LLM works.
+          self.enqueueLlmJob('summary', data.job_id, self.articleDetail.id);
+          // Optimistically mark the article as "in flight" so the user
+          // can see the job is queued even before the panel polls.
+          self.articleDetail = {
+            ...self.articleDetail,
+            summary: '⏳ 摘要生成中... (job ' + data.job_id.slice(0, 8) + ')',
+          };
         })
         .catch(err => { alert('生成摘要失败: ' + err.message); })
         .finally(() => { self.summaryLoading = false; });
@@ -460,14 +470,101 @@ function app() {
           return r.json();
         })
         .then(data => {
+          // v1.0.5.1: same async treatment as generateSummary().
+          self.enqueueLlmJob('fact_check', data.job_id, self.articleDetail.id);
           self.articleDetail = {
             ...self.articleDetail,
-            fact_check_conclusion: data.conclusion,
-            fact_check_note: data.note,
+            fact_check_conclusion: '⏳ 核查中... (job ' + data.job_id.slice(0, 8) + ')',
           };
         })
         .catch(err => { alert('事实核查失败: ' + err.message); })
         .finally(() => { self.factCheckLoading = false; });
+    },
+
+    // ── LLM jobs panel (v1.0.5.1) ─────────────────────────────────
+    //
+    // The "LLM 任务" view is a single rolling dashboard of all jobs
+    // the worker has ever handled.  A 1-second poll updates the table
+    // while there is at least one pending/running row; once the queue
+    // is empty the poll backs off to 5 seconds.
+    llmJobs: [],
+    llmJobsStats: { pending: 0, running: 0, done: 0, failed: 0, cancelled: 0 },
+    llmJobsLoading: false,
+    llmJobsPollHandle: null,
+    llmJobsLastFetched: 0,
+
+    enqueueLlmJob(taskType, jobId, articleId) {
+      // Called by generateSummary / generateFactCheck when the user
+      // kicks off a job.  Switch to the LLM-jobs panel, scroll to the
+      // new row, and start polling.
+      this.navigate('llmJobs');
+      this.loadLlmJobs();
+      // The poll loop is started by loadLlmJobs() — we don't need to
+      // call it again here.
+    },
+
+    loadLlmJobs() {
+      const self = this;
+      if (self.llmJobsLoading) return;
+      self.llmJobsLoading = true;
+      Promise.all([
+        fetch('/api/llm/jobs?limit=100', { credentials: 'same-origin' }).then(r => r.json()),
+        fetch('/api/llm/jobs/stats/summary', { credentials: 'same-origin' }).then(r => r.json()),
+      ])
+        .then(([jobs, stats]) => {
+          self.llmJobs = Array.isArray(jobs) ? jobs : [];
+          self.llmJobsStats = stats || self.llmJobsStats;
+          self.llmJobsLastFetched = Date.now();
+        })
+        .catch(err => { console.error('loadLlmJobs failed:', err); })
+        .finally(() => {
+          self.llmJobsLoading = false;
+          // Schedule the next poll.  Use a tighter interval while
+          // there is in-flight work; back off when the queue is empty.
+          const inFlight = (self.llmJobsStats.pending || 0) + (self.llmJobsStats.running || 0);
+          const delay = inFlight > 0 ? 1000 : 5000;
+          if (self.llmJobsPollHandle) clearTimeout(self.llmJobsPollHandle);
+          self.llmJobsPollHandle = setTimeout(() => self.loadLlmJobs(), delay);
+        });
+    },
+
+    cancelLlmJob(jobId) {
+      if (!confirm('取消这个 LLM 任务? 已生成的内容会保留, 但状态会标记为 cancelled.')) return;
+      const self = this;
+      fetch(`/api/llm/jobs/${jobId}/cancel`, {
+        method: 'POST',
+        credentials: 'same-origin',
+      })
+        .then(r => {
+          if (!r.ok) {
+            return r.json().catch(() => ({})).then(err => { throw new Error(err.message || 'HTTP ' + r.status); });
+          }
+          return r.json();
+        })
+        .then(() => { self.loadLlmJobs(); })
+        .catch(err => { alert('取消失败: ' + err.message); });
+    },
+
+    llmJobStatusBadge(status) {
+      // Map backend status to a short Chinese label + CSS class.
+      const map = {
+        pending:   { label: '排队中', cls: 'badge-pending' },
+        running:   { label: '运行中', cls: 'badge-running' },
+        done:      { label: '完成',   cls: 'badge-done' },
+        failed:    { label: '失败',   cls: 'badge-failed' },
+        cancelled: { label: '已取消', cls: 'badge-cancelled' },
+      };
+      return map[status] || { label: status, cls: 'badge-unknown' };
+    },
+
+    formatDuration(ms) {
+      if (ms == null) return '-';
+      if (ms < 1000) return ms + 'ms';
+      const s = Math.floor(ms / 1000);
+      if (s < 60) return s + 's';
+      const m = Math.floor(s / 60);
+      const rem = s % 60;
+      return m + 'm' + rem + 's';
     },
   };
 }

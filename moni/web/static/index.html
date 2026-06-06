@@ -19,6 +19,13 @@
         <li><a href="#" @click.prevent="navigate('crud')"     :class="{ active: currentView === 'crud'     }">CRUD</a></li>
         <li><a href="#" @click.prevent="navigate('cron')"     :class="{ active: currentView === 'cron'     }">跑批日志</a></li>
         <li><a href="#" @click.prevent="navigate('fetch')"    :class="{ active: currentView === 'fetch'    }">抓取管理</a></li>
+        <li>
+          <a href="#" @click.prevent="navigate('llmJobs')"   :class="{ active: currentView === 'llmJobs'   }">
+            LLM 任务
+            <span class="nav-chip" x-show="llmJobsStats.pending + llmJobsStats.running > 0"
+                  x-text="llmJobsStats.pending + llmJobsStats.running"></span>
+          </a>
+        </li>
         <li><a href="#" @click.prevent="navigate('share')"    :class="{ active: currentView === 'share'    }">分享</a></li>
         <li><a href="#" @click.prevent="navigate('config')"   :class="{ active: currentView === 'config'   }">配置管理</a></li>
       </ul>
@@ -149,6 +156,70 @@
           </table>
         </div>
         <div class="result-box" x-show="fetchResult" x-text="fetchResult" x-cloak></div>
+      </section>
+
+      <!-- ══ LLM 任务 (v1.0.5.1) ══════════════════════════════════════════════ -->
+      <section x-show="currentView === 'llmJobs'" x-cloak>
+        <h3>LLM 任务
+          <small class="muted" x-text="' · 自动轮询中 (' + (llmJobsLastFetched ? Math.round((Date.now() - llmJobsLastFetched) / 1000) : 0) + 's 前)'"></small>
+        </h3>
+        <p class="muted">
+          摘要生成 / 事实核查的异步任务面板。点击文章里的"生成摘要"或"事实核查"按钮后,任务会出现在这里,每 1s 自动刷新状态。
+        </p>
+        <div class="llm-stats">
+          <span class="llm-stat"><span class="dot dot-pending"></span>排队 <b x-text="llmJobsStats.pending"></b></span>
+          <span class="llm-stat"><span class="dot dot-running"></span>运行 <b x-text="llmJobsStats.running"></b></span>
+          <span class="llm-stat"><span class="dot dot-done"></span>完成 <b x-text="llmJobsStats.done"></b></span>
+          <span class="llm-stat"><span class="dot dot-failed"></span>失败 <b x-text="llmJobsStats.failed"></b></span>
+          <span class="llm-stat"><span class="dot dot-cancelled"></span>取消 <b x-text="llmJobsStats.cancelled"></b></span>
+          <button class="link-btn" @click="loadLlmJobs()">刷新</button>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>状态</th>
+              <th>任务</th>
+              <th>文章</th>
+              <th>模型</th>
+              <th>耗时</th>
+              <th>重试</th>
+              <th>创建</th>
+              <th>结果 / 错误</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="job in llmJobs" :key="job.id">
+              <tr :class="'job-row job-' + job.status">
+                <td>
+                  <span class="badge" :class="llmJobStatusBadge(job.status).cls"
+                        x-text="llmJobStatusBadge(job.status).label"></span>
+                </td>
+                <td x-text="job.task_type === 'summary' ? '摘要' : '事实核查'"></td>
+                <td>
+                  <a href="#" @click.prevent="navigate('articles')"
+                     x-text="(job.article_title || job.article_id).slice(0, 50)"></a>
+                </td>
+                <td x-text="job.model || '-'"></td>
+                <td x-text="formatDuration(job.duration_ms)"></td>
+                <td x-text="job.attempts + (job.status === 'failed' ? '/' + 2 : '')"></td>
+                <td x-text="job.created_at ? job.created_at.slice(0, 19).replace('T', ' ') : '-'"></td>
+                <td class="result-cell">
+                  <span x-show="job.status === 'done'" x-text="(job.result || '').slice(0, 120)"></span>
+                  <span x-show="job.status === 'failed'" class="error-text" x-text="job.error || ''"></span>
+                  <span x-show="['pending', 'running', 'cancelled'].includes(job.status)" class="muted">-</span>
+                </td>
+                <td>
+                  <button class="link-btn" x-show="['pending', 'running'].includes(job.status)"
+                          @click="cancelLlmJob(job.id)">取消</button>
+                </td>
+              </tr>
+            </template>
+            <tr x-show="llmJobs.length === 0">
+              <td colspan="9" class="empty-row">暂无 LLM 任务。在文章查阅里点"生成摘要"或"事实核查"会创建任务。</td>
+            </tr>
+          </tbody>
+        </table>
       </section>
 
       <!-- ══ Share ══════════════════════════════════════════════ -->

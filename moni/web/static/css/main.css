@@ -180,6 +180,75 @@ tr:hover {
   color: #fff;
 }
 
+/* ── v1.0.5.1 LLM jobs panel ─────────────────────────────────────────── */
+
+.nav-chip {
+  display: inline-block;
+  margin-left: 4px;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #e94560;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 16px;
+  vertical-align: middle;
+  text-align: center;
+}
+
+.llm-stats {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 8px 0 14px;
+  padding: 8px 12px;
+  background: #0f1729;
+  border: 1px solid #1f2937;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+.llm-stat { color: #94a3b8; }
+.llm-stat b { color: #f1f5f9; margin-left: 4px; }
+.llm-stat .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+.dot-pending   { background: #facc15; }
+.dot-running   { background: #38bdf8; animation: pulse 1.2s ease-in-out infinite; }
+.dot-done      { background: #22c55e; }
+.dot-failed    { background: #ef4444; }
+.dot-cancelled { background: #6b7280; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
+.badge.badge-pending   { background: #facc15; color: #1c1917; }
+.badge.badge-running   { background: #38bdf8; color: #0c4a6e; }
+.badge.badge-done      { background: #22c55e; color: #052e16; }
+.badge.badge-failed    { background: #ef4444; color: #fff; }
+.badge.badge-cancelled { background: #6b7280; color: #fff; }
+.badge.badge-unknown   { background: #4b5563; color: #fff; }
+
+.job-row.job-running td { background: rgba(56, 189, 248, 0.06); }
+.job-row.job-failed  td { background: rgba(239, 68, 68, 0.06); }
+
+.result-cell {
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  color: #cbd5e1;
+}
+.result-cell .error-text { color: #fca5a5; font-family: monospace; }
+
 /* Status Badges */
 .status-badge {
   display: inline-block;

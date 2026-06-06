@@ -109,18 +109,31 @@ def get_article(article_id: str) -> Article:
     return _row_to_article(dict(row))
 
 
-@router.post("/{article_id}/summary")
+@router.post("/{article_id}/summary", status_code=202)
 def summarize_article(
     article_id: str,
     body: ArticleSummaryRequest,
 ) -> dict[str, Any]:
-    """Generate a summary for an article via the LLM (薄壳模式).
+    """Enqueue a summary job for the given article (v1.0.5.1, async).
 
-    Reads the active summary model from ``llm_settings`` and dispatches
-    via ``moni.llm.call_llm`` (which subprocess-calls ``hermes chat``).
-    Writes the result back to ``articles.summary`` + ``summary_at``.
+    Previously this route called ``hermes chat`` synchronously and
+    returned the result in the response body, which blocked the request
+    for up to 60s and surfaced a hard error on timeout.  Now the route
+    enqueues a row in ``llm_jobs`` and returns ``202 Accepted`` with the
+    job id.  A background worker thread (``moni.llm.jobs``) drains the
+    queue and writes the LLM output back to ``articles.summary``.  The
+    frontend polls ``/api/llm/jobs/{id}`` to follow progress.
+
+    The active model is still resolved from ``llm_settings`` so the
+    job is bound to the same model the synchronous path would have
+    used.  We snapshot ``provider`` and ``model`` onto the job row so a
+    later change to ``llm_settings`` doesn't redirect a queued job.
     """
     conn = get_db()
+
+    # Confirm the article exists.  We deliberately check BEFORE resolving
+    # the model so a missing article returns 404 (not 503) — closer to
+    # what the user means.
     row = conn.execute(
         "SELECT id, title, raw_content, source, url, published_at FROM articles WHERE id = ?",
         (article_id,),
@@ -128,9 +141,7 @@ def summarize_article(
     if row is None:
         raise NotFoundError(message=f"Article {article_id!r} not found")
 
-    article_dict = dict(row)
-
-    # Resolve active model from llm_settings
+    # Resolve active model.
     active_model_id = conn.execute(
         "SELECT value FROM llm_settings WHERE key = 'active_summary_model_id'"
     ).fetchone()
@@ -153,39 +164,33 @@ def summarize_article(
             message=f"Active summary model {active_model_id['value']!r} not found",
         )
 
-    from moni.llm import call_llm
-    from moni.llm.prompts import render_summary
+    from moni.llm.jobs import enqueue_job
 
-    prompt = render_summary(article_dict)
-    try:
-        summary_text = call_llm(model_row["hermes_provider"], model_row["model_id"], prompt)
-    except RuntimeError as exc:
-        raise ServiceUnavailableError(
-            message=f"LLM call failed: {exc}",
-        )
-
-    # Persist
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).isoformat()
-    conn.execute(
-        "UPDATE articles SET summary = ?, summary_at = ? WHERE id = ?",
-        (summary_text, now, article_id),
+    job_id = enqueue_job(
+        task_type="summary",
+        article_id=article_id,
+        provider=model_row["hermes_provider"],
+        model=model_row["model_id"],
     )
-    conn.commit()
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "article_id": article_id,
+        "task_type": "summary",
+        "poll_url": f"/api/llm/jobs/{job_id}",
+    }
 
-    return {"summary": summary_text, "summary_at": now}
 
-
-@router.post("/{article_id}/fact-check")
+@router.post("/{article_id}/fact-check", status_code=202)
 def fact_check_article(
     article_id: str,
     body: FactCheckRequest,
 ) -> dict[str, Any]:
-    """Run a fact-check analysis on an article via the LLM (薄壳模式).
+    """Enqueue a fact-check job for the given article (v1.0.5.1, async).
 
-    Reads the active fact-check model from ``llm_settings`` and dispatches
-    via ``moni.llm.call_llm_json`` (parses ```json``` fence). Writes the
-    result back to ``articles.fact_check_*`` fields.
+    Same async shape as ``/summary`` — returns 202 + job_id; the worker
+    writes the conclusion back to ``articles.fact_check_conclusion``
+    / ``fact_check_note`` / ``fact_checked_at``.
     """
     conn = get_db()
     row = conn.execute(
@@ -194,8 +199,6 @@ def fact_check_article(
     ).fetchone()
     if row is None:
         raise NotFoundError(message=f"Article {article_id!r} not found")
-
-    article_dict = dict(row)
 
     active_model_id = conn.execute(
         "SELECT value FROM llm_settings WHERE key = 'active_fact_check_model_id'"
@@ -219,38 +222,18 @@ def fact_check_article(
             message=f"Active fact_check model {active_model_id['value']!r} not found",
         )
 
-    from moni.llm import call_llm_json
-    from moni.llm.prompts import render_fact_check
+    from moni.llm.jobs import enqueue_job
 
-    prompt = render_fact_check(article_dict)
-    try:
-        result_obj = call_llm_json(
-            model_row["hermes_provider"], model_row["model_id"], prompt
-        )
-    except RuntimeError as exc:
-        raise ServiceUnavailableError(message=f"LLM call failed: {exc}")
-
-    # Persist
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).isoformat()
-    conclusion = result_obj.get("conclusion") or result_obj.get("result") or ""
-    note = result_obj.get("note") or result_obj.get("details") or ""
-    conn.execute(
-        """
-        UPDATE articles
-        SET fact_check_conclusion = ?,
-            fact_check_method    = 'llm_inference',
-            fact_checked_at       = ?,
-            fact_check_note       = ?
-        WHERE id = ?
-        """,
-        (str(conclusion)[:200], now, str(note)[:2000], article_id),
+    job_id = enqueue_job(
+        task_type="fact_check",
+        article_id=article_id,
+        provider=model_row["hermes_provider"],
+        model=model_row["model_id"],
     )
-    conn.commit()
-
     return {
-        "conclusion": conclusion,
-        "note": note,
-        "checked_at": now,
-        "method": "llm_inference",
+        "job_id": job_id,
+        "status": "pending",
+        "article_id": article_id,
+        "task_type": "fact_check",
+        "poll_url": f"/api/llm/jobs/{job_id}",
     }

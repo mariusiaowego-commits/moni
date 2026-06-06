@@ -18,7 +18,11 @@ from .token_log import TokenLogger
 logger = logging.getLogger(__name__)
 
 #: Subprocess timeout for a single LLM call (seconds).
-_TIMEOUT_SECONDS = 60
+#: v1.0.5.1: bumped from 60s -> 300s.  MiniMax-M3 (the active thinking
+#: model on this machine) routinely takes 90-180s on a single prompt and
+#: was tripping the 60s wall.  5 minutes is a generous upper bound; the
+#: retry logic in ``moni.llm.jobs`` will catch true failures.
+_TIMEOUT_SECONDS = 300
 
 #: Rough token estimation: English ~4 chars/token, Chinese ~1.5 chars/token.
 #: (Coarse estimate — not meant to match provider billing exactly.)
