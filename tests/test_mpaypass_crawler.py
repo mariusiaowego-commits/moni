@@ -44,6 +44,7 @@ TEST_DIR = Path(__file__).parent
 WT_ROOT = TEST_DIR.parent
 if str(WT_ROOT) not in sys.path:
     sys.path.insert(0, str(WT_ROOT))
+WT_ROOT_STR = str(WT_ROOT)
 
 from moni.fetch.sources.mpaypass import FetcherMpaypass  # noqa: E402
 
@@ -458,10 +459,14 @@ class TestRunPipeline:
         import subprocess, sys
         env = os.environ.copy()
         env["MONI_DATA_DIR"] = str(tmp_path)
-        env["PYTHONPATH"] = "/Users/mt16/dev/source-monitor/.worktrees/v1.0.3-mpaypass-deep"
+        # Use the main checkout for PYTHONPATH, NOT a worktree path.
+        # (Earlier versions of this test hardcoded
+        # ``/Users/mt16/dev/source-monitor/.worktrees/v1.0.3-mpaypass-deep``
+        # which v1.0.5 deleted — see v1.0.5 cleanup commit fa78f55.)
+        env["PYTHONPATH"] = WT_ROOT_STR
         r = subprocess.run(
             [sys.executable, "-m", "moni", "db", "init"],
-            cwd="/Users/mt16/dev/source-monitor/.worktrees/v1.0.3-mpaypass-deep",
+            cwd=WT_ROOT_STR,
             capture_output=True, text=True, env=env,
         )
         assert r.returncode == 0, f"db init failed: {r.stderr}"
