@@ -4,13 +4,21 @@
 
 ---
 
-## 当前状态: **v1.0.5.2** (2026-06-06)
+## 当前状态: **v1.0.5.4 + 36kr wip** (2026-06-06)
 
-**主分支**: main @ ea238b2 (tag: v1.0.5.2, 已 push gh, 14 个 tag)
-**Web 服务**: `127.0.0.1:8900` (200 OK, 已重启加载 v1.0.5.2 新代码)
-**数据库**: `data/news.db` — 10 张表, 66 articles + 3 llm_jobs (1 done + 1 failed + 1 cancelled)
-**测试**: **197/199 pytest pass** (2 fail 是 36kr.com captcha 已知 blocker)
+**主分支**: main @ 7b6fe86 (v1.0.5.4 tag @ 54e80ae, 已 push gh, 13 个 tag)
+**Web 服务**: `127.0.0.1:8900` (200 OK)
+**数据库**: `data/news.db` — 10 张表, 70 articles (mpaypass 56 + qbitai 10 + wechat_rss 4) — 36kr 0 (captcha blocker, 详见 HANDOFF)
+**测试**: 197/199 pytest pass (2 fail 是 36kr captcha 已知 blocker)
 **Worktree**: 0
+
+**2026-06-06 v1.0.5.4 + 36kr wip 进展** (今晚用户睡了, 明天继续 36kr):
+- **v1.0.5.4** tag-keyword 过滤 (54e80ae) — 详见下方
+- **wip(36kr) 7b6fe86** — cookie loader 持久化 + fetcher 注入 cookie + User-Agent, 落了一半, cookie bypass 实际不生效 (TTGCaptcha 检 client fingerprint)
+- 推荐方案: 走 browser-harness 驱动真 Chrome 抓 (实测可拿 36kr RSS body.innerText 52KB), 明天 30 min 落地
+
+**2026-06-06 v1.0.5.4 进展** (tag-keyword 过滤):
+- 详见下方 Phase 进度 (v1.0.5.4)
 
 **2026-06-06 v1.0.5.2 进展** (LLM 异步化 + 进度面板):
 - **3 个 bug 统一根因**: 摘要/事实核查之前是同步调用, 60s timeout 直接报错给用户, 无进度反馈
