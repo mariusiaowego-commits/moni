@@ -122,3 +122,42 @@ class ArticleRepository:
         )
         conn.commit()
         return cur.rowcount > 0
+
+    def clean_all_html(self) -> dict[str, int]:
+        """Retroactively clean HTML in ``raw_content`` for every article.
+
+        Walks all articles whose ``raw_content`` contains a ``<`` (cheap
+        heuristic for "has markup"), runs ``cleaner.extract_text`` on
+        each, and writes the cleaned text back. Returns a stats dict
+        with ``scanned``, ``updated``, ``unchanged``.
+
+        Idempotent: re-running on already-cleaned text is a no-op (the
+        cleaner output is deterministic and the equality check skips
+        writes that wouldn't change anything).
+        """
+        # Local import: avoid pulling bs4 at module-import time.
+        from ..fetch.cleaner import extract_text
+
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT id, raw_content FROM articles "
+            "WHERE raw_content IS NOT NULL AND raw_content LIKE '%<%'"
+        ).fetchall()
+
+        scanned = 0
+        updated = 0
+        unchanged = 0
+        for row in rows:
+            scanned += 1
+            old = row["raw_content"] or ""
+            new = extract_text(old)
+            if new != old:
+                conn.execute(
+                    "UPDATE articles SET raw_content = ? WHERE id = ?",
+                    (new, row["id"]),
+                )
+                updated += 1
+            else:
+                unchanged += 1
+        conn.commit()
+        return {"scanned": scanned, "updated": updated, "unchanged": unchanged}

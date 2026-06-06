@@ -179,6 +179,25 @@ class BaseFetcher(ABC):
         logger.info("[%s] parsed %d/%d articles (%d parse errors)",
                     source, len(parsed_articles), len(raw_articles), parse_errors)
 
+        # ── HTML cleaner (v1.0.3) ────────────────────────────────────────
+        # 36kr_rss 等源 raw_content 是 HTML (<h2>/<p>/<strong>). 清洗成纯文本
+        # 让下游 keyword filter 和 LLM 摘要都看到干净内容. 已在 DB 的历史
+        # 记录可由 `moni clean-articles` retroactively 跑一次.
+        from .cleaner import extract_text
+        cleaned_count = 0
+        for article in parsed_articles:
+            content = article.get("content")
+            if isinstance(content, str) and content and "<" in content:
+                cleaned = extract_text(content)
+                if cleaned != content:
+                    article["content"] = cleaned
+                    cleaned_count += 1
+        if cleaned_count:
+            logger.info(
+                "[%s] HTML cleaner: %d article(s) cleaned to plain text",
+                source, cleaned_count,
+            )
+
         # ── keyword filter (v1.0.2) ──────────────────────────────────────
         # 应用 source_keyword_filters (黑/白名单). 无 filter 时全保留.
         from .filters import apply_keyword_filters
@@ -216,6 +235,7 @@ class BaseFetcher(ABC):
             "parsed": len(parsed_articles),
             "inserted": inserted,
             "parse_errors": parse_errors,
+            "cleaned": cleaned_count,
             "filtered": filter_stats["kept"],
             "dropped_blacklist": filter_stats["dropped_blacklist"],
             "dropped_whitelist": filter_stats["dropped_whitelist"],

@@ -77,6 +77,31 @@ def cmd_seed_config() -> None:
     seed_config_seed()
 
 
+# ── clean subcommand (v1.0.3) ──────────────────────────────────────────────
+
+clean_parser = SUB.add_parser(
+    "clean-articles",
+    help="Retroactively clean HTML in articles.raw_content (v1.0.3)",
+)
+
+
+def cmd_clean_articles() -> None:
+    """Run ArticleRepository.clean_all_html() and print stats.
+
+    Walks every article whose raw_content contains '<' and rewrites it
+    with plain-text output from moni.fetch.cleaner.extract_text.
+    Idempotent.
+    """
+    from ..db.repository import ArticleRepository
+
+    repo = ArticleRepository()
+    stats = repo.clean_all_html()
+    print(
+        f"clean-articles: scanned={stats['scanned']}, "
+        f"updated={stats['updated']}, unchanged={stats['unchanged']}"
+    )
+
+
 def _table_counts(conn) -> dict[str, int]:
     tables = [
         "articles", "tag_definitions", "article_tags", "share_tasks",
@@ -339,6 +364,11 @@ def main(argv: list[str] | None = None) -> int:
             dry_run=getattr(args, "dry_run", False),
             health=getattr(args, "health", False),
         )
+        return 0
+
+    if args.subcmd == "clean-articles":
+        cmd_clean_articles()
+        close_db()
         return 0
 
     PARSER.print_help()
