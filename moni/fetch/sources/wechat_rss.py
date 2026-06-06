@@ -21,12 +21,40 @@ logger = logging.getLogger(__name__)
 FEED_URL = "https://wechatrss.waytomaster.com/api/rss/all"
 
 
+def _load_token_from_envfile() -> str:
+    """Fallback: 读 .env 文件 (找 WECHAT_RSS_TOKEN=...).
+
+    v1.0.4: moni 单用户本地项目, web 服务靠 `scripts/web.sh` source .env 注入,
+    但 `python3 -m moni fetch` 直接跑没 source .env. 这里 fallback 让 fetcher
+    自身能 load token, 生产用户不必每次手动 export.
+    """
+    import os
+    from pathlib import Path
+    env_path = Path(__file__).parent.parent.parent.parent / ".env"
+    if not env_path.exists():
+        return ""
+    try:
+        for raw in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("WECHAT_RSS_TOKEN="):
+                value = line.split("=", 1)[1].strip()
+                # 去掉可能的引号
+                if value.startswith(("'", '"')) and value.endswith(("'", '"')):
+                    value = value[1:-1]
+                return value
+    except Exception as exc:
+        logger.warning("[wechat_rss] Failed to read .env: %s", exc)
+    return ""
+
+
 @register_fetcher
 class FetcherWechatRSS(BaseFetcher):
     source_name: str = "wechat_rss"
 
     def fetch(self) -> list[dict[str, Any]]:
-        token = os.environ.get("WECHAT_RSS_TOKEN", "")
+        token = os.environ.get("WECHAT_RSS_TOKEN", "") or _load_token_from_envfile()
         if not token:
             logger.error("[wechat_rss] WECHAT_RSS_TOKEN env var not set — cannot fetch")
             return []
