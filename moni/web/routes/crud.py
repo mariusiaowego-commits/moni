@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/articles", tags=["crud"])
 def _row_to_article(row: dict) -> Article:
     return Article(
         id=row["id"],
-        source_id=0,
+        source=row["source"],
         title=row["title"],
         url=row["url"],
         author=row["publisher"],

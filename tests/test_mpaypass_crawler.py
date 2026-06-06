@@ -16,6 +16,17 @@ Coverage:
  10. parse() preserves a pre-populated fixture (used by tests themselves).
  11. run() pipeline: fetch → parse → dedupe-insert works end-to-end.
  12. The /download/ filter survives the full run() pipeline.
+
+NOTE (v1.0.5 cleanup): Previously this test hardcoded the absolute path
+``/Users/mt16/dev/source-monitor/.worktrees/v1.0.3-mpaypass-deep`` and
+called ``del sys.modules['moni.*']`` to force importing from the worktree
+branch (commit 2466a47, not yet on main). That made the test depend on a
+hidden worktree and contaminated the module cache for the rest of the
+suite, causing 60+ spurious failures when run with other tests.
+
+The test now imports from the main checkout only. If main is missing
+the v1.0.3 deep-crawl API the test will fail at import time, which is
+the correct signal that the v1.0.3-P0-A branch still needs to be merged.
 """
 from __future__ import annotations
 
@@ -26,17 +37,13 @@ from unittest import mock
 
 import pytest
 
-# Ensure the worktree is importable when this file is run from anywhere.
-WT_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(WT_ROOT))
-
-# Import via the worktree path explicitly so we test this branch's source,
-# not the main checkout's editable install.
-sys.path.insert(0, '/Users/mt16/dev/source-monitor/.worktrees/v1.0.3-mpaypass-deep')
-# Drop any cached 'moni.*' so the WT copy is preferred.
-for k in list(sys.modules):
-    if k.startswith('moni'):
-        del sys.modules[k]
+# Ensure the main checkout is importable. We deliberately do NOT inject
+# any worktree path here — the test must run against the code that is
+# actually installed (the editable install at /Users/mt16/dev/source-monitor).
+TEST_DIR = Path(__file__).parent
+WT_ROOT = TEST_DIR.parent
+if str(WT_ROOT) not in sys.path:
+    sys.path.insert(0, str(WT_ROOT))
 
 from moni.fetch.sources.mpaypass import FetcherMpaypass  # noqa: E402
 

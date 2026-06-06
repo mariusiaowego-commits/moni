@@ -73,29 +73,46 @@ def isolated_db(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _isolate_moni_imports(monkeypatch):
-    """Defensive: re-import moni.* from the main checkout before each test.
+    """Defensive: ensure each test starts with a moni.* module cache that
+    points at the main checkout.
 
-    Why: tests/test_mpaypass_crawler.py does
-    ``del sys.modules[k] for k in 'moni.*'`` and re-imports from a
-    worktree. After it runs, sys.modules caches the worktree's copy of
-    ``moni.cron.*`` and subsequent test_cron tests would otherwise
-    exercise the wrong code (worktree cron/, not main cron/).
+    Why: tests/test_mpaypass_crawler.py historically hardcoded
+    ``del sys.modules[k] for k in 'moni.*'`` and re-imported from a
+    worktree. That worktree path is gone (v1.0.5 cleanup), but the
+    fixture is kept as a belt-and-braces guard.
 
-    This fixture wipes the cache and forces re-import from ``WT_ROOT``
-    (the directory this test file lives in, i.e. the main checkout),
-    then re-binds the names test_cron uses.
+    Teardown (v1.0.5): the naive approach (``yield; del sys.modules
+    ['moni.*']; reimport``) breaks the rest of the suite because every
+    ``from moni.X import Y`` at module-load time in test_share_manifest
+    etc. holds a stale class reference. When test_cron teardown wipes
+    sys.modules and the next test calls into ``moni.share.formats``,
+    that module re-imports and produces a *new* class object with the
+    same name, breaking ``pytest.raises(BadRequestError)`` identity
+    checks downstream.
+
+    The fix: snapshot the pre-test set of moni.* modules in sys.modules,
+    yield, then RESTORE that exact set.  Any module that didn't exist
+    before the test gets removed; any module that was already there
+    keeps its identity (so ``BadRequestError`` from
+    ``moni.web.exceptions`` is the same object before and after this
+    fixture runs).  We only ever ADD modules during the test itself
+    via the local re-imports; the teardown snaps everything back.
     """
-    import importlib
+    import sys as _sys
 
-    # Wipe moni.* from sys.modules
-    for k in list(sys.modules):
-        if k == "moni" or k.startswith("moni."):
-            del sys.modules[k]
+    # Snapshot the pre-test state of moni.* in sys.modules.
+    pre_modules = {
+        k: v for k, v in _sys.modules.items() if k == "moni" or k.startswith("moni.")
+    }
     # Ensure main checkout is on sys.path
     p = str(WT_ROOT)
-    if p in sys.path:
-        sys.path.remove(p)
-    sys.path.insert(0, p)
+    if p in _sys.path:
+        _sys.path.remove(p)
+    _sys.path.insert(0, p)
+    # Wipe moni.* from sys.modules so re-imports come from the main checkout
+    for k in list(_sys.modules):
+        if k == "moni" or k.startswith("moni."):
+            del _sys.modules[k]
     # Re-import the modules test_cron uses and rebind names in this
     # test_cron module's namespace
     import moni.cron
@@ -136,6 +153,19 @@ def _isolate_moni_imports(monkeypatch):
     g["fetch_scheduler_mod"] = moni.fetch.scheduler
     g["fetch_base_mod"] = moni.fetch.base
     yield
+    # Teardown: restore sys.modules to its pre-test state.  Any
+    # moni.* that was loaded before this fixture ran gets its
+    # identity back; any moni.* loaded during the test is removed.
+    # This is what makes the rest of the test suite (test_share_manifest
+    # etc.) see a stable module graph.
+    current = {k: v for k, v in _sys.modules.items() if k == "moni" or k.startswith("moni.")}
+    # Remove anything that's in current but not in pre_modules
+    for k in list(_sys.modules):
+        if (k == "moni" or k.startswith("moni.")) and k not in pre_modules:
+            del _sys.modules[k]
+    # Restore the original module objects where they existed
+    for k, v in pre_modules.items():
+        _sys.modules[k] = v
 
 
 @pytest.fixture

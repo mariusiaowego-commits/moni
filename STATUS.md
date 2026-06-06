@@ -4,20 +4,31 @@
 
 ---
 
-## 当前状态: **v1.0.3-cron** (2026-06-06)
+## 当前状态: **v1.0.5-cleanup** (2026-06-06)
 
-**主分支**: main @ 0a71c88 (v1.0.3-cron, 已 push gh, 7 个 tag)
-**Web 服务**: `127.0.0.1:8900`
-**数据库**: `data/news.db` — 10 张表, 96 articles (10 篇 36kr HTML 已被 retroactively 清洗, with_html=0)
-**测试**: 149 pass (pre-existing 2 failures 来自 36kr URL P0-C, 与本次改动无关)
-**Kanban**: t_c2db711a (T7 cron + manifest) 完成
+**主分支**: main @ 3e25f7a (v1.0.4-eval, 已 push gh, 6 个 tag) — **v1.0.5 修复未 commit, 还在 working tree**
+**Web 服务**: `127.0.0.1:8900` (200 OK)
+**数据库**: `data/news.db` — 10 张表, 76 articles (36kr_rss 43 + 36kr_newsflash 19 + qbitai 10 + wechat_rss 4)
+**测试**: **197 pass / 2 pre-existing fail** (test_fetch_integration.py — 36kr URL captcha 已知 blocker)
+**Worktree**: 1 (`.worktrees/v1.0.3-mpaypass-deep` @ 2466a47, P0-A 待 P1 做)
+**Pip 缓存**: moni editable 装在主 checkout (修复后, 不在 worktree)
 
-**2026-06-06 进展**:
-- 41 个 kanban 任务逐个 review: 18 个 ghost/verify 已 complete/archive, 6 个 PRD 过时已 archive, 1 个 CLI race 改用 archive
-- 新建 3 个 P0 任务: mpaypass deep / HTML 清洗 / 修 URL
+**2026-06-06 v1.0.5 cleanup 进展** (P0 三件套完成):
+- **P0-1 修 60 pytest fail** → 197 pass / 2 pre-existing fail
+  - `crud.py:_row_to_article()` 漏改 `source` 字段 (1 行 patch)
+  - `test_mpaypass_crawler.py` 删硬编码 worktree path (23 test 全过)
+  - `test_cron.py` autouse fixture 加 teardown 恢复 sys.modules (snapshot+restore, 47 fail → 0)
+- **P0-3 删 13 worktree** → `wt/*` 12 个 + `.worktrees/v1.0.3-mpaypass-deep` worktree 目录已删, 释放 ~75 MB
+  - 保留: P0-A active worktree (`.worktrees/v1.0.3-mpaypass-deep` 2466a47, P1 还要用)
+  - T8 未 ff 的 commit (90b1912 / af4cefb) — 本地/远端分支保留, worktree 目录删, 之后想 ff `git checkout wt/t8-cron && git diff main`
+- **P0-2 文档同步** — 见 HANDOFF.md / AGENTS.md / vibe-coding-log.md
+
+**2026-06-06 v1.0.4-eval 进展** (昨天, 已 commit 3e25f7a):
+- 41 个 kanban 任务逐个 review: 18 个 ghost/verify 已 complete/archive, 6 个 PRD 过时已 archive
+- 9 个 v1.0.4 frontend bug 修复 (merge commit 7556795)
+- 5 源端到端生产验证 PASS (commit 3e25f7a): 5/5 源真抓, 关键词 filter 真 drop 7 篇
+- wechat_rss 加 .env fallback (单用户本地友好)
 - T10 范围重拆: 薄壳模式下不做 Factory 重写, 改为"LLM 设置"web UI 只显示当前 provider
-- ✅ **t_5d661a0c 完成**: tests/test_share_manifest.py — 60 pytest 覆盖 share manifest 端到端 (5 类别)
-- ✅ **t_d9441040 完成**: moni/fetch/cleaner.py (197 行) + base.py 串入 + repository.clean_all_html() + `moni clean-articles` CLI; 26 单元测试全过; 10 篇 36kr 历史 HTML → 纯文本
 - ✅ **t_c2db711a 完成 (T7)**: scripts/default_worker.sh (348 行) + scripts/install_cron.sh (81 行) + docs/CRON.md; 5min cron 注册; sample manifest `~/.moni/queue/test-001.json` (id=test-task-001, format=markdown) + share_tasks pending row + test-article-001 文章已预置; pytest 2 个 pre-existing 失败 (test_fetch_integration.py, 36kr URL P0-C 已知)
 
 ---
@@ -103,11 +114,11 @@
 
 ```
 articles by source:
-  36kr_rss   30   (raw_content 已 retroactively 清洗, 无 HTML 残留)
-  mpaypass   66   (含 10/66 /download/ 误抓)
-  qbitai      0   (URL 首页问题, 未抓通)
-  wechat_rss  0   (token 是 13 字符占位符)
-  36kr_newsflash 0 (URL 首页是 nav, 未抓通)
+  36kr_rss          43   (raw_content 已 retroactively 清洗, 无 HTML 残留) ✅
+  36kr_newsflash    19   (P0-C 已隐式完成, f46c501 内容已 ff 进 main)
+  qbitai            10   (P0-C 已隐式完成, qbitai.py 已用 /feed RSS)
+  wechat_rss         4   (v1.0.4-eval wechat_rss 修复, .env fallback)
+  mpaypass           0   (P0-A 待做 — `.worktrees/v1.0.3-mpaypass-deep` 2466a47)
 ```
 
 ---
@@ -131,21 +142,22 @@ articles by source:
 ## 待办 (按优先级)
 
 ### 🔴 高 (影响内容质量)
-- [ ] mpaypass deep crawl (详情页 content + published_at)
-- [ ] 过滤 mpaypass `/download/` 路径 (10 篇误抓)
-- [ ] 修 36kr_newsflash URL (首页是 nav)
-- [ ] 修 qbitai URL (品牌页 403)
+- [ ] mpaypass deep crawl (详情页 content + published_at) — worktree `.worktrees/v1.0.3-mpaypass-deep` 2466a47
+- [ ] 过滤 mpaypass `/download/` 路径 (10 篇误抓) — worktree 2466a47
+- [x] 修 36kr_newsflash URL (首页是 nav) — f46c501 已 ff 进 main
+- [x] 修 qbitai URL (品牌页 403) — f46c501 已 ff 进 main
 
 ### 🟡 中 (业务体验)
-- [ ] 填 .env 完整 WECHAT_RSS_TOKEN (13 字符占位符)
-- [ ] LLM 设置 web UI (PRD §4.7 第 6 菜单)
+- [ ] 填 .env 完整 WECHAT_RSS_TOKEN — v1.0.4-eval 已完成 (4 篇入库)
+- [ ] LLM 设置 web UI (PRD §4.7 第 6 菜单) — T10 重拆后
 - [ ] 摘要/事实核查前端按钮
 
 ### 🟢 低 (清理)
-- [ ] 删 `wt/*` 目录 (30+ MB, 已 .gitignore)
+- [x] 删 `wt/*` 目录 (30+ MB, 已 .gitignore) — v1.0.5 完成 (13 worktree 删, P0-A 留)
 - [ ] 修 `moni/share/formats.py:198` datetime deprecation
-- [ ] share manifest default profile worker — **已实装 (T7, 0a71c88), T8 在其基础上跑 hermes 集成**
-- [ ] cron daemon 启动 — **已实装 (T7, install_cron.sh), T8 在其基础上跑端到端**
+- [ ] share manifest default profile worker — **T7 已实装 (0a71c88), T8 commit 90b1912 (22 test) 未 ff, 用户决定**
+- [ ] cron daemon 启动 — **T7 install_cron.sh 已实装**
+- [ ] T8 commit 90b1912 / af4cefb ff 进 main — 用户决定
 
 ---
 
