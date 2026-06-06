@@ -23,6 +23,7 @@ dist/
 
 # Worktrees + pending (v1.0.2 后)
 wt/
+.worktrees/
 .pending/
 
 # 本地收尾文档 (不上 GH, 4 个文件)
