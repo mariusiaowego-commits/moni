@@ -61,7 +61,7 @@ _DEFAULT_SOURCES = [
         "source_type": "html",
         "url": "https://36kr.com/newsflashes",
         "fetch_interval_min": 5,
-        "notes": "36氪 实时快讯。v1.0.2 抓首页尚未实现深抓。",
+        "notes": "36氪 实时快讯。v1.0.3 改为解析 div.newsflash-item 容器。",
     },
     {
         "id": "src-mpaypass",
@@ -76,10 +76,10 @@ _DEFAULT_SOURCES = [
         "id": "src-qbitai",
         "name": "qbitai",
         "display_name": "量子位",
-        "source_type": "html",
-        "url": "https://www.qbitai.com/",
+        "source_type": "rss",          # v1.0.3 改用 RSS feed (Cloudflare 403 on HTML)
+        "url": "https://www.qbitai.com/feed",
         "fetch_interval_min": 30,
-        "notes": "量子位 AI/前沿科技。范围广，需关键词过滤。",
+        "notes": "量子位 AI/前沿科技。v1.0.3 改用 RSS feed 抓取。",
     },
     {
         "id": "src-wechat-rss",

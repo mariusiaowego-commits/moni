@@ -18,8 +18,8 @@ sources:
   enabled: true
   crawler_type: rss
 - source_name: qbitai
-  type: html
-  feed_url: https://www.qbitai.com/
+  type: rss
+  feed_url: https://www.qbitai.com/feed
   fetch_interval_min: 30
   enabled: true
   crawler_type: rss
