@@ -4,13 +4,25 @@
 
 ---
 
-## 当前状态: **v1.0.5.5 — 36kr captcha bypass** (2026-06-07)
+## 当前状态: **v1.0.5.6 — wechat_rss multi-account** (2026-06-07)
 
-**主分支**: main @ 3d18821 (v1.0.5.5 tag @ 3d18821, 已 push gh, 14 个 tag)
+**主分支**: main @ 5b86616 (v1.0.5.6 tag @ 5b86616, 已 push gh, 15 个 tag)
 **Web 服务**: `127.0.0.1:8900` (200 OK)
-**数据库**: `data/news.db` — 10 张表, 93 articles (mpaypass 56 + 36kr_rss 23 + qbitai 10 + wechat_rss 4) — 36kr_newsflash 0 (disabled — React 渲染问题)
-**测试**: 217/217 pytest pass (2 skip — 36kr 集成测试需要真 Profile 7 cookie)
-**Worktree**: 1 (`.worktrees/wt-v1.0.5.5-36kr-browser`, 可保留作 debug)
+**数据库**: `data/news.db` — 10 张表, 112 articles (mpaypass 56 + 36kr_rss 35 + qbitai 12 + wechat_rss_a 4 + wechat_rss_b 1 + wechat_rss 4 legacy) — 36kr_newsflash 0 (disabled)
+**测试**: 227/227 pytest pass (2 skip — 36kr 集成测试需要真 Profile 7)
+**Worktree**: 1 (`.worktrees/wt-v1.0.5.6-wechat-multi`, 可保留作 debug)
+
+**2026-06-07 v1.0.5.6 进展** (wechat_rss 多账号支持):
+- **动机**: waytomaster 免费账户上限 2 公众号, 多个 token 可以追踪 4+ 公众号
+- **改动**:
+  - `moni/fetch/sources/wechat_rss.py`: 单 `FetcherWechatRSS` 类通过动态 subclass 注册支持 5 个 variant (wechat_rss_a..e); `_resolve_url()` 优先级: DB sources.url (含 token) > env > .env
+  - `moni/db/seed_config.py`: 加 wechat_rss_a / wechat_rss_b 两条 source, 旧 wechat_rss 保留
+  - `config/sources.yaml`: 同步 2 条新源
+  - `tests/test_wechat_multi.py`: 10 个新单测 (alias 注册, _resolve_url 优先级, parse 戳 source_name, idempotency)
+- **架构亮点**: token 不再走 env var, 直接嵌在 source.url — 前端配置管理可见; 单一代码路径, 通过 per-instance source_name 区分
+- **新加 source 是简单前端操作**: 配置管理 → 抓取源 → + 新建 source (type=wechat_aggregator, url 含 token)
+- **验证**: wechat_rss_a 4 篇 + wechat_rss_b 1 篇入库, 227 pytest pass + 2 skip
+- **新增 tag v1.0.5.6** (5b86616)
 
 **2026-06-07 v1.0.5.5 进展** (36kr captcha bypass 落地):
 - **核心**: 36kr fetcher 改走真 Chrome (Profile 7 + port 9223) → browser-harness subprocess 读 `body.innerText` → 避开 TTGCaptcha fingerprint 检测
@@ -168,18 +180,29 @@
 - ✅ 217/217 pytest pass + 2 skip
 - ✅ 36kr_rss 0 → 23 articles 入库 (一次 fetch)
 
+### ✅ v1.0.5.6 (wechat_rss multi-account, 5b86616)
+- ✅ `FetcherWechatRSS` 单类 + 动态 subclass 注册支持 5 variant (wechat_rss_a..e)
+- ✅ `_resolve_url()` 优先级: DB sources.url (含 token) > env > .env
+- ✅ `parse()` 强制戳 `self.source_name` (dedupe 按 (source, url) 联合唯一)
+- ✅ 10 新单测 (`tests/test_wechat_multi.py`): alias 注册 / URL 解析优先级 / parse source_name / idempotency
+- ✅ 227/227 pytest pass + 2 skip
+- ✅ wechat_rss_a 4 + wechat_rss_b 1 articles 入库 (token 1+2 验证)
+- ✅ DB sources 表加 2 行 (legacy wechat_rss 保留)
+
 ---
 
-## 数据现状 (2026-06-07 v1.0.5.5)
+## 数据现状 (2026-06-07 v1.0.5.6)
 
 ```
 articles by source:
   mpaypass        56  (v1.0.5 修好 deep crawl, fetch URL 锚点 + CLI gate)
-  36kr_rss        23  (v1.0.5.5 captcha bypass 落地, 真 Chrome + body.innerText)
+  36kr_rss        35  (v1.0.5.5 captcha bypass 落地, 真 Chrome + body.innerText; v1.0.5.6 累加)
+  wechat_rss       4  (v1.0.4-eval legacy, env var 路径)
+  wechat_rss_a     4  (v1.0.5.6 token 1, [未央科技weiyangx] 4 篇)
+  wechat_rss_b     1  (v1.0.5.6 token 2, 1 篇 dedupe 后)
+  qbitai          12  (v1.0.3 改 /feed RSS, 稳定抓; v1.0.5.6 累加 2)
   36kr_newsflash   0  (v1.0.5.5 标 disabled, React 渲染待 v1.0.6 重做)
-  qbitai          10  (v1.0.3 改 /feed RSS, 稳定抓)
-  wechat_rss       4  (v1.0.4-eval wechat_rss 修复, .env fallback)
-  TOTAL           93
+  TOTAL          112
 ```
 
 ---
@@ -244,6 +267,7 @@ articles by source:
 | v1.0.3-html | f1b9d47 | v1.0.3 HTML 清洗 (cleaner.py + base.py 串入 + retroactive CLI) |
 | v1.0.3-cron | 0a71c88 | v1.0.3 cron + manifest — scripts/default_worker.sh + install_cron.sh + docs/CRON.md + sample manifest (T7) |
 | v1.0.5.5 | 3d18821 | 36kr captcha bypass — Chrome Profile 7 + body.innerText 抓 RSS, 23 articles 入库, 217 pytest pass |
+| v1.0.5.6 | 5b86616 | wechat_rss multi-account — wechat_rss_a/b/c/d/e 5 variant, token 嵌 source.url, 4+1 articles, 227 pytest pass |
 | v1.0.5.4 | 54e80ae | tag-keyword 过滤 (tag_definitions.keywords JSON 数组, OR substring 匹配) |
 | v1.0.5.3 | 70ef4f5 | LLM 任务结果折叠 (查看全文/收起 按钮) |
 | v1.0.2-f.1 | 15e8020 | v1.0.2-F 按钮修复 (Alpine scope) |

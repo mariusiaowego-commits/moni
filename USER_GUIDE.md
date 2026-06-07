@@ -148,6 +148,43 @@ MONI_36KR_HEADED=1 /usr/local/bin/python3 scripts/manual_captcha.py
 - Profile 7 是 moni 专用 cookie 仓, 与 x-watch 用的 Profile 6 隔离
 - 如果 Profile 7 被 ban (持续要 captcha 怎么也过不了), 改 `MONI_CHROME_USER_DATA_DIR` env var 用 Profile 8
 
+### 4.1.2 WeChatRSS 多账号 (v1.0.5.6+)
+
+waytomaster 免费账户上限 2 公众号。多个 token 可追踪 4+ 公众号, 不付费。
+
+**当前 5 源结构**:
+
+| source_name | token 位置 | 公众号数 | 状态 |
+|---|---|---|---|
+| wechat_rss (legacy) | env var | - | 保留向后兼容 |
+| wechat_rss_a | 嵌在 source.url | 2 | ✅ 启用 |
+| wechat_rss_b | 嵌在 source.url | 2 | ✅ 启用 |
+| wechat_rss_c / d / e | 嵌在 source.url | 0 | 占位, 待加 token |
+
+**前端加新账号** (推荐, 不动代码):
+
+```
+配置管理 → 抓取源 → + 新建 source
+  id:        src-wechat-rss-c
+  name:      wechat_rss_c
+  type:      wechat_aggregator
+  url:       https://wechatrss.waytomaster.com/api/rss/all?token=完整 token
+  interval:  60
+  is_active: ✓
+```
+
+**跑一次验证**:
+
+```bash
+/usr/local/bin/python3 -m moni fetch --source wechat_rss_c
+# 应该看到 fetched=2~20 inserted=2~20 (按账号关注公众号活跃度)
+```
+
+**注意**:
+- token 必须用**完整 JWT 字符串** (不要简写 `.env` 那种前 4 后 4 形式, waytomaster 返 401 Invalid Token)
+- DB `UNIQUE(source, url)` 约束, 不同账号 (a/b/c) 即使追踪同一公众号也**不会冲突**
+- DB 里公众号名 publisher 字段**暂时为空** (v1.0.4 fetcher 没抽 dc:creator), 公众号名靠 title 前缀 `[公众号名] ...` 识别 — 改 fetcher 是 v1.0.6 范围
+
 ### 4.2 自动抓取 (cron)
 
 moni 有**两套** cron 机制:
