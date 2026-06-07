@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS articles (
     id                      TEXT PRIMARY KEY,  -- sha256(source + url + title)[:16]
     title                   TEXT NOT NULL,
     url                     TEXT NOT NULL,
-    source                  TEXT NOT NULL,      -- '36kr' | 'mpaypass' | 'qbitai' | 'wechat_rss' | ...
+    source                  TEXT NOT NULL,      -- '36kr_rss' | 'mpaypass' | 'qbitai' | 'wechat_rss_a' | ...
     publisher               TEXT,               -- 发布者（公众号名/作者）
     published_at            TEXT,               -- ISO8601，内容发布日期
     fetched_at              TEXT NOT NULL,      -- ISO8601，录入日期

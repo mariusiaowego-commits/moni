@@ -9,16 +9,17 @@
   - regulation     监管 (政策/法规/合规)
   - general-tech   通用科技 (不属于以上 4 类)
 
-4 个 sources (与 config/sources.yaml 同步, v1.0.5.8 删 36kr_newsflash):
+5 个 sources (与 config/sources.yaml 同步, v1.0.5.8 删 36kr_newsflash, v1.0.5.9 退役 wechat_rss legacy):
   - 36kr_rss         36氪 RSS          → 关联 ai-fintech
   - mpaypass         移动支付网         → 关联 banking, payment
   - qbitai           量子位            → 关联 ai-fintech
-  - wechat_rss       WeChatRSS 聚合     → 关联 general-tech
+  - wechat_rss_a     WeChatRSS 账号 A   → 关联 general-tech
+  - wechat_rss_b     WeChatRSS 账号 B   → 关联 general-tech
 
 keyword filters (黑名单为主，过滤业务无关内容):
   - 36kr_rss       blacklist 入境游/文娱/明星/游戏/影视/电商/消费/美食
   - qbitai         blacklist 机器人/自动驾驶/波士顿动力/Tesla
-  - mpaypass / wechat_rss     无 (业务天然相关或等公众号业务明确后再配)
+  - mpaypass / wechat_rss_a/b     无 (业务天然相关或等公众号业务明确后再配)
 
 可重复跑 (INSERT OR REPLACE / UPSERT)。
 """
@@ -99,7 +100,12 @@ _DEFAULT_SOURCES = [
 # source_keyword_filters rows).  Articles retain their source column
 # for historical reference.
 _RETIRED_SOURCES: list[str] = [
-    "36kr_newsflash",
+    "36kr_newsflash",  # v1.0.5.8 — React rendering + captcha, not worth fixing
+    "wechat_rss",      # v1.0.5.9 — superseded by wechat_rss_a/b which embed
+                       #               their token in the source URL.  This
+                       #               legacy source needed a WECHAT_RSS_TOKEN
+                       #               env var that no one in the project
+                       #               bothers to set any more.
 ]
 
 _DEFAULT_SOURCE_TAGS = [

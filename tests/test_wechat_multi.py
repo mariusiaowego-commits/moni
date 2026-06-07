@@ -40,7 +40,12 @@ class TestWechatRssAliasRegistration:
             assert variant in fetchers, f"{variant} missing from registry"
 
     def test_legacy_wechat_rss_still_registered(self):
-        """v1.0.4 wechat_rss name still resolves for backward compat."""
+        """v1.0.5.9: legacy 'wechat_rss' is no longer in the sources table
+        (superseded by wechat_rss_a/b), but the FetcherWechatRSS class
+        is still registered under that name so old
+        ``moni fetch --source wechat_rss`` CLI invocations keep working
+        (they resolve the URL from WECHAT_RSS_TOKEN env var).
+        """
         from moni.fetch.base import list_fetchers
         from moni.fetch.sources import wechat_rss  # noqa: F401
 

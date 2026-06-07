@@ -12,8 +12,11 @@ from moni.fetch import list_fetchers
 fetchers = list_fetchers()
 print("Fetchers registered:", list(fetchers.keys()))
 
-# v1.0.5.8: 36kr_newsflash removed.  36kr_rss covers 36kr content.
-# Run verify after pulling this branch to see the smaller set.
+# v1.0.5.8: 36kr_newsflash removed.  v1.0.5.9: legacy 'wechat_rss'
+# source retired (no longer in sources table), but FetcherWechatRSS
+# class is still registered under the "wechat_rss" name so legacy
+# `moni fetch --source wechat_rss` CLI calls still work (they
+# resolve the URL from the WECHAT_RSS_TOKEN env var).
 for name, cls in [
     ("36kr_rss", Fetcher36krRSS),
     ("mpaypass", FetcherMpaypass),

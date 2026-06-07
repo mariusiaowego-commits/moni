@@ -39,11 +39,3 @@ jobs:
     func_path: moni.fetch:run
     func_kwargs:
       source_name: "qbitai"
-
-  - id: fetch_wechat_rss
-    name: "Fetch 微信公众号RSS"
-    trigger_type: interval
-    minutes: 60
-    func_path: moni.fetch:run
-    func_kwargs:
-      source_name: "wechat_rss"
