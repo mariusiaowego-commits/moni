@@ -23,9 +23,15 @@ sources:
   fetch_interval_min: 30
   enabled: true
   crawler_type: rss
-- source_name: wechat_rss
+- source_name: wechat_rss_a
   type: rss
-  feed_url: https://wechatrss.waytomaster.com/api/rss/all
+  feed_url: https://wechatrss.waytomaster.com/api/rss/all?token=eyJhbG...u7NI
+  fetch_interval_min: 60
+  enabled: true
+  crawler_type: rss
+- source_name: wechat_rss_b
+  type: rss
+  feed_url: https://wechatrss.waytomaster.com/api/rss/all?token=eyJhbG...Yr7s
   fetch_interval_min: 60
   enabled: true
   crawler_type: rss

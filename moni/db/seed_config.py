@@ -82,13 +82,23 @@ _DEFAULT_SOURCES = [
         "notes": "量子位 AI/前沿科技。v1.0.3 改用 RSS feed 抓取。",
     },
     {
-        "id": "src-wechat-rss",
-        "name": "wechat_rss",
-        "display_name": "WeChatRSS 聚合",
+        # v1.0.5.6: WeChatRSS 拆 2 个 source (waytomaster 免费账户上限 2 公众号)
+        "id": "src-wechat-rss-a",
+        "name": "wechat_rss_a",
+        "display_name": "WeChatRSS 账号 A",
         "source_type": "wechat_aggregator",
-        "url": "https://wechatrss.waytomaster.com/api/rss/all",
+        "url": "https://wechatrss.waytomaster.com/api/rss/all?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMyIiwidHlwZSI6InJzcyJ9.gAFiD4UjeIrdQ4BNQSA5-QIV8YdpDVon4eNnisZu7NI",
         "fetch_interval_min": 60,
-        "notes": "微信公众号聚合 RSS。需要 WECHAT_RSS_TOKEN 环境变量。",
+        "notes": "WeChatRSS 账号 A，token 1（v1.0.5.6 启用）。免费账户上限 2 公众号。",
+    },
+    {
+        "id": "src-wechat-rss-b",
+        "name": "wechat_rss_b",
+        "display_name": "WeChatRSS 账号 B",
+        "source_type": "wechat_aggregator",
+        "url": "https://wechatrss.waytomaster.com/api/rss/all?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjQ5IiwidHlwZSI6InJzcyJ9._99_vOg3gSq1aLyoJxYQDZuhWaMEzP4YTcKQVKWYr7s",
+        "fetch_interval_min": 60,
+        "notes": "WeChatRSS 账号 B，token 2（v1.0.5.6 启用）。免费账户上限 2 公众号。",
     },
 ]
 
@@ -100,7 +110,8 @@ _DEFAULT_SOURCE_TAGS = [
     ("src-mpaypass", "banking"),
     ("src-mpaypass", "payment"),
     ("src-qbitai", "ai-fintech"),
-    ("src-wechat-rss", "general-tech"),
+    ("src-wechat-rss-a", "general-tech"),
+    ("src-wechat-rss-b", "general-tech"),
 ]
 
 
