@@ -4,13 +4,27 @@
 
 ---
 
-## 当前状态: **v1.0.5.8 — 36kr_newsflash 删源** (2026-06-07)
+## 当前状态: **v1.0.5.9 — legacy wechat_rss 退役** (2026-06-07)
 
-**主分支**: main @ e89cf77 (v1.0.5.8 tag @ 1aada5e, 已 push gh, 17 个 tag)
+**主分支**: main @ <docs-commit> (v1.0.5.9 tag @ 2eebbfd, 已 push gh, 18 个 tag)
 **Web 服务**: `127.0.0.1:8900` (200 OK)
-**数据库**: `data/news.db` — 10 张表, 113 articles (mpaypass 56 + 36kr_rss 35 + qbitai 12 + wechat_rss 4 + wechat_rss_a 4 + wechat_rss_b 2)
-**测试**: pytest 期望 ~242 pass + 2 skip (v1.0.5.7 244 减 newsflash 6 测试)
-**Worktree**: 1 (`.worktrees/wt-v1.0.5.8-remove-newsflash`)
+**数据库**: `data/news.db` — 10 张表, 119 articles (mpaypass 56 + 36kr_rss 39 + qbitai 12 + wechat_rss 4 legacy + wechat_rss_a 4 + wechat_rss_b 4)
+**测试**: 237 pass + 2 skip
+**Worktree**: 1 (`.worktrees/wt-v1.0.5.9-remove-legacy-wechat`)
+
+**2026-06-07 v1.0.5.9 进展** (legacy wechat_rss 退役 — 用户决策):
+- **问题**: legacy `wechat_rss` 源 is_active=1 但实际不抓 (DB url 无 token, env var fallback 需要 WECHAT_RSS_TOKEN, 用户不再设)
+- **用户决策**: 删 legacy `wechat_rss` 源, 保留 FetcherWechatRSS 类 (向后兼容 `moni fetch --source wechat_rss` CLI)
+- **改动**:
+  - `moni/db/seed_config.py`: 加 `wechat_rss` 进 _RETIRED_SOURCES (v1.0.5.8 模式扩展), 跑 `moni db init` 自动 DELETE 旧行
+  - `config/schedule.yaml`: 删 `fetch_wechat_rss` cron job
+  - `moni/db/schema.sql` + `004_sources_and_tags.sql`: 注释更新 (legacy 退役)
+  - `tests/test_wechat_multi.py` + `verify_fetchers.py`: 注释更新
+  - 修 seed docstring "4 sources" → 5 sources 准确数
+- **保留**: FetcherWechatRSS class + @register_fetcher (向后兼容 legacy CLI 调用)
+- **历史数据**: 4 篇 `source='wechat_rss'` 文章保留 (DB articles 表不删, 只删 sources 表 catalog 行)
+- **新增 tag v1.0.5.9** (2eebbfd)
+- **5 active 源全抓** ✅: 36kr_rss (30 fetched/1 inserted) + mpaypass (56/0) + qbitai (10/0) + wechat_rss_a (4/0) + wechat_rss_b (1/1)
 
 **2026-06-07 v1.0.5.8 进展** (36kr_newsflash 删源 — 用户决策):
 - **背景**: 36kr_newsflash React 客户端渲染 + captcha 限制, v1.0.5.5 captcha bypass 后 RSS 通了, newsflash 仍抓不到
@@ -309,6 +323,7 @@ articles by source:
 | v1.0.5.6 | 5b86616 | wechat_rss multi-account — wechat_rss_a/b/c/d/e 5 variant, token 嵌 source.url, 4+1 articles, 227 pytest pass |
 | v1.0.5.7 | db366ea | publisher 抽取 — title prefix [公众号名] regex fallback, + backfill-publisher CLI, 17 tests, 244 pytest pass |
 | v1.0.5.8 | 1aada5e | 36kr_newsflash 删源 — 用户决策, 36kr_rss 已覆盖, 删 source + tests + config |
+| v1.0.5.9 | 2eebbfd | legacy wechat_rss 退役 — env var 路径废, a/b 已覆盖, 删 catalog 行 + cron |
 | v1.0.5.4 | 54e80ae | tag-keyword 过滤 (tag_definitions.keywords JSON 数组, OR substring 匹配) |
 | v1.0.5.3 | 70ef4f5 | LLM 任务结果折叠 (查看全文/收起 按钮) |
 | v1.0.2-f.1 | 15e8020 | v1.0.2-F 按钮修复 (Alpine scope) |

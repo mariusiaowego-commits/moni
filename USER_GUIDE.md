@@ -56,7 +56,8 @@ bash scripts/web.sh stop
 | 36kr_rss | https://36kr.com/feed | 36氪 科技/创投 | 15 min |
 | mpaypass | https://www.mpaypass.com.cn/ | 移动支付网 银行/支付 | 30 min |
 | qbitai | https://www.qbitai.com/ | 量子位 AI (尚未抓通) | 30 min |
-| wechat_rss | https://wechatrss.waytomaster.com/api/rss/all | 微信聚合 (需 token) | 60 min |
+| wechat_rss_a | https://wechatrss.waytomaster.com/api/rss/all?token=...账号A | 微信公众号聚合 A | 60 min |
+| wechat_rss_b | https://wechatrss.waytomaster.com/api/rss/all?token=...账号B | 微信公众号聚合 B | 60 min |
 
 **新建源**: 点"+ 新建 source" → 填 id / name / url / type / interval → 保存
 **改 tags**: 行内 "改 tags" 按钮 → 多选弹窗
