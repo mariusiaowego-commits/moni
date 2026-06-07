@@ -118,6 +118,36 @@ python3 -m moni fetch --dry-run
 python3 -m moni fetch --health
 ```
 
+### 4.1.1 36kr captcha 维护 (v1.0.5.5+)
+
+36kr.com 用字节跳动 TTGCaptcha 拦截所有非浏览器客户端 (httpx 返 1460 bytes captcha HTML)。v1.0.5.5 起 36kr fetcher 走真 Chrome (Profile 7, port 9223) 抓取。
+
+**首次配置** (一次性, 30 秒):
+
+```bash
+# 1. 清残留 Chrome
+pkill -f "remote-debugging-port=9223" 2>/dev/null; sleep 1
+
+# 2. 启 headed Chrome 弹窗, 拖动 TTGCaptcha 滑块
+cd /Users/mt16/dev/source-monitor
+MONI_36KR_HEADED=1 /usr/local/bin/python3 scripts/manual_captcha.py
+# → Chrome 窗口弹出 → 36kr.com/feed 加载 → 拖滑块过 captcha
+# → terminal 按 Enter → cookie 落盘 Profile 7
+
+# 3. 验证能抓真文章
+/usr/local/bin/python3 -m moni fetch --source 36kr_rss
+# 应该看到 fetched=30 inserted=20+
+```
+
+**Cookie 失效后** (1-4 周一次, 看 36kr 风控严格度):
+
+如果 `moni fetch --source 36kr_rss` 看到 `36kr returned a captcha challenge page` 警告, 重跑步骤 2 一次。
+
+**注意事项**:
+- **不要**在本机日常工作浏览器登 36kr 触发 ban (会污染 Profile 6 风控状态)
+- Profile 7 是 moni 专用 cookie 仓, 与 x-watch 用的 Profile 6 隔离
+- 如果 Profile 7 被 ban (持续要 captcha 怎么也过不了), 改 `MONI_CHROME_USER_DATA_DIR` env var 用 Profile 8
+
 ### 4.2 自动抓取 (cron)
 
 moni 有**两套** cron 机制:

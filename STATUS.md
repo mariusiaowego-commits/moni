@@ -4,18 +4,31 @@
 
 ---
 
-## 当前状态: **v1.0.5.4 + 36kr wip** (2026-06-06)
+## 当前状态: **v1.0.5.5 — 36kr captcha bypass** (2026-06-07)
 
-**主分支**: main @ 7b6fe86 (v1.0.5.4 tag @ 54e80ae, 已 push gh, 13 个 tag)
+**主分支**: main @ 3d18821 (v1.0.5.5 tag @ 3d18821, 已 push gh, 14 个 tag)
 **Web 服务**: `127.0.0.1:8900` (200 OK)
-**数据库**: `data/news.db` — 10 张表, 70 articles (mpaypass 56 + qbitai 10 + wechat_rss 4) — 36kr 0 (captcha blocker, 详见 HANDOFF)
-**测试**: 197/199 pytest pass (2 fail 是 36kr captcha 已知 blocker)
-**Worktree**: 0
+**数据库**: `data/news.db` — 10 张表, 93 articles (mpaypass 56 + 36kr_rss 23 + qbitai 10 + wechat_rss 4) — 36kr_newsflash 0 (disabled — React 渲染问题)
+**测试**: 217/217 pytest pass (2 skip — 36kr 集成测试需要真 Profile 7 cookie)
+**Worktree**: 1 (`.worktrees/wt-v1.0.5.5-36kr-browser`, 可保留作 debug)
 
-**2026-06-06 v1.0.5.4 + 36kr wip 进展** (今晚用户睡了, 明天继续 36kr):
+**2026-06-07 v1.0.5.5 进展** (36kr captcha bypass 落地):
+- **核心**: 36kr fetcher 改走真 Chrome (Profile 7 + port 9223) → browser-harness subprocess 读 `body.innerText` → 避开 TTGCaptcha fingerprint 检测
+- **新模块**:
+  - `moni/fetch/chrome_daemon.py` — Chrome daemon 生命周期管理 (port 9223 隔离 x-watch 9222, Profile 7 隔离 x-watch Profile 6)
+  - `moni/fetch/browser_harness.py` — `js()` 包装读 body.innerText (注意: `document` 在 browser-harness REPL 里不是 Python builtin, 必须用 `js("...")`)
+  - `scripts/manual_captcha.py` — headed 模式一次性过 captcha 脚本, cookie 落 Profile 7
+- **fetcher 改动**: kr_rss + kr_newsflash 走 browser-first 路径, 失败 fallback httpx
+- **36kr_newsflash 标 disabled** — `/newsflashes` 是 React 客户端渲染, body.innerText 只能看到 nav/footer, 拿不到 flash items; 36kr_rss 已覆盖内容需求
+- **测试**: 15 新单测 (captcha detection, parser paths, env override, body extraction); 2 集成测试标 skipif (需要 MONI_36KR_INTEGRATION=1 + Profile 7 cookie)
+- **Hermes sandbox 坑修**: `chrome_daemon.CHROME_USER_DATA_DIR` 不用 `Path.home()` (会被 sandbox HOME 重定向), 硬编码 `/Users/mt16/Library/Application Support/Google/Chrome/Profile 7`
+- **验证**: 36kr_rss 0 → 23 articles (一次 fetch); pytest 217 pass + 2 skip; 全 5 端点 200 OK
+- **新增 tag v1.0.5.5** (3d18821)
+- **Cookie 失效后重抓**: 跑 `MONI_36KR_HEADED=1 python3 scripts/manual_captcha.py` 重过 captcha 一次
+
+**2026-06-06 v1.0.5.4 + 36kr wip 进展** (昨晚用户睡了, 今晚继续):
 - **v1.0.5.4** tag-keyword 过滤 (54e80ae) — 详见下方
 - **wip(36kr) 7b6fe86** — cookie loader 持久化 + fetcher 注入 cookie + User-Agent, 落了一半, cookie bypass 实际不生效 (TTGCaptcha 检 client fingerprint)
-- 推荐方案: 走 browser-harness 驱动真 Chrome 抓 (实测可拿 36kr RSS body.innerText 52KB), 明天 30 min 落地
 
 **2026-06-06 v1.0.5.4 进展** (tag-keyword 过滤):
 - 详见下方 Phase 进度 (v1.0.5.4)
@@ -145,18 +158,28 @@
 - ✅ worker 端到端验证: 跑一次后 status=running, started_at 已写入 (脚本逻辑正确; 完整 LLM 调用需要 T8 hermes 端)
 - ⚠️ 149 tests pass, 2 pre-existing failures (test_fetch_integration.py — 36kr URL P0-C 已知, 与本次改动无关)
 
+### ✅ v1.0.5.5 (36kr captcha bypass, 3d18821)
+- ✅ `moni/fetch/chrome_daemon.py` — Profile 7 / port 9223 隔离 x-watch (Profile 6 / 9222); 不依赖 `Path.home()` (hermes sandbox 会重定向)
+- ✅ `moni/fetch/browser_harness.py` — subprocess 调 `browser-harness -c`, 用 `js("document.body.innerText")` (不是裸 `document`)
+- ✅ `scripts/manual_captcha.py` — headed 模式过 captcha 一次性脚本, `MONI_36KR_HEADED=1` 触发
+- ✅ `kr_rss.py` / `kr_newsflash.py` 改走 browser-first 路径, 失败 fallback httpx (逻辑同 v1.0.5.4 cookie_loader)
+- ✅ 36kr_newsflash 标 `enabled: false` (React 渲染, body.innerText 拿不到内容)
+- ✅ 15 新单测 (`tests/test_36kr_browser.py`); 2 集成测试标 `skipif` 条件 (需 `MONI_36KR_INTEGRATION=1`)
+- ✅ 217/217 pytest pass + 2 skip
+- ✅ 36kr_rss 0 → 23 articles 入库 (一次 fetch)
+
 ---
 
-## 数据现状 (2026-06-06 v1.0.5)
+## 数据现状 (2026-06-07 v1.0.5.5)
 
 ```
 articles by source:
   mpaypass        56  (v1.0.5 修好 deep crawl, fetch URL 锚点 + CLI gate)
-  36kr_rss        43  (raw_content 已 retroactively 清洗, 无 HTML 残留)
-  36kr_newsflash  33  (P0-C 已隐式完成, f46c501 内容已 ff 进 main)
-  qbitai          14  (P0-C 已隐式完成, qbitai.py 已用 /feed RSS)
+  36kr_rss        23  (v1.0.5.5 captcha bypass 落地, 真 Chrome + body.innerText)
+  36kr_newsflash   0  (v1.0.5.5 标 disabled, React 渲染待 v1.0.6 重做)
+  qbitai          10  (v1.0.3 改 /feed RSS, 稳定抓)
   wechat_rss       4  (v1.0.4-eval wechat_rss 修复, .env fallback)
-  TOTAL          150
+  TOTAL           93
 ```
 
 ---
@@ -220,6 +243,9 @@ articles by source:
 | v1.0.4 | 7556795 | v1.0.4 frontend bug fixes (9 个 bug 修复) |
 | v1.0.3-html | f1b9d47 | v1.0.3 HTML 清洗 (cleaner.py + base.py 串入 + retroactive CLI) |
 | v1.0.3-cron | 0a71c88 | v1.0.3 cron + manifest — scripts/default_worker.sh + install_cron.sh + docs/CRON.md + sample manifest (T7) |
+| v1.0.5.5 | 3d18821 | 36kr captcha bypass — Chrome Profile 7 + body.innerText 抓 RSS, 23 articles 入库, 217 pytest pass |
+| v1.0.5.4 | 54e80ae | tag-keyword 过滤 (tag_definitions.keywords JSON 数组, OR substring 匹配) |
+| v1.0.5.3 | 70ef4f5 | LLM 任务结果折叠 (查看全文/收起 按钮) |
 | v1.0.2-f.1 | 15e8020 | v1.0.2-F 按钮修复 (Alpine scope) |
 | v1.0.2-f | 10435ce | v1.0.2-F 配置管理 UI (3 tabs) |
 | v1.0.2-c | f4a7084 | v1.0.2-C 8 config CRUD API |
