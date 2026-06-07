@@ -6,7 +6,7 @@
 
 ## 当前状态: **v1.0.5.8 — 36kr_newsflash 删源** (2026-06-07)
 
-**主分支**: main @ <待填> (v1.0.5.8 tag @ <待填>, 已 push gh, 17 个 tag)
+**主分支**: main @ e89cf77 (v1.0.5.8 tag @ 1aada5e, 已 push gh, 17 个 tag)
 **Web 服务**: `127.0.0.1:8900` (200 OK)
 **数据库**: `data/news.db` — 10 张表, 113 articles (mpaypass 56 + 36kr_rss 35 + qbitai 12 + wechat_rss 4 + wechat_rss_a 4 + wechat_rss_b 2)
 **测试**: pytest 期望 ~242 pass + 2 skip (v1.0.5.7 244 减 newsflash 6 测试)
@@ -29,7 +29,7 @@
   - `moni/fetch/run.py`: CLI help 文本更新
   - `docs/BROWSER_FETCHER_PATTERN.md`: 加 v1.0.5.8 outcome 注释
 - **保留**: TestFetcherHeaders.test_qbitai_uses_user_agent (qbitai 测试保留)
-- **新增 tag v1.0.5.8** (<待填 commit>)
+- **新增 tag v1.0.5.8** (1aada5e)
 
 **2026-06-07 v1.0.5.7 进展** (publisher 字段抽取 — 修 v1.0.5.6 P0):
 - **问题**: waytomaster RSS 没 dc:creator / author, 历史 wechat 文章 publisher 全空
@@ -308,7 +308,7 @@ articles by source:
 | v1.0.5.5 | 3d18821 | 36kr captcha bypass — Chrome Profile 7 + body.innerText 抓 RSS, 23 articles 入库, 217 pytest pass |
 | v1.0.5.6 | 5b86616 | wechat_rss multi-account — wechat_rss_a/b/c/d/e 5 variant, token 嵌 source.url, 4+1 articles, 227 pytest pass |
 | v1.0.5.7 | db366ea | publisher 抽取 — title prefix [公众号名] regex fallback, + backfill-publisher CLI, 17 tests, 244 pytest pass |
-| v1.0.5.8 | <待填> | 36kr_newsflash 删源 — 用户决策, 36kr_rss 已覆盖, 删 source + tests + config |
+| v1.0.5.8 | 1aada5e | 36kr_newsflash 删源 — 用户决策, 36kr_rss 已覆盖, 删 source + tests + config |
 | v1.0.5.4 | 54e80ae | tag-keyword 过滤 (tag_definitions.keywords JSON 数组, OR substring 匹配) |
 | v1.0.5.3 | 70ef4f5 | LLM 任务结果折叠 (查看全文/收起 按钮) |
 | v1.0.2-f.1 | 15e8020 | v1.0.2-F 按钮修复 (Alpine scope) |
