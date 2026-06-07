@@ -54,7 +54,6 @@ bash scripts/web.sh stop
 | name | URL | 抓什么 | 抓取间隔 |
 |---|---|---|---|
 | 36kr_rss | https://36kr.com/feed | 36氪 科技/创投 | 15 min |
-| 36kr_newsflash | https://36kr.com/newsflashes | 36氪 快讯 (尚未抓通) | 5 min |
 | mpaypass | https://www.mpaypass.com.cn/ | 移动支付网 银行/支付 | 30 min |
 | qbitai | https://www.qbitai.com/ | 量子位 AI (尚未抓通) | 30 min |
 | wechat_rss | https://wechatrss.waytomaster.com/api/rss/all | 微信聚合 (需 token) | 60 min |
@@ -86,7 +85,6 @@ bash scripts/web.sh stop
 |---|---|---|---|
 | 36kr_rss | blacklist | title+content | 入境游/文娱/明星/游戏/影视/电商/消费/美食 |
 | qbitai | blacklist | title+content | 机器人/自动驾驶/波士顿动力/Tesla |
-| 36kr_newsflash | blacklist | title | 盘前/盘后/股价/涨跌/股价异动 |
 
 **新建 filter**: 点"+ 新建 filter" → 选 source + mode (blacklist/whitelist) + 填 keywords (逗号分隔) → 保存
 **改 source 下拉**: 顶部下拉框可只看某源的 filter
