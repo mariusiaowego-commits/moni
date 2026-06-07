@@ -183,7 +183,7 @@ waytomaster 免费账户上限 2 公众号。多个 token 可追踪 4+ 公众号
 **注意**:
 - token 必须用**完整 JWT 字符串** (不要简写 `.env` 那种前 4 后 4 形式, waytomaster 返 401 Invalid Token)
 - DB `UNIQUE(source, url)` 约束, 不同账号 (a/b/c) 即使追踪同一公众号也**不会冲突**
-- DB 里公众号名 publisher 字段**暂时为空** (v1.0.4 fetcher 没抽 dc:creator), 公众号名靠 title 前缀 `[公众号名] ...` 识别 — 改 fetcher 是 v1.0.6 范围
+- **v1.0.5.7**: publisher 字段已修 — 自动从 title 前缀 `[公众号名]` 抽出, DB 里能看到完整公众号名; 历史数据跑 `moni backfill-publisher` 一次回填
 
 ### 4.2 自动抓取 (cron)
 

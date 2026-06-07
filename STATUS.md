@@ -4,13 +4,24 @@
 
 ---
 
-## 当前状态: **v1.0.5.6 — wechat_rss multi-account** (2026-06-07)
+## 当前状态: **v1.0.5.7 — publisher 字段抽取** (2026-06-07)
 
-**主分支**: main @ 5b86616 (v1.0.5.6 tag @ 5b86616, 已 push gh, 15 个 tag)
+**主分支**: main @ db366ea (v1.0.5.7 tag @ db366ea, 已 push gh, 16 个 tag)
 **Web 服务**: `127.0.0.1:8900` (200 OK)
-**数据库**: `data/news.db` — 10 张表, 112 articles (mpaypass 56 + 36kr_rss 35 + qbitai 12 + wechat_rss_a 4 + wechat_rss_b 1 + wechat_rss 4 legacy) — 36kr_newsflash 0 (disabled)
-**测试**: 227/227 pytest pass (2 skip — 36kr 集成测试需要真 Profile 7)
-**Worktree**: 1 (`.worktrees/wt-v1.0.5.6-wechat-multi`, 可保留作 debug)
+**数据库**: `data/news.db` — 10 张表, 113 articles (mpaypass 56 + 36kr_rss 35 + qbitai 12 + wechat_rss 4 + wechat_rss_a 4 + wechat_rss_b 2 + 其他 legacy)
+**测试**: 244/244 pytest pass (2 skip)
+**Worktree**: 1 (`.worktrees/wt-v1.0.5.7-publisher`)
+
+**2026-06-07 v1.0.5.7 进展** (publisher 字段抽取 — 修 v1.0.5.6 P0):
+- **问题**: waytomaster RSS 没 dc:creator / author, 历史 wechat 文章 publisher 全空
+- **方案**: title 前缀 `[公众号名] 文章标题` 抽公众号名作 publisher fallback
+- **改动**:
+  - `moni/fetch/sources/wechat_rss.py`: 加 `_extract_publisher_from_title()` helper, regex 支持 ASCII / full-width brackets, 可选分隔符, 1-50 字符 sanity bound
+  - author fallback 链: `dc:creator → author → title prefix` (现有 dc:creator/author 源不受影响)
+  - `moni/cli/main.py`: 加 `backfill-publisher` subcommand (idempotent 回填)
+  - `tests/test_publisher_extraction.py`: 17 新单测 (6 happy / 6 reject / 5 生产真实 title)
+- **回填结果**: 4 篇 legacy wechat_rss publisher = `未央科技weiyangx`; 1 篇新 wechat_rss_b publisher = `财金吃瓜党` 自动抽出
+- **新增 tag v1.0.5.7** (db366ea)
 
 **2026-06-07 v1.0.5.6 进展** (wechat_rss 多账号支持):
 - **动机**: waytomaster 免费账户上限 2 公众号, 多个 token 可以追踪 4+ 公众号
@@ -189,6 +200,15 @@
 - ✅ wechat_rss_a 4 + wechat_rss_b 1 articles 入库 (token 1+2 验证)
 - ✅ DB sources 表加 2 行 (legacy wechat_rss 保留)
 
+### ✅ v1.0.5.7 (publisher 字段抽取, db366ea)
+- ✅ `_extract_publisher_from_title()` regex: ASCII/全角 brackets + 可选分隔符 + 1-50 字符 sanity bound
+- ✅ author fallback 链: dc:creator → author → title prefix (现有源不受影响)
+- ✅ `moni backfill-publisher` CLI: 一次性回填历史, idempotent
+- ✅ 17 新单测 (`tests/test_publisher_extraction.py`): 6 happy / 6 reject / 5 生产真实 title
+- ✅ 244/244 pytest pass + 2 skip
+- ✅ 4 篇 legacy wechat_rss publisher 回填 → `未央科技weiyangx`
+- ✅ 1 篇新 wechat_rss_b publisher 实时抽 → `财金吃瓜党`
+
 ---
 
 ## 数据现状 (2026-06-07 v1.0.5.6)
@@ -268,6 +288,7 @@ articles by source:
 | v1.0.3-cron | 0a71c88 | v1.0.3 cron + manifest — scripts/default_worker.sh + install_cron.sh + docs/CRON.md + sample manifest (T7) |
 | v1.0.5.5 | 3d18821 | 36kr captcha bypass — Chrome Profile 7 + body.innerText 抓 RSS, 23 articles 入库, 217 pytest pass |
 | v1.0.5.6 | 5b86616 | wechat_rss multi-account — wechat_rss_a/b/c/d/e 5 variant, token 嵌 source.url, 4+1 articles, 227 pytest pass |
+| v1.0.5.7 | db366ea | publisher 抽取 — title prefix [公众号名] regex fallback, + backfill-publisher CLI, 17 tests, 244 pytest pass |
 | v1.0.5.4 | 54e80ae | tag-keyword 过滤 (tag_definitions.keywords JSON 数组, OR substring 匹配) |
 | v1.0.5.3 | 70ef4f5 | LLM 任务结果折叠 (查看全文/收起 按钮) |
 | v1.0.2-f.1 | 15e8020 | v1.0.2-F 按钮修复 (Alpine scope) |
