@@ -11,8 +11,11 @@ which does not exist in the static HTML, so it always returned 0 items.
 Also adds a User-Agent header — 36kr's nginx does not require it, but having a
 realistic UA matches the other fetchers and reduces the chance of a future
 CDN returning 403.
-"""
 
+v1.0.5.5: same captcha-bypass switch as Fetcher36krRSS — the page is
+fetched through a real Chrome (Profile 7) when available, falling back
+to httpx for sandboxed environments.
+"""
 from __future__ import annotations
 
 import logging
@@ -24,6 +27,8 @@ import httpx
 from bs4 import BeautifulSoup
 
 from ..base import BaseFetcher, register_fetcher
+from ..browser_harness import fetch_body_innertext
+from ..cookie_loader import load_cookies_for
 
 logger = logging.getLogger(__name__)
 
@@ -42,59 +47,61 @@ DEFAULT_HEADERS = {
 }
 
 
+def _fetch_via_browser() -> str | None:
+    return fetch_body_innertext(FEED_URL, settle_s=4.0)
+
+
+def _fetch_via_httpx() -> str | None:
+    cookies = load_cookies_for("36kr")
+    try:
+        resp = httpx.get(
+            FEED_URL,
+            headers=DEFAULT_HEADERS,
+            cookies=cookies or None,
+            timeout=15.0,
+            follow_redirects=True,
+        )
+        resp.raise_for_status()
+        return resp.text
+    except httpx.HTTPStatusError as exc:
+        logger.error(
+            "[36kr_newsflash] HTTP %s fetching %s",
+            exc.response.status_code, exc.request.url,
+        )
+        return None
+    except httpx.TimeoutException:
+        logger.error("[36kr_newsflash] Timeout fetching %s", FEED_URL)
+        return None
+    except Exception as exc:
+        logger.error("[36kr_newsflash] Unexpected error fetching %s: %s", FEED_URL, exc)
+        return None
+
+
 @register_fetcher
 class Fetcher36krNewsflash(BaseFetcher):
     source_name: str = "36kr_newsflash"
 
     def fetch(self) -> list[dict[str, Any]]:
-        # v1.0.5.5: same cookie bypass as Fetcher36krRSS — see the
-        # note in that module.  load_cookies_for is a no-op if the
-        # cookie file is missing.
-        from ..cookie_loader import load_cookies_for
-
-        cookies = load_cookies_for("36kr")
-        try:
-            resp = httpx.get(
-                FEED_URL,
-                headers=DEFAULT_HEADERS,
-                cookies=cookies or None,
-                timeout=15.0,
-                follow_redirects=True,
-            )
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            logger.error(
-                "[36kr_newsflash] HTTP %s fetching %s",
-                exc.response.status_code,
-                exc.request.url,
-            )
-            return []
-        except httpx.TimeoutException:
-            logger.error("[36kr_newsflash] Timeout fetching %s", FEED_URL)
-            return []
-        except Exception as exc:
-            logger.error(
-                "[36kr_newsflash] Unexpected error fetching %s: %s", FEED_URL, exc
-            )
+        body = _fetch_via_browser()
+        if body is None:
+            logger.info("[36kr_newsflash] browser path failed — falling back to httpx")
+            body = _fetch_via_httpx()
+        if not body:
             return []
 
-        try:
-            soup = BeautifulSoup(resp.text, "html.parser")
-        except Exception as exc:
-            logger.error("[36kr_newsflash] Failed to parse HTML: %s", exc)
-            return []
-
-        # v1.0.3: detect captcha / bot-challenge page and warn clearly.
-        # 36kr's edge returns a small HTML page with TTGCaptcha when the
-        # request is fingerprint-flagged. We do not crash — the captcha
-        # is a transient infra issue, not a fetcher bug.
-        if "TTGCaptcha" in resp.text or "captcha" in resp.text.lower() and len(resp.text) < 5000:
+        if "TTGCaptcha" in body or "captcha" in body.lower() and len(body) < 5000:
             logger.warning(
                 "[36kr_newsflash] 36kr returned a captcha challenge page "
                 "(size=%d). Fetching will be skipped until the bot-detection "
-                "cools down. This is not a fetcher bug.",
-                len(resp.text),
+                "cools down. Re-run with MONI_36KR_HEADED=1 to refresh cookies.",
+                len(body),
             )
+            return []
+
+        try:
+            soup = BeautifulSoup(body, "html.parser")
+        except Exception as exc:
+            logger.error("[36kr_newsflash] Failed to parse HTML: %s", exc)
             return []
 
         articles: list[dict[str, Any]] = []

@@ -108,15 +108,22 @@ class _FakeResp:
 
 
 class Test36krNewsflashParser:
-    """36kr newsflash v1.0.3 — parse <div class=newsflash-item> containers."""
+    """36kr newsflash v1.0.3 — parse <div class=newsflash-item> containers.
+
+    v1.0.5.5: the fetcher now goes through ``_fetch_via_browser`` first
+    (Chrome + body.innerText) before falling back to ``httpx``.  These
+    tests mock the browser entry point so the parser logic is exercised
+    in isolation, regardless of which fetch path returns the body.
+    """
 
     def test_fetch_extracts_items_from_cached_html(self):
         """The new parser pulls 3 items from a representative 36kr newsflash page."""
+        from moni.fetch.sources import kr_newsflash
         from moni.fetch.sources.kr_newsflash import Fetcher36krNewsflash
 
-        with patch(
-            "moni.fetch.sources.kr_newsflash.httpx.get",
-            return_value=_FakeResp(CACHED_KR_NEWSFLASH_HTML),
+        with patch.object(
+            kr_newsflash, "_fetch_via_browser",
+            return_value=CACHED_KR_NEWSFLASH_HTML,
         ):
             fetcher = Fetcher36krNewsflash()
             items = fetcher.fetch()
@@ -241,15 +248,22 @@ class TestQbitaiParser:
 
 
 class TestFetcherHeaders:
-    """Both fetchers should send realistic User-Agent headers."""
+    """Both fetchers should send realistic User-Agent headers.
+
+    v1.0.5.5: the httpx path now lives in ``_fetch_via_httpx``, not in
+    ``Fetcher36krNewsflash.fetch`` directly.  Force the fetcher down
+    the httpx path by making ``_fetch_via_browser`` return None, then
+    assert on the httpx call's headers (httpx is only invoked by the
+    fallback path).
+    """
 
     def test_36kr_newsflash_uses_user_agent(self):
+        from moni.fetch.sources import kr_newsflash
         from moni.fetch.sources.kr_newsflash import Fetcher36krNewsflash
 
-        with patch(
-            "moni.fetch.sources.kr_newsflash.httpx.get",
-            return_value=_FakeResp(CACHED_KR_NEWSFLASH_HTML),
-        ) as mock_get:
+        with patch.object(kr_newsflash, "_fetch_via_browser", return_value=None), \
+             patch("httpx.get",
+                   return_value=_FakeResp(CACHED_KR_NEWSFLASH_HTML)) as mock_get:
             Fetcher36krNewsflash().fetch()
 
         _, kwargs = mock_get.call_args

@@ -9,7 +9,7 @@ sources:
   type: html
   feed_url: https://36kr.com/newsflashes
   fetch_interval_min: 5
-  enabled: true
+  enabled: false
   crawler_type: rss
 - source_name: mpaypass
   type: html
