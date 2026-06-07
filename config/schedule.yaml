@@ -24,14 +24,6 @@ jobs:
     func_kwargs:
       source_name: "36kr_rss"
 
-  - id: fetch_36kr_newsflash
-    name: "Fetch 36氪快讯"
-    trigger_type: interval
-    minutes: 5
-    func_path: moni.fetch:run
-    func_kwargs:
-      source_name: "36kr_newsflash"
-
   - id: fetch_mpaypass
     name: "Fetch 移动支付网"
     trigger_type: interval

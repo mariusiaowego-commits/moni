@@ -5,12 +5,6 @@ sources:
   fetch_interval_min: 15
   enabled: true
   crawler_type: rss
-- source_name: 36kr_newsflash
-  type: html
-  feed_url: https://36kr.com/newsflashes
-  fetch_interval_min: 5
-  enabled: false
-  crawler_type: rss
 - source_name: mpaypass
   type: html
   feed_url: https://mpaypass.com.cn/

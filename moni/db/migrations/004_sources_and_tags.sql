@@ -13,7 +13,7 @@
 -- ── sources 表 ──────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sources (
     id                  TEXT PRIMARY KEY,        -- uuid4 (slug from name)
-    name                TEXT NOT NULL UNIQUE,   -- '36kr_rss' | 'mpaypass' | 'qbitai' | 'wechat_rss' | '36kr_newsflash'
+    name                TEXT NOT NULL UNIQUE,   -- '36kr_rss' | 'mpaypass' | 'qbitai' | 'wechat_rss' (v1.0.5.8: 36kr_newsflash removed)
     display_name        TEXT,                   -- '36氪 RSS' (给 UI 看)
     source_type         TEXT NOT NULL,           -- 'rss' | 'html' | 'api' | 'wechat_aggregator'
     url                 TEXT NOT NULL,           -- 列表/首页 URL

@@ -38,7 +38,7 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="source_name",
         metavar="NAME",
         help=(
-            "Source name prefix to match (e.g. '36kr' matches '36kr_rss', '36kr_newsflash'). "
+            "Source name prefix to match (e.g. '36kr' matches '36kr_rss'). "
             "Omit to fetch all enabled sources."
         ),
     )

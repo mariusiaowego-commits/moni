@@ -1,7 +1,10 @@
 """moni.fetch.sources — individual fetcher implementations go here."""
 
 from . import kr_rss      # noqa: F401 — registers Fetcher36krRSS
-from . import kr_newsflash  # noqa: F401 — registers Fetcher36krNewsflash
+# v1.0.5.8: removed Fetcher36krNewsflash — 36kr RSS feed already covers
+# 36kr content; the React-rendered /newsflashes page wasn't reliably
+# extractable via the captcha-bypassing browser path.  The source row
+# is removed from DB and config/sources.yaml.
 from . import mpaypass     # noqa: F401 — registers FetcherMpaypass
 from . import qbitai       # noqa: F401 — registers FetcherQbitai
 from . import wechat_rss   # noqa: F401 — registers FetcherWechatRSS

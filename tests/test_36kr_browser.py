@@ -51,16 +51,9 @@ SAMPLE_CAPTCHA_HTML = """<html><head>
 </head><body></body></html>"""
 
 
-SAMPLE_NEWSFLASH_HTML = """<html><body>
-<div class="newsflash-item">
-  <a class="item-title" href="/newsflashes/abc">测试新闻 1</a>
-  <span class="time">10分钟前</span>
-</div>
-<div class="newsflash-item">
-  <a class="item-title" href="https://36kr.com/newsflashes/def">测试新闻 2</a>
-  <span class="time">昨天 14:30</span>
-</div>
-</body></html>"""
+# v1.0.5.8: removed SAMPLE_NEWSFLASH_HTML — 36kr_newsflash is gone.
+# The captcha detection logic is still useful (it applies to 36kr_rss
+# too), so its test class stays.
 
 
 # ── captcha-detection unit tests (pure logic, no fetcher) ──────────────────
@@ -159,32 +152,9 @@ class TestKRRSSTParser:
 # ── Newsflash parsing happy path ──────────────────────────────────────────
 
 
-class TestKRNewsflashParser:
-    def test_browser_returns_html(self):
-        from moni.fetch.sources import kr_newsflash
-        from moni.fetch.sources.kr_newsflash import Fetcher36krNewsflash
-
-        with patch.object(kr_newsflash, "_fetch_via_browser", return_value=SAMPLE_NEWSFLASH_HTML), \
-             patch.object(kr_newsflash, "_fetch_via_httpx", return_value=None) as http_fb:
-            fetcher = Fetcher36krNewsflash()
-            articles = fetcher.fetch()
-            assert http_fb.call_count == 0
-            assert len(articles) == 2
-            assert articles[0]["title"] == "测试新闻 1"
-            assert articles[0]["url"] == "https://36kr.com/newsflashes/abc"
-            # 10 minutes ago → published_at is roughly now - 10min
-            assert articles[0]["published_at"] is not None
-            # absolute URL stays absolute
-            assert articles[1]["url"] == "https://36kr.com/newsflashes/def"
-
-    def test_browser_returns_captcha_falls_through(self):
-        from moni.fetch.sources import kr_newsflash
-        from moni.fetch.sources.kr_newsflash import Fetcher36krNewsflash
-
-        with patch.object(kr_newsflash, "_fetch_via_browser", return_value=SAMPLE_CAPTCHA_HTML), \
-             patch.object(kr_newsflash, "_fetch_via_httpx", return_value=None):
-            fetcher = Fetcher36krNewsflash()
-            assert fetcher.fetch() == []
+# v1.0.5.8: removed TestKRNewsflashParser — 36kr_newsflash is gone,
+# the captcha detection it tested is already covered by the
+# TestCaptchaDetection class above.
 
 
 # ── chrome_daemon: ensure_chrome doesn't try to spawn in tests ────────────

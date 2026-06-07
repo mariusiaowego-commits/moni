@@ -195,6 +195,10 @@ class Fetcher36krSolved(BaseFetcher):
 
 **最实际。** moni 现在 5 个源（mpaypass / qbitai / wechat_rss / 36kr_rss / 36kr_newsflash），其中 4 个正常抓，36kr 两个源都 0 items。fetcher 已经在 graceful degrade：
 
+> **v1.0.5.8 outcome**: 36kr_rss 走 captcha-bypass 真 Chrome 路径修好 (v1.0.5.5, 35 articles)。
+> 36kr_newsflash 因为 React 客户端渲染 + captcha 限制, 抓取没修通; 用户决定**彻底删除**
+> (不再作为源), 36kr_rss 已经覆盖 36kr 全部内容。 见 STATUS.md v1.0.5.8 段。
+
 ```python
 # kr_newsflash.py:84-91
 if "TTGCaptcha" in resp.text or "captcha" in resp.text.lower() and len(resp.text) < 5000:

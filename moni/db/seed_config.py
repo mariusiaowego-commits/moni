@@ -9,9 +9,8 @@
   - regulation     监管 (政策/法规/合规)
   - general-tech   通用科技 (不属于以上 4 类)
 
-5 个 sources (与 config/sources.yaml 同步):
+4 个 sources (与 config/sources.yaml 同步, v1.0.5.8 删 36kr_newsflash):
   - 36kr_rss         36氪 RSS          → 关联 ai-fintech
-  - 36kr_newsflash   36氪 快讯         → 关联 general-tech
   - mpaypass         移动支付网         → 关联 banking, payment
   - qbitai           量子位            → 关联 ai-fintech
   - wechat_rss       WeChatRSS 聚合     → 关联 general-tech
@@ -19,7 +18,6 @@
 keyword filters (黑名单为主，过滤业务无关内容):
   - 36kr_rss       blacklist 入境游/文娱/明星/游戏/影视/电商/消费/美食
   - qbitai         blacklist 机器人/自动驾驶/波士顿动力/Tesla
-  - 36kr_newsflash blacklist 盘前/盘后/股价/涨跌/股价异动
   - mpaypass / wechat_rss     无 (业务天然相关或等公众号业务明确后再配)
 
 可重复跑 (INSERT OR REPLACE / UPSERT)。
@@ -53,15 +51,6 @@ _DEFAULT_SOURCES = [
         "url": "https://36kr.com/feed",
         "fetch_interval_min": 15,
         "notes": "36氪 科技/创投资讯。范围广，需关键词过滤业务无关内容。",
-    },
-    {
-        "id": "src-36kr-newsflash",
-        "name": "36kr_newsflash",
-        "display_name": "36氪 快讯",
-        "source_type": "html",
-        "url": "https://36kr.com/newsflashes",
-        "fetch_interval_min": 5,
-        "notes": "36氪 实时快讯。v1.0.3 改为解析 div.newsflash-item 容器。",
     },
     {
         "id": "src-mpaypass",
@@ -104,9 +93,17 @@ _DEFAULT_SOURCES = [
 
 
 # ── Source ↔ Tag 关联 ──────────────────────────────────────────────────────
+# v1.0.5.8: list of source names that USED to be seeded but no longer
+# are.  Running seed() will DELETE these rows from the sources table
+# (and CASCADE-deletes the related source_tags and
+# source_keyword_filters rows).  Articles retain their source column
+# for historical reference.
+_RETIRED_SOURCES: list[str] = [
+    "36kr_newsflash",
+]
+
 _DEFAULT_SOURCE_TAGS = [
     ("src-36kr-rss", "ai-fintech"),
-    ("src-36kr-newsflash", "general-tech"),
     ("src-mpaypass", "banking"),
     ("src-mpaypass", "payment"),
     ("src-qbitai", "ai-fintech"),
@@ -131,13 +128,6 @@ _DEFAULT_FILTERS = [
         "keywords": ["机器人", "自动驾驶", "波士顿动力", "Tesla"],
         "notes": "量子位多 AI 机器人/自动驾驶，过滤非金融 AI。",
     },
-    {
-        "source_id": "src-36kr-newsflash",
-        "mode": "blacklist",
-        "match_field": "title",
-        "keywords": ["盘前", "盘后", "股价", "涨跌", "股价异动"],
-        "notes": "快讯里炒股内容不算业务核心。",
-    },
 ]
 
 
@@ -146,9 +136,26 @@ def _now() -> str:
 
 
 def seed() -> None:
-    """Insert or update config seed data. Idempotent."""
+    """Insert or update config seed data. Idempotent.
+
+    v1.0.5.8: also drops sources that were once seeded but have
+    since been removed from this file.  The set of "retired" source
+    names lives in ``_RETIRED_SOURCES`` below; running seed() after
+    a release that retires a source will DELETE the old row, its
+    source_tags entries, and its source_keyword_filters entries.
+    Articles that reference a retired source keep their source
+    column (weakly coupled — see migration 004) so history is
+    preserved.
+    """
     conn = get_db()
     now = _now()
+
+    # ── v1.0.5.8: retire sources removed in this release ─────────────
+    # The seed function only knows how to upsert; explicit DELETEs
+    # are needed when a source leaves the catalog.  CASCADE on
+    # source_tags / source_keyword_filters handles the related rows.
+    for retired in _RETIRED_SOURCES:
+        conn.execute("DELETE FROM sources WHERE name = ?", (retired,))
 
     # ── tag_definitions (复用已有表) ────────────────────────────────────
     for name, desc, color in _DEFAULT_TAGS:

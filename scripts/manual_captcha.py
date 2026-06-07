@@ -61,8 +61,9 @@ from moni.fetch.chrome_daemon import (  # noqa: E402
 )
 
 URLS = [
+    # v1.0.5.8: /newsflashes removed (36kr_newsflash is gone).  Only
+    # the RSS feed URL is opened now.
     "https://36kr.com/feed",
-    "https://36kr.com/newsflashes",
 ]
 
 
@@ -134,7 +135,6 @@ def main() -> int:
     print()
     print("Next steps:")
     print("  python3 -m moni fetch --source 36kr_rss        # verify RSS works")
-    print("  python3 -m moni fetch --source 36kr_newsflash  # verify newsflash works")
     print()
     return 0
 
