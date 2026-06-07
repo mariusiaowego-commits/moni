@@ -6,11 +6,11 @@
 
 ## 当前状态: **v1.0.5.9 — legacy wechat_rss 退役** (2026-06-07)
 
-**主分支**: main @ 915886a (v1.0.5.9 tag @ 2eebbfd, 已 push gh, 18 个 tag)
+**主分支**: main @ 81e7cef (v1.0.5.9 tag @ 2eebbfd, 已 push gh, 22 个 tag)
 **Web 服务**: `127.0.0.1:8900` (200 OK)
 **数据库**: `data/news.db` — 10 张表, 119 articles (mpaypass 56 + 36kr_rss 39 + qbitai 12 + wechat_rss 4 legacy + wechat_rss_a 4 + wechat_rss_b 4)
 **测试**: 237 pass + 2 skip
-**Worktree**: 1 (`.worktrees/wt-v1.0.5.9-remove-legacy-wechat`)
+**Worktree**: 0
 
 **2026-06-07 v1.0.5.9 进展** (legacy wechat_rss 退役 — 用户决策):
 - **问题**: legacy `wechat_rss` 源 is_active=1 但实际不抓 (DB url 无 token, env var fallback 需要 WECHAT_RSS_TOKEN, 用户不再设)
