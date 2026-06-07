@@ -6,7 +6,7 @@
 
 ## 当前状态: **v1.0.5.9 — legacy wechat_rss 退役** (2026-06-07)
 
-**主分支**: main @ 81e7cef (v1.0.5.9 tag @ 2eebbfd, 已 push gh, 22 个 tag)
+**主分支**: main @ defdfaf (v1.0.5.9 tag @ 2eebbfd, 已 push gh, 22 个 tag)
 **Web 服务**: `127.0.0.1:8900` (200 OK)
 **数据库**: `data/news.db` — 10 张表, 119 articles (mpaypass 56 + 36kr_rss 39 + qbitai 12 + wechat_rss 4 legacy + wechat_rss_a 4 + wechat_rss_b 4)
 **测试**: 237 pass + 2 skip

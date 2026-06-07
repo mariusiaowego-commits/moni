@@ -155,10 +155,11 @@ waytomaster 免费账户上限 2 公众号。多个 token 可追踪 4+ 公众号
 
 | source_name | token 位置 | 公众号数 | 状态 |
 |---|---|---|---|
-| wechat_rss (legacy) | env var | - | 保留向后兼容 |
 | wechat_rss_a | 嵌在 source.url | 2 | ✅ 启用 |
 | wechat_rss_b | 嵌在 source.url | 2 | ✅ 启用 |
 | wechat_rss_c / d / e | 嵌在 source.url | 0 | 占位, 待加 token |
+
+> **v1.0.5.9**: legacy `wechat_rss` 退役 (DB 不再 seed, env var 路径废). `moni fetch --source wechat_rss` CLI 仍能用 (走 WECHAT_RSS_TOKEN env var). 4 篇历史文章 `source='wechat_rss'` 保留.
 
 **前端加新账号** (推荐, 不动代码):
 
@@ -323,8 +324,6 @@ python3 -m moni db export json > backup-$(date +%F).json
 
 ## 8. 已知小问题 (不影响主流程)
 
-- **36kr_newsflash / qbitai** 没抓通 (首页问题, 待 v1.0.2-G 修)
-- **wechat_rss** 没抓通 (`.env` token 是 13 字符占位符, 待你给完整 token)
 - **36kr 30 篇老数据** 内容是 HTML 未清洗 (v1.0.2-E 待做)
 - **mpaypass 10/66** 是 `/download/` 误抓 (v1.0.2-D 待过滤)
 - **`/api/llm/token-log` 路径** 之前 404 (v1.0.1 已修)
