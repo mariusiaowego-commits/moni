@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Any
 from xml.etree import ElementTree as ET
@@ -34,6 +35,45 @@ DEFAULT_FEED_URL = "https://wechatrss.waytomaster.com/api/rss/all"
 # Marker for "the env-var / WECHAT_RSS_TOKEN path".  We import the
 # constant here so linters don't choke on the missing real value.
 _ENV_TOKEN_NAME = "WECHAT_RSS_TOKEN"
+# v1.0.5.7: title-prefix publisher extractor.
+#
+# waytomaster's RSS items arrive as ``[公众号名] 文章标题``.  Older items
+# occasionally have a leading whitespace, an emoji, or a full-width
+# bracket (``［公众号名］``).  The regex below accepts both bracket
+# styles and tolerates a leading separator (space, colon, dash, full-
+# width colon).  Returns an empty string when the title doesn't match
+# the prefix convention so the caller can fall through to whatever
+# other extraction logic it has.
+_TITLE_PUBLISHER_RE = re.compile(
+    r"""^\s*
+        [\[\uFF3B]            # [ or full-width ［
+        (?P<name>[^\]\uFF3D]+?)   # anything until the matching bracket
+        [\]\uFF3D]            # ] or full-width ］
+        \s*[:：\-\s]?         # optional separator
+    """,
+    re.VERBOSE,
+)
+
+
+def _extract_publisher_from_title(title: str) -> str:
+    """Pull the public-account name out of a ``[xxx]`` title prefix.
+
+    Returns an empty string if the title doesn't follow the prefix
+    convention.  Never raises; bad input → empty string (caller
+    treats that as "no publisher, store NULL").
+    """
+    if not title:
+        return ""
+    m = _TITLE_PUBLISHER_RE.match(title)
+    if not m:
+        return ""
+    name = m.group("name").strip()
+    # Sanity bound: a real public-account name fits in 1-50 chars.
+    # Anything longer is almost certainly a title with a single
+    # bracket that doesn't denote a prefix at all.
+    if 1 <= len(name) <= 50:
+        return name
+    return ""
 
 
 def _load_token_from_envfile() -> str:
@@ -144,11 +184,19 @@ class FetcherWechatRSS(BaseFetcher):
                 description = (item.findtext("description") or "").strip()
                 pub_text = item.findtext("pubDate")
 
-                # Extract author from <dc:creator> or <author>
+                # v1.0.5.7: extract the publisher with a layered fallback.
+                # waytomaster's RSS doesn't emit <dc:creator> or <author>,
+                # so historically this field was always empty.  The
+                # public-account name DOES appear in the title prefix as
+                # ``[公众号名] 文章标题``, so we fall back to parsing that
+                # when the explicit author tags are missing.  dc:creator
+                # / author still win when present (some RSS feeds do
+                # emit them, and the title-prefix format is brittle
+                # enough that we shouldn't override a real value with it).
                 author = (
                     item.findtext("dc:creator")
                     or item.findtext("author")
-                    or ""
+                    or _extract_publisher_from_title(title)
                 ).strip()
 
                 published_at: str | None = None

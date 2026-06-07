@@ -102,6 +102,58 @@ def cmd_clean_articles() -> None:
     )
 
 
+# ── backfill-publisher subcommand (v1.0.5.7) ─────────────────────────────────
+
+backfill_publisher_parser = SUB.add_parser(
+    "backfill-publisher",
+    help=(
+        "Retroactively extract publisher from title prefixes for "
+        "articles where it's NULL/empty (v1.0.5.7).  Applies to "
+        "WeChatRSS-sourced items with titles like ``[公众号名] 文章``."
+    ),
+)
+
+
+def cmd_backfill_publisher() -> None:
+    """Walk all articles with empty publisher, try title prefix regex.
+
+    Updates ``articles.publisher`` when the regex extracts a non-empty
+    name.  Idempotent — running it twice in a row produces no
+    second-pass changes (because publisher is no longer NULL).
+
+    The implementation lives in the fetcher module to keep the
+    extraction logic in one place (single source of truth).  We
+    import it lazily so the CLI doesn't pay the wechat_rss import
+    cost for unrelated subcommands.
+    """
+    from ..fetch.sources.wechat_rss import _extract_publisher_from_title
+    from ..db.connection import get_db
+
+    conn = get_db()
+    candidates = conn.execute(
+        "SELECT id, title FROM articles "
+        "WHERE publisher IS NULL OR TRIM(publisher) = ''"
+    ).fetchall()
+    scanned = len(candidates)
+    updated = 0
+    unchanged = 0
+    for row in candidates:
+        extracted = _extract_publisher_from_title(row["title"] or "")
+        if extracted:
+            conn.execute(
+                "UPDATE articles SET publisher = ? WHERE id = ?",
+                (extracted, row["id"]),
+            )
+            updated += 1
+        else:
+            unchanged += 1
+    conn.commit()
+    print(
+        f"backfill-publisher: scanned={scanned}, "
+        f"updated={updated}, unchanged={unchanged}"
+    )
+
+
 def _table_counts(conn) -> dict[str, int]:
     tables = [
         "articles", "tag_definitions", "article_tags", "share_tasks",
@@ -368,6 +420,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.subcmd == "clean-articles":
         cmd_clean_articles()
+        close_db()
+        return 0
+
+    if args.subcmd == "backfill-publisher":
+        cmd_backfill_publisher()
         close_db()
         return 0
 
