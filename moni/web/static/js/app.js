@@ -1,6 +1,23 @@
 // Root Alpine component — single source of truth for all state and methods
 function app() {
   return {
+    // v1.0.5.12: curated 8-color palette for /config > Tags > color picker.
+    // Sourced from /Users/mt16/dev/uiux-asset-library so the tag chip
+    // colours stay visually consistent with the rest of the SPA
+    // (calendar-date-picker violet, dizi v1 gold, dizi v2 red, plus
+    // the moni sidebar dark and 2 utility neutrals).  Users pick
+    // from this list — no more typing hex by hand.
+    TAG_COLOR_PALETTE: [
+      { hex: '#DC2626', label: '红'    },  // Tailwind red-600   — dizi v2 / urgent
+      { hex: '#EA580C', label: '橙'    },  // Tailwind orange-600
+      { hex: '#E7BC68', label: '金'    },  // dizi v1 accent gold
+      { hex: '#16A34A', label: '绿'    },  // Tailwind green-600
+      { hex: '#2563EB', label: '蓝'    },  // Tailwind blue-600
+      { hex: '#8A71E8', label: '紫罗兰' },  // calendar-date-picker primary
+      { hex: '#6B7280', label: '灰'    },  // Tailwind gray-500
+      { hex: '#1a1a2e', label: '深空'  },  // moni sidebar dark
+    ],
+
     // ── Navigation ────────────────────────────────────────────────
     currentView: 'articles',
 
@@ -603,14 +620,25 @@ function app() {
 
     addToQueue() {
       if (!this.selectedArticleIds.length) { alert('请先选择文章'); return; }
-      // v1.0 manifest pipeline: POST /api/share 接受单 article_id 一次
-      // 当前是批量: 第一篇文章先建 task, 其余 article_ids 后续走 manifest 扩展
-      // 这里走 v1.0 batch endpoint /api/share/queue
-      fetch('/api/share/queue', {
+      // v1.0.5.12: backend POST /api/share (not /api/share/queue).
+      // The 405 we were seeing was a path mismatch — there is no
+      // /api/share/queue endpoint; the actual handler is @router.post("")
+      // on the share router, mounted at /api/share.
+      //
+      // v1.0.5.12 (422 fix): backend ShareTaskCreateV1 expects
+      //   { format: str, payload: { article_ids: [...], ... } }
+      // (the article_ids go inside a payload dict, not at the top
+      // level — the manifest pipeline reads format-specific keys
+      // from payload).  Old shape put article_ids at top level
+      // and tripped Pydantic validation.
+      fetch('/api/share', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ article_ids: this.selectedArticleIds, format: this.shareFormat }),
+        body: JSON.stringify({
+          format: this.shareFormat,
+          payload: { article_ids: this.selectedArticleIds },
+        }),
       })
         .then(r => {
           if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -621,9 +649,11 @@ function app() {
     },
 
     loadShareQueue() {
-      fetch('/api/share/queue', { credentials: 'same-origin' })
+      // v1.0.5.12: list endpoint is /api/share/tasks (not /api/share/queue).
+      // ShareTaskListResponse wraps the array as {tasks: [...]}.
+      fetch('/api/share/tasks', { credentials: 'same-origin' })
         .then(r => r.json())
-        .then(data => { this.shareQueue = Array.isArray(data) ? data : (data.queue || []); })
+        .then(data => { this.shareQueue = (data && data.tasks) ? data.tasks : (Array.isArray(data) ? data : []); })
         .catch(err => console.error('loadShareQueue failed:', err));
     },
 

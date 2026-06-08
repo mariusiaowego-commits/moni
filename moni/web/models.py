@@ -11,12 +11,28 @@ from pydantic import BaseModel, ConfigDict, Field
 # ---------------------------------------------------------------------------
 
 
+class TagRef(BaseModel):
+    """Lightweight tag reference (v1.0.5.12).
+
+    Surfaces to the frontend so the article-list / share / CRUD views
+    can render a tag chip using the colour the user picked in
+    /config > Tags.  The colour is the literal value from
+    ``tag_definitions.color`` (hex string) and may be ``None`` if the
+    row in ``tag_definitions`` is missing a colour (we then fall
+    back to a neutral CSS default).
+    """
+    name: str
+    color: str | None = None
+
+
 class Article(BaseModel):
     """Full article record."""
-
     id: str
     source: str  # source name (TEXT) — was wrongly typed as int source_id
-    tags: list[str] = []  # v1.0.4: tag names from article_tags JOIN
+    # v1.0.5.12: tag list now carries {name, color} so the UI can
+    # render each chip with the colour the user picked in /config.
+    # Old shape was list[str] (just names).  Test_api + app.js updated.
+    tags: list[TagRef] = []
     title: str
     url: str
     author: str | None = None

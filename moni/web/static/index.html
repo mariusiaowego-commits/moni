@@ -43,7 +43,16 @@
           <h3>文章查阅</h3>
           <div class="search-box">
             <input type="text" x-model="articlesSearch"
-              @input.debounce.300ms="loadArticles()" placeholder="搜索关键字...">
+                   @input.debounce.300ms="loadArticles()"
+                   @keydown.enter.prevent="loadArticles()"
+                   placeholder="搜索关键字...">
+            <!-- v1.0.5.12: clear (×) button — only shows when there's text -->
+            <button type="button" class="search-clear"
+                    x-show="articlesSearch"
+                    @click="articlesSearch = ''; loadArticles()"
+                    title="清空搜索">×</button>
+            <!-- v1.0.5.12: 搜索 icon (left, visual hint) -->
+            <span class="search-icon" aria-hidden="true">🔍</span>
             <!-- v1.0.5.10: source / tag filters — 后端 /api/articles 已支持 ?source= & ?tag= -->
             <select x-model="articlesSource" @change="loadArticles()"
                     title="按来源筛选"
@@ -76,8 +85,10 @@
                   <td><span x-text="a.title"></span> <span class="badge badge-new" x-show="isNew(a.created_at)">NEW</span></td>
                   <td x-text="a.source"></td>
                   <td>
-                    <!-- v1.0.5.10: one chip per tag, hover reveals styled popover with description + keywords (replaces native title) -->
-                    <template x-for="tagName in (a.tags || [])" :key="tagName">
+                    <!-- v1.0.5.10: one chip per tag, hover reveals styled popover with description + keywords (replaces native title)
+                         v1.0.5.12: tagName is now {name, color} (TagRef), not just a string.  The :key
+                         uses name (a stable string) and the x-text / :style read name + color. -->
+                    <template x-for="tagObj in (a.tags || [])" :key="tagObj.name">
                       <!--
                         Wrap the chip + tip together so CSS :hover on the wrap
                         drives the tip's visibility.  Alpine x-data is unused —
@@ -85,8 +96,21 @@
                         stays stable under Alpine re-renders.
                       -->
                       <span class="tag-chip-wrap">
-                        <span class="tag-chip" tabindex="0" x-text="tagName"></span>
-                        <span class="tip" x-text="formatTagTooltip(tagName)"></span>
+                        <!-- v1.0.5.12: tag chip now uses the colour from
+                             tag_definitions.color (via /api/articles
+                             .tags[].color) instead of the hard-coded
+                             blue/lavender.  If the colour is missing
+                             (or the article_tags row has no matching
+                             tag_definitions entry) the CSS default kicks
+                             in via .tag-chip-no-color. -->
+                        <span class="tag-chip"
+                              :class="{ 'tag-chip-no-color': !tagObj?.color }"
+                              :style="tagObj?.color
+                                ? '--tag-bg: ' + tagObj.color + '1A; --tag-fg: ' + tagObj.color + ';'
+                                : ''"
+                              tabindex="0"
+                              x-text="tagObj ? tagObj.name : tagName"></span>
+                        <span class="tip" x-text="formatTagTooltip(tagObj ? tagObj.name : tagName)"></span>
                       </span>
                     </template>
                     <span x-show="!a.tags || a.tags.length === 0" class="muted">-</span>
@@ -555,8 +579,14 @@
             <div class="modal-body">
               <div class="form-row">
                 <label>name <span class="required">*</span></label>
+                <!-- v1.0.5.12: name was locked whenever the modal was
+                     opened with a target (truthy check), but for a
+                     "new tag" the target is {} (empty object) which
+                     is still truthy — so the input was disabled even
+                     when creating a brand-new tag.  Lock only when
+                     name is set (= we're editing an existing row). -->
                 <input type="text" x-model="configModalTarget.name"
-                       :disabled="!!configModalTarget" placeholder="e.g. banking">
+                       :disabled="!!configModalTarget.name" placeholder="e.g. banking">
               </div>
               <div class="form-row">
                 <label>description</label>
@@ -564,7 +594,30 @@
               </div>
               <div class="form-row">
                 <label>color</label>
-                <input type="text" x-model="configModalTarget.color" placeholder="#2563EB">
+                <!-- v1.0.5.12: was a free-text <input> that made users
+                     type hex.  Replaced with a curated swatch grid
+                     whose palette is drawn from /Users/mt16/dev/uiux-asset-library
+                     (calendar-date-picker violet, dizi v1 gold, dizi v2
+                     red, plus the moni sidebar dark + a few neutrals).
+                     Each swatch is a radio — click to pick, no hex
+                     memorisation needed.  The hidden text input
+                     mirrors the picked value for two-way binding. -->
+                <div class="color-swatch-grid">
+                  <template x-for="c in TAG_COLOR_PALETTE" :key="c.hex">
+                    <label class="color-swatch"
+                           :class="{ 'is-active': configModalTarget.color === c.hex }"
+                           :style="'--swatch: ' + c.hex + ';'"
+                           :title="c.label + ' (' + c.hex + ')'">
+                      <input type="radio" name="config-tag-color"
+                             :value="c.hex"
+                             x-model="configModalTarget.color">
+                      <span class="swatch-dot"></span>
+                      <span class="swatch-label" x-text="c.label"></span>
+                    </label>
+                  </template>
+                </div>
+                <input type="hidden" x-model="configModalTarget.color">
+                <small class="muted">从 8 色色板中选 — 风格统一参考 /Users/mt16/dev/uiux-asset-library</small>
               </div>
               <div class="form-row">
                 <label>keywords <small class="muted">(v1.0.5.4 — 一行一个, OR 匹配抓取内容)</small></label>
