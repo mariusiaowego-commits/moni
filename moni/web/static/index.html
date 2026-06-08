@@ -105,8 +105,14 @@
       </section>
 
       <!-- ══ CRUD ═══════════════════════════════════════════════ -->
+      <!-- ══ CRUD (v1.0.5.11: + edit/create buttons + form modal) ══ -->
       <section x-show="currentView === 'crud'" x-cloak>
-        <div class="panel-header"><h3>CRUD 管理</h3></div>
+        <div class="panel-header">
+          <h3>CRUD 管理</h3>
+          <!-- v1.0.5.11: opens the create form modal.  Backend POST
+               /api/articles was added in v1.0.5.10, this wires the UI. -->
+          <button class="btn-primary" @click="openCrudForm(null)">+ 新建文章</button>
+        </div>
         <div class="table-container">
           <table>
             <thead>
@@ -118,7 +124,11 @@
                   <td x-text="a.title"></td>
                   <td x-text="a.source"></td>
                   <td class="url-cell"><a :href="a.url" target="_blank" x-text="a.url"></a></td>
-                  <td><button class="btn-danger" @click="showDeleteModal(a)">删除</button></td>
+                  <td>
+                    <!-- v1.0.5.11: pre-populate the form modal with this article. -->
+                    <button class="btn-secondary" @click="openCrudForm(a)">编辑</button>
+                    <button class="btn-danger"    @click="showDeleteModal(a)">删除</button>
+                  </td>
                 </tr>
               </template>
               <tr x-show="crudArticles.length === 0">
@@ -270,30 +280,32 @@
         </table>
       </section>
 
-      <!-- ══ Share ══════════════════════════════════════════════ -->
+      <!-- ══ Share (v1.0.5.11: article picker is now a card grid) ══ -->
       <section x-show="currentView === 'share'" x-cloak>
         <div class="panel-header"><h3>分享</h3></div>
 
         <div class="share-section">
           <h4>选择文章</h4>
-          <div class="table-container">
-            <table>
-              <thead>
-                <tr><th><input type="checkbox" @change="toggleAllArticles($event)"></th><th>标题</th><th>来源</th></tr>
-              </thead>
-              <tbody>
-                <template x-for="a in allArticles" :key="a.id">
-                  <tr>
-                    <td><input type="checkbox" :value="a.id" x-model="selectedArticleIds"></td>
-                    <td x-text="a.title"></td>
-                    <td x-text="a.source"></td>
-                  </tr>
-                </template>
-                <tr x-show="allArticles.length === 0">
-                  <td colspan="3" class="empty-row">暂无数据</td>
-                </tr>
-              </tbody>
-            </table>
+          <!-- v1.0.5.11: was a 168-row table that scrolled for days.
+               Now a card grid — one tile per article, max 4 per row,
+               sized by viewport.  Each tile is the article title +
+               source + checkbox.  Selection state visible via a
+               violet border (calendar-date-picker accent). -->
+          <div class="article-card-grid">
+            <template x-for="a in allArticles" :key="a.id">
+              <label class="article-card"
+                     :class="{ 'is-selected': selectedArticleIds.includes(a.id) }">
+                <input type="checkbox" :value="a.id"
+                       x-model="selectedArticleIds"
+                       class="article-card-check">
+                <div class="article-card-source" x-text="a.source"></div>
+                <div class="article-card-title" x-text="a.title"></div>
+              </label>
+            </template>
+            <div class="article-card empty"
+                 x-show="allArticles.length === 0">
+              暂无数据
+            </div>
           </div>
         </div>
 
@@ -719,6 +731,63 @@
         <div class="modal-footer">
           <button class="btn-secondary" @click="closeModal()">取消</button>
           <button class="btn-danger"     @click="confirmDelete()">确认删除</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ CRUD Create / Edit Form Modal (v1.0.5.11) ══════════════ -->
+    <div class="modal-overlay" x-show="crudFormOpen" x-cloak @click.self="closeCrudForm()">
+      <div class="modal modal-config">
+        <div class="modal-header">
+          <h3 x-text="crudFormMode === 'edit' ? '编辑文章' : '新建文章'"></h3>
+        </div>
+        <div class="modal-body">
+          <div class="form-row">
+            <label>title <span class="required">*</span></label>
+            <input type="text" x-model="crudForm.title" placeholder="文章标题">
+          </div>
+          <div class="form-row">
+            <label>source <span class="required">*</span></label>
+            <!-- v1.0.5.11: editable in create mode, read-only in edit mode
+                 (the source is part of the (source,url) UNIQUE constraint
+                 so changing it would create a duplicate row). -->
+            <input type="text" x-model="crudForm.source"
+                   :disabled="crudFormMode === 'edit'"
+                   placeholder="例如 36kr_rss / mpaypass / mywechat">
+            <small class="muted" x-show="crudFormMode === 'edit'">
+              编辑时不可修改（与 url 共同构成唯一键）
+            </small>
+          </div>
+          <div class="form-row">
+            <label>url <span class="required">*</span></label>
+            <input type="text" x-model="crudForm.url"
+                   :disabled="crudFormMode === 'edit'"
+                   placeholder="https://...">
+            <small class="muted" x-show="crudFormMode === 'edit'">
+              编辑时不可修改（与 source 共同构成唯一键）
+            </small>
+          </div>
+          <div class="form-row">
+            <label>author</label>
+            <input type="text" x-model="crudForm.author" placeholder="可选">
+          </div>
+          <div class="form-row">
+            <label>summary</label>
+            <textarea x-model="crudForm.summary" rows="3" placeholder="可选"></textarea>
+          </div>
+          <div class="form-row">
+            <label>raw_content</label>
+            <textarea x-model="crudForm.raw_content" rows="4" placeholder="可选 — 完整正文"></textarea>
+          </div>
+          <p class="muted" x-show="crudFormError" x-text="crudFormError" style="color:#dc2626;"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" @click="closeCrudForm()">取消</button>
+          <button class="btn-primary"
+                  :disabled="crudFormSaving"
+                  @click="submitCrudForm()">
+            <span x-text="crudFormSaving ? '保存中…' : '保存'"></span>
+          </button>
         </div>
       </div>
     </div>
