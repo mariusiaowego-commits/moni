@@ -13,6 +13,7 @@ from moni.web.models import (
     Article,
     ArticleSummaryRequest,
     FactCheckRequest,
+    TagRef,
 )
 
 logger = logging.getLogger(__name__)
@@ -23,12 +24,26 @@ router = APIRouter(prefix="/api/articles", tags=["articles"])
 def _row_to_article(row: dict[str, Any]) -> Article:
     """Convert a sqlite3.Row (dict-like) to an Article Pydantic model.
 
-    v1.0.4: row now includes 'source' (TEXT, name) and 'tags' (comma-joined
-    string from GROUP_CONCAT) populated by the SQL in list_articles /
-    get_article.
+    v1.0.4: row includes 'source' (TEXT, name) and 'tags' (comma-joined
+    string from GROUP_CONCAT).
+    v1.0.5.12: each tag in the comma-joined string is "name" or
+    "name|color" (color from tag_definitions.color).  We split the
+    pipe to extract both, falling back to color=None if not present
+    or empty.  This way the frontend can render chips with the
+    user-chosen colour from /config.
     """
     tags_str = row.get("tags") or ""
-    tags = [t.strip() for t in tags_str.split(",") if t.strip()]
+    tags: list[TagRef] = []
+    for raw in tags_str.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        if "|" in raw:
+            name, color = raw.split("|", 1)
+            color = color.strip() or None
+        else:
+            name, color = raw, None
+        tags.append(TagRef(name=name, color=color))
     return Article(
         id=row["id"],
         source=row["source"],
@@ -91,8 +106,13 @@ def list_articles(
     sql = f"""
         SELECT a.id, a.title, a.url, a.source, a.publisher, a.published_at,
                a.raw_content, a.summary, a.fetched_at,
-               (SELECT GROUP_CONCAT(at.tag_name, ',')
+               (SELECT GROUP_CONCAT(
+                  CASE WHEN td.color IS NULL OR td.color = ''
+                       THEN at.tag_name
+                       ELSE at.tag_name || '|' || td.color
+                  END, ',')
                   FROM article_tags at
+                  LEFT JOIN tag_definitions td ON td.name = at.tag_name
                  WHERE at.article_id = a.id) AS tags
         FROM articles a
         {where_sql}
@@ -111,8 +131,13 @@ def get_article(article_id: str) -> Article:
         """
         SELECT a.id, a.title, a.url, a.source, a.publisher, a.published_at,
                a.raw_content, a.summary, a.fetched_at,
-               (SELECT GROUP_CONCAT(at.tag_name, ',')
+               (SELECT GROUP_CONCAT(
+                  CASE WHEN td.color IS NULL OR td.color = ''
+                       THEN at.tag_name
+                       ELSE at.tag_name || '|' || td.color
+                  END, ',')
                   FROM article_tags at
+                  LEFT JOIN tag_definitions td ON td.name = at.tag_name
                  WHERE at.article_id = a.id) AS tags
         FROM articles a
         WHERE a.id = ?

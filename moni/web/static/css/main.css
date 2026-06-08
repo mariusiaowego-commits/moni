@@ -83,8 +83,13 @@ body {
 }
 
 /* Search Box */
+.search-box {
+  position: relative;   /* v1.0.5.12: anchor for the clear button + icon */
+  display: inline-block;
+  margin-bottom: 12px;
+}
 .search-box input {
-  padding: 8px 12px;
+  padding: 8px 32px 8px 32px;   /* room for × (right) + 🔍 (left) */
   border: 1px solid #ccc;
   border-radius: 4px;
   font-size: 0.9rem;
@@ -94,6 +99,35 @@ body {
 .search-box input:focus {
   outline: none;
   border-color: #e94560;
+}
+
+.search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  pointer-events: none;
+  color: #9ca3af;
+}
+
+.search-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 6px;
+  color: #6b7280;
+  border-radius: 3px;
+}
+.search-clear:hover {
+  background: #f3f4f6;
+  color: #111827;
 }
 
 /* Table Container */
@@ -339,13 +373,12 @@ button, .btn-primary, .btn-secondary, .btn-danger, .btn-refresh {
 .link-btn {
   color: #0066cc;
   text-decoration: none;
-  font-size: 0.85rem;
+  white-space: nowrap;   /* v1.0.5.12: keep "查看" on one line even in narrow cells */
 }
 
 .link-btn:hover {
   text-decoration: underline;
 }
-
 /* Share Section */
 .share-section {
   margin-bottom: 24px;
@@ -720,10 +753,72 @@ button, .btn-primary, .btn-secondary, .btn-danger, .btn-refresh {
   justify-content: center;
 }
 
+/* v1.0.5.12 — Color swatch picker (config > Tag modal).
+   Sourced from /Users/mt16/dev/uiux-asset-library: violet / gold /
+   red / blue / green palette.  Each swatch is a radio button styled
+   as a clickable dot + label, so the user never types a hex. */
+.color-swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.color-swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  background: #fff;
+  transition: border-color 0.15s, background 0.15s;
+}
+.color-swatch:hover {
+  border-color: #93c5fd;
+  background: #f0f7ff;
+}
+.color-swatch.is-active {
+  border-color: #8A71E8;  /* calendar violet */
+  background: #f5f3ff;
+  box-shadow: 0 0 0 1px #8A71E8;
+}
+.color-swatch input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;  /* label handles the click */
+}
+.swatch-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--swatch, #ccc);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+}
+.swatch-label {
+  color: #374151;
+  font-weight: 500;
+}
+
 /* v1.0.4 — Tag chip (article list) */
 .tag-chip {
-  display: inline-block; padding: 2px 8px; background: #e0e7ff;
-  color: #3730a3; border-radius: 12px; font-size: 12px;
+  display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px;
+  /* v1.0.5.12: colour comes from the article's tag_definitions row.
+     Inline style sets --tag-bg (alpha 0x1A = 10% fill) and --tag-fg
+     (the saturated colour for text).  If neither is set, the
+     .tag-chip-no-color rule below provides a neutral fallback. */
+  background: var(--tag-bg, #e0e7ff);
+  color: var(--tag-fg, #3730a3);
+}
+.tag-chip-no-color {
+  /* Fallback for articles whose tag has no entry in
+     tag_definitions (e.g. a tag was added to article_tags but not
+     to tag_definitions).  Use a neutral grey to keep the chip
+     visible without inventing a colour. */
+  background: #f3f4f6;
+  color: #6b7280;
 }
 
 /* v1.0.5.10 — Custom hover popover for tag chips (replaces native title)

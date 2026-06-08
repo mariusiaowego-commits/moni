@@ -211,7 +211,9 @@ class TestCRUD:
         assert r.status_code == 200
         body = r.json()
         assert len(body) >= 1
-        assert all("testtag" in a["tags"] for a in body)
+        # v1.0.5.12: tags is now list[{name, color}], not list[str].  Check
+        # tag name membership via the .name subfield.
+        assert all("testtag" in [t["name"] for t in a["tags"]] for a in body)
 
     def test_filter_by_keyword_title(self, client: TestClient, seeded_article: str):
         """?keyword= matches against title (LIKE %kw%)."""
