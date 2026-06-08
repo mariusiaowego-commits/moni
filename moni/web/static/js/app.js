@@ -377,6 +377,23 @@ function app() {
     showModal: false,
     deleteTarget: null,
 
+    // v1.0.5.11: form modal state for create / edit.  One modal, two
+    // modes — 'create' is empty form, 'edit' is pre-populated and
+    // source/url are read-only (UNIQUE constraint).
+    crudFormOpen: false,
+    crudFormMode: 'create',  // 'create' | 'edit'
+    crudForm: {
+      id: null,
+      title: '',
+      source: '',
+      url: '',
+      author: '',
+      summary: '',
+      raw_content: '',
+    },
+    crudFormSaving: false,
+    crudFormError: '',
+
     loadCrudArticles() {
       fetch('/api/articles', { credentials: 'same-origin' })
         .then(r => r.json())
@@ -406,6 +423,104 @@ function app() {
           this.closeModal();
         })
         .catch(err => { alert('删除失败: ' + err.message); this.closeModal(); });
+    },
+
+    // ── CRUD form (v1.0.5.11) ───────────────────────────────────
+    // Opens the modal in either create or edit mode.  Pass `null`
+    // for create, an article for edit.
+    openCrudForm(article) {
+      if (article) {
+        this.crudFormMode = 'edit';
+        this.crudForm = {
+          id: article.id,
+          title: article.title || '',
+          source: article.source || '',
+          url: article.url || '',
+          author: article.author || '',
+          summary: article.summary || '',
+          raw_content: article.raw_content || '',
+        };
+      } else {
+        this.crudFormMode = 'create';
+        this.crudForm = {
+          id: null,
+          title: '',
+          source: '',
+          url: '',
+          author: '',
+          summary: '',
+          raw_content: '',
+        };
+      }
+      this.crudFormError = '';
+      this.crudFormSaving = false;
+      this.crudFormOpen = true;
+    },
+
+    closeCrudForm() {
+      this.crudFormOpen = false;
+      this.crudFormError = '';
+    },
+
+    submitCrudForm() {
+      // Client-side validation
+      if (!this.crudForm.title.trim() || !this.crudForm.source.trim() || !this.crudForm.url.trim()) {
+        this.crudFormError = 'title / source / url 不能为空';
+        return;
+      }
+      this.crudFormSaving = true;
+      this.crudFormError = '';
+
+      const isEdit = this.crudFormMode === 'edit';
+      // v1.0.5.11: backend ArticleCreate uses `source_id` (TEXT, the
+      // source name).  Field name kept for compatibility with the existing
+      // endpoint / test_post_create_201 added in v1.0.5.10.
+      const body = {
+        title: this.crudForm.title.trim(),
+        source_id: this.crudForm.source.trim(),
+        url: this.crudForm.url.trim(),
+      };
+      if (this.crudForm.author.trim())     body.author     = this.crudForm.author.trim();
+      if (this.crudForm.summary.trim())     body.summary    = this.crudForm.summary.trim();
+      if (this.crudForm.raw_content.trim()) body.content   = this.crudForm.raw_content.trim();
+
+      const url    = isEdit ? `/api/articles/${this.crudForm.id}` : '/api/articles';
+      const method = isEdit ? 'PUT' : 'POST';
+
+      fetch(url, {
+        method,
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+        .then(async r => {
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok) {
+            const msg = (data && (data.detail || data.message)) || `${r.status} ${r.statusText}`;
+            throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+          }
+          return data;
+        })
+        .then(article => {
+          // Update the local lists in place so the table re-renders
+          // without a full reload.  POST returns the (new or existing)
+          // article; PUT returns the updated one.
+          if (isEdit) {
+            const idx = this.crudArticles.findIndex(a => a.id === article.id);
+            if (idx >= 0) this.crudArticles.splice(idx, 1, article);
+          } else {
+            // Avoid duplicates if the article already existed
+            // (POST is idempotent on (source, url) and returns the
+            // existing row).
+            const existing = this.crudArticles.find(a => a.id === article.id);
+            if (!existing) this.crudArticles.unshift(article);
+          }
+          this.closeCrudForm();
+        })
+        .catch(err => {
+          this.crudFormError = '保存失败: ' + err.message;
+          this.crudFormSaving = false;
+        });
     },
 
     // ── Cron panel ────────────────────────────────────────────────
