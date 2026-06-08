@@ -31,9 +31,15 @@ class Article(BaseModel):
 
 
 class ArticleCreate(BaseModel):
-    """Schema for creating a new article (internal)."""
+    """Schema for creating a new article (internal).
 
-    source_id: int
+    v1.0.5.10: ``source_id`` is actually the source **name** (TEXT),
+    not the row id.  ``articles.source`` is TEXT referencing
+    ``sources.name`` — there is no FK to ``sources.id`` in the schema.
+    """
+    # v1.0.5.10: was `source_id: int` — but the schema uses TEXT name.
+    # The historical model was wrong; fixed to match the actual schema.
+    source_id: str
     title: str
     url: str
     author: str | None = None

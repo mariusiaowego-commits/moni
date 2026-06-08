@@ -63,6 +63,28 @@ def client() -> TestClient:
 
 
 @pytest.fixture
+def seeded_source(client: TestClient) -> str:
+    """Insert a minimal source row so the articles POST will find it.
+
+    v1.0.5.10: required by the new POST /api/articles tests because
+    ``create_article`` validates ``sources.name`` exists before insert.
+    """
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """
+        INSERT INTO sources (id, name, display_name, source_type, url,
+                             fetch_interval_min, is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("src-testsrc", "testsrc", "Test Source", "rss",
+         "https://example.com/", 30, 1, now, now),
+    )
+    conn.commit()
+    return "testsrc"
+
+
+@pytest.fixture
 def seeded_article(client: TestClient) -> int:
     """Insert a minimal article into the DB and return its integer ID."""
     conn = get_db()
@@ -151,6 +173,113 @@ class TestCRUD:
         # Verify it's gone
         r2 = client.get(f"/api/articles/{seeded_article}")
         assert r2.status_code == 404
+
+    # ── v1.0.5.10: articles filter tests ─────────────────────────────
+
+    def test_filter_by_source(self, client: TestClient, seeded_source: str, seeded_article: str):
+        """?source= returns only matching rows."""
+        r = client.get(f"/api/articles?source={seeded_source}")
+        assert r.status_code == 200
+        body = r.json()
+        # All returned articles must have source == seeded_source
+        assert all(a["source"] == seeded_source for a in body)
+        # At least the seeded article shows up
+        assert len(body) >= 1
+
+    def test_filter_by_tag(self, client: TestClient, seeded_article: str):
+        """?tag= returns only rows tagged with the given tag."""
+        conn = get_db()
+        now = datetime.now(timezone.utc).isoformat()
+        # FK: article_tags.tag_name -> tag_definitions.name.  Seed both.
+        conn.execute(
+            "INSERT INTO tag_definitions (name, description, created_at, is_active) "
+            "VALUES (?, ?, ?, 1) ON CONFLICT(name) DO NOTHING",
+            ("testtag", "v1.0.5.10 test tag", now),
+        )
+        # Tag the seeded article so the filter has something to match.
+        # ON CONFLICT DO NOTHING — idempotent if pytest runs twice or other
+        # tests already inserted the same (article_id, tag_name) pair.
+        # created_at is NOT NULL, so we set it explicitly.
+        conn.execute(
+            "INSERT INTO article_tags (article_id, tag_name, created_at) "
+            "VALUES (?, ?, ?) "
+            "ON CONFLICT DO NOTHING",
+            (seeded_article, "testtag", now),
+        )
+        conn.commit()
+        r = client.get("/api/articles?tag=testtag")
+        assert r.status_code == 200
+        body = r.json()
+        assert len(body) >= 1
+        assert all("testtag" in a["tags"] for a in body)
+
+    def test_filter_by_keyword_title(self, client: TestClient, seeded_article: str):
+        """?keyword= matches against title (LIKE %kw%)."""
+        # The seeded article is "Test Article" — search for that.
+        r = client.get("/api/articles?keyword=" + "Test%20Article")
+        assert r.status_code == 200
+        body = r.json()
+        assert len(body) >= 1
+        # All returned rows should have the keyword in title OR content
+        for a in body:
+            title = a.get("title") or ""
+            content = a.get("content") or ""
+            assert ("Test Article" in title) or ("Test Article" in content), (
+                f"keyword hit didn't match: {a}"
+            )
+
+    def test_filter_by_keyword_no_match(self, client: TestClient):
+        """?keyword= with nonsense returns empty list, not 500."""
+        r = client.get("/api/articles?keyword=xyzzqwertynonexistent")
+        assert r.status_code == 200
+        assert r.json() == []
+
+    def test_filter_combined(self, client: TestClient, seeded_source: str):
+        """source + tag + keyword combined — empty when no row matches all 3."""
+        # seeded article source=testsrc, no tag.  Add ?tag= that doesn't exist.
+        r = client.get(f"/api/articles?source={seeded_source}&tag=nosuch&keyword=foo")
+        assert r.status_code == 200
+        assert r.json() == []
+
+    # ── v1.0.5.10: POST /api/articles ──────────────────────────────
+
+    def test_post_create_201(self, client: TestClient, seeded_source: str):
+        """POST /api/articles creates a new article."""
+        body = {
+            "source_id": seeded_source,
+            "title": "Created Via POST",
+            "url": "https://example.com/created-via-post",
+        }
+        r = client.post("/api/articles", json=body)
+        assert r.status_code == 201, r.text
+        data = r.json()
+        assert data["title"] == "Created Via POST"
+        assert data["source"] == seeded_source
+        assert data["url"] == "https://example.com/created-via-post"
+
+    def test_post_create_unknown_source_400(self, client: TestClient):
+        """POST with an unknown source name returns 400."""
+        body = {
+            "source_id": "no-such-source-xyz",
+            "title": "Should Fail",
+            "url": "https://example.com/fail",
+        }
+        r = client.post("/api/articles", json=body)
+        assert r.status_code == 400
+
+    def test_post_create_idempotent(self, client: TestClient, seeded_source: str):
+        """POST with duplicate (source, url) returns 201 + the existing row."""
+        body = {
+            "source_id": seeded_source,
+            "title": "Dup",
+            "url": "https://example.com/dup",
+        }
+        r1 = client.post("/api/articles", json=body)
+        r2 = client.post("/api/articles", json=body)
+        assert r1.status_code == 201
+        assert r2.status_code == 201
+        # Same id both times (the UNIQUE constraint kicks in)
+        assert r1.json()["id"] == r2.json()["id"]
 
 
 # ---------------------------------------------------------------------------

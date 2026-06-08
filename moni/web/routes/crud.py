@@ -1,16 +1,17 @@
-"""routes/crud — article update, delete-preview and delete endpoints."""
+"""routes/crud — article create, update, delete-preview and delete endpoints."""
 
 from __future__ import annotations
 
 import logging
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Query
 
 from moni.db.connection import get_db
 from moni.web.exceptions import BadRequestError, NotFoundError
-from moni.web.models import Article, ArticleUpdate, DeletePreviewResponse
+from moni.web.models import Article, ArticleCreate, ArticleUpdate, DeletePreviewResponse
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,82 @@ def _row_to_article(row: dict) -> Article:
         created_at=row["fetched_at"],
         updated_at=row["fetched_at"],
     )
+
+
+@router.post("", response_model=Article, status_code=201)
+def create_article(body: ArticleCreate) -> Article:
+    """Create a new article manually (v1.0.5.10).
+
+    Used by the CRUD UI's "+ 新建文章" button.  The ``source_id`` field
+    on the model is actually the source's ``name`` (not the row id)
+    because ``articles.source`` is a TEXT FK-by-name to ``sources.name``.
+    Returns 201 with the created row.
+
+    INSERT OR IGNORE on (source, url) — duplicate submissions (same
+    source+url) return the existing row instead of erroring.
+    """
+    conn = get_db()
+
+    # Validate the source name exists.  We don't want to insert
+    # articles that reference a non-existent source.
+    src = conn.execute(
+        "SELECT id, name FROM sources WHERE name = ?",
+        (body.source_id,),
+    ).fetchone()
+    if src is None:
+        raise BadRequestError(
+            message=f"Unknown source: {body.source_id!r}",
+            details={"source_id": body.source_id,
+                     "hint": "use the source name (e.g. '36kr_rss'), not the row id"},
+        )
+
+    # Use a UUID-ish id so the row is unique even without DB-side default
+    article_id = uuid.uuid4().hex
+    now = datetime.now(timezone.utc).isoformat()
+
+    # body.published_at is Optional[datetime]; normalise to ISO string or None
+    published_at = None
+    if body.published_at is not None:
+        published_at = body.published_at.isoformat()
+
+    cursor = conn.execute(
+        """
+        INSERT OR IGNORE INTO articles
+            (id, title, url, source, publisher, published_at, fetched_at, raw_content)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            article_id,
+            body.title,
+            body.url,
+            body.source_id,
+            body.author,
+            published_at,
+            now,
+            body.content,
+        ),
+    )
+    conn.commit()
+
+    # If the INSERT was ignored due to UNIQUE(source,url), cursor.rowcount
+    # is 0; fall through to re-read the existing row.
+    if cursor.rowcount == 0:
+        row = conn.execute(
+            "SELECT id FROM articles WHERE source = ? AND url = ?",
+            (body.source_id, body.url),
+        ).fetchone()
+        article_id = row["id"]
+
+    # Re-read so we return whatever DB defaults fired.
+    row = conn.execute(
+        """
+        SELECT id, title, url, source, publisher, published_at,
+               raw_content, summary, fetched_at
+        FROM articles WHERE id = ?
+        """,
+        (article_id,),
+    ).fetchone()
+    return _row_to_article(dict(row))
 
 
 @router.put("/{article_id}", response_model=Article)

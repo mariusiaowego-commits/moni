@@ -49,15 +49,25 @@ def _row_to_article(row: dict[str, Any]) -> Article:
 def list_articles(
     source: str | None = Query(None, description="Filter by source name"),
     tag: str | None = Query(None, description="Filter by tag name"),
+    # v1.0.5.10: keyword search — case-insensitive LIKE on title + raw_content.
+    # Frontend has always sent this param (since v1.0.2), but the route
+    # silently ignored it.  Now we actually filter.  The frontend
+    # debounces 300ms; we use a parameterized LIKE here to avoid SQL
+    # injection through the search box.
+    keyword: str | None = Query(None, description="Substring match against title + content"),
 ) -> list[Article]:
-    """List articles with optional source / tag filter.
+    """List articles with optional source / tag / keyword filter.
 
     v1.0.4: LEFT JOIN article_tags + GROUP_CONCAT to surface tag names.
     Source filter is now a real WHERE clause (was a no-op before).
+
+    v1.0.5.10: keyword is now a real WHERE clause (LIKE on title OR
+    raw_content).  Previously the frontend sent it but the route
+    silently dropped it on the floor, so the search box was a no-op.
     """
     conn = get_db()
 
-    # Build WHERE + params dynamically. Source/tag filters are independent.
+    # Build WHERE + params dynamically. All three filters are independent.
     where_clauses: list[str] = []
     params: list[Any] = []
     if source:
@@ -69,6 +79,13 @@ def list_articles(
             "WHERE at.article_id = a.id AND at.tag_name = ?)"
         )
         params.append(tag)
+    if keyword:
+        # SQLite LIKE is case-insensitive for ASCII by default; wrap
+        # the user-supplied substring in %...% for substring match.
+        where_clauses.append("(a.title LIKE ? OR a.raw_content LIKE ?)")
+        like = f"%{keyword}%"
+        params.append(like)
+        params.append(like)
     where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
     sql = f"""
