@@ -4,13 +4,72 @@ function app() {
     // ── Navigation ────────────────────────────────────────────────
     currentView: 'articles',
 
+    // v1.0.5.10: map view name <-> URL path.  Used by navigate() to
+    // pushState, and by init() to deep-link from location.pathname.
+    _viewToPath: {
+      articles: '/articles',
+      crud:     '/crud',
+      cron:     '/cron',
+      fetch:    '/fetch',
+      llmJobs:  '/llmJobs',
+      share:    '/share',
+      config:   '/config',
+    },
+    _pathToView: {
+      '/articles': 'articles',
+      '/crud':     'crud',
+      '/cron':     'cron',
+      '/fetch':    'fetch',
+      '/llmJobs':  'llmJobs',
+      '/share':    'share',
+      '/config':   'config',
+    },
+
     navigate(view) {
       this.currentView = view;
-      if (view === 'articles') this.loadArticles();
+      // v1.0.5.10: sync the URL so refresh / back / forward work and the
+      // active link is shareable.  Use replaceState on first call (no
+      // history entry yet) and pushState on subsequent navigations.
+      const path = this._viewToPath[view] || '/articles';
+      if (window.location.pathname !== path) {
+        try {
+          window.history.pushState({ view }, '', path);
+        } catch (e) {
+          // Fallback for browsers that disallow history API (rare).
+          window.history.replaceState({ view }, '', path);
+        }
+      }
+      if (view === 'articles') {
+        this.loadArticles();
+        this.loadArticlesFilters();  // v1.0.5.10: refresh source/tag <select> option lists
+      }
       else if (view === 'crud') this.loadCrudArticles();
       else if (view === 'cron') this.loadCronRuns();
       else if (view === 'fetch') this.loadSources();
       else if (view === 'llmJobs') this.loadLlmJobs();  // v1.0.5.1
+      else if (view === 'share') { this.loadAllArticles(); this._startSharePoll(); }
+      else if (view === 'config') {
+        this.configTab = 'sources';
+        this.configLoadSources();
+        this.configLoadTags();
+        this.configLoadFilters();
+      }
+    },
+
+    // v1.0.5.10: handle browser back/forward.  We only update state, not the
+    // URL (the URL already changed via the browser's own history machinery).
+    onPopState(event) {
+      const view = (event.state && event.state.view) || this._pathToView[window.location.pathname] || 'articles';
+      this.currentView = view;
+      // Re-run the loaders for the target view.
+      if (view === 'articles') {
+        this.loadArticles();
+        this.loadArticlesFilters();
+      }
+      else if (view === 'crud') this.loadCrudArticles();
+      else if (view === 'cron') this.loadCronRuns();
+      else if (view === 'fetch') this.loadSources();
+      else if (view === 'llmJobs') this.loadLlmJobs();
       else if (view === 'share') { this.loadAllArticles(); this._startSharePoll(); }
       else if (view === 'config') {
         this.configTab = 'sources';
@@ -31,8 +90,28 @@ function app() {
     configModalTarget: null,
     configModalTargetOriginal: null,  // for tag edit: original name (immutable)
 
+    // v1.0.5.10: name -> {description, keywords} map for hover tooltips
+    // on the articles page.  Built from configTags on demand.
+    tagTooltipMap: {},
+
     switchConfigTab(tab) {
       this.configTab = tab;
+    },
+
+    // v1.0.5.10: build the tooltip text for a given tag name.
+    // Returns the tag's description + keywords, or a fallback when the
+    // tag isn't in the map yet.  Falls back gracefully during the
+    // race between /api/config/tags loading and the first render.
+    formatTagTooltip(tagName) {
+      const info = this.tagTooltipMap[tagName];
+      if (!info) {
+        return tagName + ' — 尚未加载 tag 描述';
+      }
+      const desc = info.description || '(无描述)';
+      const kws = Array.isArray(info.keywords) && info.keywords.length > 0
+        ? info.keywords.join(', ')
+        : '(无关键词)';
+      return `${tagName}\n${desc}\n关键词: ${kws}\n(OR 匹配: 任一关键词命中即通过)`;
     },
 
     filterFiltersBySource() {
@@ -43,7 +122,17 @@ function app() {
     configLoadTags() {
       fetch('/api/config/tags', { credentials: 'same-origin' })
         .then(r => r.json())
-        .then(data => { this.configTags = Array.isArray(data) ? data : []; })
+        .then(data => {
+          const tags = Array.isArray(data) ? data : [];
+          this.configTags = tags;
+          // v1.0.5.10: refresh the tooltip map so formatTagTooltip()
+          // can answer for every visible tag in articles.
+          const m = {};
+          for (const t of tags) {
+            m[t.name] = { description: t.description, keywords: t.keywords || [] };
+          }
+          this.tagTooltipMap = m;
+        })
         .catch(err => { console.error('Failed to load tags:', err); this.configTags = []; });
     },
     configCreateTag() { this.openConfigModal('tag', null); },
@@ -51,26 +140,26 @@ function app() {
     configDeleteTag(tag) {
       if (!confirm(`确定删除 tag "${tag.name}"? (会级联清除 source_tags 和 article_tags)`)) return;
       fetch(`/api/config/tags/${encodeURIComponent(tag.name)}`, {
-        method: 'DELETE', credentials: 'same-origin',
+    method: 'DELETE', credentials: 'same-origin',
       })
-        .then(r => { if (!r.ok) throw new Error('Delete failed'); this.configLoadTags(); })
-        .catch(err => alert('删除失败: ' + err.message));
+    .then(r => { if (!r.ok) throw new Error('Delete failed'); this.configLoadTags(); })
+    .catch(err => alert('删除失败: ' + err.message));
     },
     configSaveTag(body, isEdit, originalName) {
       const url = isEdit
-        ? `/api/config/tags/${encodeURIComponent(originalName)}`
-        : '/api/config/tags';
+    ? `/api/config/tags/${encodeURIComponent(originalName)}`
+    : '/api/config/tags';
       const method = isEdit ? 'PUT' : 'POST';
       return fetch(url, {
-        method, credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+    method, credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
       }).then(r => {
-        if (!r.ok) return r.text().then(t => { throw new Error(t || `HTTP ${r.status}`); });
-        return r.json();
+    if (!r.ok) return r.text().then(t => { throw new Error(t || `HTTP ${r.status}`); });
+    return r.json();
       }).then(() => {
-        this.configLoadTags();
-        this.closeConfigModal();
+    this.configLoadTags();
+    this.closeConfigModal();
       }).catch(err => alert('保存失败: ' + err.message));
     },
 
@@ -239,15 +328,48 @@ function app() {
     // ── Articles panel ─────────────────────────────────────────────
     articles: [],
     articlesSearch: '',
+    articlesSource: '',   // v1.0.5.10: '' = all sources
+    articlesTag: '',      // v1.0.5.10: '' = all tags
+    articlesSources: [],  // v1.0.5.10: list of {id, name, display_name} for the source <select>
+    articlesTags: [],     // v1.0.5.10: list of {name} for the tag <select>
 
     loadArticles() {
       const params = new URLSearchParams();
       if (this.articlesSearch) params.set('keyword', this.articlesSearch);
+      // v1.0.5.10: source/tag filters — empty string means "all"
+      if (this.articlesSource) params.set('source', this.articlesSource);
+      if (this.articlesTag) params.set('tag', this.articlesTag);
       const query = params.toString();
       fetch('/api/articles' + (query ? '?' + query : ''), { credentials: 'same-origin' })
         .then(r => r.json())
         .then(data => { this.articles = Array.isArray(data) ? data : (data.articles || []); })
         .catch(err => console.error('loadArticles failed:', err));
+    },
+
+    // v1.0.5.10: load the option lists for the source/tag <select>s.
+    // Cheap GETs — we fire them in parallel and update independently
+    // so a failure on one doesn't blank the other.
+    loadArticlesFilters() {
+      fetch('/api/config/sources', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(data => {
+          this.articlesSources = Array.isArray(data) ? data : (data.sources || []);
+        })
+        .catch(err => console.error('loadArticlesFilters (sources) failed:', err));
+      fetch('/api/config/tags', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(data => {
+          const tags = Array.isArray(data) ? data : [];
+          this.articlesTags = tags;
+          // v1.0.5.10: also refresh the tag tooltip map so formatTagTooltip()
+          // can answer for tags visible in the article list.
+          const m = {};
+          for (const t of tags) {
+            m[t.name] = { description: t.description, keywords: t.keywords || [] };
+          }
+          this.tagTooltipMap = m;
+        })
+        .catch(err => console.error('loadArticlesFilters (tags) failed:', err));
     },
 
     // ── CRUD panel ────────────────────────────────────────────────
@@ -396,11 +518,43 @@ function app() {
       this._sharePollInterval = setInterval(() => this.loadShareQueue(), 30000);
     },
 
-    // ── Init ─────────────────────────────────────────────────────
+    // ── Init ────────────────────────────────────────────────
     init() {
-      this.loadArticles();
+      // v1.0.5.10: deep-link from current URL — visiting /crud opens
+      // the CRUD tab directly.  Falls back to /articles for unknown paths.
+      const view = this._pathToView[window.location.pathname] || 'articles';
+      this.currentView = view;
+      // Replace the history entry so the URL the user landed on is the
+      // current one (prevents an extra back-button step).
+      const path = this._viewToPath[view] || '/articles';
+      try {
+        window.history.replaceState({ view }, '', path);
+      } catch (e) { /* ignore — older browsers */ }
+      // v1.0.5.10: refresh source/tag filter option lists at boot
+      // (cheap; safe to call even when we land on /crud — keeps the
+      // article-list filters warm for when the user navigates back).
+      this.loadArticlesFilters();
+      // v1.0.5.10: also load the data for the current view, otherwise
+      // /crud /cron /fetch /llmJobs /share /config land on an empty panel.
+      // navigate() already calls the right loader; we can reuse it.
+      // But we already set currentView above, so navigate() will just
+      // re-load.  The cheapest path: call only the loader for the boot view.
+      if (view === 'articles') this.loadArticles();
+      else if (view === 'crud') this.loadCrudArticles();
+      else if (view === 'cron') this.loadCronRuns();
+      else if (view === 'fetch') this.loadSources();
+      else if (view === 'llmJobs') this.loadLlmJobs();
+      else if (view === 'share') { this.loadAllArticles(); this._startSharePoll(); }
+      else if (view === 'config') {
+        this.configTab = 'sources';
+        this.configLoadSources();
+        this.configLoadTags();
+        this.configLoadFilters();
+      }
+      // v1.0.5.10: listen for browser back/forward so the SPA follows.
+      window.addEventListener('popstate', (e) => this.onPopState(e));
     },
-
+    
     // ── Article detail modal (v1.0.4 — BUG #7) ─────────────────
     articleDetail: null,
     summaryLoading: false,

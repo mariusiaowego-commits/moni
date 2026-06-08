@@ -15,19 +15,21 @@
         <h2>moni</h2>
       </div>
       <ul class="nav-list">
-        <li><a href="#" @click.prevent="navigate('articles')" :class="{ active: currentView === 'articles' }">文章查阅</a></li>
-        <li><a href="#" @click.prevent="navigate('crud')"     :class="{ active: currentView === 'crud'     }">CRUD</a></li>
-        <li><a href="#" @click.prevent="navigate('cron')"     :class="{ active: currentView === 'cron'     }">跑批日志</a></li>
-        <li><a href="#" @click.prevent="navigate('fetch')"    :class="{ active: currentView === 'fetch'    }">抓取管理</a></li>
+        <!-- v1.0.5.10: each nav link now has a real URL (was href="#").  Visiting
+             /articles or /crud directly opens that view (deep link support). -->
+        <li><a href="/articles" @click.prevent="navigate('articles')" :class="{ active: currentView === 'articles' }">文章查阅</a></li>
+        <li><a href="/crud"     @click.prevent="navigate('crud')"     :class="{ active: currentView === 'crud'     }">CRUD</a></li>
+        <li><a href="/cron"     @click.prevent="navigate('cron')"     :class="{ active: currentView === 'cron'     }">跑批日志</a></li>
+        <li><a href="/fetch"    @click.prevent="navigate('fetch')"    :class="{ active: currentView === 'fetch'    }">抓取管理</a></li>
         <li>
-          <a href="#" @click.prevent="navigate('llmJobs')"   :class="{ active: currentView === 'llmJobs'   }">
+          <a href="/llmJobs"  @click.prevent="navigate('llmJobs')"   :class="{ active: currentView === 'llmJobs'   }">
             LLM 任务
             <span class="nav-chip" x-show="llmJobsStats.pending + llmJobsStats.running > 0"
                   x-text="llmJobsStats.pending + llmJobsStats.running"></span>
           </a>
         </li>
-        <li><a href="#" @click.prevent="navigate('share')"    :class="{ active: currentView === 'share'    }">分享</a></li>
-        <li><a href="#" @click.prevent="navigate('config')"   :class="{ active: currentView === 'config'   }">配置管理</a></li>
+        <li><a href="/share"    @click.prevent="navigate('share')"    :class="{ active: currentView === 'share'    }">分享</a></li>
+        <li><a href="/config"   @click.prevent="navigate('config')"   :class="{ active: currentView === 'config'   }">配置管理</a></li>
       </ul>
     </nav>
 
@@ -35,19 +37,37 @@
     <main class="content">
 
       <!-- ══ Articles ══════════════════════════════════════════ -->
+      <!-- ══ Articles (v1.0.5.10: + source/tag filter) ══════════════════════════════════════════ -->
       <section x-show="currentView === 'articles'" x-cloak>
         <div class="panel-header">
           <h3>文章查阅</h3>
           <div class="search-box">
             <input type="text" x-model="articlesSearch"
               @input.debounce.300ms="loadArticles()" placeholder="搜索关键字...">
+            <!-- v1.0.5.10: source / tag filters — 后端 /api/articles 已支持 ?source= & ?tag= -->
+            <select x-model="articlesSource" @change="loadArticles()"
+                    title="按来源筛选"
+                    style="margin-left: 8px; padding: 4px 8px;">
+              <option value="">所有来源</option>
+              <template x-for="s in articlesSources" :key="s.id">
+                <option :value="s.name" x-text="s.display_name || s.name"></option>
+              </template>
+            </select>
+            <select x-model="articlesTag" @change="loadArticles()"
+                    title="按分类筛选"
+                    style="margin-left: 8px; padding: 4px 8px;">
+              <option value="">所有分类</option>
+              <template x-for="t in articlesTags" :key="t.name">
+                <option :value="t.name" x-text="t.name"></option>
+              </template>
+            </select>
           </div>
         </div>
         <div class="table-container">
           <table>
             <thead>
               <tr>
-                <th>标题</th><th>来源</th><th>分类</th><th>抓取时间</th><th>操作</th>
+                <th>标题</th><th>来源</th><th>分类</th><th>原文时间</th><th>抓取时间</th><th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -55,13 +75,29 @@
                 <tr>
                   <td><span x-text="a.title"></span> <span class="badge badge-new" x-show="isNew(a.created_at)">NEW</span></td>
                   <td x-text="a.source"></td>
-                  <td><span class="tag-chip" x-text="a.tags?.join(', ') || '-'"></span></td>
+                  <td>
+                    <!-- v1.0.5.10: one chip per tag, hover reveals styled popover with description + keywords (replaces native title) -->
+                    <template x-for="tagName in (a.tags || [])" :key="tagName">
+                      <!--
+                        Wrap the chip + tip together so CSS :hover on the wrap
+                        drives the tip's visibility.  Alpine x-data is unused —
+                        CSS is the only thing controlling visibility, which
+                        stays stable under Alpine re-renders.
+                      -->
+                      <span class="tag-chip-wrap">
+                        <span class="tag-chip" tabindex="0" x-text="tagName"></span>
+                        <span class="tip" x-text="formatTagTooltip(tagName)"></span>
+                      </span>
+                    </template>
+                    <span x-show="!a.tags || a.tags.length === 0" class="muted">-</span>
+                  </td>
+                  <td x-text="formatTime(a.published_at)"></td>
                   <td x-text="formatTime(a.created_at)"></td>
                   <td><a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a></td>
                 </tr>
               </template>
               <tr x-show="articles.length === 0">
-                <td colspan="5" class="empty-row">暂无数据</td>
+                <td colspan="6" class="empty-row">暂无数据</td>
               </tr>
             </tbody>
           </table>
@@ -295,7 +331,7 @@
                   </tr>
                 </template>
                 <tr x-show="shareQueue.length === 0">
-                  <td colspan="5" class="empty-row">暂无数据</td>
+                  <td colspan="6" class="empty-row">暂无数据</td>
                 </tr>
               </tbody>
             </table>
@@ -395,7 +431,7 @@
                   </tr>
                 </template>
                 <tr x-show="configTags.length === 0">
-                  <td colspan="5" class="empty-row">暂无 tag</td>
+                  <td colspan="6" class="empty-row">暂无 tag</td>
                 </tr>
               </tbody>
             </table>

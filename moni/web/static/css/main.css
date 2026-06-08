@@ -659,3 +659,66 @@ button, .btn-primary, .btn-secondary, .btn-danger, .btn-refresh {
   display: inline-block; padding: 2px 8px; background: #e0e7ff;
   color: #3730a3; border-radius: 12px; font-size: 12px;
 }
+
+/* v1.0.5.10 — Custom hover popover for tag chips (replaces native title)
+   Implementation note: we use CSS :hover for visibility, NOT a JS class toggle.
+   Alpine x-for re-renders its children on data change, which can drop a class
+   we set externally — that bug would let the popover briefly appear inline.
+   CSS :hover can't be eaten by a re-render. */
+.tag-chip-wrap {
+  position: relative;
+  display: inline-block;
+}
+.tag-chip-wrap .tip {
+  position: absolute;
+  top: calc(100% + 6px);  /* v1.0.5.10: show BELOW the chip — better for tables
+                              (no clipping by table top edge) and easier to scan
+                              because the popover doesn't overlap the row above. */
+  left: 0;
+  z-index: 100;
+  background: #1a1a2e;        /* matches moni sidebar dark */
+  color: #fff;
+  border: 1px solid #8A71E8;  /* calendar-date-picker violet accent */
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  min-width: 320px;           /* v1.0.5.10: width tuned to fit the longest current
+                                  tag description on one line each (ai-fintech's
+                                  "AI × 金融 (智能投顾/风控模型/大模型落地)"
+                                  is the widest at ~210px; pad to 320px so the
+                                  4 lines never wrap and the right edge keeps
+                                  breathing room). */
+  max-width: 480px;           /* cap so it doesn't span the whole table */
+  white-space: pre;           /* v1.0.5.10: render the 4 lines from formatTagTooltip
+                                  via \n, and within each line DON'T wrap. */
+  /* No overflow: the longest current line fits in min-width 320px; if a
+     future tag description exceeds 480px we'll revisit.  Setting any
+     overflow (x or y) made Chrome render an internal scrollbar that
+     clipped the 4th line. */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);  /* hidden state: 4px above final position,
+                                    so on reveal it slides DOWN into place */
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+}
+.tag-chip-wrap .tip::after {
+  content: "";
+  /* v1.0.5.10: popover sits BELOW the chip, so the arrow points UP at the chip. */
+  position: absolute;
+  bottom: 100%;
+  left: 12px;
+  border: 5px solid transparent;
+  border-bottom-color: #8A71E8;
+}
+/* Show on real hover OR keyboard focus — CSS :hover is bulletproof under
+   Alpine re-renders.  Keyboard focus is opt-in via tabindex on the chip. */
+.tag-chip-wrap:hover .tip,
+.tag-chip-wrap:focus-within .tip,
+.tag-chip-wrap:focus .tip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);  /* settle into final position below chip */
+}
