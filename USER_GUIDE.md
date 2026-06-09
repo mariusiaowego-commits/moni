@@ -1,6 +1,6 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。v1.0.5.16 完成 (2026-06-09)。
+> 同业信源自动抓取与本地新闻库。v1.0.5.17 完成 (2026-06-09)。
 > 这份文档给**用户**（你自己）看 —— 怎么用 moni，不讲代码细节。
 
 ---
@@ -285,6 +285,32 @@ python3 -m moni clean-articles  # 再跑一次 = 幂等
 - 队列表每 30s 自动 polling, 状态从 `pending` → `running` → `done` / `failed`
 - done 行"输出"列有可点击链接 (v1.0.5.15+ web URL, 不撞 macOS file:// 拦), 新 tab 打开 artifact
 - artifact 实际存到 `data/artifacts/<task_id>-<format>.<ext>`, web URL 是 `/artifacts/<filename>`
+
+### 5.4 立即处理队列按钮 + 实时进度 (v1.0.5.17)
+
+加队列后, **不用等 cron 也不用敲命令** — UI 上点按钮一键激活 hermes chat 跑这批 task:
+
+1. 进"分享"菜单
+2. 滚到下面"队列状态"模块
+3. **点 "▶ 立即处理队列"** 按钮 (有 pending/running 任务时高亮, 否则 disabled)
+4. 弹 modal 显:
+   - 状态: 已启动 / 已在跑 / 启动失败
+   - PID (worker 子进程号)
+   - 日志路径
+   - 实时 worker.log (每 3 秒自动刷新, 看 hermes chat 输出流)
+5. 关闭 modal 不影响 worker (它继续在后台跑, 关掉浏览器也跑)
+6. 30s 后队列状态表自动 polling 看进度: pending → running (进度条动) → done
+
+**进度条**: 队列状态表 running 行多一列"进度" — 显示当前阶段 (queued / fetching / building_prompt / invoking_llm / writing_artifact) + 百分比 0-100% + 蓝色进度条.
+
+5 阶段对应 worker 实际在做什么:
+- `queued` 0% — 任务在 queue 文件, worker 还没扫到
+- `fetching` 20% — worker 正在从 articles 表读 raw_content
+- `building_prompt` 40% — 拼 prompt 模板
+- `invoking_llm` 60% — 调 hermes chat (5min timeout, 最长阶段)
+- `writing_artifact` 95-100% — 写 output 文件到 `data/artifacts/`, status=done
+
+worker 5 阶段拆详见 STATUS.md v1.0.5.17 章节.
 
 ---
 

@@ -686,6 +686,18 @@ function app() {
     shareEstimateError: null,
     shareEstimateSubmitting: false,
     _shareEstimatePayload: null,  // the validated payload to POST on confirm
+    // v1.0.5.17: "▶ 立即处理队列" button state.  triggerWorker()
+    // hits POST /api/share/worker/run and opens the log-tail modal.
+    // workerRunning guards the button so we don't double-spawn.
+    // workerModalResult holds the response of the launch (started
+    // / already_running / pid / log_path / error).  workerLogLines
+    // is the live tail of worker.log, refreshed every 3s while the
+    // modal is open.
+    workerRunning: false,
+    workerModalOpen: false,
+    workerModalResult: null,
+    workerLogLines: [],
+    _workerLogPollInterval: null,
     shareFormats: [
       { value: 'plain_text',          label: '纯文本' },
       { value: 'markdown',            label: 'Markdown' },
@@ -882,6 +894,121 @@ function app() {
       const m = Math.floor(sec / 60);
       const s = sec % 60;
       return s === 0 ? (m + ' 分') : (m + ' 分 ' + s + ' 秒');
+    },
+
+    // v1.0.5.17: helpers for the "▶ 立即处理队列" button + the
+    // worker log-tail modal.  The button is disabled when there's
+    // nothing to process (no pending/running rows); the small
+    // "N 个待处理" label tells the user how many would actually
+    // be picked up.  shareQueueHasPending() is the disabled-check;
+    // shareQueuePendingCount() is the badge text.
+
+    shareQueueHasPending() {
+      return (this.shareQueue || []).some(
+        q => q.status === 'pending' || q.status === 'running'
+      );
+    },
+
+    shareQueuePendingCount() {
+      return (this.shareQueue || []).filter(
+        q => q.status === 'pending' || q.status === 'running'
+      ).length;
+    },
+
+    // Title shown in the worker-log modal header.  Different copy
+    // for the 3 launch outcomes so the user can tell at a glance
+    // whether they actually started something or just observed an
+    // existing one.
+    get workerModalTitle() {
+      const r = this.workerModalResult;
+      if (!r) return '处理队列';
+      if (r.started) return '处理队列 - 已启动 worker';
+      if (r.already_running) return '处理队列 - 已有 worker 在跑';
+      return '处理队列 - 启动失败';
+    },
+
+    // v1.0.5.17: trigger a worker run.  POSTs to /api/share/worker/run
+    // and opens the log-tail modal.  Polls the log every 3s while
+    // the modal is open.  The button itself is disabled when
+    // workerRunning=true (and we also re-enable it in the
+    // response handler so a "already_running" outcome can re-arm
+    // the button when the existing worker finishes).
+    async triggerWorker() {
+      if (this.workerRunning) return;
+      this.workerRunning = true;
+      this.workerModalResult = null;
+      this.workerLogLines = [];
+      try {
+        const r = await fetch('/api/share/worker/run', {
+          method: 'POST',
+          credentials: 'same-origin',
+        });
+        const data = await r.json();
+        this.workerModalResult = data;
+        this.workerModalOpen = true;
+        if (data.error) {
+          // Surface the error in the console; the modal also
+          // shows it (the red error-text summary-box is x-shown
+          // when result.error is truthy).
+          console.error('worker launch failed:', data.error);
+        }
+        // If the worker just started, refresh the queue every 5s
+        // (not just 30s) so the user sees pending → running →
+        // done transitions without long delays.  We restore the
+        // normal 30s cadence when the modal closes.
+        this.loadShareQueue();
+        this._startWorkerLogPoll();
+      } catch (err) {
+        console.error('triggerWorker failed:', err);
+        alert('触发 worker 失败: ' + err.message);
+      } finally {
+        // We re-enable the button so the user can re-trigger after
+        // a transient error.  workerModalResult.started is the
+        // signal that the worker is running; the lock file on
+        // disk (server-side) is the source of truth for "is
+        // another worker up?", so even if the UI re-fires the
+        // request, the server will return already_running and
+        // the modal title will say so.
+        this.workerRunning = false;
+      }
+    },
+
+    // v1.0.5.17: 3-second log poll while the modal is open.  The
+    // interval ID is stashed so closeWorkerModal() can clear it
+    // deterministically; the queue-status poll (30s) keeps
+    // running independently.
+    _startWorkerLogPoll() {
+      if (this._workerLogPollInterval) {
+        clearInterval(this._workerLogPollInterval);
+      }
+      this.refreshWorkerLog();  // immediate first fetch
+      this._workerLogPollInterval = setInterval(
+        () => this.refreshWorkerLog(),
+        3000
+      );
+    },
+
+    async refreshWorkerLog() {
+      try {
+        const r = await fetch(
+          '/api/share/worker/log?tail=200',
+          { credentials: 'same-origin' }
+        );
+        if (!r.ok) return;
+        const data = await r.json();
+        this.workerLogLines = (data.lines || []).slice();
+      } catch (err) {
+        // Don't spam the user — the next 3s poll will retry.
+        console.error('refreshWorkerLog failed:', err);
+      }
+    },
+
+    closeWorkerModal() {
+      this.workerModalOpen = false;
+      if (this._workerLogPollInterval) {
+        clearInterval(this._workerLogPollInterval);
+        this._workerLogPollInterval = null;
+      }
     },
 
     // v1.0.5.14: helper for the share-format title input.  When the

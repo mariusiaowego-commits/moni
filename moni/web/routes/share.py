@@ -30,6 +30,7 @@ from moni.db.connection import get_db
 from moni.share.artifacts import ARTIFACTS_DIR, ensure_artifact
 from moni.share.formats import validate_manifest
 from moni.share.manifest import write_manifest
+from moni.share.worker import LOG_FILE, launch_worker, tail_log
 from moni.web.exceptions import BadRequestError, NotFoundError
 from moni.web.models import (
     ShareTask,
@@ -226,6 +227,14 @@ def _row_to_share_task(row: dict[str, Any]) -> ShareTask:
         output_url=output_url,
         status=row.get("status", "pending"),
         error=row.get("error"),
+        # v1.0.5.17: 3 progress fields pass-through.  The worker
+        # (default_worker.sh) writes these at each stage transition
+        # so the user can see where a running task is without
+        # opening the modal.  Safe defaults (None) for pre-v1.0.5.17
+        # rows that were backfilled with CASE/CASE in the migration.
+        progress_stage=row.get("progress_stage"),
+        progress_pct=row.get("progress_pct"),
+        progress_message=row.get("progress_message"),
         created_at=row["created_at"],
         started_at=row.get("started_at"),
         finished_at=row.get("finished_at"),
@@ -339,6 +348,7 @@ def list_share_tasks(
     rows = conn.execute(
         """
         SELECT id, format, article_ids, output_path, status, error,
+               progress_stage, progress_pct, progress_message,
                created_at, started_at, finished_at, extra
         FROM share_tasks
         ORDER BY created_at DESC
@@ -366,6 +376,7 @@ def get_share_task(task_id: str) -> ShareTask:
     row = conn.execute(
         """
         SELECT id, format, article_ids, output_path, status, error,
+               progress_stage, progress_pct, progress_message,
                created_at, started_at, finished_at, extra
         FROM share_tasks WHERE id = ?
         """,
@@ -376,3 +387,56 @@ def get_share_task(task_id: str) -> ShareTask:
         raise NotFoundError(message=f"Share task {task_id!r} not found")
 
     return _row_to_share_task(dict(row))
+
+
+# ---------------------------------------------------------------------------
+# v1.0.5.17: worker on-demand trigger + log tail
+# ---------------------------------------------------------------------------
+# The UI's "▶ 立即处理队列" button hits POST /api/share/worker/run
+# which spawns default_worker.sh as a detached subprocess.  The
+# 30s queue-status polling (already in app.js) then surfaces the
+# pending → running → done transitions and progress_stage column.
+# ---------------------------------------------------------------------------
+
+
+@router.post("/worker/run")
+def run_worker() -> dict:
+    """Spawn the default worker subprocess on demand.
+
+    Response shape (always 200 unless the worker script itself is
+    missing — the UI prefers an error body over a 5xx so the modal
+    can show the message verbatim):
+
+    - {started: true,  pid: N, log_path: '...'}   — we just spawned it
+    - {started: false, already_running: true, pid: N, log_path: '...'}
+      — another worker was already up; no-op, UI tells the user
+    - {started: false, already_running: false, pid: null,
+       error: '...', log_path: '...'}
+      — failed (e.g. worker script missing); UI shows the error
+    """
+    result = launch_worker()
+    if result.error:
+        logger.warning("worker launch failed: %s", result.error)
+    return {
+        "started": result.started,
+        "already_running": result.already_running,
+        "pid": result.pid,
+        "log_path": result.log_path,
+        "error": result.error,
+    }
+
+
+@router.get("/worker/log")
+def read_worker_log(tail: int = Query(200, ge=1, le=5000)) -> dict:
+    """Return the last ``tail`` lines (default 200) of worker.log.
+
+    The frontend modal polls this every 2-3s while a worker is
+    running so the user can see live progress (hermes chat output
+    snippets, "DONE task_id", etc.) without tailing the file by
+    hand.  Returns ``{lines: [...], log_path: '...'}``.
+    """
+    body = tail_log(n=tail)
+    return {
+        "lines": body.splitlines() if body else [],
+        "log_path": str(LOG_FILE),
+    }

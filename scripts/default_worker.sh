@@ -55,6 +55,33 @@ trap 'rm -f "$LOCK_FILE"' EXIT
 
 # --- Helpers ----------------------------------------------------------------
 
+# v1.0.5.17: 5-stage progress checkpoint helper.  Each stage
+# transition calls this to write progress_stage / progress_pct /
+# progress_message into share_tasks so the UI can show a progress
+# bar without parsing the worker log.  The 5 stages (with the
+# percentage we typically write):
+#   queued            → 0
+#   fetching          → 20
+#   building_prompt   → 40
+#   invoking_llm      → 60  (5-min hermes chat window — biggest delta)
+#   writing_artifact  → 95
+# The DONE branch in process_manifest bumps to 100 alongside the
+# status=done UPDATE.  pct=100 only ever appears with status=done
+# so the UI can use pct==100 as a proxy for "row is green".
+update_progress() {
+    local task_id="$1"
+    local stage="$2"
+    local pct="$3"
+    local message="$4"
+
+    # shellcheck disable=SC2086  # message is intentional
+    sqlite3 "$DB_PATH" \
+        "UPDATE share_tasks
+         SET progress_stage='$stage', progress_pct=$pct, progress_message='$message'
+         WHERE id='$task_id'" \
+        >/dev/null 2>&1 || true
+}
+
 log() { echo "[$(date -u +%T)] $*" ; }
 
 task_status_update() {
@@ -206,8 +233,14 @@ PYEOF
         return 0
     fi
 
-    # Mark as running
+    # v1.0.5.17: stage 1 → 2 transition.  The task_status_update
+    # below flips status pending → running; the progress_stage
+    # separately moves queued → fetching because "running" is a
+    # status state (queue position) while "fetching" is a pipeline
+    # stage.  Two columns, two concepts.
     task_status_update "$task_id" "running"
+    update_progress "$task_id" "fetching" 20 \
+        "正在从 articles 表读 raw_content ..."
 
     log "PROCESS $task_id format=$format output=$output_path"
 
@@ -263,6 +296,13 @@ content = '''$article_content'''
 print(json.dumps(content))
 " 2>/dev/null || echo "\"\"")
 
+    # v1.0.5.17: stage 2 → 3 transition.  Article content is now in
+    # hand; we mark building_prompt so the UI can show "拼 prompt
+    # 中" while the Python interpolator runs (typically <1s but
+    # visible for big content).
+    update_progress "$task_id" "building_prompt" 40 \
+        "正在拼 prompt (skill=$skill_name, content=$(printf '%d' "${#escaped_content}") 字节) ..."
+
     # Build the hermes prompt
     local skill_clause=""
     if [[ -n "$skill_name" ]]; then
@@ -280,6 +320,14 @@ Output path: $output_path
 ${skill_clause}Write the final output to: $output_path
 If the output path is a directory, generate an appropriate file inside it.
 Do NOT rely on any external web services for content — use only the article provided above."
+
+    # v1.0.5.17: stage 3 → 4 transition.  The prompt is built; next
+    # up is the 5-minute hermes chat subprocess.  This is the
+    # longest stage (typically 30s-3min for an LLM call), so we
+    # write a clear message so the UI can show "正在调 LLM, 估
+    # X 秒" while it runs.
+    update_progress "$task_id" "invoking_llm" 60 \
+        "正在调 hermes chat (timeout=${TIMEOUT_SECONDS}s) ..."
 
     # Invoke hermes agent with 5-minute timeout (Python, works on macOS + Linux)
     local hermes_exit=0
@@ -340,8 +388,25 @@ PYEOF
         fi
     fi
 
+    # v1.0.5.17: 5-stage progress tracking.  Each stage transition
+    # writes progress_stage / progress_pct / progress_message so the
+    # UI can show a progress bar + 5-stage stepper without polling
+    # the worker log.  See migration 008 for the columns.
+    #
+    # Stage 5 (writing_artifact) is what we're entering now — the
+    # output_path above is the artifact we're about to write.  We
+    # mark 95% (close to done but not 100; the DB UPDATE for status=done
+    # below will bump to 100 alongside it).
+    update_progress "$task_id" "writing_artifact" 95 \
+        "正在写 artifact 到 $output_path ..."
+
     log "DONE $task_id -> $output_path"
     task_status_update "$task_id" "done" "$output_path"
+    # Bump pct to 100 alongside the done status so the UI bar fills
+    # exactly when the row turns green.
+    sqlite3 "$DB_PATH" \
+        "UPDATE share_tasks SET progress_pct=100 WHERE id='$task_id'" \
+        >/dev/null 2>&1 || true
     return 0
 }
 

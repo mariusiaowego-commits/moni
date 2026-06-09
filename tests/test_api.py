@@ -714,6 +714,214 @@ class TestShare:
         after = client.get("/api/share/tasks?page=1&page_size=1").json()["total"]
         assert before == after, "estimate must not write a share_task row"
 
+
+# ---------------------------------------------------------------------------
+# v1.0.5.17: worker on-demand trigger + log tail + progress fields
+# ---------------------------------------------------------------------------
+# The progress columns (progress_stage / progress_pct / progress_message)
+# are written by default_worker.sh at each stage transition; the API
+# pass-through is verified by checking the response shape after we
+# UPDATE a row directly.  The worker/run endpoint is hard to unit-test
+# without spawning a real subprocess (and we don't want a real worker
+# running in CI), so we mock launch_worker() and assert the
+# response shape is wired through.
+# ---------------------------------------------------------------------------
+
+
+class TestShareTaskProgress:
+    """ShareTask model + list/get routes surface the v1.0.5.17 progress
+    columns end-to-end.  We backfill progress columns directly into
+    the DB and assert they round-trip through the API — same
+    pattern we used for display_name in test_api.py (v1.0.5.14)."""
+
+    def test_share_task_response_includes_progress_fields(
+        self, client: TestClient, seeded_article: str,
+    ):
+        from moni.db.connection import get_db
+        # Create a real share task so we have a row to read back
+        r = client.post(
+            "/api/share",
+            json={
+                "format": "markdown",
+                "version": "1.0",
+                "payload": {"article_ids": [seeded_article]},
+            },
+        )
+        assert r.status_code == 201
+        task_id = r.json()["share_id"]
+
+        # Write the 3 progress columns directly (simulating the
+        # worker checkpointing midway through invoking_llm).
+        get_db().execute(
+            "UPDATE share_tasks SET progress_stage=?, progress_pct=?, "
+            "progress_message=? WHERE id=?",
+            (
+                "invoking_llm", 60,
+                "正在调 hermes chat (timeout=300s) ...",
+                task_id,
+            ),
+        )
+        get_db().commit()
+
+        # Now read it back through the API and assert the fields
+        # round-trip exactly.
+        r = client.get(f"/api/share/tasks/{task_id}")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["progress_stage"] == "invoking_llm"
+        assert d["progress_pct"] == 60
+        assert d["progress_message"] == "正在调 hermes chat (timeout=300s) ..."
+
+    def test_share_task_response_handles_null_progress(
+        self, client: TestClient, seeded_article: str,
+    ):
+        """A pre-v1.0.5.17 row (or any row without progress_*) should
+        still serialize cleanly — the Pydantic model declares the
+        three fields as Optional with None defaults."""
+        r = client.post(
+            "/api/share",
+            json={
+                "format": "markdown",
+                "version": "1.0",
+                "payload": {"article_ids": [seeded_article]},
+            },
+        )
+        task_id = r.json()["share_id"]
+        # Don't UPDATE progress_*.  Just read it back.
+        r = client.get(f"/api/share/tasks/{task_id}")
+        d = r.json()
+        assert d["progress_stage"] is None
+        assert d["progress_pct"] is None
+        assert d["progress_message"] is None
+
+    def test_share_task_list_includes_progress_fields(
+        self, client: TestClient, seeded_article: str,
+    ):
+        from moni.db.connection import get_db
+        r = client.post(
+            "/api/share",
+            json={
+                "format": "markdown",
+                "version": "1.0",
+                "payload": {"article_ids": [seeded_article]},
+            },
+        )
+        task_id = r.json()["share_id"]
+        get_db().execute(
+            "UPDATE share_tasks SET progress_stage=?, progress_pct=?, progress_message=? "
+            "WHERE id=?",
+            ("writing_artifact", 95, "正在写 artifact ...", task_id),
+        )
+        get_db().commit()
+
+        # Pull a 1-page list and look for our task in the items.
+        r = client.get("/api/share/tasks?page=1&page_size=100")
+        assert r.status_code == 200
+        match = next(
+            (x for x in r.json()["items"] if x["id"] == task_id),
+            None,
+        )
+        assert match is not None
+        assert match["progress_stage"] == "writing_artifact"
+        assert match["progress_pct"] == 95
+        assert match["progress_message"] == "正在写 artifact ..."
+
+
+class TestWorkerRun:
+    """POST /api/share/worker/run endpoint.  We patch the
+    launch_worker symbol in the route module (the one that was
+    imported into the route's namespace) so the endpoint uses
+    our fake without spawning a real subprocess."""
+
+    def test_worker_run_200_spawned(self, client: TestClient, monkeypatch):
+        from moni.web.routes import share as share_route
+
+        class _FakeResult:
+            started = True
+            already_running = False
+            pid = 4242
+            log_path = "/tmp/fake-worker.log"
+            error = None
+
+        monkeypatch.setattr(share_route, "launch_worker", lambda: _FakeResult())
+        r = client.post("/api/share/worker/run")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["started"] is True
+        assert d["already_running"] is False
+        assert d["pid"] == 4242
+        assert d["log_path"] == "/tmp/fake-worker.log"
+        assert d["error"] is None
+
+    def test_worker_run_200_already_running(self, client: TestClient, monkeypatch):
+        from moni.web.routes import share as share_route
+
+        class _FakeResult:
+            started = False
+            already_running = True
+            pid = 1234
+            log_path = "/tmp/fake-worker.log"
+            error = None
+
+        monkeypatch.setattr(share_route, "launch_worker", lambda: _FakeResult())
+        r = client.post("/api/share/worker/run")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["started"] is False
+        assert d["already_running"] is True
+        assert d["pid"] == 1234
+        assert d["error"] is None
+
+    def test_worker_run_200_failed_returns_error(self, client: TestClient, monkeypatch):
+        """Failed launches still return 200 with error in body so the
+        UI modal can show the message verbatim.  We deliberately
+        don't 5xx — the request itself succeeded, the subprocess
+        just couldn't start."""
+        from moni.web.routes import share as share_route
+
+        class _FakeResult:
+            started = False
+            already_running = False
+            pid = None
+            log_path = "/tmp/fake-worker.log"
+            error = "worker script not found: /nope"
+
+        monkeypatch.setattr(share_route, "launch_worker", lambda: _FakeResult())
+        r = client.post("/api/share/worker/run")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["started"] is False
+        assert d["already_running"] is False
+        assert d["error"] == "worker script not found: /nope"
+
+
+class TestWorkerLog:
+    """GET /api/share/worker/log?tail=N endpoint.  We patch
+    tail_log in the route module (where the import lives) so
+    the endpoint uses our fake."""
+
+    def test_worker_log_returns_lines(self, client: TestClient, monkeypatch):
+        from moni.web.routes import share as share_route
+        monkeypatch.setattr(
+            share_route, "tail_log",
+            lambda n=200: "line A\nline B\nline C",
+        )
+        r = client.get("/api/share/worker/log?tail=10")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["lines"] == ["line A", "line B", "line C"]
+        assert d["log_path"].endswith("worker.log")
+
+    def test_worker_log_empty_returns_empty_lines(
+        self, client: TestClient, monkeypatch,
+    ):
+        from moni.web.routes import share as share_route
+        monkeypatch.setattr(share_route, "tail_log", lambda n=200: "")
+        r = client.get("/api/share/worker/log?tail=10")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["lines"] == []
+
     def test_get_task_by_id_404(self, client: TestClient):
         r = client.get("/api/share/tasks/nonexistent-task-id")
         assert r.status_code == 404

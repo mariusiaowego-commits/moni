@@ -223,6 +223,18 @@ class ShareTask(BaseModel):
     output_url: str | None = None
     status: str = "pending"
     error: str | None = None
+    # v1.0.5.17: 3 progress-tracking fields.  Written by the worker
+    # at each stage transition (queued → fetching → building_prompt
+    # → invoking_llm → writing_artifact).  The frontend reads them
+    # to show a progress bar in the queue table + a 5-stage stepper
+    # in the task detail modal.  progress_message is a short
+    # human-readable string the worker updates in real time
+    # ("正在从 articles 表读 raw_content...", etc.).  Optional
+    # fields default to None so the model still validates rows
+    # that pre-date v1.0.5.17 (migrated with a one-shot backfill).
+    progress_stage: str | None = None
+    progress_pct: int | None = None
+    progress_message: str | None = None
     created_at: str
     started_at: str | None = None
     finished_at: str | None = None
