@@ -33,12 +33,18 @@ from .connection import get_db
 
 
 # ── Tag 定义 (5 个) ─────────────────────────────────────────────────────────
+# v1.0.5.14: each tag now carries a `display_name` — a human-friendly
+# Chinese / unicode string the UI shows.  The `name` column is the
+# immutable system primary key + FK reference (source_tags /
+# article_tags).  Mirrors the sources.name / sources.display_name
+# pattern.  The display_name values are what the user sees in
+# article-list tag chips, configuration tabs, and share cards.
 _DEFAULT_TAGS = [
-    ("banking", "银行 (央妈罚款/上市/财报/并购)", "#2563EB"),       # blue
-    ("payment", "支付 (PayPal/银联/二维码/跨境)", "#16A34A"),      # green
-    ("ai-fintech", "AI × 金融 (智能投顾/风控模型/大模型落地)", "#DC2626"),  # red
-    ("regulation", "监管 (政策/法规/合规)", "#EA580C"),             # orange
-    ("general-tech", "通用科技 (不属于以上 4 类)", "#6B7280"),       # gray
+    ("banking",      "银行",        "银行 (央行罚款/上市/财报/并购)",      "#2563EB"),  # blue
+    ("payment",      "支付",        "支付 (PayPal/银联/二维码/跨境)",     "#16A34A"),  # green
+    ("ai-fintech",   "AI×金融",     "AI × 金融 (智能投顾/风控模型/大模型落地)", "#DC2626"),  # red
+    ("regulation",   "监管",        "监管 (政策/法规/合规)",              "#EA580C"),  # orange
+    ("general-tech", "通用科技",    "通用科技 (不属于以上 4 类)",          "#6B7280"),  # gray
 ]
 
 
@@ -164,17 +170,18 @@ def seed() -> None:
         conn.execute("DELETE FROM sources WHERE name = ?", (retired,))
 
     # ── tag_definitions (复用已有表) ────────────────────────────────────
-    for name, desc, color in _DEFAULT_TAGS:
+    for name, display_name, desc, color in _DEFAULT_TAGS:
         conn.execute(
             """
-            INSERT INTO tag_definitions (name, description, color, created_at, is_active)
-            VALUES (?, ?, ?, ?, 1)
+            INSERT INTO tag_definitions (name, display_name, description, color, created_at, is_active)
+            VALUES (?, ?, ?, ?, ?, 1)
             ON CONFLICT(name) DO UPDATE SET
-                description = excluded.description,
-                color       = excluded.color,
-                is_active   = 1
+                display_name = excluded.display_name,
+                description  = excluded.description,
+                color        = excluded.color,
+                is_active    = 1
             """,
-            (name, desc, color, now),
+            (name, display_name, desc, color, now),
         )
 
     # ── sources ────────────────────────────────────────────────────────

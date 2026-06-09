@@ -57,7 +57,7 @@ function app() {
         }
       }
       if (view === 'articles') {
-        this.loadArticles();
+        this._loadArticlesWithPaging();
         this.loadArticlesFilters();  // v1.0.5.10: refresh source/tag <select> option lists
       }
       else if (view === 'crud') this.loadCrudArticles();
@@ -80,7 +80,7 @@ function app() {
       this.currentView = view;
       // Re-run the loaders for the target view.
       if (view === 'articles') {
-        this.loadArticles();
+        this._loadArticlesWithPaging();
         this.loadArticlesFilters();
       }
       else if (view === 'crud') this.loadCrudArticles();
@@ -356,11 +356,73 @@ function app() {
       // v1.0.5.10: source/tag filters — empty string means "all"
       if (this.articlesSource) params.set('source', this.articlesSource);
       if (this.articlesTag) params.set('tag', this.articlesTag);
+      // v1.0.5.14: pagination.  Backend default is 50; we explicitly
+      // send the page size so the user can adjust it later.  Offset
+      // comes from articlesPage (1-indexed in the UI, 0-indexed in
+      // the API).
+      params.set('limit', this.articlesPageSize);
+      params.set('offset', (this.articlesPage - 1) * this.articlesPageSize);
       const query = params.toString();
       fetch('/api/articles' + (query ? '?' + query : ''), { credentials: 'same-origin' })
         .then(r => r.json())
         .then(data => { this.articles = Array.isArray(data) ? data : (data.articles || []); })
         .catch(err => console.error('loadArticles failed:', err));
+    },
+
+    // v1.0.5.14: pagination controls for the articles list.
+    articlesPage: 1,
+    articlesPageSize: 50,
+    articlesPageSizeOptions: [20, 50, 100, 200],
+    articlesHasMore: false,
+
+    // v1.0.5.14: detect "has more" by over-fetching one extra row.  We
+    // ask the API for limit+1 rows and, if we get that many, set
+    // articlesHasMore = true and trim the last row.  Cheap, doesn't
+    // require a separate count endpoint.
+    _loadArticlesWithPaging() {
+      const params = new URLSearchParams();
+      if (this.articlesSearch) params.set('keyword', this.articlesSearch);
+      if (this.articlesSource) params.set('source', this.articlesSource);
+      if (this.articlesTag) params.set('tag', this.articlesTag);
+      const probe = parseInt(this.articlesPageSize, 10) || 50;
+      params.set('limit', probe + 1);
+      params.set('offset', (this.articlesPage - 1) * probe);
+      const query = params.toString();
+      fetch('/api/articles' + (query ? '?' + query : ''), { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(data => {
+          const list = Array.isArray(data) ? data : (data.articles || []);
+          if (list.length > probe) {
+            this.articlesHasMore = true;
+            this.articles = list.slice(0, probe);
+          } else {
+            this.articlesHasMore = false;
+            this.articles = list;
+          }
+        })
+        .catch(err => console.error('_loadArticlesWithPaging failed:', err));
+    },
+
+    articlesPrevPage() {
+      if (this.articlesPage > 1) { this.articlesPage -= 1; this._loadArticlesWithPaging(); }
+    },
+    articlesNextPage() {
+      if (this.articlesHasMore) { this.articlesPage += 1; this._loadArticlesWithPaging(); }
+    },
+    articlesJumpToPage(n) {
+      const p = parseInt(n, 10);
+      if (!isNaN(p) && p >= 1) { this.articlesPage = p; this._loadArticlesWithPaging(); }
+    },
+    articlesChangePageSize() {
+      this.articlesPage = 1; this._loadArticlesWithPaging();
+    },
+
+    // v1.0.5.14: when source/tag filter changes, jump to page 1.
+    // Previously the filter changed but the user could be on page 3
+    // and the list would empty out — now the pager resets.
+    onArticlesFilterChange() {
+      this.articlesPage = 1;
+      this._loadArticlesWithPaging();
     },
 
     // v1.0.5.10: load the option lists for the source/tag <select>s.
@@ -584,8 +646,17 @@ function app() {
         .catch(err => { this.fetchResult = 'FAIL - ' + err.message; });
     },
 
-    // ── Share panel ───────────────────────────────────────────────
+    // ── Share panel ────────────────────────────────────────────────
     allArticles: [],
+    // v1.0.5.14: share page source filter + pagination (same pattern
+    // as the articles list — the share card grid would otherwise show
+    // 228 cards, most of which the user never wants to share).
+    allArticlesSource: '',
+    allArticlesSources: [],
+    allArticlesPage: 1,
+    allArticlesPageSize: 50,
+    allArticlesPageSizeOptions: [20, 50, 100, 200],
+    allArticlesHasMore: false,
     selectedArticleIds: [],
     shareFormat: 'markdown',
     shareFormats: [
@@ -606,10 +677,51 @@ function app() {
     _sharePollInterval: null,
 
     loadAllArticles() {
-      fetch('/api/articles', { credentials: 'same-origin' })
+      // v1.0.5.14: source filter + pagination.  Over-fetch one row to
+      // detect "has more".  When the source changes, also refresh the
+      // <select> option list (cheap GET, reuses the same endpoint as
+      // articles-page loadArticlesFilters()).
+      const probe = parseInt(this.allArticlesPageSize, 10) || 50;
+      const params = new URLSearchParams();
+      if (this.allArticlesSource) params.set('source', this.allArticlesSource);
+      params.set('limit', probe + 1);
+      params.set('offset', (this.allArticlesPage - 1) * probe);
+      const query = params.toString();
+      fetch('/api/articles' + (query ? '?' + query : ''), { credentials: 'same-origin' })
         .then(r => r.json())
-        .then(data => { this.allArticles = Array.isArray(data) ? data : (data.articles || []); })
+        .then(data => {
+          const list = Array.isArray(data) ? data : (data.articles || []);
+          if (list.length > probe) {
+            this.allArticlesHasMore = true;
+            this.allArticles = list.slice(0, probe);
+          } else {
+            this.allArticlesHasMore = false;
+            this.allArticles = list;
+          }
+        })
         .catch(err => console.error('loadAllArticles failed:', err));
+      // Refresh the <select> option list (sources for share-page filter).
+      fetch('/api/config/sources', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(data => {
+          this.allArticlesSources = Array.isArray(data) ? data : (data.sources || []);
+        })
+        .catch(err => console.error('loadAllArticles (sources list) failed:', err));
+    },
+
+    allArticlesPrevPage() {
+      if (this.allArticlesPage > 1) { this.allArticlesPage -= 1; this.loadAllArticles(); }
+    },
+    allArticlesNextPage() {
+      if (this.allArticlesHasMore) { this.allArticlesPage += 1; this.loadAllArticles(); }
+    },
+    allArticlesChangePageSize() {
+      this.allArticlesPage = 1; this.loadAllArticles();
+    },
+    onAllArticlesSourceChange() {
+      // v1.0.5.14: source filter changed — reset to page 1.
+      this.allArticlesPage = 1;
+      this.loadAllArticles();
     },
 
     toggleAllArticles(event) {
@@ -619,18 +731,17 @@ function app() {
     },
 
     addToQueue() {
-      if (!this.selectedArticleIds.length) { alert('请先选择文章'); return; }
-      // v1.0.5.12: backend POST /api/share (not /api/share/queue).
-      // The 405 we were seeing was a path mismatch — there is no
-      // /api/share/queue endpoint; the actual handler is @router.post("")
-      // on the share router, mounted at /api/share.
-      //
-      // v1.0.5.12 (422 fix): backend ShareTaskCreateV1 expects
-      //   { format: str, payload: { article_ids: [...], ... } }
-      // (the article_ids go inside a payload dict, not at the top
-      // level — the manifest pipeline reads format-specific keys
-      // from payload).  Old shape put article_ids at top level
-      // and tripped Pydantic validation.
+      // v1.0.5.14: clearer error messaging.  Previously a user
+      // forgetting to tick any box would see an alert("请先选择文章")
+      // and possibly mis-read it as an HTTP 400 from the server.
+      // Now the alert is explicit that this is a client-side check,
+      // and the catch() surfaces the actual response body text so
+      // genuine server errors (e.g. 500 with a JSON message) are not
+      // hidden behind just a status code.
+      if (!this.selectedArticleIds.length) {
+        alert('请先勾选要分享的文章 (在文章卡片上点 checkbox, 至少 1 个)。\n\n这是浏览器本地检查, 不是 HTTP 错误。');
+        return;
+      }
       fetch('/api/share', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -640,12 +751,20 @@ function app() {
           payload: { article_ids: this.selectedArticleIds },
         }),
       })
-        .then(r => {
-          if (!r.ok) throw new Error('HTTP ' + r.status);
+        .then(async r => {
+          if (!r.ok) {
+            // Surface the server's response body too — Pydantic 422
+            // messages are useful (they tell which field is wrong).
+            const text = await r.text().catch(() => '');
+            throw new Error('HTTP ' + r.status + (text ? ' · ' + text : ''));
+          }
           return r.json();
         })
         .then(() => { this.loadShareQueue(); this.selectedArticleIds = []; })
-        .catch(err => { alert('加入队列失败: ' + err.message); });
+        .catch(err => {
+          console.error('addToQueue failed:', err);
+          alert('加入队列失败: ' + err.message);
+        });
     },
 
     loadShareQueue() {
@@ -684,7 +803,7 @@ function app() {
       // navigate() already calls the right loader; we can reuse it.
       // But we already set currentView above, so navigate() will just
       // re-load.  The cheapest path: call only the loader for the boot view.
-      if (view === 'articles') this.loadArticles();
+      if (view === 'articles') this._loadArticlesWithPaging();
       else if (view === 'crud') this.loadCrudArticles();
       else if (view === 'cron') this.loadCronRuns();
       else if (view === 'fetch') this.loadSources();
@@ -894,6 +1013,54 @@ function app() {
       // without re-assignment can sometimes be missed; trigger
       // reactivity by reassigning the property.
       this.expandedJobIds = new Set(this.expandedJobIds);
+    },
+
+    // ── v1.0.5.14: LLM job detail modal ───────────────────────────
+    // Replaces the inline "查看全文" cell-expand: opening a row's "查看详情"
+    // / "查看错误" button now opens a wide modal showing the full result
+    // (or error) in a scrollable pre-formatted block, with a copy-to-
+    // clipboard button. The legacy expandedJobIds Set is kept on the
+    // object for backwards compatibility but is no longer wired to UI.
+    jobDetail: null,
+    jobDetailCopied: false,
+
+    openJobDetail(job) {
+      this.jobDetail = job;
+      this.jobDetailCopied = false;
+    },
+
+    closeJobDetail() {
+      this.jobDetail = null;
+      this.jobDetailCopied = false;
+    },
+
+    async copyJobDetail() {
+      if (!this.jobDetail) return;
+      const text = this.jobDetail.status === 'failed'
+        ? (this.jobDetail.error || '')
+        : (this.jobDetail.result || '');
+      if (!text) return;
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          // Fallback for non-secure contexts (http://127.0.0.1 is fine,
+          // but this also covers file:// or older browsers).
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+        }
+        this.jobDetailCopied = true;
+        setTimeout(() => { this.jobDetailCopied = false; }, 1500);
+      } catch (err) {
+        console.error('copyJobDetail failed:', err);
+        alert('复制失败: ' + (err && err.message ? err.message : String(err)));
+      }
     },
   };
 }

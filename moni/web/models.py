@@ -20,8 +20,14 @@ class TagRef(BaseModel):
     ``tag_definitions.color`` (hex string) and may be ``None`` if the
     row in ``tag_definitions`` is missing a colour (we then fall
     back to a neutral CSS default).
+
+    v1.0.5.14: added ``display_name`` so the chip can render the
+    human-friendly Chinese / unicode string the user typed in
+    /config.  The frontend falls back to ``name`` when ``display_name``
+    is NULL (e.g. legacy rows that haven't been re-seeded yet).
     """
     name: str
+    display_name: str | None = None
     color: str | None = None
 
 
@@ -251,8 +257,15 @@ class Tag(BaseModel):
     bound sources are kept at fetch time.  When the field is empty
     the tag still works for classification / display, it just does
     NOT constrain fetched content.
+
+    v1.0.5.14: ``display_name`` is the human-friendly UI name
+    (Chinese / any string).  ``name`` stays as the immutable
+    system primary key + FK reference for source_tags / article_tags
+    — users edit ``display_name`` to "rename" a tag from the UI.
+    The mirrors sources.name / sources.display_name pattern.
     """
     name: str
+    display_name: str | None = None
     description: str | None = None
     color: str | None = None
     is_active: bool = True
@@ -262,12 +275,24 @@ class Tag(BaseModel):
 
 class TagCreate(BaseModel):
     name: str
+    display_name: str | None = None
     description: str | None = None
     color: str | None = None
     keywords: list[str] = []
 
 
 class TagUpdate(BaseModel):
+    # v1.0.5.14 (display_name mode): `name` is intentionally NOT in
+    # this model — it stays as the immutable primary key.  To "rename"
+    # a tag from the UI, the user edits `display_name`, which is a
+    # plain column update with no FK cascade required.  The previous
+    # v1.0.5.14 attempt to allow renaming `name` directly was rolled
+    # back because the FK chain on tag_definitions.name has no
+    # ON UPDATE CASCADE, so any rename transaction had to manually
+    # PRAGMA foreign_keys = OFF and reorder UPDATEs — fragile and
+    # rejected by the user in favour of the cleaner display_name
+    # pattern (mirrors sources.display_name).
+    display_name: str | None = None
     description: str | None = None
     color: str | None = None
     is_active: bool | None = None

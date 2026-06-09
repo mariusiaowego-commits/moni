@@ -31,6 +31,12 @@ def _row_to_article(row: dict[str, Any]) -> Article:
     pipe to extract both, falling back to color=None if not present
     or empty.  This way the frontend can render chips with the
     user-chosen colour from /config.
+    v1.0.5.14: format extended to "name|display_name|color".  The
+    middle field is the human-friendly Chinese / unicode name the
+    user typed in /config; the frontend renders that string in the
+    chip with `name` as a fallback.  Splits with a max of 2 so a
+    `display_name` that itself contains a pipe (rare but legal)
+    still round-trips correctly.
     """
     tags_str = row.get("tags") or ""
     tags: list[TagRef] = []
@@ -38,12 +44,21 @@ def _row_to_article(row: dict[str, Any]) -> Article:
         raw = raw.strip()
         if not raw:
             continue
-        if "|" in raw:
-            name, color = raw.split("|", 1)
-            color = color.strip() or None
+        # Each tag has 1-3 fields separated by '|':
+        #   "name"            → legacy rows (pre-v1.0.5.14)
+        #   "name|color"      → v1.0.5.12 era
+        #   "name||color"     → v1.0.5.14 with empty display_name
+        #   "name|disp|color" → v1.0.5.14 with all three set
+        parts = raw.split("|", 2)
+        if len(parts) == 1:
+            name, display_name, color = parts[0], None, None
+        elif len(parts) == 2:
+            name, display_name, color = parts[0], None, (parts[1].strip() or None)
         else:
-            name, color = raw, None
-        tags.append(TagRef(name=name, color=color))
+            name, display_name, color = parts
+            display_name = display_name.strip() or None
+            color = color.strip() or None
+        tags.append(TagRef(name=name, display_name=display_name, color=color))
     return Article(
         id=row["id"],
         source=row["source"],
@@ -70,6 +85,14 @@ def list_articles(
     # debounces 300ms; we use a parameterized LIKE here to avoid SQL
     # injection through the search box.
     keyword: str | None = Query(None, description="Substring match against title + content"),
+    # v1.0.5.14: pagination.  Default 50 (matches the share-card-grid
+    # screen height), max 200 to keep the JSON payload reasonable.
+    # Articles are sorted by COALESCE(published_at, fetched_at) DESC so
+    # articles with NULL published_at (waytomaster RSS / qbitai) still
+    # bubble to the top by their fetched_at — fixing the "I just
+    # fetched wechat_rss_a and it's not in the list" bug.
+    limit: int = Query(50, ge=1, le=200, description="Page size (1-200)"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
 ) -> list[Article]:
     """List articles with optional source / tag / keyword filter.
 
@@ -79,6 +102,11 @@ def list_articles(
     v1.0.5.10: keyword is now a real WHERE clause (LIKE on title OR
     raw_content).  Previously the frontend sent it but the route
     silently dropped it on the floor, so the search box was a no-op.
+
+    v1.0.5.14: limit/offset pagination + COALESCE(published_at,
+    fetched_at) DESC sort (NULL published_at falls back to
+    fetched_at).  Default limit 50 keeps the JSON payload under ~50KB
+    for typical article rows; offset is 0-indexed.
     """
     conn = get_db()
 
@@ -108,18 +136,25 @@ def list_articles(
                a.raw_content, a.summary, a.fetched_at,
                (SELECT GROUP_CONCAT(
                   CASE WHEN td.color IS NULL OR td.color = ''
-                       THEN at.tag_name
-                       ELSE at.tag_name || '|' || td.color
+                       THEN CASE WHEN td.display_name IS NULL OR td.display_name = ''
+                                 THEN at.tag_name
+                                 ELSE at.tag_name || '||'
+                            END
+                       ELSE CASE WHEN td.display_name IS NULL OR td.display_name = ''
+                                 THEN at.tag_name || '|' || td.color
+                                 ELSE at.tag_name || '|' || td.display_name || '|' || td.color
+                            END
                   END, ',')
                   FROM article_tags at
                   LEFT JOIN tag_definitions td ON td.name = at.tag_name
                  WHERE at.article_id = a.id) AS tags
         FROM articles a
         {where_sql}
-        ORDER BY a.published_at DESC, a.fetched_at DESC
+        ORDER BY COALESCE(a.published_at, a.fetched_at) DESC, a.fetched_at DESC
+        LIMIT ? OFFSET ?
     """
+    params.extend([limit, offset])
     rows = conn.execute(sql, params).fetchall()
-
     return [_row_to_article(dict(row)) for row in rows]
 
 
@@ -133,8 +168,14 @@ def get_article(article_id: str) -> Article:
                a.raw_content, a.summary, a.fetched_at,
                (SELECT GROUP_CONCAT(
                   CASE WHEN td.color IS NULL OR td.color = ''
-                       THEN at.tag_name
-                       ELSE at.tag_name || '|' || td.color
+                       THEN CASE WHEN td.display_name IS NULL OR td.display_name = ''
+                                 THEN at.tag_name
+                                 ELSE at.tag_name || '||'
+                            END
+                       ELSE CASE WHEN td.display_name IS NULL OR td.display_name = ''
+                                 THEN at.tag_name || '|' || td.color
+                                 ELSE at.tag_name || '|' || td.display_name || '|' || td.color
+                            END
                   END, ',')
                   FROM article_tags at
                   LEFT JOIN tag_definitions td ON td.name = at.tag_name

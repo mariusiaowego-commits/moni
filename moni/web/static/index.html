@@ -109,7 +109,10 @@
                                 ? '--tag-bg: ' + tagObj.color + '1A; --tag-fg: ' + tagObj.color + ';'
                                 : ''"
                               tabindex="0"
-                              x-text="tagObj ? tagObj.name : tagName"></span>
+                              x-text="tagObj ? (tagObj.display_name || tagObj.name) : tagName"></span>
+                        <!-- v1.0.5.14: tooltip still uses the system name (so
+                             users can copy the exact identifier for SQL
+                             / debugging), not the display name. -->
                         <span class="tip" x-text="formatTagTooltip(tagObj ? tagObj.name : tagName)"></span>
                       </span>
                     </template>
@@ -442,14 +445,23 @@
             <table>
               <thead>
                 <tr>
-                  <th>name</th><th>色块</th><th>description</th>
-                  <th>active</th><th>操作</th>
+                  <th>name</th>
+                  <!-- v1.0.5.14: display_name column.  Renders the
+                       human-friendly Chinese / unicode name the user
+                       typed in /config.  Falls back to `name` for
+                       legacy rows that haven't been re-seeded yet. -->
+                  <th>显示名 (display_name)</th>
+                  <th>色块</th>
+                  <th>description</th>
+                  <th>active</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
                 <template x-for="t in configTags" :key="t.name">
                   <tr>
-                    <td><strong x-text="t.name"></strong></td>
+                    <td><code x-text="t.name"></code></td>
+                    <td x-text="t.display_name || t.name"></td>
                     <td>
                       <span class="tag-color-swatch"
                             :style="`background: ${t.color || '#999'}`"
@@ -589,6 +601,18 @@
                        :disabled="!!configModalTarget.name" placeholder="e.g. banking">
               </div>
               <div class="form-row">
+                <label>显示名 (display_name)</label>
+                <!-- v1.0.5.14: this is the field users edit to "rename"
+                     a tag from the UI.  The `name` above is the immutable
+                     system primary key + FK reference (cannot be changed
+                     without cascading UPDATEs across source_tags /
+                     article_tags, which is rejected by design).  To
+                     "rename" a tag, edit this display_name field.  Empty
+                     falls back to `name` for the chip rendering. -->
+                <input type="text" x-model="configModalTarget.display_name"
+                       placeholder="银行 (留空则用 name)">
+              </div>
+              <div class="form-row">
                 <label>description</label>
                 <input type="text" x-model="configModalTarget.description" placeholder="银行 业务">
               </div>
@@ -631,6 +655,7 @@
               <button class="btn-primary"
                       @click="configSaveTag({
                         name: configModalTarget.name,
+                        display_name: configModalTarget.display_name || null,
                         description: configModalTarget.description || null,
                         color: configModalTarget.color || null,
                         keywords: (configModalTarget.keywordsText || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)
