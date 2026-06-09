@@ -1,6 +1,6 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。v1.0.2 完成。
+> 同业信源自动抓取与本地新闻库。v1.0.5.13 完成 (2026-06-09)。
 > 这份文档给**用户**（你自己）看 —— 怎么用 moni，不讲代码细节。
 
 ---
@@ -36,12 +36,13 @@ bash scripts/web.sh stop
 
 | 菜单 | 作用 |
 |---|---|
-| **文章查阅** | 浏览所有抓回文章 (含 LLM 摘要/事实核查) |
-| **CRUD** | 编辑/删除单篇文章 (两步删除 confirm) |
+| **文章查阅** | 浏览所有抓回文章 (含 LLM 摘要/事实核查, source/tag filter, 全文搜索, tag chip hover 详情) |
+| **CRUD** | 编辑/删除单篇文章 (含新建 modal — v1.0.5.11), 两步删除 confirm |
 | **跑批日志** | cron 任务执行历史 |
 | **抓取管理** | 5 源配置 + 手动触发抓取 + 健康检查 |
-| **分享** | 11 种格式导出 (markdown / pdf_bound / ppt_slides 等) |
-| **配置管理** | 业务源 / 业务 tag / 关键词过滤 CRUD (v1.0.2 新增) |
+| **分享** | 11 种格式导出 (card grid — v1.0.5.11, 1 卡 1 篇文章) |
+| **LLM 任务** | 异步 LLM 摘要/事实核查进度面板 (v1.0.5.2, 状态徽章 + 自动轮询) |
+| **配置管理** | 业务源 / 业务 tag (8 色 swatch 选色) / 关键词过滤 CRUD (v1.0.2 新增, v1.0.5.12 swatch palette 升级) |
 
 ---
 
@@ -75,7 +76,7 @@ bash scripts/web.sh stop
 | regulation | 橙 #EA580C | 监管 (政策/法规/合规) |
 | general-tech | 灰 #6B7280 | 通用科技 (其他) |
 
-**新建 tag**: 点"+ 新建 tag" → 填 name (英数下划线) / description / color (hex) → 保存
+**新建 tag**: 点"+ 新建 tag" → 填 name (英数下划线) / description / **color (8 色 swatch 单选, v1.0.5.12)** → 保存
 **删 tag**: 会级联清 source_tags + article_tags 引用
 
 ### 3.3 关键词过滤 tab
@@ -324,10 +325,15 @@ python3 -m moni db export json > backup-$(date +%F).json
 
 ## 8. 已知小问题 (不影响主流程)
 
-- **36kr 30 篇老数据** 内容是 HTML 未清洗 (v1.0.2-E 待做)
-- **mpaypass 10/66** 是 `/download/` 误抓 (v1.0.2-D 待过滤)
-- **`/api/llm/token-log` 路径** 之前 404 (v1.0.1 已修)
-- **share 按钮** 部分 (manifest queue 写盘) — T7 (0a71c88) 已实装 default profile worker + 5min crontab; 详见 `docs/CRON.md`
+> v1.0.5.13 状态: 之前列的 4 个老问题全部修复。
+
+- ~~36kr 30 篇老数据 内容是 HTML 未清洗~~ — v1.0.3-html `moni clean-articles` 已修
+- ~~mpaypass 10/66 是 `/download/` 误抓~~ — v1.0.5 regex 只匹 /news/ 已修
+- ~~`/api/llm/token-log` 路径 之前 404~~ — v1.0.1 已修
+- ~~share 按钮 manifest queue 写盘~~ — T7 (0a71c88) default profile worker + 5min crontab 已实装, 详见 `docs/CRON.md`
+- ~~datetime.utcnow() deprecation warning (55/run)~~ — v1.0.5.13 改 `datetime.now(timezone.utc)` 已修, 0 warnings
+
+**新发现 (不影响主流程, 待办)**: 2 个 pytest skip (`test_fetch_integration.py` 36kr URL P0-C 已知, +1 个待识别) — 改 mock 形式让 pytest 全绿 0 skip 是 P1 候选
 
 ---
 
