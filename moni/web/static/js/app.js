@@ -683,10 +683,10 @@ function app() {
       { value: 'ppt_slides',          label: 'PPT 幻灯片' },
       { value: 'ascii_art',           label: 'ASCII 艺术' },
       { value: 'ascii_video',         label: 'ASCII 视频' },
-      { value: 'concept_video',       label: '概念视频' },
       { value: 'architecture_svg',    label: '架构 SVG' },
       { value: 'info_graphic_png',    label: '信息图 PNG' },
       { value: 'knowledge_comic',     label: '知识漫画' },
+      // v1.0.5.15: 删 concept_video (worker 没真接视频生成 pipeline, 一直 stub)
     ],
     shareQueue: [],
     _sharePollInterval: null,

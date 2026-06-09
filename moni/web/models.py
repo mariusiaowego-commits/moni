@@ -212,6 +212,11 @@ class ShareTask(BaseModel):
     id: str
     format: str
     article_count: int = 0
+    # v1.0.5.15: surface output_path so the frontend queue table can
+    # show a "打开" link for done tasks.  v1.0.5.14 deliberately
+    # trimmed this off the public response model (it was in the DB
+    # but not the API), so the user had no way to reach the artifact.
+    output_path: str | None = None
     status: str = "pending"
     error: str | None = None
     created_at: str

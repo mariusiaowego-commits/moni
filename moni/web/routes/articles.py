@@ -85,12 +85,12 @@ def list_articles(
     # debounces 300ms; we use a parameterized LIKE here to avoid SQL
     # injection through the search box.
     keyword: str | None = Query(None, description="Substring match against title + content"),
-    # v1.0.5.14: pagination.  Default 50 (matches the share-card-grid
+    # v1.0.5.14: limit/offset pagination.  Default 50 (matches the share-card-grid
     # screen height), max 200 to keep the JSON payload reasonable.
-    # Articles are sorted by COALESCE(published_at, fetched_at) DESC so
-    # articles with NULL published_at (waytomaster RSS / qbitai) still
-    # bubble to the top by their fetched_at — fixing the "I just
-    # fetched wechat_rss_a and it's not in the list" bug.
+    # v1.0.5.15: sort by fetched_at DESC (入库时间降序).  Previously used
+    # COALESCE(published_at, fetched_at) which made 36kr's freshly-published
+    # articles dominate the list and hide anything the user just fetched
+    # (wechat_rss / qbitai whose published_at is hours/days old).
     limit: int = Query(50, ge=1, le=200, description="Page size (1-200)"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
 ) -> list[Article]:
@@ -103,10 +103,9 @@ def list_articles(
     raw_content).  Previously the frontend sent it but the route
     silently dropped it on the floor, so the search box was a no-op.
 
-    v1.0.5.14: limit/offset pagination + COALESCE(published_at,
-    fetched_at) DESC sort (NULL published_at falls back to
-    fetched_at).  Default limit 50 keeps the JSON payload under ~50KB
-    for typical article rows; offset is 0-indexed.
+    v1.0.5.14: limit/offset pagination.
+
+    v1.0.5.15: sort by fetched_at DESC (入库时间降序, 刚抓的排最前).
     """
     conn = get_db()
 
@@ -150,7 +149,7 @@ def list_articles(
                  WHERE at.article_id = a.id) AS tags
         FROM articles a
         {where_sql}
-        ORDER BY COALESCE(a.published_at, a.fetched_at) DESC, a.fetched_at DESC
+        ORDER BY a.fetched_at DESC
         LIMIT ? OFFSET ?
     """
     params.extend([limit, offset])

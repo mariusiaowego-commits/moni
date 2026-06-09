@@ -41,6 +41,10 @@ def _row_to_share_task(row: dict[str, Any]) -> ShareTask:
         id=row["id"],
         format=row["format"],
         article_count=article_count,
+        # v1.0.5.15: surface output_path for done tasks.  v1.0.5.14
+        # helper omitted this, so the frontend "打开" link had no
+        # target.  Read from row (DB column); None for non-done tasks.
+        output_path=row.get("output_path"),
         status=row.get("status", "pending"),
         error=row.get("error"),
         created_at=row["created_at"],
@@ -88,7 +92,7 @@ def list_share_tasks(
 
     rows = conn.execute(
         """
-        SELECT id, format, article_ids, status, error,
+        SELECT id, format, article_ids, output_path, status, error,
                created_at, started_at, finished_at, extra
         FROM share_tasks
         ORDER BY created_at DESC
@@ -115,7 +119,7 @@ def get_share_task(task_id: str) -> ShareTask:
     conn = get_db()
     row = conn.execute(
         """
-        SELECT id, format, article_ids, status, error,
+        SELECT id, format, article_ids, output_path, status, error,
                created_at, started_at, finished_at, extra
         FROM share_tasks WHERE id = ?
         """,
