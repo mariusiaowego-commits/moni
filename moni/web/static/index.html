@@ -667,6 +667,86 @@
       </div>
     </div>
 
+    <!-- v1.0.5.16: share-task pre-flight confirm modal.  Triggered
+         by the share-page "加入队列" button after fetch /api/share/
+         estimate.  Shows model + token + duration + artifact-path
+         so the user can decide whether to commit the LLM call.
+         Click 确认 = POST /api/share, 取消 / × / backdrop = no-op. -->
+    <div class="modal-backdrop" x-show="shareEstimate" x-cloak
+         @click.self="cancelShareEstimate()"
+         @keydown.escape.window="cancelShareEstimate()">
+      <div class="modal-content" x-show="shareEstimate">
+        <div class="modal-header">
+          <h3>确认加入分享队列</h3>
+          <button class="modal-close" @click="cancelShareEstimate()">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="article-meta">
+            <span class="meta-chip">
+              <b>格式:</b>
+              <span x-text="shareEstimate?.format || '—'"></span>
+            </span>
+            <span class="meta-chip">
+              <b>文章数:</b>
+              <span x-text="shareEstimate?.articles_count ?? '—'"></span>
+            </span>
+            <span class="meta-chip">
+              <b>总字数:</b>
+              <span x-text="shareEstimate?.total_chars ?? '—'"></span>
+            </span>
+          </div>
+          <div class="summary-box" x-show="!shareEstimateError" x-cloak>
+            <h4>LLM 预估</h4>
+            <p style="margin: 0 0 8px 0;">
+              <b>模型:</b> <span x-text="shareEstimate?.model_name || '—'"></span>
+              <small class="muted" x-text="' (' + (shareEstimate?.provider_name || '?') + ')'"></small>
+            </p>
+            <p style="margin: 0 0 8px 0;">
+              <b>预估 input:</b>
+              <span x-text="(shareEstimate?.input_tokens_est ?? 0).toLocaleString()"></span>
+              tokens
+            </p>
+            <p style="margin: 0 0 8px 0;">
+              <b>预估 output:</b>
+              <span x-text="(shareEstimate?.output_tokens_est ?? 0).toLocaleString()"></span>
+              tokens
+            </p>
+            <p style="margin: 0 0 8px 0;">
+              <b>预估耗时:</b>
+              <span x-text="formatShareDuration(shareEstimate?.duration_sec_est)"></span>
+              <small class="muted"
+                     x-text="shareEstimate?.duration_sec_basis > 0
+                              ? ' (基于历史 ' + shareEstimate.duration_sec_basis + ' 次同格式任务均值)'
+                              : ' (静态默认值, 没有历史数据)'"></small>
+            </p>
+            <p style="margin: 0;">
+              <b>完成后请到:</b>
+              <code x-text="shareEstimate?.artifact_path_template || '—'"></code>
+            </p>
+            <p class="muted" style="font-size: 0.85em; margin-top: 8px;">
+              注: token / 耗时是粗估, 实际取决于 LLM 输出长度.
+              生成后请到「队列状态」表点链接查看.
+            </p>
+          </div>
+          <div class="summary-box error-text" x-show="shareEstimateError" x-cloak>
+            <h4>估算失败</h4>
+            <pre class="job-detail-text" x-text="shareEstimateError"></pre>
+            <p class="muted" style="font-size: 0.85em;">
+              估算失败时仍可点确认直接入队 (跳过预览).
+            </p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" @click="cancelShareEstimate()">取消</button>
+          <button class="btn-primary" @click="confirmShareEstimate()"
+                  :disabled="shareEstimateSubmitting">
+            <span x-show="!shareEstimateSubmitting">确认加入队列</span>
+            <span x-show="shareEstimateSubmitting">提交中…</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- ══ Config Edit Modal (v1.0.2-F) ═════════════════════════════ -->
     <div class="modal-overlay" x-show="configModalOpen" x-cloak @click.self="closeConfigModal()">
       <div class="modal modal-config">
