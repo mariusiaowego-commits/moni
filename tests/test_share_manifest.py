@@ -2,7 +2,7 @@
 
 Covers the five end-to-end test categories called out in the task body:
 
-1. **Schema validation** — Each of the 11 v1.0 formats accepts valid data
+1. **Schema validation** — Each of the 10 v1.0 formats accepts valid data
    and rejects invalid data.
 2. **write_manifest unit test** — Mock DB and filesystem; verify the
    INSERT is called with the correct params and the JSON file is written
@@ -96,7 +96,7 @@ def seeded_article_id(client: TestClient) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Minimal-valid payloads for each of the 11 v1.0 formats
+# Minimal-valid payloads for each of the 10 v1.0 formats
 # ---------------------------------------------------------------------------
 
 # Each entry is the ``payload`` portion of a v1.0 manifest.  Every format
@@ -121,9 +121,6 @@ _PAYLOADS_VALID: dict[str, dict[str, Any]] = {
     "knowledge_comic": {
         "article_ids": ["a1"],
     },
-    "concept_video": {
-        "article_ids": ["a1"],
-    },
     "ascii_art": {
         "article_ids": ["a1"],
     },
@@ -141,16 +138,22 @@ _PAYLOADS_VALID: dict[str, dict[str, Any]] = {
 
 
 # ===========================================================================
-# 1. Schema validation — each of the 11 formats accepts valid data
+# 1. Schema validation — each of the 10 formats accepts valid data
 # ===========================================================================
 
 
 class TestSchemaValidation:
-    """Each of the 11 v1.0 formats must validate correctly and reject bad input."""
+    """Each of the 10 v1.0 formats must validate correctly and reject bad input."""
 
-    def test_valid_formats_set_has_11(self) -> None:
-        """The registry must contain exactly 11 v1.0 formats."""
-        assert len(VALID_FORMATS) == 11
+    def test_valid_formats_set_has_10(self) -> None:
+        """The registry must contain exactly 10 v1.0 formats.
+
+        v1.0.5.15: ``concept_video`` was removed (worker never wired it
+        up to a real video generation pipeline — it was a stub that
+        produced a placeholder file).  Frontend also dropped the format
+        chip, so 10 is the new canonical count.
+        """
+        assert len(VALID_FORMATS) == 10
         # Every FormatEnum value must be in the set (no orphans).
         assert {f.value for f in FormatEnum} == VALID_FORMATS
 
@@ -196,7 +199,7 @@ class TestSchemaValidation:
 
     @pytest.mark.parametrize("fmt_name", sorted(VALID_FORMATS))
     def test_extra_field_rejected(self, fmt_name: str) -> None:
-        """All 11 models have ``extra='forbid'`` — extra fields must fail."""
+        """All 10 models have ``extra='forbid'`` — extra fields must fail."""
         payload = dict(_PAYLOADS_VALID[fmt_name])
         payload["this_field_does_not_exist"] = "boom"
         with pytest.raises(BadRequestError) as exc_info:

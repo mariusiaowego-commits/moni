@@ -135,7 +135,9 @@ body {
   background: #fff;
   border-radius: 6px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-  overflow: auto;
+  /* v1.0.5.15: 删 overflow: auto, 否则内嵌滚动条 + body 滚动条 = 2 个
+     竖向滚动条.  改让 body 单独滚, macOS 原生体验.  Long tables
+     will scroll the whole page instead of inside the box. */
 }
 
 /* Tables */

@@ -212,6 +212,15 @@ class ShareTask(BaseModel):
     id: str
     format: str
     article_count: int = 0
+    # v1.0.5.15: surface output_path + output_url so the frontend queue
+    # table can show a "打开" link for done tasks.  v1.0.5.14 trimmed
+    # these off the public response model (they were in the DB but not
+    # the API), so the user had no way to reach the artifact.  The
+    # frontend uses output_url (browser-safe web URL); output_path is
+    # the absolute filesystem path for users who want to copy/open it
+    # in Finder.
+    output_path: str | None = None
+    output_url: str | None = None
     status: str = "pending"
     error: str | None = None
     created_at: str

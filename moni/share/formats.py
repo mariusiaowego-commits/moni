@@ -27,7 +27,6 @@ class FormatEnum(str, Enum):
     INFO_GRAPHIC_PNG = "info_graphic_png"
     ARCHITECTURE_SVG = "architecture_svg"
     KNOWLEDGE_COMIC = "knowledge_comic"
-    CONCEPT_VIDEO = "concept_video"
     ASCII_ART = "ascii_art"
     ASCII_VIDEO = "ascii_video"
     PDF_BOUND = "pdf_bound"
@@ -115,13 +114,18 @@ class KnowledgeComicPayload(BaseModel):
 
 
 class ConceptVideoPayload(BaseModel):
-    model_config = _extra_forbid
-
-    article_ids: list[str] = Field(..., description="Articles to include")
-    duration_secs: int = Field(default=60, ge=10, le=300)
-    resolution: str = Field(default="1080p", description="'720p' | '1080p' | '4k'")
-    voice: str = Field(default="female_narrator", description="TTS voice name")
-    music: str | None = Field(default=None, description="Background music cue")
+    # v1.0.5.15: DEPRECATED.  Concept video was a speculative format
+    # that the worker never wired up to a real video generation
+    # pipeline — it just produced a stub file.  Removed from FormatEnum
+    # + _FORMAT_MODELS.  Kept here (commented out) for 1 release as a
+    # breadcrumb in case a future user wants to wire it up properly.
+    # model_config = _extra_forbid
+    # article_ids: list[str] = Field(...)
+    # duration_secs: int = Field(default=60, ge=10, le=300)
+    # resolution: str = Field(default="1080p")
+    # voice: str = Field(default="female_narrator")
+    # music: str | None = Field(default=None)
+    pass
 
 
 class AsciiArtPayload(BaseModel):
@@ -174,7 +178,6 @@ _FORMAT_MODELS: dict[str, type[BaseModel]] = {
     FormatEnum.INFO_GRAPHIC_PNG.value: InfoGraphicPngPayload,
     FormatEnum.ARCHITECTURE_SVG.value: ArchitectureSvgPayload,
     FormatEnum.KNOWLEDGE_COMIC.value: KnowledgeComicPayload,
-    FormatEnum.CONCEPT_VIDEO.value: ConceptVideoPayload,
     FormatEnum.ASCII_ART.value: AsciiArtPayload,
     FormatEnum.ASCII_VIDEO.value: AsciiVideoPayload,
     FormatEnum.PDF_BOUND.value: PdfBoundPayload,

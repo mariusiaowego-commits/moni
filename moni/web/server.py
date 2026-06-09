@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from moni.share.artifacts import ARTIFACTS_DIR
 from moni.web.exceptions import register_exception_handlers
 
 # Allowed CORS origin — no wildcards
@@ -90,6 +91,19 @@ def create_app() -> FastAPI:
             StaticFiles(directory=str(STATIC_DIR), check_dir=False),
             name="static",
         )
+
+        # v1.0.5.15: artifacts static mount.  /artifacts/<file> serves
+        # share-task outputs from data/artifacts/.  Mounted BEFORE the
+        # SPA fallback so /artifacts/<filename>.png resolves to the
+        # file instead of being shadowed by the catch-all @app.get.
+        # ensure_artifact() (called by the share-task API) lazily
+        # populates data/artifacts/ from older done rows' output_paths.
+        if ARTIFACTS_DIR.exists() and ARTIFACTS_DIR.is_dir():
+            app.mount(
+                "/artifacts",
+                StaticFiles(directory=str(ARTIFACTS_DIR), check_dir=False),
+                name="artifacts",
+            )
 
         # SPA fallback: any non-/api/* path that doesn't match a static file
         # → return index.html so client-side router takes over.

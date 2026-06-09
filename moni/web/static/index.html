@@ -307,6 +307,29 @@
 
         <div class="share-section">
           <h4>选择文章</h4>
+          <!-- v1.0.5.15: source filter + pagination (跟文章查阅菜单一致) -->
+          <div class="filter-bar" style="margin-bottom: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+            <label>
+              来源:
+              <select x-model="allArticlesSource" @change="onAllArticlesSourceChange()">
+                <option value="">全部来源</option>
+                <template x-for="s in allArticlesSources" :key="s.name || s">
+                  <option :value="s.name || s" x-text="(s.display_name || s.name || s) + ' (' + (s.name || s) + ')'"></option>
+                </template>
+              </select>
+            </label>
+            <label>
+              每页:
+              <select x-model.number="allArticlesPageSize" @change="allArticlesChangePageSize()">
+                <template x-for="n in allArticlesPageSizeOptions" :key="n">
+                  <option :value="n" x-text="n + ' 条'"></option>
+                </template>
+              </select>
+            </label>
+            <span class="muted" x-text="`第 ${allArticlesPage} 页`"></span>
+            <button class="btn-secondary" @click="allArticlesPrevPage()" :disabled="allArticlesPage <= 1">上一页</button>
+            <button class="btn-secondary" @click="allArticlesNextPage()" :disabled="!allArticlesHasMore">下一页</button>
+          </div>
           <!-- v1.0.5.11: was a 168-row table that scrolled for days.
                Now a card grid — one tile per article, max 4 per row,
                sized by viewport.  Each tile is the article title +
@@ -363,7 +386,8 @@
           <div class="table-container">
             <table>
               <thead>
-                <tr><th>任务ID</th><th>文章数</th><th>格式</th><th>状态</th><th>时间</th></tr>
+                <!-- v1.0.5.15: 加"输出"列, 让用户直接打开 done task 的 output_path -->
+                <tr><th>任务ID</th><th>文章数</th><th>格式</th><th>状态</th><th>时间</th><th>输出</th></tr>
               </thead>
               <tbody>
                 <template x-for="q in shareQueue" :key="q.id">
@@ -373,10 +397,26 @@
                     <td x-text="q.format"></td>
                     <td><span class="status-badge" :class="'status-' + q.status" x-text="q.status"></span></td>
                     <td x-text="formatTime(q.created_at)"></td>
+                    <td>
+                      <!-- v1.0.5.15: prefer output_url (web URL via /artifacts/ mount).
+                           Fall back to plain-text output_path if no URL (missing source). -->
+                      <template x-if="q.output_url && q.status === 'done'">
+                        <a :href="q.output_url" target="_blank"
+                           x-text="q.output_url.split('/').pop()"
+                           :title="q.output_path || q.output_url"></a>
+                      </template>
+                      <template x-if="!q.output_url && q.status === 'done'">
+                        <span class="muted" :title="q.output_path"
+                              x-text="(q.output_path || '').split('/').pop() || '(missing)'"></span>
+                      </template>
+                      <template x-if="q.status !== 'done'">
+                        <span class="muted" x-text="q.status === 'failed' ? (q.error || 'failed') : '—'"></span>
+                      </template>
+                    </td>
                   </tr>
                 </template>
                 <tr x-show="shareQueue.length === 0">
-                  <td colspan="6" class="empty-row">暂无数据</td>
+                  <td colspan="7" class="empty-row">暂无数据</td>
                 </tr>
               </tbody>
             </table>
