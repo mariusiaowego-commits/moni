@@ -74,7 +74,7 @@ def list_tags() -> list[Tag]:
     conn = get_db()
     rows = conn.execute(
         """
-        SELECT name, description, color, is_active, created_at, keywords
+        SELECT name, display_name, description, color, is_active, created_at, keywords
         FROM tag_definitions
         ORDER BY name
         """
@@ -100,31 +100,42 @@ def create_tag(body: TagCreate) -> Tag:
             details={"name": body.name},
         )
     now = _now()
+    # v1.0.5.14: display_name defaults to `name` if not provided so
+    # legacy POSTs that only set `name` still work and the chip always
+    # has something to render.
+    display_name = body.display_name if body.display_name is not None else body.name
     conn.execute(
         """
         INSERT INTO tag_definitions
-            (name, description, color, created_at, is_active, keywords)
-        VALUES (?, ?, ?, ?, 1, ?)
+            (name, display_name, description, color, created_at, is_active, keywords)
+        VALUES (?, ?, ?, ?, ?, 1, ?)
         """,
-        (body.name, body.description, body.color, now, _encode_keywords(body.keywords)),
+        (body.name, display_name, body.description, body.color, now, _encode_keywords(body.keywords)),
     )
     conn.commit()
     return Tag(
         name=body.name,
+        display_name=display_name,
         description=body.description,
         color=body.color,
         is_active=True,
         created_at=now,
-        keywords=_decode_keywords(_encode_keywords(body.keywords)),
+        keywords=body.keywords,
     )
 
 
 @router.put("/{name}", response_model=Tag)
 def update_tag(name: str, body: TagUpdate) -> Tag:
-    """Update an existing tag. Returns 404 if not found."""
+    """Update an existing tag. Returns 404 if not found.
+
+    v1.0.5.14 (display_name mode): ``name`` is the immutable primary
+    key — the body has no `name` field.  Editing ``display_name`` /
+    description / color / is_active / keywords is a single-row UPDATE
+    on tag_definitions with no FK cascade required.
+    """
     conn = get_db()
     row = conn.execute(
-        "SELECT name, description, color, is_active, created_at, keywords "
+        "SELECT name, display_name, description, color, is_active, created_at, keywords "
         "FROM tag_definitions WHERE name = ?",
         (name,),
     ).fetchone()
@@ -133,6 +144,8 @@ def update_tag(name: str, body: TagUpdate) -> Tag:
 
     fields = {**dict(row)}
     fields["keywords"] = _decode_keywords(fields.get("keywords"))
+    if body.display_name is not None:
+        fields["display_name"] = body.display_name
     if body.description is not None:
         fields["description"] = body.description
     if body.color is not None:
@@ -149,10 +162,17 @@ def update_tag(name: str, body: TagUpdate) -> Tag:
     conn.execute(
         """
         UPDATE tag_definitions
-        SET description = ?, color = ?, is_active = ?, keywords = ?
+        SET display_name = ?, description = ?, color = ?, is_active = ?, keywords = ?
         WHERE name = ?
         """,
-        (fields["description"], fields["color"], fields["is_active"], encoded_kw, name),
+        (
+            fields.get("display_name"),
+            fields["description"],
+            fields["color"],
+            fields["is_active"],
+            encoded_kw,
+            name,
+        ),
     )
     conn.commit()
     return Tag(**fields)

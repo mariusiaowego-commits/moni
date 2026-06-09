@@ -35,3 +35,15 @@ HANDOFF.md
 
 # 36kr persisted session cookies (含 userId 敏感信息, 不入库)
 config/36kr_cookies.json
+
+# v1.0.5.14: share worker output files — LLM-generated content
+# (markdown / html / svg / png infographics).  When the manifest
+# specifies a custom output_path (or the default $HOME/.moni/output
+# path resolution fails), these can land in the repo root or in
+# per-format subdirs.  They're run artifacts, not source — gitignore
+# them so they don't accidentally end up in PRs.
+infographic/
+*.html
+*.svg
+*.png
+share_output/

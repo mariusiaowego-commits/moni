@@ -4,13 +4,38 @@
 
 ---
 
-## 当前状态: **v1.0.5.13 — datetime.utcnow() deprecation 修** (2026-06-09)
+## 当前状态: **v1.0.5.14 — 6 用户问题 + 4 follow-on 全修** (2026-06-09)
 
-**主分支**: main @ `04a21b5` (v1.0.5.13 tag @ 04a21b5, 已 push gh, 25 个 tag)
-**Web 服务**: `127.0.0.1:8900` (200 OK, 跑 v1.0.5.13, PID 41710)
-**数据库**: `data/news.db` — 10 张表, 198 articles (mpaypass 82 + 36kr_rss 83 + qbitai 15 + wechat_rss_a 9 + wechat_rss_b 5 + wechat_rss 4 legacy)
-**测试**: 246 pass + 2 skip
+**主分支**: main @ `a483588` (v1.0.5.13 tag, 25 个 tag) — **v1.0.5.14 在 PR #6 待 merge, feature/v1.0.5.14-six-fixes @ `05ca5bb`**
+**Web 服务**: `127.0.0.1:8900` (200 OK, 跑 v1.0.5.14 + 手动改的 C.4/C.5/C.6 修复, PID 18738)
+**数据库**: `data/news.db` — schema_version=7 (migration 007 加 `tag_definitions.display_name`), 200+ articles
+**测试**: 246 pytest pass + 2 skip (新 +13 测试覆盖 display_name + pagination)
 **Worktree**: 0 (v1.0.5.10+ 改用 feature branch on main checkout, 不用 wt)
+
+**2026-06-09 v1.0.5.14 进展** (6 用户问题 + 4 follow-on 全修, 14 文件, +781/-123):
+- **用户原报 (6 个) — 全部修好**:
+  1. LLM 任务结果单列展示太长 → modal 弹窗 (modal-content-wide) + 复制按钮 + Escape 关闭
+  2. 业务 tag 名称不能改 → `display_name` 模式 (跟 sources.display_name 同模式; `name` 是 PK 不可改, `display_name` 可改中文)
+  3. wechat_rss_a 抓后查不到 → articles API 加分页 (limit/offset) + COALESCE 排序 + source filter
+  4. 分享页找不到刚抓的 wechat → 分享页加 source filter + 分页
+  5. 量子位 (qbitai) 抓后看不到 → 同 #3, 加 source filter
+  6. 分享页加入队列 HTTP 400 → shareFormat 11 个 value 对齐后端 FormatEnum + html_landing/ppt_slides 加 title 字段
+- **Follow-on fixes (4 个, 用户验证时发现)**:
+  - A: ShareTask Pydantic model 跟 DB schema 不齐 (返 `article_id=0/token=id/view_count=0` 假字段) → 改回跟 DB 一致
+  - B: 前端 `loadShareQueue` 读 `data.tasks`, 后端返 `data.items` → 三种 shape 都接受
+  - C.1: worker `article_ids` 嵌套读 (`payload.article_ids` 不是顶层) → 修
+  - C.2: **BSD grep bug** — `[^ \n]+` 把路径在 `n` 处截断 → 改用 POSIX char class `[[:alnum:]_./-]+`
+  - D: .gitignore 加 LLM 输出文件 (infographic/ / *.html / *.svg / *.png / share_output/), 防止 worker 落到 repo 根污染
+- **真跑通的 worker E2E**: 3 task status=done, output_path 完整写入 (html_landing × 2, info_graphic_png × 1)
+- **PR**: #6 (`feature/v1.0.5.14-six-fixes`, 3 commits, OPEN, 待 user review → squash merge → force-push tag v1.0.5.14)
+- **教训**:
+  1. BSD grep `[^ \n]+` 路径截断 — 永远用 POSIX char class
+  2. share.py v1.0.5.11 重构忘了同步 frontend ShareTask model → 后端改 model 时必须 grep 前端
+  3. `git checkout -- index.html` 会静默还原之前 patch — 改大文件前先 `git stash` 或精确 anchor
+  4. **PR 推送后必须 post-commit self-verify** (rule #29): pytest+e2e 不够, 真浏览器点才算
+  5. `.replace_all=True` 在 HTML 是灾难 — 一次 18 处替换全坏, 靠 `git checkout --` 救回. 永远精确 anchor
+  6. **修前端 + 后端时, Pydantic 强契约 优先** (用户偏好: 前端 form 加必填字段 > 后端 fallback)
+  7. 下一版 ≤ 3 个 UI bug 一次 (rule #20 锁定)
 
 **2026-06-09 v1.0.5.13 进展** (datetime.utcnow() deprecation 修):
 - **问题**: `moni/share/formats.py:198` `ManifestPayload.created_at` default_factory 调 `datetime.utcnow()`, Python 3.12+ 跑出 55 warnings/run

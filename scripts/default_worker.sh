@@ -163,7 +163,18 @@ process_manifest() {
     # Support both 'id' and 'share_id' as the primary key field
     task_id=$(python3 -c "import json; d=json.load(open('$manifest_path')); print(d.get('id','') or d.get('share_id',''))" 2>/dev/null || echo "")
     format=$(python3 -c "import json; d=json.load(open('$manifest_path')); print(d.get('format',''))" 2>/dev/null || echo "")
-    article_ids_str=$(python3 -c "import json; d=json.load(open('$manifest_path')); print(d.get('article_ids',''))" 2>/dev/null || echo "")
+    # v1.0.5.14: article_ids is nested under 'payload' (the
+    # write_manifest() schema).  Older queue files may still
+    # have it at top level — accept both.  The v1.0.5.x path
+    # is d['payload']['article_ids'].
+    article_ids_str=$(python3 -c "
+import json
+d=json.load(open('$manifest_path'))
+top = d.get('article_ids','')
+nested = d.get('payload', {}).get('article_ids', '') if isinstance(d.get('payload'), dict) else ''
+out = top or nested
+print(out if out is not None else '')
+" 2>/dev/null || echo "")
     output_path=$(python3 -c "import json; d=json.load(open('$manifest_path')); print(d.get('output_path',''))" 2>/dev/null || echo "")
 
     if [[ -z "$task_id" || -z "$format" ]]; then
@@ -314,8 +325,12 @@ PYEOF
 
     # Success — extract output path from agent response if not already set
     if [[ -z "$output_path" ]]; then
-        # Try to parse a path from the output (look for / or ~ or $HOME)
-        output_path=$(echo "$hermes_output" | grep -oE '(/[^ \n]+|~\.[^ \n]+|\$HOME/[^ \n]+)' | head -1 || echo "")
+        # v1.0.5.14: BSD grep has a long-standing bug where the
+        # regex `[^ \n]+` truncates strings at letter 'n' in
+        # certain versions (it treats a literal \n inside [^ ]
+        # as the actual newline char).  We use POSIX char classes
+        # instead, which are unambiguous on both BSD and GNU grep.
+        output_path=$(echo "$hermes_output" | grep -oE '/[[:alnum:]_./-]+|~\.[[:alnum:]_./-]+|\$HOME/[[:alnum:]_./-]+' | head -1 || echo "")
         if [[ -z "$output_path" ]]; then
             # Fall back to a default location under MONI_OUTPUT_DIR
             local output_dir="${MONI_OUTPUT_DIR:-$HOME/.moni/output}"

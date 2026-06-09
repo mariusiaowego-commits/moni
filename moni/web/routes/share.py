@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import json
 import logging
-import secrets
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Query
 
@@ -21,20 +21,31 @@ from moni.share.formats import validate_manifest
 from moni.share.manifest import write_manifest
 from moni.web.exceptions import BadRequestError, NotFoundError
 from moni.web.models import ShareTask, ShareTaskCreateV1, ShareTaskListResponse, ShareTaskResponseV1
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/share", tags=["share"])
 
 
-def _row_to_share_task(row: dict) -> ShareTask:
+def _row_to_share_task(row: dict[str, Any]) -> ShareTask:
+    """Convert a share_tasks DB row to the v1.0.5.14 ShareTask shape.
+
+    The DB stores ``article_ids`` as a JSON string (e.g. '["id1","id2"]');
+    we parse it to count the articles for the frontend queue display.
+    """
+    article_ids_raw = row.get("article_ids") or "[]"
+    try:
+        article_count = len(json.loads(article_ids_raw))
+    except (TypeError, json.JSONDecodeError):
+        article_count = 0
     return ShareTask(
         id=row["id"],
-        article_id=0,  # legacy: share_tasks stores JSON article_ids, not single article_id
-        token=row.get("id", ""),
-        expires_at=row["created_at"],
-        view_count=0,
+        format=row["format"],
+        article_count=article_count,
+        status=row.get("status", "pending"),
+        error=row.get("error"),
         created_at=row["created_at"],
+        started_at=row.get("started_at"),
+        finished_at=row.get("finished_at"),
     )
 
 
@@ -88,18 +99,7 @@ def list_share_tasks(
 
     total = conn.execute("SELECT COUNT(*) FROM share_tasks").fetchone()[0]
 
-    tasks = []
-    for row in rows:
-        tasks.append(
-            ShareTask(
-                id=row["id"],
-                article_id=0,
-                token=row["id"],
-                expires_at=row["created_at"],
-                view_count=0,
-                created_at=row["created_at"],
-            )
-        )
+    tasks = [_row_to_share_task(dict(row)) for row in rows]
 
     return ShareTaskListResponse(
         items=tasks,
@@ -125,11 +125,4 @@ def get_share_task(task_id: str) -> ShareTask:
     if row is None:
         raise NotFoundError(message=f"Share task {task_id!r} not found")
 
-    return ShareTask(
-        id=row["id"],
-        article_id=0,
-        token=row["id"],
-        expires_at=row["created_at"],
-        view_count=0,
-        created_at=row["created_at"],
-    )
+    return _row_to_share_task(dict(row))

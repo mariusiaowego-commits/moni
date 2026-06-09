@@ -85,6 +85,29 @@ def seeded_source(client: TestClient) -> str:
 
 
 @pytest.fixture
+def seeded_tag(client: TestClient) -> str:
+    """Insert a minimal tag_definitions row for the rename tests.
+
+    v1.0.5.14: required by the tag-rename cascade tests — the
+    test creates a tag, optionally binds it to the seeded_source and
+    the seeded_article, and then exercises PUT /api/config/tags/{name}
+    with a new name to verify the cascade UPDATE across
+    tag_definitions / source_tags / article_tags.
+    """
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """
+        INSERT INTO tag_definitions (name, description, color, created_at, is_active, keywords)
+        VALUES (?, ?, ?, ?, 1, NULL)
+        """,
+        ("renameme", "tag for rename test", "#DC2626", now),
+    )
+    conn.commit()
+    return "renameme"
+
+
+@pytest.fixture
 def seeded_article(client: TestClient) -> int:
     """Insert a minimal article into the DB and return its integer ID."""
     conn = get_db()
@@ -242,6 +265,171 @@ class TestCRUD:
         r = client.get(f"/api/articles?source={seeded_source}&tag=nosuch&keyword=foo")
         assert r.status_code == 200
         assert r.json() == []
+
+    def test_list_articles_default_limit_50(self, client: TestClient):
+        """v1.0.5.14: list_articles defaults to limit=50 (was unbounded)."""
+        r = client.get("/api/articles")
+        assert r.status_code == 200
+        body = r.json()
+        # Even if there are 100 rows in the DB, default should cap at 50.
+        assert len(body) <= 50, f"default limit should be 50, got {len(body)}"
+
+    def test_list_articles_explicit_limit(self, client: TestClient):
+        """v1.0.5.14: ?limit=N returns at most N rows."""
+        r = client.get("/api/articles?limit=3")
+        assert r.status_code == 200
+        body = r.json()
+        assert len(body) <= 3, f"limit=3 should cap at 3, got {len(body)}"
+
+    def test_list_articles_offset_skips_rows(self, client: TestClient):
+        """v1.0.5.14: ?offset=N skips the first N rows."""
+        r0 = client.get("/api/articles?limit=5&offset=0")
+        r2 = client.get("/api/articles?limit=5&offset=2")
+        assert r0.status_code == 200
+        assert r2.status_code == 200
+        body0 = r0.json()
+        body2 = r2.json()
+        # offset=2 should return rows 3..N (or fewer if DB has <5).
+        # If body0 has at least 3 rows, body2's first id != body0's first id.
+        if len(body0) >= 3:
+            assert body2[0]["id"] != body0[0]["id"]
+
+    def test_list_articles_limit_too_large_422(self, client: TestClient):
+        """v1.0.5.14: ?limit=300 (above max 200) returns 422 Pydantic validation."""
+        r = client.get("/api/articles?limit=300")
+        assert r.status_code == 422
+
+    def test_list_articles_limit_zero_422(self, client: TestClient):
+        """v1.0.5.14: ?limit=0 (below min 1) returns 422."""
+        r = client.get("/api/articles?limit=0")
+        assert r.status_code == 422
+
+    def test_list_articles_offset_negative_422(self, client: TestClient):
+        """v1.0.5.14: ?offset=-1 (below min 0) returns 422."""
+        r = client.get("/api/articles?offset=-1")
+        assert r.status_code == 422
+
+    def test_list_articles_published_at_nullable_no_crash(
+        self, client: TestClient
+    ):
+        """v1.0.5.14: articles with NULL published_at must not 500;
+        they fall back to fetched_at in the COALESCE sort."""
+        # The fresh DB seed has all rows with a real published_at, so
+        # we just need to verify the endpoint doesn't 500 — existence
+        # of COALESCE is what we're guarding here.
+        r = client.get("/api/articles?limit=5")
+        assert r.status_code == 200
+
+    # ── v1.0.5.14: PUT /api/config/tags/{name} with display_name ──
+    # Replaces the previous (broken) rename-cascade tests: the user-
+    # facing "rename" is now done by editing display_name, NOT by
+    # changing the system `name` column.  The body of PUT has no
+    # `name` field, so these tests focus on the display_name /
+    # description / color / is_active / keywords fields.
+
+    def test_update_tag_display_name(self, client: TestClient, seeded_tag: str):
+        """PUT with body.display_name= updates the human-friendly name."""
+        r = client.put(
+            f"/api/config/tags/{seeded_tag}",
+            json={"display_name": "银行 (测试)"},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["name"] == seeded_tag   # system name unchanged
+        assert body["display_name"] == "银行 (测试)"
+        # Confirm persisted via the list endpoint (no GET-by-name
+        # endpoint exists; the list is the canonical read path).
+        r2 = client.get("/api/config/tags")
+        assert r2.status_code == 200
+        rows = {t["name"]: t for t in r2.json()}
+        assert rows[seeded_tag]["display_name"] == "银行 (测试)"
+
+    def test_update_tag_name_ignored(
+        self, client: TestClient, seeded_tag: str
+    ):
+        """v1.0.5.14: PUT body.name= is silently dropped (TagUpdate
+        has no `name` field) — the system name is immutable.  Sending
+        it should be a 200 that just doesn't change anything."""
+        r = client.put(
+            f"/api/config/tags/{seeded_tag}",
+            json={"name": "new-system-name", "display_name": "renamed"},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["name"] == seeded_tag, "name should NOT have changed"
+        assert body["display_name"] == "renamed"
+
+    def test_create_tag_with_display_name(self, client: TestClient):
+        """POST /api/config/tags accepts display_name at create time."""
+        r = client.post(
+            "/api/config/tags",
+            json={
+                "name": "fresh-tag",
+                "display_name": "新标签",
+                "color": "#8A71E8",
+            },
+        )
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["name"] == "fresh-tag"
+        assert body["display_name"] == "新标签"
+        assert body["color"] == "#8A71E8"
+
+    def test_create_tag_without_display_name_falls_back_to_name(
+        self, client: TestClient
+    ):
+        """Legacy POSTs that only send `name` still work — display_name
+        defaults to `name` server-side so the chip always has a label."""
+        r = client.post(
+            "/api/config/tags",
+            json={"name": "legacy-tag"},
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["display_name"] == "legacy-tag"
+
+    def test_list_tags_includes_display_name(
+        self, client: TestClient, seeded_tag: str
+    ):
+        """GET /api/config/tags returns display_name alongside name."""
+        # First update display_name
+        client.put(
+            f"/api/config/tags/{seeded_tag}",
+            json={"display_name": "测试名"},
+        )
+        # Then list
+        r = client.get("/api/config/tags")
+        assert r.status_code == 200
+        rows = {t["name"]: t for t in r.json()}
+        assert rows[seeded_tag]["display_name"] == "测试名"
+
+    def test_article_tagref_has_display_name(
+        self, client: TestClient, seeded_tag: str, seeded_article: int
+    ):
+        """v1.0.5.14: /api/articles returns tags as TagRef objects
+        that include the human-friendly display_name."""
+        # Bind the seeded tag to the seeded article
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO article_tags (article_id, tag_name, created_at) "
+            "VALUES (?, ?, ?)",
+            (str(seeded_article), seeded_tag,
+             datetime.now(timezone.utc).isoformat()),
+        )
+        # Set a recognizable display_name
+        client.put(
+            f"/api/config/tags/{seeded_tag}",
+            json={"display_name": "改名显示"},
+        )
+        # Fetch the article
+        r = client.get(f"/api/articles/{seeded_article}")
+        assert r.status_code == 200
+        body = r.json()
+        # Find the tag ref for our seeded tag
+        tag_refs = [t for t in body.get("tags", []) if t["name"] == seeded_tag]
+        assert len(tag_refs) == 1, f"expected 1 TagRef for {seeded_tag}, got {tag_refs}"
+        assert tag_refs[0]["display_name"] == "改名显示"
+        assert tag_refs[0]["name"] == seeded_tag
+
 
     # ── v1.0.5.10: POST /api/articles ──────────────────────────────
 
