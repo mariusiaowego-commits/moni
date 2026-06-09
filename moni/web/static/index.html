@@ -279,18 +279,12 @@
                 <td x-text="job.created_at ? job.created_at.slice(0, 19).replace('T', ' ') : '-'"></td>
                 <td class="result-cell">
                   <span x-show="job.status === 'done'">
-                    <button class="link-btn" @click="toggleJobExpand(job.id)"
-                            x-text="isJobExpanded(job.id) ? '收起' : '查看全文'"></button>
-                    <div class="result-text"
-                         :class="{ 'result-text-clamp': !isJobExpanded(job.id) }"
-                         x-text="job.result || ''"></div>
+                    <button class="link-btn" @click="openJobDetail(job)"
+                            x-text="'查看详情'"></button>
                   </span>
                   <span x-show="job.status === 'failed'">
-                    <button class="link-btn" @click="toggleJobExpand(job.id)"
-                            x-text="isJobExpanded(job.id) ? '收起' : '查看错误'"></button>
-                    <div class="result-text error-text"
-                         :class="{ 'result-text-clamp': !isJobExpanded(job.id) }"
-                         x-text="job.error || ''"></div>
+                    <button class="link-btn" @click="openJobDetail(job)"
+                            x-text="'查看错误'"></button>
                   </span>
                   <span x-show="['pending', 'running', 'cancelled'].includes(job.status)" class="muted">-</span>
                 </td>
@@ -345,6 +339,18 @@
                 <span x-text="fmt.label"></span>
               </label>
             </template>
+          </div>
+          <!-- v1.0.5.14: title field for formats that require it
+               (html_landing, ppt_slides).  Backend HtmlLandingPayload /
+               PptSlidesPayload have a required `title` field; without
+               it they return 400.  We show the input only when the
+               selected format needs it (other formats ignore the
+               value, so it's safe to send along). -->
+          <div class="form-row" x-show="shareFormatNeedsTitle()" style="margin-top: 12px;">
+            <label>页面/演示标题 (title) <span class="required">*</span></label>
+            <input type="text" x-model="shareFormatTitle"
+                   placeholder="e.g. 2026 同业洞察周报">
+            <small class="muted">html_landing / ppt_slides 必填;其他格式忽略</small>
           </div>
         </div>
 
@@ -574,6 +580,49 @@
             <h4>事实核查结论</h4>
             <p x-text="articleDetail?.fact_check_conclusion"></p>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- v1.0.5.14: LLM Job detail modal (replaces inline "查看全文" cell expand).
+         Shows full result/error in a scrollable modal with copy-to-clipboard
+         button. Closes on backdrop click, × button, or Escape key. -->
+    <div class="modal-backdrop" x-show="jobDetail" x-cloak
+         @click.self="closeJobDetail()"
+         @keydown.escape.window="closeJobDetail()">
+      <div class="modal-content modal-content-wide" x-show="jobDetail">
+        <div class="modal-header">
+          <h3 x-text="(jobDetail?.task_type === 'summary' ? '摘要' : '事实核查')
+                       + ' · ' + (jobDetail?.article_title || jobDetail?.article_id || '')"></h3>
+          <button class="modal-close" @click="closeJobDetail()">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="article-meta">
+            <span class="meta-chip"><b>状态:</b> <span x-text="jobDetail?.status"></span></span>
+            <span class="meta-chip" x-show="jobDetail?.model"><b>模型:</b> <span x-text="jobDetail?.model"></span></span>
+            <span class="meta-chip" x-show="jobDetail?.duration_ms !== null && jobDetail?.duration_ms !== undefined">
+              <b>耗时:</b> <span x-text="formatDuration(jobDetail?.duration_ms)"></span>
+            </span>
+            <span class="meta-chip" x-show="jobDetail?.attempts">
+              <b>尝试:</b> <span x-text="jobDetail?.attempts"></span>
+            </span>
+          </div>
+          <div class="summary-box" x-show="jobDetail?.status === 'done'" x-cloak>
+            <h4>LLM 输出</h4>
+            <pre class="job-detail-text" x-text="jobDetail?.result || '(无输出)'"></pre>
+          </div>
+          <div class="summary-box" x-show="jobDetail?.status === 'failed'" x-cloak>
+            <h4>错误信息</h4>
+            <pre class="job-detail-text error-text" x-text="jobDetail?.error || '(无错误详情)'"></pre>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" @click="copyJobDetail()"
+                  x-show="jobDetail?.status === 'done' || jobDetail?.status === 'failed'">
+            <span x-show="!jobDetailCopied">复制内容</span>
+            <span x-show="jobDetailCopied">已复制 ✓</span>
+          </button>
+          <button class="btn-secondary" @click="closeJobDetail()">关闭</button>
         </div>
       </div>
     </div>

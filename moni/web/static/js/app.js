@@ -658,20 +658,35 @@ function app() {
     allArticlesPageSizeOptions: [20, 50, 100, 200],
     allArticlesHasMore: false,
     selectedArticleIds: [],
+    // v1.0.5.14: share format values MUST match the backend
+    // moni.share.formats.FormatEnum.  Previously these used friendly
+    // short names ("plain", "html", "image", "wechat", "weibo",
+    // "audio", "video", "infographic") that the backend rejected
+    // with 400 "Unknown format X".  The labels are kept in Chinese
+    // for the UI — only the value is aligned with the FormatEnum.
     shareFormat: 'markdown',
+    // v1.0.5.14: title is required for html_landing and ppt_slides
+    // formats (backend Pydantic models).  We collect it via an
+    // input that's only shown when the selected format needs it
+    // (see x-show="shareFormatNeedsTitle()" in the HTML).  When
+    // the format doesn't need it, this value is still sent in the
+    // payload — backend formats like markdown ignore unknown keys
+    // thanks to their _extra_forbid config… actually no, we want
+    // to AVOID sending `title` for formats that forbid it.  The
+    // addToQueue() function does the right thing.
+    shareFormatTitle: '',
     shareFormats: [
-      // v1.0 11 format manifest (PRD §4.5 / moni/share/formats.py)
-      { value: 'markdown',  label: 'Markdown' },
-      { value: 'plain',     label: '纯文本' },
-      { value: 'html',      label: 'HTML' },
-      { value: 'pdf',       label: 'PDF 单文件' },
-      { value: 'pdf_bound', label: 'PDF 合订' },
-      { value: 'audio',     label: '音频 (TTS)' },
-      { value: 'video',     label: '视频' },
-      { value: 'image',     label: '单图摘要' },
-      { value: 'infographic', label: '信息图' },
-      { value: 'wechat',    label: '微信公众号' },
-      { value: 'weibo',     label: '微博' },
+      { value: 'plain_text',          label: '纯文本' },
+      { value: 'markdown',            label: 'Markdown' },
+      { value: 'html_landing',        label: 'HTML 网页' },
+      { value: 'pdf_bound',           label: 'PDF 合订' },
+      { value: 'ppt_slides',          label: 'PPT 幻灯片' },
+      { value: 'ascii_art',           label: 'ASCII 艺术' },
+      { value: 'ascii_video',         label: 'ASCII 视频' },
+      { value: 'concept_video',       label: '概念视频' },
+      { value: 'architecture_svg',    label: '架构 SVG' },
+      { value: 'info_graphic_png',    label: '信息图 PNG' },
+      { value: 'knowledge_comic',     label: '知识漫画' },
     ],
     shareQueue: [],
     _sharePollInterval: null,
@@ -742,13 +757,25 @@ function app() {
         alert('请先勾选要分享的文章 (在文章卡片上点 checkbox, 至少 1 个)。\n\n这是浏览器本地检查, 不是 HTTP 错误。');
         return;
       }
+      // v1.0.5.14: html_landing / ppt_slides require a `title` field
+      // in the payload; other formats forbid extra keys (Pydantic
+      // _extra_forbid) so we must NOT send `title` for them.
+      const payload = { article_ids: this.selectedArticleIds };
+      if (this.shareFormatNeedsTitle()) {
+        const t = (this.shareFormatTitle || '').trim();
+        if (!t) {
+          alert('此格式 (' + this.shareFormat + ') 必填 title 字段。\n\n请在上方输入框填写 页面/演示标题。\n\n这是浏览器本地检查, 不是 HTTP 错误。');
+          return;
+        }
+        payload.title = t;
+      }
       fetch('/api/share', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({
           format: this.shareFormat,
-          payload: { article_ids: this.selectedArticleIds },
+          payload: payload,
         }),
       })
         .then(async r => {
@@ -765,6 +792,15 @@ function app() {
           console.error('addToQueue failed:', err);
           alert('加入队列失败: ' + err.message);
         });
+    },
+
+    // v1.0.5.14: helper for the share-format title input.  When the
+    // selected format needs a `title` field (html_landing, ppt_slides),
+    // the form-row becomes visible.  Hard-coded list of formats —
+    // if you add another format with a required title, add it here.
+    shareFormatNeedsTitle() {
+      return this.shareFormat === 'html_landing'
+          || this.shareFormat === 'ppt_slides';
     },
 
     loadShareQueue() {
