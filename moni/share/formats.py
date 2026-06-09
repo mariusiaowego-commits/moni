@@ -6,7 +6,7 @@ Pydantic model and a shared validation entry point.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Annotated, Any
 
@@ -195,7 +195,7 @@ class ManifestPayload(BaseModel):
     format: str = Field(..., description="Format name, e.g. 'markdown'")
     version: str = Field(default="1.0", description="Manifest schema version")
     created_at: str = Field(
-        default_factory=lambda: datetime.utcnow().isoformat() + "Z",
+        default_factory=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         description="ISO8601 timestamp",
     )
     payload: dict[str, Any] = Field(..., description="Format-specific parameters")

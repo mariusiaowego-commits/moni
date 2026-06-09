@@ -24,6 +24,7 @@ import logging
 import os
 import sqlite3
 import sys
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -372,6 +373,35 @@ class TestWriteManifestUnit:
         # Verify the file's format field is "ascii_art"
         doc = json.loads((fake_queue / "fmt-extract-001.json").read_text())
         assert doc["format"] == "ascii_art"
+
+    def test_created_at_is_timezone_aware_utc_iso8601(self) -> None:
+        """created_at default_factory must produce a timezone-aware UTC ISO8601
+        string ending in 'Z' (regression for v1.0.5.13: datetime.utcnow()
+        DeprecationWarning under Python 3.12+).
+        """
+        from moni.share.formats import ManifestPayload
+
+        # No warning should be emitted by the new code path.
+        with warnings.catch_warnings(record=True) as wlist:
+            warnings.simplefilter("always")
+            p = ManifestPayload(format="markdown", payload={"article_ids": ["x"]})
+            deprecation_warnings = [
+                w for w in wlist
+                if issubclass(w.category, DeprecationWarning)
+                and "utcnow" in str(w.message)
+            ]
+            assert deprecation_warnings == [], (
+                f"ManifestPayload default_factory should not call "
+                f"datetime.utcnow(); got: {[str(w.message) for w in deprecation_warnings]}"
+            )
+
+        ts = p.created_at
+        # Must end with 'Z' (RFC 3339 UTC marker)
+        assert ts.endswith("Z"), f"created_at should end with 'Z', got: {ts!r}"
+        # Must parse as ISO 8601 with explicit UTC offset
+        parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        assert parsed.tzinfo is not None
+        assert parsed.utcoffset() == timezone.utc.utcoffset(parsed)
 
 
 # ===========================================================================
