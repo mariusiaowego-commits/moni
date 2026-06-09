@@ -804,11 +804,21 @@ function app() {
     },
 
     loadShareQueue() {
-      // v1.0.5.12: list endpoint is /api/share/tasks (not /api/share/queue).
-      // ShareTaskListResponse wraps the array as {tasks: [...]}.
+      // v1.0.5.11: list endpoint is /api/share/tasks (not /api/share/queue).
+      // v1.0.5.14: response is paginated as {items, total, page, page_size};
+      // accept both {items, ...} (current) and {tasks: [...]} (legacy)
+      // for forward-compat.  Each item now has id / format /
+      // article_count / status / created_at — renderable in the
+      // queue table.
       fetch('/api/share/tasks', { credentials: 'same-origin' })
         .then(r => r.json())
-        .then(data => { this.shareQueue = (data && data.tasks) ? data.tasks : (Array.isArray(data) ? data : []); })
+        .then(data => {
+          let list = [];
+          if (data && Array.isArray(data.items)) list = data.items;
+          else if (data && Array.isArray(data.tasks)) list = data.tasks;
+          else if (Array.isArray(data)) list = data;
+          this.shareQueue = list;
+        })
         .catch(err => console.error('loadShareQueue failed:', err));
     },
 

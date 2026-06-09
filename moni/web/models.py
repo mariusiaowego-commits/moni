@@ -196,14 +196,27 @@ class HealthResponse(BaseModel):
 
 
 class ShareTask(BaseModel):
-    """A share/export task (e.g. to generate a shareable link)."""
+    """A share/export task in the v1.0 manifest-queue pipeline.
 
+    v1.0.5.14: the model was previously misaligned with the
+    ``share_tasks`` DB schema (it was returning stub fields like
+    ``article_id=0, token=id, view_count=0`` — leftovers from a
+    never-shipped public-link design).  The real table has 9
+    columns (id, format, article_ids, output_path, status, error,
+    created_at, started_at, finished_at, extra) and the manifest
+    queue is driven by ``status`` (pending/running/done/failed/
+    cancelled).  Frontend needs ``id``, ``article_count``,
+    ``format``, ``status``, ``created_at`` to render the queue
+    table — that's what we return.
+    """
     id: str
-    article_id: int = 0
-    token: str
-    expires_at: datetime
-    view_count: int = 0
-    created_at: datetime
+    format: str
+    article_count: int = 0
+    status: str = "pending"
+    error: str | None = None
+    created_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
