@@ -1,6 +1,6 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。v1.0.5.13 完成 (2026-06-09)。
+> 同业信源自动抓取与本地新闻库。v1.0.5.14 完成 (2026-06-09)。
 > 这份文档给**用户**（你自己）看 —— 怎么用 moni，不讲代码细节。
 
 ---
@@ -68,15 +68,18 @@ bash scripts/web.sh stop
 
 5 个默认 tag (业务范围: 银行 × 支付 × 科技):
 
-| name | 颜色 | 业务范围 |
-|---|---|---|
-| banking | 蓝 #2563EB | 银行 (央行罚款/上市/财报/并购) |
-| payment | 绿 #16A34A | 支付 (PayPal/银联/二维码/跨境) |
-| ai-fintech | 红 #DC2626 | AI × 金融 (智能投顾/风控/大模型落地) |
-| regulation | 橙 #EA580C | 监管 (政策/法规/合规) |
-| general-tech | 灰 #6B7280 | 通用科技 (其他) |
+| name (PK, 不可改) | 显示名 (display_name, v1.0.5.14 起可改) | 颜色 | 业务范围 |
+|---|---|---|---|
+| banking | 银行 | 蓝 #2563EB | 银行 (央行罚款/上市/财报/并购) |
+| payment | 支付 | 绿 #16A34A | 支付 (PayPal/银联/二维码/跨境) |
+| ai-fintech | AI×金融 | 红 #DC2626 | AI × 金融 (智能投顾/风控/大模型落地) |
+| regulation | 监管 | 橙 #EA580C | 监管 (政策/法规/合规) |
+| general-tech | 通用科技 | 灰 #6B7280 | 通用科技 (其他) |
 
-**新建 tag**: 点"+ 新建 tag" → 填 name (英数下划线) / description / **color (8 色 swatch 单选, v1.0.5.12)** → 保存
+**v1.0.5.14 起**:`display_name` 字段是给 UI 展示用的中文名(可改),`name` 仍是 PK 英文标识(不可改,改了引用全断)。前端"业务 tag"和"抓取源"两处都按 `display_name || name` 兜底。
+
+**新建 tag**: 点"+ 新建 tag" → 填 name (英数下划线) / display_name (可选, 中文展示名) / description / **color (8 色 swatch 单选, v1.0.5.12)** → 保存
+**改名**: 选中后点编辑 → 改 display_name 即可(name 字段灰着不可改)
 **删 tag**: 会级联清 source_tags + article_tags 引用
 
 ### 3.3 关键词过滤 tab
