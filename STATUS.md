@@ -4,15 +4,33 @@
 
 ---
 
-## 当前状态: **v1.0.5.9 — legacy wechat_rss 退役** (2026-06-07)
+## 当前状态: **v1.0.5.13 — datetime.utcnow() deprecation 修** (2026-06-09)
 
-**主分支**: main @ defdfaf (v1.0.5.9 tag @ 2eebbfd, 已 push gh, 22 个 tag)
-**Web 服务**: `127.0.0.1:8900` (200 OK)
-**数据库**: `data/news.db` — 10 张表, 119 articles (mpaypass 56 + 36kr_rss 39 + qbitai 12 + wechat_rss 4 legacy + wechat_rss_a 4 + wechat_rss_b 4)
-**测试**: 237 pass + 2 skip
-**Worktree**: 0
+**主分支**: main @ `04a21b5` (v1.0.5.13 tag @ 04a21b5, 已 push gh, 25 个 tag)
+**Web 服务**: `127.0.0.1:8900` (200 OK, 跑 v1.0.5.13, PID 41710)
+**数据库**: `data/news.db` — 10 张表, 198 articles (mpaypass 82 + 36kr_rss 83 + qbitai 15 + wechat_rss_a 9 + wechat_rss_b 5 + wechat_rss 4 legacy)
+**测试**: 246 pass + 2 skip
+**Worktree**: 0 (v1.0.5.10+ 改用 feature branch on main checkout, 不用 wt)
 
-**2026-06-07 v1.0.5.9 进展** (legacy wechat_rss 退役 — 用户决策):
+**2026-06-09 v1.0.5.13 进展** (datetime.utcnow() deprecation 修):
+- **问题**: `moni/share/formats.py:198` `ManifestPayload.created_at` default_factory 调 `datetime.utcnow()`, Python 3.12+ 跑出 55 warnings/run
+- **修法**: `datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')` (保留 RFC 3339 'Z' 后缀, 字符串格式不变)
+- **改动**:
+  - `moni/share/formats.py`: +`timezone` import + 1 行 default_factory 改
+  - `tests/test_share_manifest.py`: +`import warnings` + 新测试 `test_created_at_is_timezone_aware_utc_iso8601` (assert 无 DeprecationWarning + ts 以 'Z' 结尾 + parse 出 tzinfo=UTC)
+- **验证**: 246 pytest pass + 2 skip (从 245 → 246, +1 新测试); `python3 -W error::DeprecationWarning` 不再炸; 0 warnings/run
+- **PR**: #4 squash merged → main @ `04a21b5`
+- **新加 tag v1.0.5.13** (`04a21b5`)
+
+**2026-06-08 v1.0.5.10 + v1.0.5.11 + v1.0.5.12 进展** (3 联版 UI overhaul):
+- **背景**: 6 个前端 UI bug (Obsidian docs/前端问题.md), 加 dev/prod 端口分离 (8900/8901), 加 PR workflow = feature branch (不再 worktree)
+- **v1.0.5.10** (`55511ed` 后端 + `b744623` 前端 + `55511ed` dev 脚本): articles filter (source/tag/keyword) + sidebar 独立 URL (pushState/popstate) + tag chip tooltip + POST /api/articles (修 ArticleCreate.source_id int→str schema drift) + `scripts/web-8901.sh` 120 行
+- **v1.0.5.11** (`1617095`): CRUD modal (create/edit/delete) + share card grid (11 格式变 1 卡 1 文); 修 #2 + #5
+- **v1.0.5.12** (`9a3a6d1`): 6 UI bug fix (share POST 405 path + body schema drift + 查看按钮 wrap + 搜索框 UX + tag 颜色渲染 4 层流水线 + config 选色器从 uiux-asset-library 抽调色板 + name 字段 :disabled 陷阱)
+- **PR**: #2 (v1.0.5.11) + #3 (v1.0.5.12) + #4 (v1.0.5.13) 都走 user review + squash merge
+- **教训**: 6 bug 一次提 + 每步 e2e + vision + pytest 太重, "为什么会卡住"反馈 → **之后 ≤ 3 个 UI bug 一次** (锁定在 moni-development skill rule #20)
+
+**2026-06-07 v1.0.5.9 进展** (legacy wechat_rss 退役):
 - **问题**: legacy `wechat_rss` 源 is_active=1 但实际不抓 (DB url 无 token, env var fallback 需要 WECHAT_RSS_TOKEN, 用户不再设)
 - **用户决策**: 删 legacy `wechat_rss` 源, 保留 FetcherWechatRSS 类 (向后兼容 `moni fetch --source wechat_rss` CLI)
 - **改动**:
@@ -242,20 +260,48 @@
 - ✅ 4 篇 legacy wechat_rss publisher 回填 → `未央科技weiyangx`
 - ✅ 1 篇新 wechat_rss_b publisher 实时抽 → `财金吃瓜党`
 
+### ✅ v1.0.5.10 (3 联版 UI overhaul 第一弹, 55511ed / b744623)
+- ✅ **后端** (`ebdf5b6`): `list_articles()` 加 `keyword` Query 参数 (修历史 BUG) + `POST /api/articles` + `ArticleCreate.source_id: int → str` (DB TEXT schema drift)
+- ✅ **前端** (`b744623`): articles filter (source + tag `<select>`) + sidebar 7 个独立 URL + pushState/popstate + tag chip popover (CSS :hover+tabindex+focus-within, 不用 Alpine)
+- ✅ **dev 脚本** (`55511ed`): `scripts/web-8901.sh` 120 行 (端口分离 8900/8901)
+- ✅ 245 pytest pass + 2 skip
+- ✅ 5+ 新单测 (filter_by_source/tag/keyword + post_create_201 + post_create_idempotent + post_create_unknown_source_400)
+
+### ✅ v1.0.5.11 (CRUD modal + share card, 1617095)
+- ✅ 后端 CRUD modal: create/edit/delete 三步确认 (复用 articleDetail modal 模式)
+- ✅ share 页: 11 格式 table → card grid (1 卡 1 篇文章, hover tooltip 全文)
+- ✅ PR #2 squash merged
+
+### ✅ v1.0.5.12 (6 UI bug fix, 9a3a6d1)
+- ✅ share POST `/api/share` 405 → 路径修 + body 改 `{format, payload: {article_ids}}` 嵌 payload
+- ✅ "查看"按钮 wrap → `white-space: nowrap`
+- ✅ 搜索框回车 + 清除 (×) + 🔍 icon
+- ✅ tag 颜色按 `tag_definitions.color` 渲染 (4 层流水线: Pydantic TagRef + SQL JOIN + HTML inline style + CSS vars)
+- ✅ config tag 选色器: 8 色 swatch radio grid (从 uiux-asset-library 抽调色板, 紫罗兰边框选中态)
+- ✅ `:disabled="!!obj"` 永远 true 陷阱 → 检查具体字段 `!!target.name`
+- ✅ PR #3 squash merged
+
+### ✅ v1.0.5.13 (datetime deprecation 修, 04a21b5)
+- ✅ `moni/share/formats.py:198` `datetime.utcnow()` → `datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')` (保留 'Z' RFC 3339 后缀)
+- ✅ +`timezone` import
+- ✅ +回归测试 `test_created_at_is_timezone_aware_utc_iso8601` (assert 无 DeprecationWarning + ts 以 'Z' 结尾 + parse tzinfo=UTC)
+- ✅ 246 pytest pass + 2 skip (从 245 → 246)
+- ✅ 0 DeprecationWarning/run (从 55)
+- ✅ PR #4 squash merged
+
 ---
 
-## 数据现状 (2026-06-07 v1.0.5.6)
+## 数据现状 (2026-06-09 v1.0.5.13)
 
 ```
 articles by source:
-  mpaypass        56  (v1.0.5 修好 deep crawl, fetch URL 锚点 + CLI gate)
-  36kr_rss        35  (v1.0.5.5 captcha bypass 落地, 真 Chrome + body.innerText; v1.0.5.6 累加)
-  wechat_rss       4  (v1.0.4-eval legacy, env var 路径)
-  wechat_rss_a     4  (v1.0.5.6 token 1, [未央科技weiyangx] 4 篇)
-  wechat_rss_b     1  (v1.0.5.6 token 2, 1 篇 dedupe 后)
-  qbitai          12  (v1.0.3 改 /feed RSS, 稳定抓; v1.0.5.6 累加 2)
-  36kr_newsflash   0  (v1.0.5.5 标 disabled, React 渲染待 v1.0.6 重做)
-  TOTAL          112
+  36kr_rss        83  (v1.0.5.5 captcha bypass 落地, 真 Chrome + body.innerText, 累加)
+  mpaypass        82  (v1.0.5 修好 deep crawl, fetch URL 锚点 + CLI gate, 累加)
+  qbitai          15  (v1.0.3 改 /feed RSS, 稳定抓, 累加)
+  wechat_rss_a     9  (v1.0.5.6 token 1, 5 篇累加 — 未央科技 weiyangx 公众号)
+  wechat_rss_b     5  (v1.0.5.6 token 2)
+  wechat_rss       4  (v1.0.4-eval legacy, env var 路径, historical 保留)
+  TOTAL          198
 ```
 
 ---
@@ -281,20 +327,28 @@ articles by source:
 ### 🔴 高 (影响内容质量)
 - [x] mpaypass deep crawl (详情页 content + published_at) — v1.0.5 完成 (56 篇入库)
 - [x] 过滤 mpaypass `/download/` 路径 (10 篇误抓) — v1.0.5 完成 (regex 只匹 /news/)
-- [x] 修 36kr_newsflash URL (首页是 nav) — f46c501 已 ff 进 main
-- [x] 修 qbitai URL (品牌页 403) — f46c501 已 ff 进 main
+- [x] 修 36kr_newsflash URL (首页是 nav) — v1.0.5.8 用户决策彻底删源
+- [x] 修 qbitai URL (品牌页 403) — v1.0.5.4 改 /feed RSS
+- [x] 36kr captcha bypass — v1.0.5.5 真 Chrome Profile 7 抓 23 篇
 
 ### 🟡 中 (业务体验)
-- [ ] 填 .env 完整 WECHAT_RSS_TOKEN — v1.0.4-eval 已完成 (4 篇入库)
-- [ ] LLM 设置 web UI (PRD §4.7 第 6 菜单) — T10 重拆后
-- [ ] 摘要/事实核查前端按钮
+- [x] 填 .env 完整 WECHAT_RSS_TOKEN — v1.0.4-eval 已完成 (4 篇入库)
+- [x] share/CRUD 前端 UI (PRD §4.7) — v1.0.5.10 + v1.0.5.11 完成
+- [x] tag chip popover tooltip (CSS :hover+focus-within) — v1.0.5.10 完成
+- [x] share card grid 改版 (11 格式 → 1 卡 1 文) — v1.0.5.11 完成
+- [x] 6 个 UI bug 修复 (manual review) — v1.0.5.12 完成
+- [x] datetime.utcnow() DeprecationWarning 修 — v1.0.5.13 完成
+- [ ] 2 个 skip 测试改 mock → pytest 全绿 0 skip (P1)
+- [ ] mpaypass / qbitai fetch 间隔调长 (30min → 60min, 抓多没消化) (P2)
+- [ ] LLM 设置 web UI (T10, PRD §4.7 第 6 菜单) (P2)
 
 ### 🟢 低 (清理)
-- [x] 删 `wt/*` 目录 (30+ MB, 已 .gitignore) — v1.0.5 完成 (13 worktree 删)
-- [ ] 修 `moni/share/formats.py:198` datetime deprecation
-- [ ] share manifest default profile worker — **T7 已实装 (0a71c88), T8 commit 90b1912 (22 test) 未 ff, 用户决定**
-- [ ] cron daemon 启动 — **T7 install_cron.sh 已实装**
-- [ ] T8 commit 90b1912 / af4cefb ff 进 main — 用户决定
+- [x] 删 `wt/*` 目录 (30+ MB, 已 .gitignore) — v1.0.5 完成
+- [x] 修 `moni/share/formats.py:198` datetime deprecation — v1.0.5.13 完成
+- [x] share manifest default profile worker — T7 已实装 (0a71c88)
+- [x] cron daemon 启动 — T7 install_cron.sh 已实装
+- [x] PR workflow 改造 (v1.0.5.10+ feature branch, 不用 wt)
+- [x] 3 个错向 tag 修 (v1.0.5.10/11/12) — 上次 session 自我修复 + 本 session 验证全对
 
 ---
 
@@ -324,6 +378,10 @@ articles by source:
 | v1.0.5.7 | db366ea | publisher 抽取 — title prefix [公众号名] regex fallback, + backfill-publisher CLI, 17 tests, 244 pytest pass |
 | v1.0.5.8 | 1aada5e | 36kr_newsflash 删源 — 用户决策, 36kr_rss 已覆盖, 删 source + tests + config |
 | v1.0.5.9 | 2eebbfd | legacy wechat_rss 退役 — env var 路径废, a/b 已覆盖, 删 catalog 行 + cron |
+| v1.0.5.10 | 55511ed | 3 联版 UI overhaul 第一弹 — articles filter (source/tag/keyword) + sidebar URL + tag popover + POST /api/articles + scripts/web-8901.sh |
+| v1.0.5.11 | 1617095 | CRUD create/edit modal + share card grid (PR #2 squash) |
+| v1.0.5.12 | 9a3a6d1 | 6 UI bug fixes (PR #3 squash) — share POST path + body schema + 查看 wrap + 搜索 UX + tag 颜色 4 层 + swatch palette + :disabled 陷阱 |
+| v1.0.5.13 | 04a21b5 | datetime.utcnow() → datetime.now(timezone.utc) — 修 Python 3.12+ DeprecationWarning (PR #4 squash) |
 | v1.0.5.4 | 54e80ae | tag-keyword 过滤 (tag_definitions.keywords JSON 数组, OR substring 匹配) |
 | v1.0.5.3 | 70ef4f5 | LLM 任务结果折叠 (查看全文/收起 按钮) |
 | v1.0.2-f.1 | 15e8020 | v1.0.2-F 按钮修复 (Alpine scope) |
