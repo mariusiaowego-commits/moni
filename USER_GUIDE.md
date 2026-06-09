@@ -1,6 +1,6 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。v1.0.5.14 完成 (2026-06-09)。
+> 同业信源自动抓取与本地新闻库。v1.0.5.16 完成 (2026-06-09)。
 > 这份文档给**用户**（你自己）看 —— 怎么用 moni，不讲代码细节。
 
 ---
@@ -243,6 +243,48 @@ python3 -m moni clean-articles  # 再跑一次 = 幂等
 ```
 
 清洗后 `articles.raw_content` 字段从 `<h2>...</h2><p>...</p>` 变成纯文本段落, LLM 摘要质量显著提升.
+
+---
+
+## 5. 分享菜单 (v1.0.5.11 起, v1.0.5.16 加 confirm 框)
+
+### 5.1 选文章 + 选格式 (老流程)
+
+1. 进"分享"菜单
+2. 上方"选择文章"模块: 右上"来源"下拉选源, "每页"下拉选 20/50/100/200, 翻页按钮
+3. 文章卡片**勾选** (checkbox, 多选) — 至少 1 篇
+4. 中间"选择格式"模块: 点 10 个 chip 之一 (plain_text / markdown / html_landing / pdf_bound / ppt_slides / ascii_art / ascii_video / architecture_svg / info_graphic_png / knowledge_comic)
+5. html_landing / ppt_slides 两个格式要求填 "页面/演示标题" 字段
+
+### 5.2 加入队列前 confirm 框 (v1.0.5.16)
+
+点"加入队列"按钮不再立刻发请求, 而是先 fetch `/api/share/estimate` 拿 LLM 预估, 弹一个确认框让你看清楚再决定:
+
+```
+┌─ 确认加入分享队列 ─────────────────┐
+│  格式: html_landing  文章数: 1  总字数: 748
+│  ──────────────────────────────────
+│  LLM 预估
+│  模型:   MiniMax M3 (minimax-cn (默认))
+│  预估 input:  299 tokens
+│  预估 output: 538 tokens
+│  预估耗时:   51 秒 (基于历史 1 次同格式任务均值)
+│  完成后请到: /artifacts/<id>-html_landing.html
+│  ──────────────────────────────────
+│       [取消]    [确认加入队列]       │
+└────────────────────────────────────┘
+```
+
+- 取消 / × / 点背景 / Esc → 关 modal, 不入队
+- 确认加入队列 → 真 POST `/api/share` 入队, modal 关, 队列状态表新增一行 pending
+- 估算接口挂了 (5xx / network) → modal 显错误 + 仍允许"盲点确认" (因为入队是独立代码路径)
+- token / 耗时都是**粗估**: input 按总字数 / 2.5 (CJK mixed heuristic), 时长按 share_tasks 表最近 5 个同 format done 任务均值 (没历史 fallback 到静态默认 30-120s)
+
+### 5.3 队列状态 → 完成 artifact
+
+- 队列表每 30s 自动 polling, 状态从 `pending` → `running` → `done` / `failed`
+- done 行"输出"列有可点击链接 (v1.0.5.15+ web URL, 不撞 macOS file:// 拦), 新 tab 打开 artifact
+- artifact 实际存到 `data/artifacts/<task_id>-<format>.<ext>`, web URL 是 `/artifacts/<filename>`
 
 ---
 

@@ -609,6 +609,111 @@ class TestShare:
         assert r.status_code == 200
         assert r.json()["id"] == task_id
 
+    # v1.0.5.16: confirm-modal estimate endpoint.  The endpoint must
+    # validate the same way as /api/share (so the modal won't show a
+    # green 确认 button for a payload that's about to 400), but it
+    # must NOT create a share_task row.  Token/duration numbers are
+    # best-effort — we only assert they look plausible.
+
+    def test_estimate_200_returns_model_and_token_breakdown(
+        self, client: TestClient, seeded_article: str,
+    ):
+        # The seeded_article fixture inserts a row with no raw_content.
+        # We need non-zero chars for the token estimate assertions, so
+        # poke some content in directly.  This is a unit-test concern,
+        # not a runtime one — the production code path always has
+        # raw_content from the fetcher.
+        from moni.db.connection import get_db
+        body = "测试文章内容。" * 200  # ~1000 chars of CJK
+        get_db().execute(
+            "UPDATE articles SET raw_content=? WHERE id=?",
+            (body, seeded_article),
+        )
+        get_db().commit()
+
+        r = client.post(
+            "/api/share/estimate",
+            json={
+                "format": "markdown",
+                "version": "1.0",
+                "payload": {"article_ids": [seeded_article]},
+            },
+        )
+        assert r.status_code == 200
+        data = r.json()
+        # model chain resolved (llm_settings → llm_models → llm_providers).
+        # In production this is "seed-model-..." (seeded by moni db init);
+        # in a test fixture with a freshly-migrated empty DB, the
+        # settings table is empty and we fall back to "(model unset)".
+        # Accept either so the test is robust to both environments.
+        assert data["model_name"], "model_name should be populated"
+        assert (data["model_id"].startswith("seed-model-")
+                or data["model_id"].startswith("(model")), \
+            f"expected seed-model-* or (model unset), got {data['model_id']!r}"
+        assert data["provider_name"], "provider_name should be populated"
+        # article sizing
+        assert data["articles_count"] == 1
+        assert data["total_chars"] == len(body)
+        # token estimates.  Backend uses int(total_chars / 2.5) — the
+        # 2.5 CJK-mixed heuristic, NOT a 4-chars-per-token rule.
+        expected_input = int(len(body) / 2.5)
+        assert expected_input - 2 <= data["input_tokens_est"] <= expected_input + 2
+        # markdown multiplier is 1.0 — output should equal input within ±2
+        assert abs(data["output_tokens_est"] - data["input_tokens_est"]) <= 2
+        # duration is always a positive integer
+        assert data["duration_sec_est"] > 0
+        # artifact template mentions the format
+        assert "markdown" in data["artifact_path_template"]
+
+    def test_estimate_400_for_unknown_format(self, client: TestClient):
+        r = client.post(
+            "/api/share/estimate",
+            json={
+                "format": "no_such_format_xyz",
+                "version": "1.0",
+                "payload": {"article_ids": ["foo"]},
+            },
+        )
+        assert r.status_code == 400
+        body = r.json()
+        assert body.get("code") == "bad_request"
+        assert "no_such_format_xyz" in body.get("message", "")
+
+    def test_estimate_400_for_missing_article_ids(
+        self, client: TestClient, seeded_article: str,
+    ):
+        # article_ids is required by every format's payload schema, so
+        # the same validation that catches it in /api/share must
+        # reject it in /estimate.  We just confirm the status is 400;
+        # the exact error wording comes from the format-specific model
+        # and is covered by existing test_post_create_task_400_* tests.
+        r = client.post(
+            "/api/share/estimate",
+            json={
+                "format": "markdown",
+                "version": "1.0",
+                "payload": {"include_toc": True},  # missing article_ids
+            },
+        )
+        assert r.status_code == 400
+
+    def test_estimate_does_not_create_share_task(
+        self, client: TestClient, seeded_article: str,
+    ):
+        """The estimate endpoint must not write to share_tasks."""
+        before = client.get("/api/share/tasks?page=1&page_size=1").json()["total"]
+        r = client.post(
+            "/api/share/estimate",
+            json={
+                "format": "markdown",
+                "version": "1.0",
+                "payload": {"article_ids": [seeded_article]},
+            },
+        )
+        assert r.status_code == 200
+        after = client.get("/api/share/tasks?page=1&page_size=1").json()["total"]
+        assert before == after, "estimate must not write a share_task row"
+
     def test_get_task_by_id_404(self, client: TestClient):
         r = client.get("/api/share/tasks/nonexistent-task-id")
         assert r.status_code == 404

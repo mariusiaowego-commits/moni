@@ -252,9 +252,39 @@ class ShareTaskCreateV1(BaseModel):
 
 class ShareTaskResponseV1(BaseModel):
     """Response body for POST /api/share on success."""
-
     share_id: str
     status: str = "pending"
+
+
+class ShareTaskEstimateResponse(BaseModel):
+    """Response body for POST /api/share/estimate.
+
+    v1.0.5.16: pre-flight estimate for the confirm-modal.  No DB
+    write, no share_task row created.  All values are best-effort
+    educated guesses (token counts by char/4, duration by last-5
+    same-format share_tasks average), accurate enough for the user
+    to decide whether to proceed.
+
+    cost_usd_est is intentionally omitted — moni has no pricing
+    table (provider rates change monthly), so a guessed cost would
+    be misleading.  Tokens + seconds are the durable numbers.
+    """
+    # Resolved model info (read from llm_settings + llm_models + llm_providers)
+    model_name: str               # e.g. "MiniMax M3"
+    model_id: str                 # e.g. "seed-model-...-MiniMax-M3"
+    provider_name: str            # e.g. "minimax-cn (默认)"
+    # Input sizing — what we'll feed to the LLM
+    articles_count: int
+    total_chars: int
+    input_tokens_est: int         # chars / 4 (rough CJK-mixed heuristic)
+    # Output sizing — format-dependent multiplier on input
+    output_tokens_est: int
+    # Wall-clock estimate from the last 5 done share_tasks of the same format
+    duration_sec_est: int
+    duration_sec_basis: int       # how many past tasks we averaged
+    # Where the user can find the output once done (path is illustrative —
+    # the real id is allocated at write time)
+    artifact_path_template: str   # e.g. "/artifacts/<id>-html_landing.html"
 
 
 class ShareTaskListResponse(BaseModel):

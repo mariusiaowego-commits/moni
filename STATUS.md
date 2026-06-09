@@ -4,6 +4,32 @@
 
 ---
 
+## 当前状态: **v1.0.5.16 — 加入队列前 confirm 框 (开发中)** (2026-06-09)
+
+**主分支**: main @ `32928e0` (v1.0.5.15 merged 2 commits, 26 个 tag)
+**Web 服务**: `127.0.0.1:8900` (200 OK, 跑 v1.0.5.15, PID 99118)
+**数据库**: `data/news.db` — schema_version=7, 200+ articles, share_tasks 4 done + 122 failed
+**测试**: 259 + 2 skip (新 +4 estimate 测试)
+**Worktree**: 0 (v1.0.5.10+ 改用 feature branch on main checkout, 不用 wt)
+
+**v1.0.5.16 进展** (2026-06-09, 用户 PRD 第 8 项 — 加入队列前确认框):
+- **问题**: 用户加 LLM 任务入队时直接 POST, 没有预览, 不知道会用哪个 model / 多少 token / 多长时间 / 输出在哪看. 担心 LLM 跑空跑贵.
+- **方案**: 新加 `POST /api/share/estimate` 端点 (复用 `validate_manifest` 校验, 不写 DB 不写 queue), 返 `model_name/id/provider_name + articles_count + total_chars + input_tokens_est + output_tokens_est + duration_sec_est + artifact_path_template`. 前端 `addToQueue` 重构成 "先 fetch estimate → 弹 confirm modal → 用户点确认 → 真 POST /api/share". Modal 显示模型名 / token 估 / 时长估 (基于历史 5 个同 format 任务平均, fallback 到静态默认) / artifact 路径.
+- **变更面**:
+  - 后端 `moni/web/routes/share.py`: +`/api/share/estimate` endpoint, +3 helpers (`_resolve_active_model` / `_estimate_article_chars` / `_estimate_duration`), +`_CHARS_PER_TOKEN=2.5` + `_OUTPUT_MULTIPLIER` + `_DURATION_FALLBACK_SEC` 字典
+  - 后端 `moni/web/models.py`: +`ShareTaskEstimateResponse` Pydantic model
+  - 前端 `moni/web/static/index.html`: +`shareEstimate` confirm modal (header / body / footer, 跟 LLM job modal 同 pattern)
+  - 前端 `moni/web/static/js/app.js`: +`shareEstimate/shareEstimateError/shareEstimateSubmitting/_shareEstimatePayload` state, 重构 `addToQueue` → `addToQueue` + `confirmShareEstimate` + `cancelShareEstimate`, +`formatShareDuration` helper
+  - 测试 `tests/test_api.py`: +4 测试 (`test_estimate_200_returns_model_and_token_breakdown` / `test_estimate_400_for_unknown_format` / `test_estimate_400_for_missing_article_ids` / `test_estimate_does_not_create_share_task`)
+- **验证**: 259 + 2 skip 绿; estimate 端点实测 1 篇 markdown (748 字 → 299 input, 299 output), 4 篇 html_landing (2053 字 → 821 input, 1477 output), 坏 format 返 400 + 10 个 supported 列表
+- **分支**: `feature/v1.0.5.16-confirm-modal` @ 32928e0 后 5 files; **待用户浏览器硬刷验 modal + commit + push + 开 PR**
+
+**v1.0.5.15 历史** (5+1 fix, 已 push PR #7):
+- **用户原报 (5)**: 全部按入修 (排序 fetched_at / 分享页 source filter+分页 / 删 concept_video / 队列 done output_path web URL / 滚动条修)
+- **PR**: #7 (`feature/v1.0.5.15-five-fixes`, 2 commits, OPEN 待 user review)
+
+---
+
 ## 当前状态: **v1.0.5.14 — 6 用户问题 + 4 follow-on 全修** (2026-06-09)
 
 **主分支**: main @ `a483588` (v1.0.5.13 tag, 25 个 tag) — **v1.0.5.14 在 PR #6 待 merge, feature/v1.0.5.14-six-fixes @ `05ca5bb`**
