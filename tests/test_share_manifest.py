@@ -101,6 +101,9 @@ def seeded_article_id(client: TestClient) -> str:
 
 # Each entry is the ``payload`` portion of a v1.0 manifest.  Every format
 # requires ``article_ids``; the rest are format-specific knobs.
+# v1.0.5.18: 6 formats (was 10).  Dropped architecture_svg /
+# knowledge_comic / ascii_art / ascii_video / pdf_bound / ppt_slides
+# (never had a real worker).  Added rich_text + report_png.
 _PAYLOADS_VALID: dict[str, dict[str, Any]] = {
     "plain_text": {
         "article_ids": ["a1"],
@@ -115,24 +118,11 @@ _PAYLOADS_VALID: dict[str, dict[str, Any]] = {
     "info_graphic_png": {
         "article_ids": ["a1"],
     },
-    "architecture_svg": {
+    "rich_text": {                              # 🆕 v1.0.5.18
         "article_ids": ["a1"],
     },
-    "knowledge_comic": {
+    "report_png": {                             # 🆕 v1.0.5.18
         "article_ids": ["a1"],
-    },
-    "ascii_art": {
-        "article_ids": ["a1"],
-    },
-    "ascii_video": {
-        "article_ids": ["a1"],
-    },
-    "pdf_bound": {
-        "article_ids": ["a1"],
-    },
-    "ppt_slides": {
-        "article_ids": ["a1"],
-        "title": "My Slides",
     },
 }
 
@@ -143,17 +133,30 @@ _PAYLOADS_VALID: dict[str, dict[str, Any]] = {
 
 
 class TestSchemaValidation:
-    """Each of the 10 v1.0 formats must validate correctly and reject bad input."""
+    """Each of the 6 v1.0.5.18 formats must validate correctly and reject bad input."""
 
-    def test_valid_formats_set_has_10(self) -> None:
-        """The registry must contain exactly 10 v1.0 formats.
+    def test_valid_formats_set_has_6(self) -> None:
+        """The registry must contain exactly 6 v1.0.5.18 formats.
 
-        v1.0.5.15: ``concept_video`` was removed (worker never wired it
-        up to a real video generation pipeline — it was a stub that
-        produced a placeholder file).  Frontend also dropped the format
-        chip, so 10 is the new canonical count.
+        v1.0.5.18: pruned 6 formats that had no real worker (ascii_art,
+        ascii_video, architecture_svg, knowledge_comic, pdf_bound,
+        ppt_slides) and added rich_text + report_png.  Frontend will
+        also drop the 6 chips; 6 is the new canonical count.
         """
-        assert len(VALID_FORMATS) == 10
+        assert len(VALID_FORMATS) == 6
+        # No concept_video (removed in v1.0.5.15), no architecture_svg /
+        # knowledge_comic / ascii_art / ascii_video / pdf_bound /
+        # ppt_slides (removed in v1.0.5.18).
+        for stale in (
+            "concept_video", "architecture_svg", "knowledge_comic",
+            "ascii_art", "ascii_video", "pdf_bound", "ppt_slides",
+        ):
+            assert stale not in VALID_FORMATS, (
+                f"stale format {stale!r} should have been removed in v1.0.5.18"
+            )
+        # rich_text + report_png must be present
+        assert "rich_text" in VALID_FORMATS
+        assert "report_png" in VALID_FORMATS
         # Every FormatEnum value must be in the set (no orphans).
         assert {f.value for f in FormatEnum} == VALID_FORMATS
 
@@ -324,14 +327,15 @@ class TestWriteManifestUnit:
         fake_queue.mkdir()
         monkeypatch.setattr("moni.share.manifest._queue_dir", lambda: fake_queue)
 
+        # v1.0.5.18: use one of the 6 surviving formats (was pdf_bound).
         validated = {
-            "format": "pdf_bound",
+            "format": "markdown",
             "article_ids": ["x9"],
         }
         share_id = write_manifest(
             share_id="file-test-002",
             validated_payload=validated,
-            format_name="pdf_bound",
+            format_name="markdown",
         )
 
         queue_path = fake_queue / "file-test-002.json"
@@ -339,7 +343,7 @@ class TestWriteManifestUnit:
         doc = json.loads(queue_path.read_text(encoding="utf-8"))
         assert doc["share_id"] == "file-test-002"
         assert doc["status"] == "pending"
-        assert doc["format"] == "pdf_bound"
+        assert doc["format"] == "markdown"
         assert doc["payload"] == validated
         assert isinstance(doc["created_at"], str)
 
@@ -369,13 +373,14 @@ class TestWriteManifestUnit:
         fake_queue.mkdir()
         monkeypatch.setattr("moni.share.manifest._queue_dir", lambda: fake_queue)
 
+        # v1.0.5.18: was ascii_art.  Use one of the 6 surviving formats.
         share_id = write_manifest(
             share_id="fmt-extract-001",
-            validated_payload={"format": "ascii_art", "article_ids": ["a1"]},
+            validated_payload={"format": "rich_text", "article_ids": ["a1"]},
         )
-        # Verify the file's format field is "ascii_art"
+        # Verify the file's format field is "rich_text"
         doc = json.loads((fake_queue / "fmt-extract-001.json").read_text())
-        assert doc["format"] == "ascii_art"
+        assert doc["format"] == "rich_text"
 
     def test_created_at_is_timezone_aware_utc_iso8601(self) -> None:
         """created_at default_factory must produce a timezone-aware UTC ISO8601

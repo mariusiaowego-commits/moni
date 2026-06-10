@@ -281,14 +281,20 @@ class ShareTaskEstimateResponse(BaseModel):
     table (provider rates change monthly), so a guessed cost would
     be misleading.  Tokens + seconds are the durable numbers.
     """
-    # Resolved model info (read from llm_settings + llm_models + llm_providers)
+    # The format this estimate is for.  Echoed from the request
+    # so the frontend can render "正在预估 markdown..." without
+    # needing to remember what the user clicked.  Optional because
+    # older callers may not set it; default None so the schema
+    # still validates.
+    format: str | None = None
+    # Resolved model info (read from llm_settings → llm_models → llm_providers)
     model_name: str               # e.g. "MiniMax M3"
     model_id: str                 # e.g. "seed-model-...-MiniMax-M3"
     provider_name: str            # e.g. "minimax-cn (默认)"
     # Input sizing — what we'll feed to the LLM
     articles_count: int
     total_chars: int
-    input_tokens_est: int         # chars / 4 (rough CJK-mixed heuristic)
+    input_tokens_est: int         # chars / 2.5 (rough CJK-mixed heuristic)
     # Output sizing — format-dependent multiplier on input
     output_tokens_est: int
     # Wall-clock estimate from the last 5 done share_tasks of the same format

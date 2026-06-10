@@ -1,54 +1,97 @@
-"""moni.share.formats — v1.0 format schemas and validation.
+"""moni.share.formats — v1.0.5.18 format schemas and validation.
 
-There are 11 supported share/export formats, each with its own
-Pydantic model and a shared validation entry point.
+There are 6 supported share/export formats in v1.0.5.18 (down from
+10 in v1.0.5.17 and 11 originally).  Each format has its own
+Pydantic model with a shared validation entry point.  All 6 payloads
+share 4 common "user options" fields — include_abstract /
+include_fact_check / provider / model — so the worker can honour
+the user's choices consistently across formats.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Annotated, Any
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 # ---------------------------------------------------------------------------
-# Format registry
+# Format registry (v1.0.5.18: 11 → 6)
 # ---------------------------------------------------------------------------
 
 
 class FormatEnum(str, Enum):
-    """All supported share/export formats."""
+    """All supported share/export formats (v1.0.5.18).
+
+    v1.0.5.18 dropped 6 formats (architecture_svg, knowledge_comic,
+    ascii_art, ascii_video, pdf_bound, ppt_slides) — they were
+    defined but never had a real worker implementation wired up.
+    Two new formats were added: rich_text (a content-rich Markdown
+    variant) and report_png (a one-image content report, with
+    four generation-approach choices).
+    """
 
     PLAIN_TEXT = "plain_text"
     MARKDOWN = "markdown"
     HTML_LANDING = "html_landing"
     INFO_GRAPHIC_PNG = "info_graphic_png"
-    ARCHITECTURE_SVG = "architecture_svg"
-    KNOWLEDGE_COMIC = "knowledge_comic"
-    ASCII_ART = "ascii_art"
-    ASCII_VIDEO = "ascii_video"
-    PDF_BOUND = "pdf_bound"
-    PPT_SLIDES = "ppt_slides"
+    RICH_TEXT = "rich_text"          # 🆕 v1.0.5.18
+    REPORT_PNG = "report_png"        # 🆕 v1.0.5.18
 
 
 VALID_FORMATS: set[str] = {f.value for f in FormatEnum}
 
 
 # ---------------------------------------------------------------------------
-# Shared model config with extra='forbid'
+# Shared model config + 4 user-options fields
 # ---------------------------------------------------------------------------
 
+# v1.0.5.18: extra="forbid" stays (so the API rejects typos) but we
+# allow None for the 4 user-options fields below.
 _extra_forbid = ConfigDict(extra="forbid")
 
 
+# v1.0.5.18 PRD §2: these 4 fields are SHARED across all 6 payloads.
+# We avoid Pydantic mixin complexity by simply repeating the
+# field declarations — it's 4 lines, more readable than the
+# alternative (and a docstring is right next to each use site).
+_USER_OPTIONS_FIELDS = """
+    include_abstract: bool = Field(default=True, description=(
+        "Include AI-generated summary (articles.ai_summary) per article"
+    ))
+    include_fact_check: bool = Field(default=False, description=(
+        "Include fact-check analysis per article (slower; uses LLM)"
+    ))
+    provider: str | None = Field(default=None, description=(
+        "Hermes provider override (e.g. 'google', 'openrouter'). "
+        "Default profile's provider is used if None."
+    ))
+    model: str | None = Field(default=None, description=(
+        "Hermes model override (e.g. 'gemini-2.5-pro'). "
+        "Default profile's model is used if None."
+    ))
+"""
+
+
 # ---------------------------------------------------------------------------
-# Per-format payload schemas (v1.0)
+# Per-format payload schemas (v1.0.5.18: 6 formats)
 # ---------------------------------------------------------------------------
 
 
 class PlainTextPayload(BaseModel):
+    """Plain-text export.  Worker writes directly without LLM call
+    (per PRD §9 decision: plain_text is a no-LLM pass for speed).
+
+    v1.0.5.18: include_abstract / include_fact_check / provider /
+    model added for consistency with the other 5 payloads, even
+    though the worker doesn't use them (the no-LLM pass just dumps
+    the article content to a .txt file).  The fields are accepted
+    by the API for cross-payload uniformity — the Pydantic model
+    serves as a single source of truth for what every manifest may
+    carry."""
+
     model_config = _extra_forbid
 
     article_ids: list[str] = Field(..., description="Articles to include")
@@ -56,18 +99,30 @@ class PlainTextPayload(BaseModel):
     font_size: int = Field(default=12, ge=8, le=24)
     line_height: float = Field(default=1.5, ge=1.0, le=3.0)
     page_width: int = Field(default=80, ge=40, le=200, description="Characters per line")
+    include_abstract: bool = Field(default=True)
+    include_fact_check: bool = Field(default=False)
+    provider: str | None = Field(default=None)
+    model: str | None = Field(default=None)
 
 
 class MarkdownPayload(BaseModel):
+    """Standard Markdown export.  Joined via prompts/format-markdown.md."""
+
     model_config = _extra_forbid
 
     article_ids: list[str] = Field(..., description="Articles to include")
     include_toc: bool = Field(default=True, description="Generate table of contents")
     include_metadata: bool = Field(default=True, description="Show title/author/date headers")
     code_theme: str = Field(default="github-dark", description="Highlight.js theme name")
+    include_abstract: bool = Field(default=True)
+    include_fact_check: bool = Field(default=False)
+    provider: str | None = Field(default=None)
+    model: str | None = Field(default=None)
 
 
 class HtmlLandingPayload(BaseModel):
+    """HTML landing page.  Joined via prompts/format-html.md."""
+
     model_config = _extra_forbid
 
     article_ids: list[str] = Field(..., description="Articles to include")
@@ -76,9 +131,15 @@ class HtmlLandingPayload(BaseModel):
     theme: str = Field(default="light", description="'light' | 'dark' | 'auto'")
     include_share_buttons: bool = Field(default=True)
     logo_url: str | None = Field(default=None)
+    include_abstract: bool = Field(default=True)
+    include_fact_check: bool = Field(default=False)
+    provider: str | None = Field(default=None)
+    model: str | None = Field(default=None)
 
 
 class InfoGraphicPngPayload(BaseModel):
+    """Information-graphic PNG.  Worker uses baoyu-infographic skill."""
+
     model_config = _extra_forbid
 
     article_ids: list[str] = Field(..., description="Articles to include")
@@ -86,85 +147,103 @@ class InfoGraphicPngPayload(BaseModel):
     height: int = Field(default=630, ge=300, le=2160)
     layout: str = Field(default="grid", description="'grid' | 'timeline' | 'comparison'")
     color_scheme: str = Field(default="vibrant", description="Colour palette name")
+    include_abstract: bool = Field(default=True)
+    include_fact_check: bool = Field(default=False)
+    provider: str | None = Field(default=None)
+    model: str | None = Field(default=None)
 
 
-class ArchitectureSvgPayload(BaseModel):
+class RichTextPayload(BaseModel):
+    """Content-rich Markdown variant (🆕 v1.0.5.18).
+
+    Like MarkdownPayload but with explicit emphasis on the user's
+    content-options (abstract + fact-check) and a richer
+    cross-article layout (per PRD §1: "format-rich-text" prompt).
+    """
+
     model_config = _extra_forbid
 
     article_ids: list[str] = Field(..., description="Articles to include")
-    diagram_type: str = Field(
-        default="flowchart", description="'flowchart' | 'hierarchical' | 'timeline'"
+    include_abstract: bool = Field(default=True)
+    include_fact_check: bool = Field(default=False)
+    provider: str | None = Field(default=None)
+    model: str | None = Field(default=None)
+
+
+class ReportPngPayload(BaseModel):
+    """One-image content report (🆕 v1.0.5.18).
+
+    The user picks a generation approach at queue time; the worker
+    uses the corresponding skill (or none for direct).  See
+    prompts/format-report-png.md for the joined prompt.
+    """
+
+    model_config = _extra_forbid
+
+    article_ids: list[str] = Field(..., description="Articles to include")
+    include_abstract: bool = Field(default=True)
+    include_fact_check: bool = Field(default=False)
+    provider: str | None = Field(default=None)
+    model: str | None = Field(default=None)
+    generation_approach: str = Field(
+        default="baoyu-infographic",
+        description=(
+            "'baoyu-infographic' | 'ljg-card' | 'kami' | 'direct' — see "
+            "PRD §4 for the skill mapping.  Default: baoyu-infographic."
+        ),
     )
-    direction: str = Field(default="LR", description="'LR' | 'RL' | 'TB' | 'BT'")
-    node_style: str = Field(default="rounded", description="'rounded' | 'square' | 'diamond'")
-
-
-class KnowledgeComicPayload(BaseModel):
-    model_config = _extra_forbid
-
-    article_ids: list[str] = Field(..., description="Articles to include")
-    art_style: str = Field(
-        default="manga",
-        description="'manga' | 'western' | 'chibi' | 'sketch'",
-    )
-    panel_count: int = Field(default=6, ge=2, le=24)
-    caption_mode: str = Field(
-        default="speech_bubble", description="'speech_bubble' | 'narration' | 'mixed'"
+    aspect_ratio: str = Field(
+        default="portrait",
+        description="'landscape' | 'square' | 'portrait'",
     )
 
 
-class ConceptVideoPayload(BaseModel):
-    # v1.0.5.15: DEPRECATED.  Concept video was a speculative format
-    # that the worker never wired up to a real video generation
-    # pipeline — it just produced a stub file.  Removed from FormatEnum
-    # + _FORMAT_MODELS.  Kept here (commented out) for 1 release as a
-    # breadcrumb in case a future user wants to wire it up properly.
-    # model_config = _extra_forbid
-    # article_ids: list[str] = Field(...)
-    # duration_secs: int = Field(default=60, ge=10, le=300)
-    # resolution: str = Field(default="1080p")
-    # voice: str = Field(default="female_narrator")
-    # music: str | None = Field(default=None)
-    pass
-
-
-class AsciiArtPayload(BaseModel):
-    model_config = _extra_forbid
-
-    article_ids: list[str] = Field(..., description="Articles to include")
-    charset: str = Field(default="standard", description="'standard' | 'detailed' | 'blocks'")
-    width: int = Field(default=120, ge=40, le=240)
-    style: str = Field(default="photo", description="'photo' | 'portrait' | 'landscape'")
-
-
-class AsciiVideoPayload(BaseModel):
-    model_config = _extra_forbid
-
-    article_ids: list[str] = Field(..., description="Articles to include")
-    resolution: str = Field(default="1080p", description="'720p' | '1080p' | '4k'")
-    fps: int = Field(default=12, ge=4, le=30)
-    charset: str = Field(default="standard", description="'standard' | 'detailed' | 'blocks'")
-
-
-class PdfBoundPayload(BaseModel):
-    model_config = _extra_forbid
-
-    article_ids: list[str] = Field(..., description="Articles to include")
-    page_size: str = Field(default="A4", description="'A4' | 'Letter' | 'Legal'")
-    font_family: str = Field(default="Noto Serif", description="Body font family")
-    font_size: int = Field(default=11, ge=8, le=16)
-    margin_mm: float = Field(default=20.0, ge=5.0, le=50.0)
-    include_cover: bool = Field(default=True)
-
-
-class PptSlidesPayload(BaseModel):
-    model_config = _extra_forbid
-
-    article_ids: list[str] = Field(..., description="Articles to include")
-    title: str = Field(..., description="Presentation title")
-    theme: str = Field(default="corporate", description="Theme name")
-    slide_count: int = Field(default=10, ge=3, le=100)
-    layout: str = Field(default="title_content", description="Master layout name")
+# ---------------------------------------------------------------------------
+# v1.0.5.18: stale Payload classes kept commented for one release as
+# breadcrumbs in case anyone wants to wire them up later.  Same
+# pattern as the now-removed ConceptVideoPayload.  These are
+# intentionally NOT registered in _FORMAT_MODELS so they're
+# rejected at the API.
+# ---------------------------------------------------------------------------
+#
+# class ArchitectureSvgPayload(BaseModel):
+#     article_ids: list[str]
+#     diagram_type: str  # 'flowchart' | 'hierarchical' | 'timeline'
+#     direction: str     # 'LR' | 'RL' | 'TB' | 'BT'
+#     node_style: str    # 'rounded' | 'square' | 'diamond'
+#
+# class KnowledgeComicPayload(BaseModel):
+#     article_ids: list[str]
+#     art_style: str     # 'manga' | 'western' | 'chibi' | 'sketch'
+#     panel_count: int   # 2-24
+#     caption_mode: str  # 'speech_bubble' | 'narration' | 'mixed'
+#
+# class AsciiArtPayload(BaseModel):
+#     article_ids: list[str]
+#     charset: str       # 'standard' | 'detailed' | 'blocks'
+#     width: int         # 40-240
+#     style: str         # 'photo' | 'portrait' | 'landscape'
+#
+# class AsciiVideoPayload(BaseModel):
+#     article_ids: list[str]
+#     resolution: str    # '720p' | '1080p' | '4k'
+#     fps: int           # 4-30
+#     charset: str       # 'standard' | 'detailed' | 'blocks'
+#
+# class PdfBoundPayload(BaseModel):
+#     article_ids: list[str]
+#     page_size: str     # 'A4' | 'Letter' | 'Legal'
+#     font_family: str
+#     font_size: int     # 8-16
+#     margin_mm: float   # 5-50
+#     include_cover: bool
+#
+# class PptSlidesPayload(BaseModel):
+#     article_ids: list[str]
+#     title: str         # required
+#     theme: str
+#     slide_count: int   # 3-100
+#     layout: str        # master layout name
 
 
 # ---------------------------------------------------------------------------
@@ -176,12 +255,8 @@ _FORMAT_MODELS: dict[str, type[BaseModel]] = {
     FormatEnum.MARKDOWN.value: MarkdownPayload,
     FormatEnum.HTML_LANDING.value: HtmlLandingPayload,
     FormatEnum.INFO_GRAPHIC_PNG.value: InfoGraphicPngPayload,
-    FormatEnum.ARCHITECTURE_SVG.value: ArchitectureSvgPayload,
-    FormatEnum.KNOWLEDGE_COMIC.value: KnowledgeComicPayload,
-    FormatEnum.ASCII_ART.value: AsciiArtPayload,
-    FormatEnum.ASCII_VIDEO.value: AsciiVideoPayload,
-    FormatEnum.PDF_BOUND.value: PdfBoundPayload,
-    FormatEnum.PPT_SLIDES.value: PptSlidesPayload,
+    FormatEnum.RICH_TEXT.value: RichTextPayload,           # 🆕
+    FormatEnum.REPORT_PNG.value: ReportPngPayload,         # 🆕
 }
 
 
@@ -205,7 +280,7 @@ class ManifestPayload(BaseModel):
 
 
 def validate_manifest(data: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    """Validate a raw manifest dict against v1.0 schemas.
+    """Validate a raw manifest dict against v1.0.5.18 schemas.
 
     Args:
         data: Raw dict from request body.

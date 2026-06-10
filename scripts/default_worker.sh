@@ -18,10 +18,19 @@
 set -euo pipefail
 
 # --- Config ----------------------------------------------------------------
+# v1.0.5.18: REPO_ROOT is used by the prompt-lookup code path.  We
+# resolve it from the script's own path so the worker finds
+# moni/share/prompts/ regardless of how it was launched.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 QUEUE_DIR="${MONI_QUEUE_DIR:-${HOME:-~}/.moni/queue}"
 LOCK_FILE="${QUEUE_DIR}/.lock"
 DB_PATH="${MONI_DB:-${HOME:-~}/.moni/data/moni.db}"
 TIMEOUT_SECONDS=300          # 5 minutes per task
+
+# v1.0.5.18: prompt directory.  Relative to the project root so
+# the worker finds the per-format prompt files regardless of the
+# worker's CWD.  Defaults to ${REPO_ROOT}/moni/share/prompts/.
+PROMPT_DIR="${MONI_PROMPT_DIR:-${REPO_ROOT}/moni/share/prompts}"
 
 # --- Env validation ---------------------------------------------------------
 if [[ ! -d "$QUEUE_DIR" ]]; then
@@ -129,15 +138,45 @@ PYEOF
 
 # Build the skill flag from format name.
 # Maps format strings to Hermes skill names.
+# v1.0.5.18: pruned 6 formats.  Only info_graphic and report_png use
+# a real skill; the rest rely on the content prompt alone.
 skill_for_format() {
     local format="$1"
     case "$format" in
-        markdown|md)         echo "dizical-report" ;;
         info_graphic|infographic) echo "baoyu-infographic" ;;
-        comic|baoyu-comic)   echo "baoyu-comic" ;;
-        article-illustrator) echo "baoyu-article-illustrator" ;;
-        translation)         echo "translation" ;;
-        *)                  echo "" ;;
+        report_png)                echo "baoyu-infographic" ;;  # default; user can override via generation_approach
+        *)                         echo "" ;;
+    esac
+}
+
+# v1.0.5.18: map report_png's generation_approach → skill name.
+# Per PRD §4: baoyu-infographic (default) / ljg-card / kami / direct
+# (no skill — agent writes a freeform image_generate prompt).
+skill_for_report_png() {
+    local approach="$1"
+    case "$approach" in
+        baoyu-infographic) echo "baoyu-infographic" ;;
+        ljg-card)          echo "ljg-card" ;;
+        kami)              echo "kami" ;;
+        direct)            echo "" ;;
+        *)                 echo "baoyu-infographic" ;;
+    esac
+}
+
+# v1.0.5.18: map a format name to its format-specific prompt file.
+# Plain text doesn't need a per-format prompt (worker writes directly
+# without an LLM call, per PRD §9 decision).  The other 5 formats
+# each have a file under moni/share/prompts/.
+prompt_file_for_format() {
+    local format="$1"
+    case "$format" in
+        markdown)         echo "format-markdown.md" ;;
+        html_landing)     echo "format-html.md" ;;
+        rich_text)        echo "format-rich-text.md" ;;
+        report_png)       echo "format-report-png.md" ;;
+        plain_text)       echo "" ;;  # no LLM pass
+        info_graphic_png) echo "" ;;  # baoyu-infographic skill has its own prompt
+        *)                echo "" ;;
     esac
 }
 
@@ -303,23 +342,113 @@ print(json.dumps(content))
     update_progress "$task_id" "building_prompt" 40 \
         "正在拼 prompt (skill=$skill_name, content=$(printf '%d' "${#escaped_content}") 字节) ..."
 
-    # Build the hermes prompt
-    local skill_clause=""
-    if [[ -n "$skill_name" ]]; then
-        skill_clause="Use the skill: $skill_name. "
+    # v1.0.5.18: read user options from the manifest payload.
+    # These three are universal across all 6 formats (per PRD §2).
+    # include_abstract defaults to true (most users want the AI
+    # summary); include_fact_check defaults to false (slower; an
+    # explicit opt-in).  provider/model let the user override the
+    # default hermes profile's choice when one provider's quota
+    # is exhausted.
+    #
+    # Implementation: we do a single Python pass to read all four
+    # fields and emit `key=value` lines that we then `eval` into the
+    # shell.  We use a simple Python-emit format (no f-string shell
+    # interpolation, no nested quotes) to avoid bash 3.2 quoting
+    # edge cases.  Each value is wrapped in single quotes so empty
+    # strings survive intact.
+    eval "$(python3 - "$manifest_path" <<'PYEOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+p = d.get("payload", {}) if isinstance(d.get("payload"), dict) else {}
+ia = p.get("include_abstract", True)
+fc = p.get("include_fact_check", False)
+prov = p.get("provider") or ""
+mod = p.get("model") or ""
+def sq(s):
+    # single-quote-wrap a string for safe shell eval
+    return "'" + str(s).replace("'", "'\"'\"'") + "'"
+print(f"include_abstract={sq('true' if ia else 'false')}")
+print(f"include_fact_check={sq('true' if fc else 'false')}")
+print(f"provider_override={sq(prov)}")
+print(f"model_override={sq(mod)}")
+PYEOF
+)"
+
+    # v1.0.5.18: assemble the prompt by joining the content-structure
+    # prompt (always first) + the per-format prompt (if any) + the
+    # user-options block + the article data.  The skill clause is
+    # appended to the format-specific section (not the content section)
+    # so that the LLM knows "this skill is available, use it" after
+    # reading the format requirements.
+    local content_prompt=""
+    local content_prompt_file="$PROMPT_DIR/content-structure.md"
+    [[ -f "$content_prompt_file" ]] && content_prompt=$(<"$content_prompt_file")
+
+    local format_prompt=""
+    local pf
+    pf=$(prompt_file_for_format "$format")
+    if [[ -n "$pf" ]]; then
+        local format_prompt_file="$PROMPT_DIR/$pf"
+        [[ -f "$format_prompt_file" ]] && format_prompt=$(<"$format_prompt_file")
     fi
 
-    local prompt="You are a content processing worker. Process the following article and produce output at the specified path.
+    # Skill clause — for non-report_png formats, we use the format's
+    # own skill_for_format() mapping.  For report_png, the skill is
+    # derived from the user's generation_approach choice (defaulting
+    # to baoyu-infographic if unspecified).
+    local skill_clause=""
+    local effective_skill="$skill_name"
+    if [[ "$format" == "report_png" ]]; then
+        local approach
+        approach=$(python3 -c "
+import json
+d=json.load(open('$manifest_path'))
+p=d.get('payload',{}) if isinstance(d.get('payload'),dict) else {}
+print(p.get('generation_approach',''))
+" 2>/dev/null || echo "")
+        effective_skill=$(skill_for_report_png "$approach")
+    fi
+    if [[ -n "$effective_skill" ]]; then
+        skill_clause="Use the skill: $effective_skill."
+    fi
 
-Article content:
-$escaped_content
+    # User-options directive.  Abstract default true (most users want
+    # an AI summary); fact-check default false (slower, opt-in).
+    local opts=""
+    [[ "$include_abstract" == "true" ]] && opts+="包含 AI 摘要: 是。对没有摘要的文章请生成。\n"
+    [[ "$include_fact_check" == "true" ]] && opts+="包含事实核查: 是。请核查事实性声明。\n"
 
-Required format: $format
-Output path: $output_path
+    # Assemble the final prompt.  Each section is separated by
+    # a horizontal rule so the LLM can see where each phase begins.
+    local prompt=""
+    [[ -n "$content_prompt" ]] && prompt+="${content_prompt}\n\n"
+    prompt+="---\n\n"
+    [[ -n "$format_prompt" ]] && prompt+="${format_prompt}\n\n"
+    [[ -n "$skill_clause" ]] && prompt+="${skill_clause}\n\n"
+    prompt+="---\n\n"
+    prompt+="## 用户选项\n"
+    [[ -n "$opts" ]] && prompt+="${opts}\n"
+    prompt+="---\n\n"
+    prompt+="## 文章数据\n\n${escaped_content}"
 
-${skill_clause}Write the final output to: $output_path
-If the output path is a directory, generate an appropriate file inside it.
-Do NOT rely on any external web services for content — use only the article provided above."
+    # Plain-text is a no-LLM pass per PRD §9 decision: worker
+    # writes the article content directly to the output file,
+    # skipping the LLM call.  We mark the artifact as
+    # 'plain_text' and return early.
+    if [[ "$format" == "plain_text" ]]; then
+        update_progress "$task_id" "writing_artifact" 95 \
+            "正在写 plain_text artifact 到 $output_path ..."
+        local output_dir
+        output_dir=$(dirname "$output_path")
+        mkdir -p "$output_dir"
+        printf '%s\n' "$article_content" > "$output_path"
+        task_status_update "$task_id" "done" "$output_path"
+        sqlite3 "$DB_PATH" \
+            "UPDATE share_tasks SET progress_pct=100 WHERE id='$task_id'" \
+            >/dev/null 2>&1 || true
+        log "DONE $task_id (plain_text, no LLM) -> $output_path"
+        return 0
+    fi
 
     # v1.0.5.17: stage 3 → 4 transition.  The prompt is built; next
     # up is the 5-minute hermes chat subprocess.  This is the
@@ -329,18 +458,36 @@ Do NOT rely on any external web services for content — use only the article pr
     update_progress "$task_id" "invoking_llm" 60 \
         "正在调 hermes chat (timeout=${TIMEOUT_SECONDS}s) ..."
 
-    # Invoke hermes agent with 5-minute timeout (Python, works on macOS + Linux)
+    # Invoke hermes agent with 5-minute timeout (Python, works on macOS + Linux).
+    # v1.0.5.18: pass through optional --provider / --model flags from
+    # the manifest payload, so the user can override the default
+    # hermes profile's choice when one provider's quota is exhausted.
     local hermes_exit=0
     local hermes_output
 
-    hermes_output=$(python3 - "$TIMEOUT_SECONDS" "$prompt" <<'PYEOF'
+    # Build the hermes argv.  Python's Popen needs a list, not a
+    # shell string, so we can't use bash arrays directly across the
+    # pipe boundary.  We encode the optional flags as positional
+    # arguments after the timeout and prompt.
+    local extra_args=""
+    [[ -n "$provider_override" ]] && extra_args+=" --provider $provider_override"
+    [[ -n "$model_override" ]] && extra_args+=" --model $model_override"
+
+    hermes_output=$(python3 - "$TIMEOUT_SECONDS" "$prompt" "$extra_args" <<'PYEOF'
 import subprocess, sys, signal, shlex
 
 timeout_sec = int(sys.argv[1])
 prompt_text = sys.argv[2]
+extra_args_str = sys.argv[3] if len(sys.argv) > 3 else ""
+
+# Base argv: hermes -z <prompt> --profile default
+argv = ["hermes", "-z", prompt_text, "--profile", "default"]
+# Append the user-supplied --provider / --model flags if any.
+# We use shlex.split so values with spaces are quoted correctly.
+if extra_args_str.strip():
+    argv.extend(shlex.split(extra_args_str))
 
 proc = subprocess.Popen(
-    ["hermes", "-z", prompt_text, "--profile", "default"],
     stdout=subprocess.PIPE,
     stderr=subprocess.STDOUT,
     text=True,

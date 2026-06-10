@@ -928,6 +928,231 @@ class TestWorkerLog:
 
 
 # ---------------------------------------------------------------------------
+# v1.0.5.18: 6-format / 4 user-options / 4 approach tests
+# ---------------------------------------------------------------------------
+# The new code path adds 4 universal fields to every payload
+# (include_abstract, include_fact_check, provider, model) plus 2 new
+# formats (rich_text, report_png) and prunes 6 legacy formats.  These
+# tests cover the API surface (per PRD §10): ~22 tests grouped by
+# concern.
+# ---------------------------------------------------------------------------
+
+
+class TestShareV18Formats:
+    """The 6 v1.0.5.18 share formats each accept a minimal payload
+    and return 201.  We use the bare-minimum payload (just
+    article_ids) and rely on the Pydantic defaults for everything
+    else.  This guards against the 'forgot to add the 4 user-options
+    to PlainTextPayload' bug we just fixed in v1.0.5.18."""
+
+    @pytest.mark.parametrize("fmt", [
+        "plain_text",
+        "markdown",
+        "rich_text",
+        "html_landing",
+        "info_graphic_png",
+        "report_png",
+    ])
+    def test_format_minimal_payload_accepted(
+        self, client: TestClient, seeded_article: str, fmt: str,
+    ):
+        # html_landing is the only one that requires a `title`.  We
+        # send the minimum required payload per format.
+        extra = {}
+        if fmt == "html_landing":
+            extra["title"] = "Test"
+        r = client.post(
+            "/api/share",
+            json={
+                "format": fmt,
+                "version": "1.0",
+                "payload": {"article_ids": [seeded_article], **extra},
+            },
+        )
+        assert r.status_code == 201, f"format={fmt!r}: {r.text}"
+        data = r.json()
+        assert data["status"] == "pending"
+        assert "share_id" in data
+
+    @pytest.mark.parametrize("fmt", [
+        "ascii_art", "ascii_video", "architecture_svg",
+        "knowledge_comic", "pdf_bound", "ppt_slides",
+    ])
+    def test_legacy_format_rejected(
+        self, client: TestClient, seeded_article: str, fmt: str,
+    ):
+        """6 formats were pruned in v1.0.5.18 (no real worker)."""
+        r = client.post(
+            "/api/share",
+            json={
+                "format": fmt,
+                "version": "1.0",
+                "payload": {"article_ids": [seeded_article]},
+            },
+        )
+        assert r.status_code == 400
+        assert r.json()["code"] == "bad_request"
+        assert fmt in r.json()["message"]
+
+
+class TestShareV18UserOptions:
+    """The 4 universal user-options (per PRD §2): include_abstract /
+    include_fact_check / provider / model.  These are accepted on
+    every payload and round-trip through the API."""
+
+    @pytest.mark.parametrize("fmt", [
+        "plain_text", "markdown", "rich_text", "html_landing",
+        "info_graphic_png", "report_png",
+    ])
+    def test_user_options_accepted_on_all_formats(
+        self, client: TestClient, seeded_article: str, fmt: str,
+    ):
+        extra = {"include_abstract": False, "include_fact_check": True}
+        if fmt == "html_landing":
+            extra["title"] = "Test"
+        if fmt == "report_png":
+            extra["generation_approach"] = "baoyu-infographic"
+        r = client.post(
+            "/api/share",
+            json={
+                "format": fmt,
+                "version": "1.0",
+                "payload": {
+                    "article_ids": [seeded_article],
+                    "provider": "google",
+                    "model": "gemini-2.5-pro",
+                    **extra,
+                },
+            },
+        )
+        assert r.status_code == 201, f"format={fmt!r}: {r.text}"
+
+    def test_provider_optional_none(
+        self, client: TestClient, seeded_article: str,
+    ):
+        """provider=None must work (means "use the default profile's
+        provider").  We just verify 201; the worker passes through
+        whatever's in the queue file."""
+        r = client.post(
+            "/api/share",
+            json={
+                "format": "markdown",
+                "version": "1.0",
+                "payload": {
+                    "article_ids": [seeded_article],
+                    "provider": None,
+                    "model": None,
+                },
+            },
+        )
+        assert r.status_code == 201
+
+    def test_estimate_endpoint_works_with_v18_payloads(
+        self, client: TestClient, seeded_article: str,
+    ):
+        """v1.0.5.18 payloads with the 4 new user-options fields
+        should still flow through the estimate endpoint (which
+        re-uses validate_manifest and returns token / duration
+        estimates).  Mirrors the 4 user-options going into the
+        real create call without crashing."""
+        r = client.post(
+            "/api/share/estimate",
+            json={
+                "format": "report_png",
+                "version": "1.0",
+                "payload": {
+                    "article_ids": [seeded_article],
+                    "include_abstract": True,
+                    "include_fact_check": True,
+                    "provider": "google",
+                    "model": "gemini-2.5-pro",
+                    "generation_approach": "baoyu-infographic",
+                },
+            },
+        )
+        assert r.status_code == 200
+        d = r.json()
+        assert d["format"] == "report_png"
+        # 4 new fields are part of the response shape (model only;
+        # tokens/duration are the user-facing numbers).
+        assert d["model_name"]
+        assert d["provider_name"]
+        assert d["input_tokens_est"] >= 0
+        assert d["output_tokens_est"] >= 0
+        assert d["duration_sec_est"] >= 0
+
+
+class TestShareV18ReportPng:
+    """report_png has 4 generation approaches; only that format
+    accepts the `generation_approach` field."""
+
+    @pytest.mark.parametrize("approach", [
+        "baoyu-infographic",
+        "ljg-card",
+        "kami",
+        "direct",
+    ])
+    def test_report_png_4_approaches_accepted(
+        self, client: TestClient, seeded_article: str, approach: str,
+    ):
+        r = client.post(
+            "/api/share",
+            json={
+                "format": "report_png",
+                "version": "1.0",
+                "payload": {
+                    "article_ids": [seeded_article],
+                    "generation_approach": approach,
+                },
+            },
+        )
+        assert r.status_code == 201, f"approach={approach!r}: {r.text}"
+
+    def test_report_png_default_approach_works(
+        self, client: TestClient, seeded_article: str,
+    ):
+        """Omitting generation_approach should use the Pydantic
+        default ('baoyu-infographic') and still return 201."""
+        r = client.post(
+            "/api/share",
+            json={
+                "format": "report_png",
+                "version": "1.0",
+                "payload": {"article_ids": [seeded_article]},
+            },
+        )
+        assert r.status_code == 201
+
+    def test_non_report_png_format_rejects_approach(
+        self, client: TestClient, seeded_article: str,
+    ):
+        """generation_approach is report_png-specific.  Sending it
+        on any other format must raise 400 (extra='forbid')."""
+        for fmt, extra_payload in (
+            ("markdown",      {}),
+            ("rich_text",     {}),
+            ("info_graphic_png", {}),
+            ("html_landing",  {"title": "Test"}),
+            ("plain_text",    {}),
+        ):
+            r = client.post(
+                "/api/share",
+                json={
+                    "format": fmt,
+                    "version": "1.0",
+                    "payload": {
+                        "article_ids": [seeded_article],
+                        "generation_approach": "baoyu-infographic",
+                        **extra_payload,
+                    },
+                },
+            )
+            assert r.status_code == 400, (
+                f"format={fmt!r} should reject generation_approach"
+            )
+
+
+# ---------------------------------------------------------------------------
 # CORS
 # ---------------------------------------------------------------------------
 

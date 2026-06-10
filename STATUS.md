@@ -4,6 +4,55 @@
 
 ---
 
+## 当前状态: **v1.0.5.18 — share 功能 v2 重构 (格式精简 11→6 + prompt 拼装 + provider/model + 报告 PNG)** (2026-06-10)
+
+**主分支**: main @ `a522d8d` (v1.0.5.16 merged, 28 个 tag)
+**Web 服务**: `127.0.0.1:8900` (200 OK, 跑 v1.0.5.18 dev code, PID 23762)
+**数据库**: `data/news.db` — schema_version=9 (migration 009 加 `articles.has_ai_summary/has_fact_check/ai_summary/ai_summary_at` 4 列)
+**测试**: 277 + 2 skip (新 +26 测试: 6 format minimal / 6 legacy reject / 6 user-options 跨 format / 4 approach accept / 2 estimate / 2 approach 拒绝)
+**Worktree**: 0
+
+**v1.0.5.18 进展** (2026-06-10, 用户 PRD share-feature-plan-260610 14 features):
+- **问题**: 原 11 个 format 10 个没真 worker 实现; prompt 是 1 模板 10 format 共用; 1 篇文章 vs 多篇 bug (LIMIT 1); provider/model 不能覆盖
+- **方案** (14 features per PRD §1-§11):
+  - 格式精简 11→6 (删 ascii_art/ascii_video/architecture_svg/knowledge_comic/pdf_bound/ppt_slides, 加 rich_text + report_png)
+  - 5 prompt 文件 `moni/share/prompts/`: content-structure.md (底座) + format-markdown.md/html.md/rich-text.md/report-png.md (per-format 拼接)
+  - 4 通用 user-options 加到 6 个 Payload: include_abstract (default true) / include_fact_check (default false) / provider (default None=default profile) / model (default None)
+  - 报告 PNG 4 种生图方式: baoyu-infographic (默认, baoyu-infographic skill) / ljg-card (ljg-card skill) / kami (kami skill) / direct (无 skill, agent 自己拼 image_generate prompt)
+  - plain_text 短路 no-LLM pass (per PRD §9)
+  - DB 加 4 列 articles: has_ai_summary / has_fact_check / ai_summary / ai_summary_at (Phase 4 回写逻辑, 暂不实现)
+  - Worker hermes 调用加 `--provider` / `--model` flag 透传
+  - Pydantic ShareTaskEstimateResponse 加 `format` 字段
+- **变更面**:
+  - 后端 `moni/share/formats.py`: 6 format enum + 6 Payload 各加 4 字段, 删 6 废弃, ConceptVideoPayload + 6 老 Payload 注释保留作 breadcrumb
+  - 后端 `moni/share/artifacts.py`: `_ext_for_format` 加 rich_text/report_png
+  - 后端 `moni/web/routes/share.py`: `_OUTPUT_MULTIPLIER` + `_DURATION_FALLBACK_SEC` 删 6 加 2, `ShareTaskEstimateResponse` 加 format 字段
+  - 后端 `moni/web/models.py`: `ShareTaskEstimateResponse` 加 format 字段
+  - 后端 `moni/db/migrate.py`: `_CURRENT_VERSION = 8 → 9`
+  - 后端 `moni/db/migrations/009_add_ai_summary_fields.sql` (新): 4 列 ADD + backfill
+  - Worker `scripts/default_worker.sh`: +PROMPT_DIR, +REPO_ROOT, +prompt_file_for_format, +skill_for_report_png, 重写 prompt 拼装 (read content + format prompt + user options), +--provider/--model flag 透传, plain_text 短路
+  - 前端 `moni/web/static/js/app.js`: shareFormats 6 个, +5 state (shareIncludeAbstract/shareIncludeFactCheck/shareProvider/shareModel/sharePngApproach), addToQueue payload 加 4 字段 (conditional provider/model/report_png approach)
+  - 前端 `moni/web/static/index.html`: +3 share-section (内容选项 toggle / 高级选项折叠 / 报告 PNG 生图方式下拉)
+  - Prompt `moni/share/prompts/*.md` (5 个新): 用户写
+  - 测试 `tests/test_api.py`: +TestShareV18Formats (6+6=12 测试) + TestShareV18UserOptions (8 测试) + TestShareV18ReportPng (6 测试)
+  - 测试 `tests/test_db.py`: version 8 → 9
+  - 测试 `tests/test_share_manifest.py`: 删 6 废弃 payload, 加 2 新, has_6 测试, 改 pdf_bound → markdown + ascii_art → rich_text
+  - 文档 `STATUS.md` + `USER_GUIDE.md` (本节 + §5.5)
+- **验证**:
+  - 277 + 2 skip pytest 全绿
+  - API 6 format 全部 201 (plain_text/markdown/rich_text/html_landing/info_graphic_png/report_png), 6 废弃 全部 400
+  - estimate 端点返 format 字段 + model + token + 时长
+  - Worker 5 阶段拆: 实测 invoking_llm/60 写 DB, plain_text no-LLM pass 短路
+- **已知遗留 (v1.0.5.19 候选)**: Phase 4 回写 (worker 解析 hermes 输出 → UPDATE articles) 暂不实现; worker 写 output 路径仍 repo 根 (v1.0.5.17 修过 ensure_artifact 但老 task 仍写到老路径)
+
+**v1.0.5.17 历史** (UI worker trigger button + 5-stage realtime progress, PR #9 待 review):
+- **问题 1**: 用户期望加入队列后 UI 上有个按钮一键触发 hermes chat 跑 (拒绝 cron 拒绝 terminal)
+- **问题 2**: 任务 pending/running 时能看到 5 阶段当前到哪, 不至于'抓狂'
+- **方案**: DB migration 008 (3 progress 列) + worker 5 阶段拆 + 后端 2 端点 (worker/run + worker/log) + 前端按钮 + log modal + progress bar
+- **PR**: #9 (`feature/v1.0.5.17-worker-progress`, 1 commit, 待 review)
+
+---
+
 ## 当前状态: **v1.0.5.17 — UI 触发 worker 按钮 + 准实时 worker 进度条 (开发中)** (2026-06-09)
 
 **主分支**: main @ `a522d8d` (v1.0.5.16 merged, 28 个 tag)

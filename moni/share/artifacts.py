@@ -38,6 +38,9 @@ def _ext_for_format(fmt: str) -> str:
         "architecture_svg": "svg",
         "info_graphic_png": "png",
         "knowledge_comic": "png",
+        # v1.0.5.18 — new formats
+        "rich_text": "md",          # 🆕 markdown with extra cross-article framing
+        "report_png": "png",        # 🆕 one-image content report
     }.get(fmt, "out")
 
 

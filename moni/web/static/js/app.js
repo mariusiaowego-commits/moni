@@ -698,19 +698,30 @@ function app() {
     workerModalResult: null,
     workerLogLines: [],
     _workerLogPollInterval: null,
+    // v1.0.5.18: 6 share formats (was 10).  Pruned 6 formats that had
+    // no real worker implementation.  Added rich_text (structured
+    // Markdown variant) and report_png (one-image content report).
     shareFormats: [
       { value: 'plain_text',          label: '纯文本' },
       { value: 'markdown',            label: 'Markdown' },
       { value: 'html_landing',        label: 'HTML 网页' },
-      { value: 'pdf_bound',           label: 'PDF 合订' },
-      { value: 'ppt_slides',          label: 'PPT 幻灯片' },
-      { value: 'ascii_art',           label: 'ASCII 艺术' },
-      { value: 'ascii_video',         label: 'ASCII 视频' },
-      { value: 'architecture_svg',    label: '架构 SVG' },
       { value: 'info_graphic_png',    label: '信息图 PNG' },
-      { value: 'knowledge_comic',     label: '知识漫画' },
-      // v1.0.5.15: 删 concept_video (worker 没真接视频生成 pipeline, 一直 stub)
+      { value: 'rich_text',           label: '富媒体文本' },  // 🆕
+      { value: 'report_png',          label: '报告 PNG' },     // 🆕
     ],
+    // v1.0.5.18: 4 user-options (universal across all 6 formats, per
+    // PRD §2).  include_abstract defaults to true (most users want
+    // the AI summary); include_fact_check defaults to false (slower;
+    // explicit opt-in).  provider/model default to '' (use the
+    // default profile's provider / model — no override).
+    shareIncludeAbstract: true,
+    shareIncludeFactCheck: false,
+    shareProvider: '',
+    shareModel: '',
+    // v1.0.5.18: report_png generation approach (only used when
+    // shareFormat === 'report_png').  Maps 1:1 to the 4 PRD §4
+    // approaches.  Default 'baoyu-infographic' (most mature).
+    sharePngApproach: 'baoyu-infographic',
     shareQueue: [],
     _sharePollInterval: null,
 
@@ -781,7 +792,25 @@ function app() {
       // v1.0.5.14: html_landing / ppt_slides require a `title` field
       // in the payload; other formats forbid extra keys (Pydantic
       // _extra_forbid) so we must NOT send `title` for them.
-      const payload = { article_ids: this.selectedArticleIds };
+      // v1.0.5.18: html_landing still needs `title`; ppt_slides was
+      // pruned.  rich_text / report_png don't need a title.
+      const payload = {
+        article_ids: this.selectedArticleIds,
+        // v1.0.5.18: 4 universal user-options (per PRD §2).  We
+        // always send them; the backend Pydantic models accept None
+        // and apply the documented default.
+        include_abstract: this.shareIncludeAbstract,
+        include_fact_check: this.shareIncludeFactCheck,
+      };
+      // provider/model: only send if non-empty (empty == use default
+      // profile).  report_png generation_approach only when format
+      // matches.  This keeps the queue file small and matches what
+      // the user actually configured.
+      if (this.shareProvider) payload.provider = this.shareProvider;
+      if (this.shareModel)    payload.model    = this.shareModel;
+      if (this.shareFormat === 'report_png' && this.sharePngApproach) {
+        payload.generation_approach = this.sharePngApproach;
+      }
       if (this.shareFormatNeedsTitle()) {
         const t = (this.shareFormatTitle || '').trim();
         if (!t) {

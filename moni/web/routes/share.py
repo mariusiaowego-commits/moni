@@ -55,38 +55,35 @@ router = APIRouter(prefix="/api/share", tags=["share"])
 # is good enough for a confirm-modal.
 _CHARS_PER_TOKEN = 2.5
 
-# Output-token multipliers per format, applied to the input estimate.
-# These come from eyeballing what each format actually produces: ascii
-# variants are tight (output < input), html_landing/ppt_slides are
-# verbose (output ≈ 1.5-2x input because of styling + boilerplate).
+# v1.0.5.18: pruned 6 formats (ascii_art, ascii_video,
+# architecture_svg, knowledge_comic, pdf_bound, ppt_slides) that
+# had no real worker implementation.  Added rich_text + report_png.
+# For the surviving 6, multipliers are eyeballed ratios of typical
+# output length vs input: ascii variants are tight (output < input),
+# html_landing is verbose (boilerplate), report_png is "LLM writes
+# a brief description" + image renderer.
 _OUTPUT_MULTIPLIER = {
     "plain_text": 0.8,
     "markdown": 1.0,
     "html_landing": 1.8,
-    "pdf_bound": 1.2,
-    "ppt_slides": 1.5,
-    "ascii_art": 0.4,
-    "ascii_video": 0.6,
-    "architecture_svg": 0.5,
     "info_graphic_png": 0.3,   # LLM produces a brief description, image is rendered
-    "knowledge_comic": 0.6,
+    "rich_text": 1.2,         # cross-article framing adds ~20% to markdown
+    "report_png": 0.5,        # 🆕 LLM writes a brief description, image is rendered
 }
 
 # Last-N done share_tasks to average for duration estimate.
 _DURATION_HISTORY_WINDOW = 5
 
 # Fallback duration if we have no history for this format (seconds).
+# v1.0.5.18: same window.  report_png and info_graphic_png are slow
+# because they involve image generation (Hermes → FAL backend).
 _DURATION_FALLBACK_SEC = {
     "html_landing": 90,
     "info_graphic_png": 120,   # infographic generation tends to be slow
-    "pdf_bound": 90,
-    "ppt_slides": 90,
-    "architecture_svg": 60,
-    "knowledge_comic": 90,
-    "ascii_video": 60,
-    "ascii_art": 30,
+    "report_png": 120,         # 🆕 same — image generation
     "markdown": 30,
     "plain_text": 20,
+    "rich_text": 30,            # 🆕 slightly slower than markdown
 }
 
 
@@ -295,6 +292,10 @@ def estimate_share_task(body: ShareTaskCreateV1) -> ShareTaskEstimateResponse:
     )
 
     return ShareTaskEstimateResponse(
+        # v1.0.5.18: echo the format the user is previewing so the
+        # frontend can show "正在预估 markdown..." without having
+        # to remember what the user clicked.
+        format=format_name,
         model_name=model_name,
         model_id=model_id,
         provider_name=provider_name,
