@@ -44,6 +44,26 @@ SUMMARY_PROMPT = """你是 moni 新闻聚合系统的分析助手。请为以下
 {articles_text}"""
 
 
+# Single-article prompt — more reliable than batch (LLM won't skip articles)
+SINGLE_SUMMARY_PROMPT = """你是 moni 新闻聚合系统的分析助手。请为以下文章生成简洁的 AI 摘要。
+
+要求：
+- 3-5 句话
+- 捕捉：核心论点、关键发现、为什么重要
+- 保持事实性，不要"这篇文章值得关注"之类的填充语
+
+请严格以 JSON 格式返回，不要添加任何其他文字：
+```json
+{{"id": "{article_id}", "summary": "摘要内容"}}
+```
+
+文章标题: {title}
+ID: {article_id}
+
+文章内容:
+{content}"""
+
+
 def _needs_summaries(
     conn: sqlite3.Connection, article_ids: list[str]
 ) -> list[tuple[str, str, str]]:
@@ -65,10 +85,19 @@ def _needs_summaries(
 
 
 def _build_prompt(articles: list[tuple[str, str, str]]) -> str:
-    """Build the summary-generation prompt from article tuples."""
+    """Build the summary-generation prompt from article tuples.
+
+    For single articles, uses a focused prompt.  For multiple articles,
+    still batches them but the caller should prefer single-article calls
+    for reliability.
+    """
+    if len(articles) == 1:
+        aid, title, content = articles[0]
+        truncated = content[:3000] if len(content) > 3000 else content
+        return SINGLE_SUMMARY_PROMPT.format(title=title, article_id=aid, content=truncated)
+
     parts = []
     for aid, title, content in articles:
-        # Truncate very long articles to stay within token limits
         truncated = content[:3000] if len(content) > 3000 else content
         parts.append(f"### 文章: {title}\nID: {aid}\n\n{truncated}")
     articles_text = "\n\n---\n\n".join(parts)
@@ -207,36 +236,40 @@ def generate_and_writeback(
         except Exception:
             pass
 
-    # 3. Build prompt and invoke hermes
-    prompt = _build_prompt(need)
-    output, exit_code = _invoke_hermes(prompt, timeout_sec=120, extra_args=extra_args)
+    # 3. Process articles one at a time for reliability.
+    # The LLM sometimes skips articles when batched — single-article
+    # calls are more reliable and the cost is acceptable (1-2 articles
+    # is the common case).
+    all_summaries: dict[str, str] = {}
+    for aid, title, content in need:
+        prompt = _build_prompt([(aid, title, content)])
+        output, exit_code = _invoke_hermes(prompt, timeout_sec=120, extra_args=extra_args)
 
-    if exit_code != 0:
-        log.warning(
-            "summary_gen: hermes exited %d, output: %s",
-            exit_code,
-            output[:200] if output else "(empty)",
-        )
-        conn.close()
-        return {}
+        if exit_code != 0:
+            log.warning(
+                "summary_gen: hermes exited %d for article %s",
+                exit_code, aid,
+            )
+            continue
 
-    # 4. Parse JSON response
-    summaries = _parse_summaries(output)
-    if not summaries:
-        log.warning(
-            "summary_gen: failed to parse summaries from output: %s",
-            output[:300] if output else "(empty)",
-        )
-        conn.close()
-        return {}
+        summaries = _parse_summaries(output)
+        if not summaries:
+            log.warning(
+                "summary_gen: failed to parse summary for article %s: %s",
+                aid, output[:200] if output else "(empty)",
+            )
+            continue
 
-    # 5. Write back to DB
-    count = _writeback(conn, summaries)
-    log.info("summary_gen: wrote %d summaries to DB", count)
+        # Write back immediately (incremental — don't lose partial results)
+        count = _writeback(conn, summaries)
+        for item in summaries:
+            if item.get("id") and item.get("summary"):
+                all_summaries[item["id"]] = item["summary"]
+        log.info("summary_gen: wrote %d summary(ies) to DB", count)
     conn.close()
 
     # 6. Return {id: summary} dict for the caller to use
-    return {item["id"]: item["summary"] for item in summaries if item.get("id")}
+    return all_summaries
 
 
 if __name__ == "__main__":
@@ -249,10 +282,15 @@ if __name__ == "__main__":
     ids_str = sys.argv[2]
     mp = sys.argv[3] if len(sys.argv) > 3 else None
 
+    # Handle both JSON ["a","b"] and Python repr ['a','b'] formats
     try:
         ids = json.loads(ids_str)
     except json.JSONDecodeError:
-        ids = []
+        try:
+            import ast
+            ids = ast.literal_eval(ids_str)
+        except Exception:
+            ids = []
 
     result = generate_and_writeback(db, ids, mp)
     print(json.dumps(result, ensure_ascii=False))
