@@ -488,6 +488,10 @@ if extra_args_str.strip():
     argv.extend(shlex.split(extra_args_str))
 
 proc = subprocess.Popen(
+    argv,  # v1.0.5.18 bug fix: was missing the args positional
+            # parameter (the Popen call only had kwargs, so the
+            # interpreter raised "missing 1 required positional
+            # argument: 'args'" and the worker reported exit 1).
     stdout=subprocess.PIPE,
     stderr=subprocess.STDOUT,
     text=True,

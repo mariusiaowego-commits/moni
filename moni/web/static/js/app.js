@@ -675,7 +675,7 @@ function app() {
     // to AVOID sending `title` for formats that forbid it.  The
     // addToQueue() function does the right thing.
     shareFormatTitle: '',
-    // v1.0.5.16: pre-flight confirm-modal state.  addToQueue() now
+    // v1.0.5.18: pre-flight confirm-modal state.  addToQueue() now
     // fetches /api/share/estimate first, sets shareEstimate, and
     // shows the modal.  The user clicks 确认 to actually POST
     // /api/share, or 取消 to dismiss.  shareEstimateError is
@@ -686,6 +686,11 @@ function app() {
     shareEstimateError: null,
     shareEstimateSubmitting: false,
     _shareEstimatePayload: null,  // the validated payload to POST on confirm
+    _shareEstimateFormat: null,   // v1.0.5.18: stashed shareFormat at the
+                                  // moment of addToQueue so the confirm
+                                  // step doesn't re-read Alpine state
+                                  // (which the user may have changed
+                                  // between estimate and confirm).
     // v1.0.5.17: "▶ 立即处理队列" button state.  triggerWorker()
     // hits POST /api/share/worker/run and opens the log-tail modal.
     // workerRunning guards the button so we don't double-spawn.
@@ -785,6 +790,14 @@ function app() {
       // formats) are identical to before; the new bit is the modal
       // step that shows the LLM model + token + duration estimate
       // so the user can decide whether to commit the call.
+      // v1.0.5.18: also stash shareFormat so the confirm step
+      // doesn't accidentally re-read Alpine state (which the user
+      // may have changed between estimate and confirm).
+      if (this.shareEstimateSubmitting) {
+        // Defensive: a second click while the first estimate is in
+        // flight.  We just no-op; the user can wait for the modal.
+        return;
+      }
       if (!this.selectedArticleIds.length) {
         alert('请先勾选要分享的文章 (在文章卡片上点 checkbox, 至少 1 个)。\n\n这是浏览器本地检查, 不是 HTTP 错误。');
         return;
@@ -819,11 +832,15 @@ function app() {
         }
         payload.title = t;
       }
-      // Stash the payload so confirmShareEstimate() can re-use it
-      // without re-validating on the client.  Server re-validates
+      // Stash the payload + format so confirmShareEstimate() can
+      // re-use it without re-validating on the client (and without
+      // re-reading this.shareFormat, which the user may have
+      // changed between estimate and confirm).  Server re-validates
       // either way (validate_manifest is the source of truth).
       this._shareEstimatePayload = payload;
+      this._shareEstimateFormat = this.shareFormat;
       this.shareEstimateError = null;
+      this.shareEstimateSubmitting = true;  // covers fetch + render
       this.shareEstimate = null;  // show "loading" state via modal-backdrop x-show
 
       fetch('/api/share/estimate', {
@@ -854,6 +871,13 @@ function app() {
           console.error('estimate failed:', err);
           this.shareEstimate = { format: this.shareFormat };
           this.shareEstimateError = '估算接口失败: ' + err.message;
+        })
+        .finally(() => {
+          // Re-enable the button regardless of success/failure so
+          // the user can re-trigger after a transient error.  The
+          // modal is now open (or has an error message), so this
+          // flag is not visually wrong.
+          this.shareEstimateSubmitting = false;
         });
     },
 
@@ -864,15 +888,20 @@ function app() {
       this.shareEstimateError = null;
       this.shareEstimateSubmitting = false;
       this._shareEstimatePayload = null;
+      this._shareEstimateFormat = null;  // v1.0.5.18
     },
 
     confirmShareEstimate() {
-      // User clicked 确认加入队列.  We send the SAME payload that
-      // the estimate was based on (stashed in _shareEstimatePayload)
-      // — the server re-validates, but we don't want the modal
-      // to be the source of any UI-driven mutation of the request.
+      // User clicked 确认加入队列.  We send the SAME format and
+      // payload that the estimate was based on (stashed in
+      // _shareEstimatePayload + _shareEstimateFormat at
+      // addToQueue time) — the server re-validates, but we don't
+      // want the modal to be the source of any UI-driven
+      // mutation of the request (e.g. user clicks a different
+      // format chip while the modal is open).
       const payload = this._shareEstimatePayload;
-      if (!payload) {
+      const format = this._shareEstimateFormat;
+      if (!payload || !format) {
         // Defensive: shouldn't happen because cancelShareEstimate
         // clears it.  If it does, fail loudly so the user sees
         // something rather than a silent no-op.
@@ -886,7 +915,7 @@ function app() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({
-          format: this.shareFormat,
+          format: format,
           payload: payload,
         }),
       })
