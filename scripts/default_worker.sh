@@ -283,7 +283,7 @@ PYEOF
 
     log "PROCESS $task_id format=$format output=$output_path"
 
-    # Fetch article content from DB
+    # Fetch article content from DB (including existing ai_summary)
     local article_content=""
     if [[ -n "$article_ids_str" ]]; then
         # Python: parse JSON array and query with parameterized IN clause
@@ -292,7 +292,6 @@ import json, ast, sqlite3, sys
 ids_str = sys.argv[1]
 db_path = sys.argv[2]
 try:
-    # Handle both JSON ["a","b"] and Python repr ['a','b'] formats
     ids_str = ids_str.strip()
     if ids_str.startswith("["):
         try:
@@ -304,11 +303,24 @@ try:
     conn = sqlite3.connect(db_path)
     placeholders = ",".join("?" * len(ids))
     cur = conn.execute(
-        "SELECT raw_content FROM articles WHERE id IN ({}) LIMIT 1".format(placeholders),
+        "SELECT id, title, raw_content, ai_summary FROM articles WHERE id IN ({})".format(placeholders),
         ids
     )
-    row = cur.fetchone()
-    print(row[0] if row else "")
+    parts = []
+    skipped = []
+    for row in cur.fetchall():
+        aid, title, content, ai_summary = row
+        if content and content.strip():
+            block = f"### 文章: {title}\nID: {aid}\n\n{content}"
+            if ai_summary and ai_summary.strip():
+                block += f"\n\n**AI 摘要**: {ai_summary}"
+            parts.append(block)
+        else:
+            skipped.append(aid)
+    if skipped:
+        import sys as _sys
+        print(f"[warn] {len(skipped)} article(s) with empty content skipped: {skipped}", file=_sys.stderr)
+    print("\n\n---\n\n".join(parts))
 except Exception:
     print("")
 PYEOF
@@ -320,6 +332,54 @@ PYEOF
         log "FAIL $task_id — $error_msg"
         task_status_update "$task_id" "failed" "" "$error_msg"
         return 0
+    fi
+
+    # v1.0.5.19: AI summary generation + DB writeback.
+    # Read include_abstract from manifest BEFORE building the main prompt.
+    # If true, generate summaries for articles that don't have them yet,
+    # write back to DB, and append to article_content for the main prompt.
+    local include_abstract_val
+    include_abstract_val=$(python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+p = d.get('payload', {}) if isinstance(d.get('payload'), dict) else {}
+v = p.get('include_abstract', True)
+print('true' if v else 'false')
+" "$manifest_path" 2>/dev/null || echo "true")
+
+    if [[ "$include_abstract_val" == "true" && -n "$article_ids_str" ]]; then
+        update_progress "$task_id" "generating_summaries" 35 \
+            "正在生成 AI 摘要 (首次生成会调 LLM, 已有则跳过) ..."
+        log "SUMMARY_GEN $task_id — checking articles for missing ai_summary"
+
+        local gen_result
+        gen_result=$(python3 "$REPO_ROOT/moni/share/summary_gen.py" \
+            "$DB_PATH" "$article_ids_str" "$manifest_path" 2>/dev/null || echo "{}")
+
+        # Append newly generated summaries to article_content
+        local new_summaries
+        new_summaries=$(python3 -c "
+import json, sys
+d = json.loads(sys.argv[1])
+if d:
+    parts = []
+    for aid, summary in d.items():
+        parts.append(f'### 文章 ID {aid} 的 AI 摘要\n{summary}')
+    print('\n\n'.join(parts))
+else:
+    print('')
+" "$gen_result" 2>/dev/null || echo "")
+
+        if [[ -n "$new_summaries" ]]; then
+            article_content="${article_content}
+
+---
+
+## 新生成的 AI 摘要 (请在报告中使用)
+
+${new_summaries}"
+            log "SUMMARY_GEN $task_id — appended new summaries to article_content"
+        fi
     fi
 
     # Build skill flag
@@ -524,12 +584,23 @@ PYEOF
 
     # Success — extract output path from agent response if not already set
     if [[ -z "$output_path" ]]; then
-        # v1.0.5.14: BSD grep has a long-standing bug where the
-        # regex `[^ \n]+` truncates strings at letter 'n' in
-        # certain versions (it treats a literal \n inside [^ ]
-        # as the actual newline char).  We use POSIX char classes
-        # instead, which are unambiguous on both BSD and GNU grep.
-        output_path=$(echo "$hermes_output" | grep -oE '/[[:alnum:]_./-]+|~\.[[:alnum:]_./-]+|\$HOME/[[:alnum:]_./-]+' | head -1 || echo "")
+        # v1.0.5.19 fix: the old grep regex matched URLs like
+        # //www.mpaypass.com.cn/ and /体育用品/船舶运输 because
+        # [[:alnum:]_./-] includes dots and slashes.  Use Python
+        # with negative lookbehind to skip :// and // paths, then
+        # validate the path exists on the filesystem.
+        output_path=$(python3 -c "
+import re, os, sys
+text = sys.stdin.read()
+# (?<![:/]) rejects matches preceded by : (as in ://) or / (as in //)
+pattern = re.compile(r'(?<![:/])/[A-Za-z0-9_][A-Za-z0-9_./-]*')
+for m in pattern.finditer(text):
+    p = m.group(0)
+    if len(p) > 1 and os.path.exists(p):
+        print(p)
+        sys.exit(0)
+print('')
+" <<< "$hermes_output" 2>/dev/null || echo "")
         if [[ -z "$output_path" ]]; then
             # Fall back to a default location under MONI_OUTPUT_DIR
             local output_dir="${MONI_OUTPUT_DIR:-$HOME/.moni/output}"
