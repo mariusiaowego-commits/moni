@@ -373,8 +373,72 @@
             <label>页面/演示标题 (title) <span class="required">*</span></label>
             <input type="text" x-model="shareFormatTitle"
                    placeholder="e.g. 2026 同业洞察周报">
-            <small class="muted">html_landing / ppt_slides 必填;其他格式忽略</small>
+            <small class="muted">html_landing 必填;其他格式忽略</small>
           </div>
+        </div>
+
+        <!-- v1.0.5.18: 内容选项 (4 user-options universal across all
+             6 formats, per PRD §2).  include_abstract=true by default
+             (most users want an AI summary).  include_fact_check=false
+             by default (slower, opt-in). -->
+        <div class="share-section">
+          <h4>内容选项</h4>
+          <label style="margin-right: 24px; cursor: pointer;">
+            <input type="checkbox" x-model="shareIncludeAbstract">
+            包含 AI 摘要
+          </label>
+          <label style="cursor: pointer;">
+            <input type="checkbox" x-model="shareIncludeFactCheck">
+            包含事实核查
+            <small class="muted">（较慢）</small>
+          </label>
+        </div>
+
+        <!-- v1.0.5.18: 高级选项 (provider / model override, 折叠).
+             Per PRD §2: lets the user override the default hermes
+             profile's provider/model when one provider's quota is
+             exhausted.  Empty input == use the default. -->
+        <div class="share-section">
+          <details>
+            <summary style="cursor:pointer; color:#64748b; font-size: 0.9em;">
+              ⚙ 高级选项 (provider / model 覆盖)
+            </summary>
+            <div style="margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap;">
+              <label>
+                Provider:
+                <input type="text" x-model="shareProvider"
+                       placeholder="留空=用默认"
+                       style="width: 140px;">
+              </label>
+              <label>
+                Model:
+                <input type="text" x-model="shareModel"
+                       placeholder="留空=用默认"
+                       style="width: 180px;">
+              </label>
+            </div>
+            <small class="muted">
+              例: provider=<code>google</code>, model=<code>gemini-2.5-pro</code>.
+              不熟可留空用 default profile 的配置.
+            </small>
+          </details>
+        </div>
+
+        <!-- v1.0.5.18: report_png 专用 — 生图方式选择 (4 种 approach).
+             Per PRD §4: baoyu-infographic (default) / ljg-card / kami / direct.
+             Only rendered when shareFormat === 'report_png' (x-show). -->
+        <div class="share-section" x-show="shareFormat === 'report_png'">
+          <h4>生图方式</h4>
+          <select x-model="sharePngApproach" style="width: 100%; max-width: 320px;">
+            <option value="baoyu-infographic">信息图风格 (baoyu-infographic, 默认)</option>
+            <option value="ljg-card">卡片风格 (ljg-card)</option>
+            <option value="kami">排版风格 (kami)</option>
+            <option value="direct">直出 (no skill, agent 自己拼 image_generate prompt)</option>
+          </select>
+          <small class="muted">
+            选哪种方式 = worker 调哪个 skill 调 image_generate 工具.
+            baoyu-infographic 最成熟; direct 最灵活但需 LLM 自己写图 prompt.
+          </small>
         </div>
 
         <div class="share-section">
@@ -383,11 +447,22 @@
 
         <div class="share-section">
           <h4>队列状态</h4>
+          <!-- v1.0.5.17: "立即处理队列" button.  Spawns the worker
+               subprocess in the background and opens a log-tail
+               modal.  Disabled when no pending/running tasks. -->
+          <div style="margin-bottom: 12px; display: flex; gap: 12px; align-items: center;">
+            <button class="btn-primary" @click="triggerWorker()"
+                    :disabled="!shareQueueHasPending() || workerRunning">
+              <span x-show="!workerRunning">▶ 立即处理队列</span>
+              <span x-show="workerRunning">worker 正在跑...</span>
+            </button>
+            <span class="muted" x-text="shareQueuePendingCount() + ' 个待处理'"></span>
+          </div>
           <div class="table-container">
             <table>
               <thead>
                 <!-- v1.0.5.15: 加"输出"列, 让用户直接打开 done task 的 output_path -->
-                <tr><th>任务ID</th><th>文章数</th><th>格式</th><th>状态</th><th>时间</th><th>输出</th></tr>
+                <tr><th>任务ID</th><th>文章数</th><th>格式</th><th>状态</th><th>进度</th><th>时间</th><th>输出</th></tr>
               </thead>
               <tbody>
                 <template x-for="q in shareQueue" :key="q.id">
@@ -396,6 +471,20 @@
                     <td x-text="q.article_count"></td>
                     <td x-text="q.format"></td>
                     <td><span class="status-badge" :class="'status-' + q.status" x-text="q.status"></span></td>
+                    <td>
+                      <!-- v1.0.5.17: progress bar (only rendered for
+                           running tasks; pending/done/failed leave
+                           the cell empty so the table doesn't bloat). -->
+                      <template x-if="q.status === 'running' && q.progress_pct !== null && q.progress_pct !== undefined">
+                        <div style="min-width: 80px;">
+                          <div style="font-size: 0.8em; margin-bottom: 2px;"
+                               x-text="(q.progress_stage || '?') + ' · ' + q.progress_pct + '%'"></div>
+                          <div style="background: #e5e7eb; border-radius: 3px; height: 6px; overflow: hidden;">
+                            <div :style="'background: #2563eb; height: 100%; width: ' + q.progress_pct + '%; transition: width 0.5s;'"></div>
+                          </div>
+                        </div>
+                      </template>
+                    </td>
                     <td x-text="formatTime(q.created_at)"></td>
                     <td>
                       <!-- v1.0.5.15: prefer output_url (web URL via /artifacts/ mount).
@@ -743,6 +832,62 @@
             <span x-show="!shareEstimateSubmitting">确认加入队列</span>
             <span x-show="shareEstimateSubmitting">提交中…</span>
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- v1.0.5.17: worker log-tail modal.  Triggered by the
+         "▶ 立即处理队列" button.  Shows the worker PID + a
+         live-polling tail of worker.log so the user can watch
+         hermes chat output as it streams.  Modal auto-polls every
+         3s while open; on close the poll interval is cleared. -->
+    <div class="modal-backdrop" x-show="workerModalOpen" x-cloak
+         @click.self="closeWorkerModal()"
+         @keydown.escape.window="closeWorkerModal()">
+      <div class="modal-content modal-content-wide" x-show="workerModalOpen">
+        <div class="modal-header">
+          <h3>
+            <span x-text="workerModalTitle"></span>
+          </h3>
+          <button class="modal-close" @click="closeWorkerModal()">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="article-meta" x-show="workerModalResult">
+            <span class="meta-chip">
+              <b>状态:</b>
+              <span x-text="workerModalResult?.started
+                            ? '已启动'
+                            : (workerModalResult?.already_running
+                               ? '已在跑 (无需重启)'
+                               : '失败')"></span>
+            </span>
+            <span class="meta-chip" x-show="workerModalResult?.pid">
+              <b>PID:</b>
+              <span x-text="workerModalResult?.pid"></span>
+            </span>
+            <span class="meta-chip">
+              <b>日志路径:</b>
+              <code style="font-size: 0.85em;" x-text="workerModalResult?.log_path"></code>
+            </span>
+          </div>
+          <div class="summary-box error-text" x-show="workerModalResult?.error" x-cloak>
+            <h4>启动失败</h4>
+            <pre class="job-detail-text" x-text="workerModalResult?.error"></pre>
+          </div>
+          <div class="summary-box" x-show="!workerModalResult?.error" x-cloak>
+            <h4>
+              worker.log
+              <small class="muted" style="font-weight: normal;">
+                (每 3 秒自动刷新, 最后 200 行)
+              </small>
+            </h4>
+            <pre class="job-detail-text" style="max-height: 50vh;"
+                 x-text="workerLogLines.join('\n') || '(暂无日志, 等 worker 写入 ...)'"></pre>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" @click="refreshWorkerLog()">手动刷新</button>
+          <button class="btn-secondary" @click="closeWorkerModal()">关闭</button>
         </div>
       </div>
     </div>

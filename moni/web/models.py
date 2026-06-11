@@ -223,6 +223,18 @@ class ShareTask(BaseModel):
     output_url: str | None = None
     status: str = "pending"
     error: str | None = None
+    # v1.0.5.17: 3 progress-tracking fields.  Written by the worker
+    # at each stage transition (queued → fetching → building_prompt
+    # → invoking_llm → writing_artifact).  The frontend reads them
+    # to show a progress bar in the queue table + a 5-stage stepper
+    # in the task detail modal.  progress_message is a short
+    # human-readable string the worker updates in real time
+    # ("正在从 articles 表读 raw_content...", etc.).  Optional
+    # fields default to None so the model still validates rows
+    # that pre-date v1.0.5.17 (migrated with a one-shot backfill).
+    progress_stage: str | None = None
+    progress_pct: int | None = None
+    progress_message: str | None = None
     created_at: str
     started_at: str | None = None
     finished_at: str | None = None
@@ -269,14 +281,20 @@ class ShareTaskEstimateResponse(BaseModel):
     table (provider rates change monthly), so a guessed cost would
     be misleading.  Tokens + seconds are the durable numbers.
     """
-    # Resolved model info (read from llm_settings + llm_models + llm_providers)
+    # The format this estimate is for.  Echoed from the request
+    # so the frontend can render "正在预估 markdown..." without
+    # needing to remember what the user clicked.  Optional because
+    # older callers may not set it; default None so the schema
+    # still validates.
+    format: str | None = None
+    # Resolved model info (read from llm_settings → llm_models → llm_providers)
     model_name: str               # e.g. "MiniMax M3"
     model_id: str                 # e.g. "seed-model-...-MiniMax-M3"
     provider_name: str            # e.g. "minimax-cn (默认)"
     # Input sizing — what we'll feed to the LLM
     articles_count: int
     total_chars: int
-    input_tokens_est: int         # chars / 4 (rough CJK-mixed heuristic)
+    input_tokens_est: int         # chars / 2.5 (rough CJK-mixed heuristic)
     # Output sizing — format-dependent multiplier on input
     output_tokens_est: int
     # Wall-clock estimate from the last 5 done share_tasks of the same format

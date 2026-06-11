@@ -1,6 +1,6 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。v1.0.5.16 完成 (2026-06-09)。
+> 同业信源自动抓取与本地新闻库。v1.0.5.18 完成 (2026-06-10)。
 > 这份文档给**用户**（你自己）看 —— 怎么用 moni，不讲代码细节。
 
 ---
@@ -285,6 +285,78 @@ python3 -m moni clean-articles  # 再跑一次 = 幂等
 - 队列表每 30s 自动 polling, 状态从 `pending` → `running` → `done` / `failed`
 - done 行"输出"列有可点击链接 (v1.0.5.15+ web URL, 不撞 macOS file:// 拦), 新 tab 打开 artifact
 - artifact 实际存到 `data/artifacts/<task_id>-<format>.<ext>`, web URL 是 `/artifacts/<filename>`
+
+### 5.4 立即处理队列按钮 + 实时进度 (v1.0.5.17)
+
+加队列后, **不用等 cron 也不用敲命令** — UI 上点按钮一键激活 hermes chat 跑这批 task:
+
+1. 进"分享"菜单
+2. 滚到下面"队列状态"模块
+3. **点 "▶ 立即处理队列"** 按钮 (有 pending/running 任务时高亮, 否则 disabled)
+4. 弹 modal 显:
+   - 状态: 已启动 / 已在跑 / 启动失败
+   - PID (worker 子进程号)
+   - 日志路径
+   - 实时 worker.log (每 3 秒自动刷新, 看 hermes chat 输出流)
+5. 关闭 modal 不影响 worker (它继续在后台跑, 关掉浏览器也跑)
+6. 30s 后队列状态表自动 polling 看进度: pending → running (进度条动) → done
+
+**进度条**: 队列状态表 running 行多一列"进度" — 显示当前阶段 (queued / fetching / building_prompt / invoking_llm / writing_artifact) + 百分比 0-100% + 蓝色进度条.
+
+5 阶段对应 worker 实际在做什么:
+- `queued` 0% — 任务在 queue 文件, worker 还没扫到
+- `fetching` 20% — worker 正在从 articles 表读 raw_content
+- `building_prompt` 40% — 拼 prompt 模板
+- `invoking_llm` 60% — 调 hermes chat (5min timeout, 最长阶段)
+- `writing_artifact` 95-100% — 写 output 文件到 `data/artifacts/`, status=done
+
+worker 5 阶段拆详见 STATUS.md v1.0.5.17 章节.
+
+### 5.5 内容选项 / 高级选项 / 报告 PNG 生图方式 (v1.0.5.18)
+
+v1.0.5.18 重构后, 分享菜单在"选择格式"下方多 3 块可选项 (所有 6 个 format 通用):
+
+#### 5.5.1 内容选项 (6 format 通用)
+
+```
+┌─ 内容选项 ──────────────────────────────┐
+│ ☑ 包含 AI 摘要                            │
+│ ☐ 包含事实核查 (较慢)                    │
+└─────────────────────────────────────────┘
+```
+
+- **包含 AI 摘要** (默认勾上) — worker 调 hermes 给每篇文章生成 3-5 句摘要, 没摘要时尤其有用
+- **包含事实核查** (默认不勾) — worker 调 hermes 核查每篇文章的事实性声明 (数字/引言/科学论断), **比较慢**但输出更可信
+
+#### 5.5.2 高级选项 (provider / model 覆盖)
+
+```
+⚙ 高级选项 (provider / model 覆盖)  ← 折叠, 默认收起
+   ┌─ Provider: [留空=用默认] ─┐
+   ┌─ Model:    [留空=用默认] ─┐
+```
+
+- 默认 Profile 的 provider/model 额度耗尽时, 用户可手动指定覆盖
+- 例: `provider=google, model=gemini-2.5-pro` 切到 Google Gemini
+- 不熟可**留空用默认**
+
+#### 5.5.3 报告 PNG 生图方式 (仅 `report_png` format 显)
+
+```
+┌─ 生图方式 ───────────────────────────────┐  ← 仅选 report_png 时显
+│ ▼ 信息图风格 (baoyu-infographic, 默认)  │
+│   卡片风格 (ljg-card)                    │
+│   排版风格 (kami)                        │
+│   直出 (no skill)                       │
+└─────────────────────────────────────────┘
+```
+
+- `baoyu-infographic` (默认) — 调 `baoyu-infographic` skill, 成熟的信息图风格
+- `ljg-card` — 调 `ljg-card` skill, 卡片风格
+- `kami` — 调 `kami` skill, 排版风格
+- `direct` — 不调 skill, agent 自己拼 `image_generate` prompt, 最灵活
+
+worker 跑 4 种方式分别走不同 skill, 详细见 `moni/share/prompts/format-report-png.md`.
 
 ---
 

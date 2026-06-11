@@ -714,9 +714,442 @@ class TestShare:
         after = client.get("/api/share/tasks?page=1&page_size=1").json()["total"]
         assert before == after, "estimate must not write a share_task row"
 
+
+# ---------------------------------------------------------------------------
+# v1.0.5.17: worker on-demand trigger + log tail + progress fields
+# ---------------------------------------------------------------------------
+# The progress columns (progress_stage / progress_pct / progress_message)
+# are written by default_worker.sh at each stage transition; the API
+# pass-through is verified by checking the response shape after we
+# UPDATE a row directly.  The worker/run endpoint is hard to unit-test
+# without spawning a real subprocess (and we don't want a real worker
+# running in CI), so we mock launch_worker() and assert the
+# response shape is wired through.
+# ---------------------------------------------------------------------------
+
+
+class TestShareTaskProgress:
+    """ShareTask model + list/get routes surface the v1.0.5.17 progress
+    columns end-to-end.  We backfill progress columns directly into
+    the DB and assert they round-trip through the API — same
+    pattern we used for display_name in test_api.py (v1.0.5.14)."""
+
+    def test_share_task_response_includes_progress_fields(
+        self, client: TestClient, seeded_article: str,
+    ):
+        from moni.db.connection import get_db
+        # Create a real share task so we have a row to read back
+        r = client.post(
+            "/api/share",
+            json={
+                "format": "markdown",
+                "version": "1.0",
+                "payload": {"article_ids": [seeded_article]},
+            },
+        )
+        assert r.status_code == 201
+        task_id = r.json()["share_id"]
+
+        # Write the 3 progress columns directly (simulating the
+        # worker checkpointing midway through invoking_llm).
+        get_db().execute(
+            "UPDATE share_tasks SET progress_stage=?, progress_pct=?, "
+            "progress_message=? WHERE id=?",
+            (
+                "invoking_llm", 60,
+                "正在调 hermes chat (timeout=300s) ...",
+                task_id,
+            ),
+        )
+        get_db().commit()
+
+        # Now read it back through the API and assert the fields
+        # round-trip exactly.
+        r = client.get(f"/api/share/tasks/{task_id}")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["progress_stage"] == "invoking_llm"
+        assert d["progress_pct"] == 60
+        assert d["progress_message"] == "正在调 hermes chat (timeout=300s) ..."
+
+    def test_share_task_response_handles_null_progress(
+        self, client: TestClient, seeded_article: str,
+    ):
+        """A pre-v1.0.5.17 row (or any row without progress_*) should
+        still serialize cleanly — the Pydantic model declares the
+        three fields as Optional with None defaults."""
+        r = client.post(
+            "/api/share",
+            json={
+                "format": "markdown",
+                "version": "1.0",
+                "payload": {"article_ids": [seeded_article]},
+            },
+        )
+        task_id = r.json()["share_id"]
+        # Don't UPDATE progress_*.  Just read it back.
+        r = client.get(f"/api/share/tasks/{task_id}")
+        d = r.json()
+        assert d["progress_stage"] is None
+        assert d["progress_pct"] is None
+        assert d["progress_message"] is None
+
+    def test_share_task_list_includes_progress_fields(
+        self, client: TestClient, seeded_article: str,
+    ):
+        from moni.db.connection import get_db
+        r = client.post(
+            "/api/share",
+            json={
+                "format": "markdown",
+                "version": "1.0",
+                "payload": {"article_ids": [seeded_article]},
+            },
+        )
+        task_id = r.json()["share_id"]
+        get_db().execute(
+            "UPDATE share_tasks SET progress_stage=?, progress_pct=?, progress_message=? "
+            "WHERE id=?",
+            ("writing_artifact", 95, "正在写 artifact ...", task_id),
+        )
+        get_db().commit()
+
+        # Pull a 1-page list and look for our task in the items.
+        r = client.get("/api/share/tasks?page=1&page_size=100")
+        assert r.status_code == 200
+        match = next(
+            (x for x in r.json()["items"] if x["id"] == task_id),
+            None,
+        )
+        assert match is not None
+        assert match["progress_stage"] == "writing_artifact"
+        assert match["progress_pct"] == 95
+        assert match["progress_message"] == "正在写 artifact ..."
+
+
+class TestWorkerRun:
+    """POST /api/share/worker/run endpoint.  We patch the
+    launch_worker symbol in the route module (the one that was
+    imported into the route's namespace) so the endpoint uses
+    our fake without spawning a real subprocess."""
+
+    def test_worker_run_200_spawned(self, client: TestClient, monkeypatch):
+        from moni.web.routes import share as share_route
+
+        class _FakeResult:
+            started = True
+            already_running = False
+            pid = 4242
+            log_path = "/tmp/fake-worker.log"
+            error = None
+
+        monkeypatch.setattr(share_route, "launch_worker", lambda: _FakeResult())
+        r = client.post("/api/share/worker/run")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["started"] is True
+        assert d["already_running"] is False
+        assert d["pid"] == 4242
+        assert d["log_path"] == "/tmp/fake-worker.log"
+        assert d["error"] is None
+
+    def test_worker_run_200_already_running(self, client: TestClient, monkeypatch):
+        from moni.web.routes import share as share_route
+
+        class _FakeResult:
+            started = False
+            already_running = True
+            pid = 1234
+            log_path = "/tmp/fake-worker.log"
+            error = None
+
+        monkeypatch.setattr(share_route, "launch_worker", lambda: _FakeResult())
+        r = client.post("/api/share/worker/run")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["started"] is False
+        assert d["already_running"] is True
+        assert d["pid"] == 1234
+        assert d["error"] is None
+
+    def test_worker_run_200_failed_returns_error(self, client: TestClient, monkeypatch):
+        """Failed launches still return 200 with error in body so the
+        UI modal can show the message verbatim.  We deliberately
+        don't 5xx — the request itself succeeded, the subprocess
+        just couldn't start."""
+        from moni.web.routes import share as share_route
+
+        class _FakeResult:
+            started = False
+            already_running = False
+            pid = None
+            log_path = "/tmp/fake-worker.log"
+            error = "worker script not found: /nope"
+
+        monkeypatch.setattr(share_route, "launch_worker", lambda: _FakeResult())
+        r = client.post("/api/share/worker/run")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["started"] is False
+        assert d["already_running"] is False
+        assert d["error"] == "worker script not found: /nope"
+
+
+class TestWorkerLog:
+    """GET /api/share/worker/log?tail=N endpoint.  We patch
+    tail_log in the route module (where the import lives) so
+    the endpoint uses our fake."""
+
+    def test_worker_log_returns_lines(self, client: TestClient, monkeypatch):
+        from moni.web.routes import share as share_route
+        monkeypatch.setattr(
+            share_route, "tail_log",
+            lambda n=200: "line A\nline B\nline C",
+        )
+        r = client.get("/api/share/worker/log?tail=10")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["lines"] == ["line A", "line B", "line C"]
+        assert d["log_path"].endswith("worker.log")
+
+    def test_worker_log_empty_returns_empty_lines(
+        self, client: TestClient, monkeypatch,
+    ):
+        from moni.web.routes import share as share_route
+        monkeypatch.setattr(share_route, "tail_log", lambda n=200: "")
+        r = client.get("/api/share/worker/log?tail=10")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["lines"] == []
+
     def test_get_task_by_id_404(self, client: TestClient):
         r = client.get("/api/share/tasks/nonexistent-task-id")
         assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# v1.0.5.18: 6-format / 4 user-options / 4 approach tests
+# ---------------------------------------------------------------------------
+# The new code path adds 4 universal fields to every payload
+# (include_abstract, include_fact_check, provider, model) plus 2 new
+# formats (rich_text, report_png) and prunes 6 legacy formats.  These
+# tests cover the API surface (per PRD §10): ~22 tests grouped by
+# concern.
+# ---------------------------------------------------------------------------
+
+
+class TestShareV18Formats:
+    """The 6 v1.0.5.18 share formats each accept a minimal payload
+    and return 201.  We use the bare-minimum payload (just
+    article_ids) and rely on the Pydantic defaults for everything
+    else.  This guards against the 'forgot to add the 4 user-options
+    to PlainTextPayload' bug we just fixed in v1.0.5.18."""
+
+    @pytest.mark.parametrize("fmt", [
+        "plain_text",
+        "markdown",
+        "rich_text",
+        "html_landing",
+        "info_graphic_png",
+        "report_png",
+    ])
+    def test_format_minimal_payload_accepted(
+        self, client: TestClient, seeded_article: str, fmt: str,
+    ):
+        # html_landing is the only one that requires a `title`.  We
+        # send the minimum required payload per format.
+        extra = {}
+        if fmt == "html_landing":
+            extra["title"] = "Test"
+        r = client.post(
+            "/api/share",
+            json={
+                "format": fmt,
+                "version": "1.0",
+                "payload": {"article_ids": [seeded_article], **extra},
+            },
+        )
+        assert r.status_code == 201, f"format={fmt!r}: {r.text}"
+        data = r.json()
+        assert data["status"] == "pending"
+        assert "share_id" in data
+
+    @pytest.mark.parametrize("fmt", [
+        "ascii_art", "ascii_video", "architecture_svg",
+        "knowledge_comic", "pdf_bound", "ppt_slides",
+    ])
+    def test_legacy_format_rejected(
+        self, client: TestClient, seeded_article: str, fmt: str,
+    ):
+        """6 formats were pruned in v1.0.5.18 (no real worker)."""
+        r = client.post(
+            "/api/share",
+            json={
+                "format": fmt,
+                "version": "1.0",
+                "payload": {"article_ids": [seeded_article]},
+            },
+        )
+        assert r.status_code == 400
+        assert r.json()["code"] == "bad_request"
+        assert fmt in r.json()["message"]
+
+
+class TestShareV18UserOptions:
+    """The 4 universal user-options (per PRD §2): include_abstract /
+    include_fact_check / provider / model.  These are accepted on
+    every payload and round-trip through the API."""
+
+    @pytest.mark.parametrize("fmt", [
+        "plain_text", "markdown", "rich_text", "html_landing",
+        "info_graphic_png", "report_png",
+    ])
+    def test_user_options_accepted_on_all_formats(
+        self, client: TestClient, seeded_article: str, fmt: str,
+    ):
+        extra = {"include_abstract": False, "include_fact_check": True}
+        if fmt == "html_landing":
+            extra["title"] = "Test"
+        if fmt == "report_png":
+            extra["generation_approach"] = "baoyu-infographic"
+        r = client.post(
+            "/api/share",
+            json={
+                "format": fmt,
+                "version": "1.0",
+                "payload": {
+                    "article_ids": [seeded_article],
+                    "provider": "google",
+                    "model": "gemini-2.5-pro",
+                    **extra,
+                },
+            },
+        )
+        assert r.status_code == 201, f"format={fmt!r}: {r.text}"
+
+    def test_provider_optional_none(
+        self, client: TestClient, seeded_article: str,
+    ):
+        """provider=None must work (means "use the default profile's
+        provider").  We just verify 201; the worker passes through
+        whatever's in the queue file."""
+        r = client.post(
+            "/api/share",
+            json={
+                "format": "markdown",
+                "version": "1.0",
+                "payload": {
+                    "article_ids": [seeded_article],
+                    "provider": None,
+                    "model": None,
+                },
+            },
+        )
+        assert r.status_code == 201
+
+    def test_estimate_endpoint_works_with_v18_payloads(
+        self, client: TestClient, seeded_article: str,
+    ):
+        """v1.0.5.18 payloads with the 4 new user-options fields
+        should still flow through the estimate endpoint (which
+        re-uses validate_manifest and returns token / duration
+        estimates).  Mirrors the 4 user-options going into the
+        real create call without crashing."""
+        r = client.post(
+            "/api/share/estimate",
+            json={
+                "format": "report_png",
+                "version": "1.0",
+                "payload": {
+                    "article_ids": [seeded_article],
+                    "include_abstract": True,
+                    "include_fact_check": True,
+                    "provider": "google",
+                    "model": "gemini-2.5-pro",
+                    "generation_approach": "baoyu-infographic",
+                },
+            },
+        )
+        assert r.status_code == 200
+        d = r.json()
+        assert d["format"] == "report_png"
+        # 4 new fields are part of the response shape (model only;
+        # tokens/duration are the user-facing numbers).
+        assert d["model_name"]
+        assert d["provider_name"]
+        assert d["input_tokens_est"] >= 0
+        assert d["output_tokens_est"] >= 0
+        assert d["duration_sec_est"] >= 0
+
+
+class TestShareV18ReportPng:
+    """report_png has 4 generation approaches; only that format
+    accepts the `generation_approach` field."""
+
+    @pytest.mark.parametrize("approach", [
+        "baoyu-infographic",
+        "ljg-card",
+        "kami",
+        "direct",
+    ])
+    def test_report_png_4_approaches_accepted(
+        self, client: TestClient, seeded_article: str, approach: str,
+    ):
+        r = client.post(
+            "/api/share",
+            json={
+                "format": "report_png",
+                "version": "1.0",
+                "payload": {
+                    "article_ids": [seeded_article],
+                    "generation_approach": approach,
+                },
+            },
+        )
+        assert r.status_code == 201, f"approach={approach!r}: {r.text}"
+
+    def test_report_png_default_approach_works(
+        self, client: TestClient, seeded_article: str,
+    ):
+        """Omitting generation_approach should use the Pydantic
+        default ('baoyu-infographic') and still return 201."""
+        r = client.post(
+            "/api/share",
+            json={
+                "format": "report_png",
+                "version": "1.0",
+                "payload": {"article_ids": [seeded_article]},
+            },
+        )
+        assert r.status_code == 201
+
+    def test_non_report_png_format_rejects_approach(
+        self, client: TestClient, seeded_article: str,
+    ):
+        """generation_approach is report_png-specific.  Sending it
+        on any other format must raise 400 (extra='forbid')."""
+        for fmt, extra_payload in (
+            ("markdown",      {}),
+            ("rich_text",     {}),
+            ("info_graphic_png", {}),
+            ("html_landing",  {"title": "Test"}),
+            ("plain_text",    {}),
+        ):
+            r = client.post(
+                "/api/share",
+                json={
+                    "format": fmt,
+                    "version": "1.0",
+                    "payload": {
+                        "article_ids": [seeded_article],
+                        "generation_approach": "baoyu-infographic",
+                        **extra_payload,
+                    },
+                },
+            )
+            assert r.status_code == 400, (
+                f"format={fmt!r} should reject generation_approach"
+            )
 
 
 # ---------------------------------------------------------------------------

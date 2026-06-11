@@ -675,7 +675,7 @@ function app() {
     // to AVOID sending `title` for formats that forbid it.  The
     // addToQueue() function does the right thing.
     shareFormatTitle: '',
-    // v1.0.5.16: pre-flight confirm-modal state.  addToQueue() now
+    // v1.0.5.18: pre-flight confirm-modal state.  addToQueue() now
     // fetches /api/share/estimate first, sets shareEstimate, and
     // shows the modal.  The user clicks 确认 to actually POST
     // /api/share, or 取消 to dismiss.  shareEstimateError is
@@ -686,19 +686,47 @@ function app() {
     shareEstimateError: null,
     shareEstimateSubmitting: false,
     _shareEstimatePayload: null,  // the validated payload to POST on confirm
+    _shareEstimateFormat: null,   // v1.0.5.18: stashed shareFormat at the
+                                  // moment of addToQueue so the confirm
+                                  // step doesn't re-read Alpine state
+                                  // (which the user may have changed
+                                  // between estimate and confirm).
+    // v1.0.5.17: "▶ 立即处理队列" button state.  triggerWorker()
+    // hits POST /api/share/worker/run and opens the log-tail modal.
+    // workerRunning guards the button so we don't double-spawn.
+    // workerModalResult holds the response of the launch (started
+    // / already_running / pid / log_path / error).  workerLogLines
+    // is the live tail of worker.log, refreshed every 3s while the
+    // modal is open.
+    workerRunning: false,
+    workerModalOpen: false,
+    workerModalResult: null,
+    workerLogLines: [],
+    _workerLogPollInterval: null,
+    // v1.0.5.18: 6 share formats (was 10).  Pruned 6 formats that had
+    // no real worker implementation.  Added rich_text (structured
+    // Markdown variant) and report_png (one-image content report).
     shareFormats: [
       { value: 'plain_text',          label: '纯文本' },
       { value: 'markdown',            label: 'Markdown' },
       { value: 'html_landing',        label: 'HTML 网页' },
-      { value: 'pdf_bound',           label: 'PDF 合订' },
-      { value: 'ppt_slides',          label: 'PPT 幻灯片' },
-      { value: 'ascii_art',           label: 'ASCII 艺术' },
-      { value: 'ascii_video',         label: 'ASCII 视频' },
-      { value: 'architecture_svg',    label: '架构 SVG' },
       { value: 'info_graphic_png',    label: '信息图 PNG' },
-      { value: 'knowledge_comic',     label: '知识漫画' },
-      // v1.0.5.15: 删 concept_video (worker 没真接视频生成 pipeline, 一直 stub)
+      { value: 'rich_text',           label: '富媒体文本' },  // 🆕
+      { value: 'report_png',          label: '报告 PNG' },     // 🆕
     ],
+    // v1.0.5.18: 4 user-options (universal across all 6 formats, per
+    // PRD §2).  include_abstract defaults to true (most users want
+    // the AI summary); include_fact_check defaults to false (slower;
+    // explicit opt-in).  provider/model default to '' (use the
+    // default profile's provider / model — no override).
+    shareIncludeAbstract: true,
+    shareIncludeFactCheck: false,
+    shareProvider: '',
+    shareModel: '',
+    // v1.0.5.18: report_png generation approach (only used when
+    // shareFormat === 'report_png').  Maps 1:1 to the 4 PRD §4
+    // approaches.  Default 'baoyu-infographic' (most mature).
+    sharePngApproach: 'baoyu-infographic',
     shareQueue: [],
     _sharePollInterval: null,
 
@@ -762,6 +790,14 @@ function app() {
       // formats) are identical to before; the new bit is the modal
       // step that shows the LLM model + token + duration estimate
       // so the user can decide whether to commit the call.
+      // v1.0.5.18: also stash shareFormat so the confirm step
+      // doesn't accidentally re-read Alpine state (which the user
+      // may have changed between estimate and confirm).
+      if (this.shareEstimateSubmitting) {
+        // Defensive: a second click while the first estimate is in
+        // flight.  We just no-op; the user can wait for the modal.
+        return;
+      }
       if (!this.selectedArticleIds.length) {
         alert('请先勾选要分享的文章 (在文章卡片上点 checkbox, 至少 1 个)。\n\n这是浏览器本地检查, 不是 HTTP 错误。');
         return;
@@ -769,7 +805,25 @@ function app() {
       // v1.0.5.14: html_landing / ppt_slides require a `title` field
       // in the payload; other formats forbid extra keys (Pydantic
       // _extra_forbid) so we must NOT send `title` for them.
-      const payload = { article_ids: this.selectedArticleIds };
+      // v1.0.5.18: html_landing still needs `title`; ppt_slides was
+      // pruned.  rich_text / report_png don't need a title.
+      const payload = {
+        article_ids: this.selectedArticleIds,
+        // v1.0.5.18: 4 universal user-options (per PRD §2).  We
+        // always send them; the backend Pydantic models accept None
+        // and apply the documented default.
+        include_abstract: this.shareIncludeAbstract,
+        include_fact_check: this.shareIncludeFactCheck,
+      };
+      // provider/model: only send if non-empty (empty == use default
+      // profile).  report_png generation_approach only when format
+      // matches.  This keeps the queue file small and matches what
+      // the user actually configured.
+      if (this.shareProvider) payload.provider = this.shareProvider;
+      if (this.shareModel)    payload.model    = this.shareModel;
+      if (this.shareFormat === 'report_png' && this.sharePngApproach) {
+        payload.generation_approach = this.sharePngApproach;
+      }
       if (this.shareFormatNeedsTitle()) {
         const t = (this.shareFormatTitle || '').trim();
         if (!t) {
@@ -778,11 +832,15 @@ function app() {
         }
         payload.title = t;
       }
-      // Stash the payload so confirmShareEstimate() can re-use it
-      // without re-validating on the client.  Server re-validates
+      // Stash the payload + format so confirmShareEstimate() can
+      // re-use it without re-validating on the client (and without
+      // re-reading this.shareFormat, which the user may have
+      // changed between estimate and confirm).  Server re-validates
       // either way (validate_manifest is the source of truth).
       this._shareEstimatePayload = payload;
+      this._shareEstimateFormat = this.shareFormat;
       this.shareEstimateError = null;
+      this.shareEstimateSubmitting = true;  // covers fetch + render
       this.shareEstimate = null;  // show "loading" state via modal-backdrop x-show
 
       fetch('/api/share/estimate', {
@@ -813,6 +871,13 @@ function app() {
           console.error('estimate failed:', err);
           this.shareEstimate = { format: this.shareFormat };
           this.shareEstimateError = '估算接口失败: ' + err.message;
+        })
+        .finally(() => {
+          // Re-enable the button regardless of success/failure so
+          // the user can re-trigger after a transient error.  The
+          // modal is now open (or has an error message), so this
+          // flag is not visually wrong.
+          this.shareEstimateSubmitting = false;
         });
     },
 
@@ -823,15 +888,20 @@ function app() {
       this.shareEstimateError = null;
       this.shareEstimateSubmitting = false;
       this._shareEstimatePayload = null;
+      this._shareEstimateFormat = null;  // v1.0.5.18
     },
 
     confirmShareEstimate() {
-      // User clicked 确认加入队列.  We send the SAME payload that
-      // the estimate was based on (stashed in _shareEstimatePayload)
-      // — the server re-validates, but we don't want the modal
-      // to be the source of any UI-driven mutation of the request.
+      // User clicked 确认加入队列.  We send the SAME format and
+      // payload that the estimate was based on (stashed in
+      // _shareEstimatePayload + _shareEstimateFormat at
+      // addToQueue time) — the server re-validates, but we don't
+      // want the modal to be the source of any UI-driven
+      // mutation of the request (e.g. user clicks a different
+      // format chip while the modal is open).
       const payload = this._shareEstimatePayload;
-      if (!payload) {
+      const format = this._shareEstimateFormat;
+      if (!payload || !format) {
         // Defensive: shouldn't happen because cancelShareEstimate
         // clears it.  If it does, fail loudly so the user sees
         // something rather than a silent no-op.
@@ -845,7 +915,7 @@ function app() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({
-          format: this.shareFormat,
+          format: format,
           payload: payload,
         }),
       })
@@ -882,6 +952,121 @@ function app() {
       const m = Math.floor(sec / 60);
       const s = sec % 60;
       return s === 0 ? (m + ' 分') : (m + ' 分 ' + s + ' 秒');
+    },
+
+    // v1.0.5.17: helpers for the "▶ 立即处理队列" button + the
+    // worker log-tail modal.  The button is disabled when there's
+    // nothing to process (no pending/running rows); the small
+    // "N 个待处理" label tells the user how many would actually
+    // be picked up.  shareQueueHasPending() is the disabled-check;
+    // shareQueuePendingCount() is the badge text.
+
+    shareQueueHasPending() {
+      return (this.shareQueue || []).some(
+        q => q.status === 'pending' || q.status === 'running'
+      );
+    },
+
+    shareQueuePendingCount() {
+      return (this.shareQueue || []).filter(
+        q => q.status === 'pending' || q.status === 'running'
+      ).length;
+    },
+
+    // Title shown in the worker-log modal header.  Different copy
+    // for the 3 launch outcomes so the user can tell at a glance
+    // whether they actually started something or just observed an
+    // existing one.
+    get workerModalTitle() {
+      const r = this.workerModalResult;
+      if (!r) return '处理队列';
+      if (r.started) return '处理队列 - 已启动 worker';
+      if (r.already_running) return '处理队列 - 已有 worker 在跑';
+      return '处理队列 - 启动失败';
+    },
+
+    // v1.0.5.17: trigger a worker run.  POSTs to /api/share/worker/run
+    // and opens the log-tail modal.  Polls the log every 3s while
+    // the modal is open.  The button itself is disabled when
+    // workerRunning=true (and we also re-enable it in the
+    // response handler so a "already_running" outcome can re-arm
+    // the button when the existing worker finishes).
+    async triggerWorker() {
+      if (this.workerRunning) return;
+      this.workerRunning = true;
+      this.workerModalResult = null;
+      this.workerLogLines = [];
+      try {
+        const r = await fetch('/api/share/worker/run', {
+          method: 'POST',
+          credentials: 'same-origin',
+        });
+        const data = await r.json();
+        this.workerModalResult = data;
+        this.workerModalOpen = true;
+        if (data.error) {
+          // Surface the error in the console; the modal also
+          // shows it (the red error-text summary-box is x-shown
+          // when result.error is truthy).
+          console.error('worker launch failed:', data.error);
+        }
+        // If the worker just started, refresh the queue every 5s
+        // (not just 30s) so the user sees pending → running →
+        // done transitions without long delays.  We restore the
+        // normal 30s cadence when the modal closes.
+        this.loadShareQueue();
+        this._startWorkerLogPoll();
+      } catch (err) {
+        console.error('triggerWorker failed:', err);
+        alert('触发 worker 失败: ' + err.message);
+      } finally {
+        // We re-enable the button so the user can re-trigger after
+        // a transient error.  workerModalResult.started is the
+        // signal that the worker is running; the lock file on
+        // disk (server-side) is the source of truth for "is
+        // another worker up?", so even if the UI re-fires the
+        // request, the server will return already_running and
+        // the modal title will say so.
+        this.workerRunning = false;
+      }
+    },
+
+    // v1.0.5.17: 3-second log poll while the modal is open.  The
+    // interval ID is stashed so closeWorkerModal() can clear it
+    // deterministically; the queue-status poll (30s) keeps
+    // running independently.
+    _startWorkerLogPoll() {
+      if (this._workerLogPollInterval) {
+        clearInterval(this._workerLogPollInterval);
+      }
+      this.refreshWorkerLog();  // immediate first fetch
+      this._workerLogPollInterval = setInterval(
+        () => this.refreshWorkerLog(),
+        3000
+      );
+    },
+
+    async refreshWorkerLog() {
+      try {
+        const r = await fetch(
+          '/api/share/worker/log?tail=200',
+          { credentials: 'same-origin' }
+        );
+        if (!r.ok) return;
+        const data = await r.json();
+        this.workerLogLines = (data.lines || []).slice();
+      } catch (err) {
+        // Don't spam the user — the next 3s poll will retry.
+        console.error('refreshWorkerLog failed:', err);
+      }
+    },
+
+    closeWorkerModal() {
+      this.workerModalOpen = false;
+      if (this._workerLogPollInterval) {
+        clearInterval(this._workerLogPollInterval);
+        this._workerLogPollInterval = null;
+      }
     },
 
     // v1.0.5.14: helper for the share-format title input.  When the

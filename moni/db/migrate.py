@@ -15,7 +15,7 @@ from pathlib import Path
 from .connection import get_db, get_db_path
 
 
-_CURRENT_VERSION = 7
+_CURRENT_VERSION = 9  # v1.0.5.18: article-level AI summary / fact-check fields (009_add_ai_summary_fields.sql)
 
 
 def current_version(conn: sqlite3.Connection) -> int:

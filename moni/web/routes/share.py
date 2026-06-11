@@ -30,6 +30,7 @@ from moni.db.connection import get_db
 from moni.share.artifacts import ARTIFACTS_DIR, ensure_artifact
 from moni.share.formats import validate_manifest
 from moni.share.manifest import write_manifest
+from moni.share.worker import LOG_FILE, launch_worker, tail_log
 from moni.web.exceptions import BadRequestError, NotFoundError
 from moni.web.models import (
     ShareTask,
@@ -54,38 +55,35 @@ router = APIRouter(prefix="/api/share", tags=["share"])
 # is good enough for a confirm-modal.
 _CHARS_PER_TOKEN = 2.5
 
-# Output-token multipliers per format, applied to the input estimate.
-# These come from eyeballing what each format actually produces: ascii
-# variants are tight (output < input), html_landing/ppt_slides are
-# verbose (output ≈ 1.5-2x input because of styling + boilerplate).
+# v1.0.5.18: pruned 6 formats (ascii_art, ascii_video,
+# architecture_svg, knowledge_comic, pdf_bound, ppt_slides) that
+# had no real worker implementation.  Added rich_text + report_png.
+# For the surviving 6, multipliers are eyeballed ratios of typical
+# output length vs input: ascii variants are tight (output < input),
+# html_landing is verbose (boilerplate), report_png is "LLM writes
+# a brief description" + image renderer.
 _OUTPUT_MULTIPLIER = {
     "plain_text": 0.8,
     "markdown": 1.0,
     "html_landing": 1.8,
-    "pdf_bound": 1.2,
-    "ppt_slides": 1.5,
-    "ascii_art": 0.4,
-    "ascii_video": 0.6,
-    "architecture_svg": 0.5,
     "info_graphic_png": 0.3,   # LLM produces a brief description, image is rendered
-    "knowledge_comic": 0.6,
+    "rich_text": 1.2,         # cross-article framing adds ~20% to markdown
+    "report_png": 0.5,        # 🆕 LLM writes a brief description, image is rendered
 }
 
 # Last-N done share_tasks to average for duration estimate.
 _DURATION_HISTORY_WINDOW = 5
 
 # Fallback duration if we have no history for this format (seconds).
+# v1.0.5.18: same window.  report_png and info_graphic_png are slow
+# because they involve image generation (Hermes → FAL backend).
 _DURATION_FALLBACK_SEC = {
     "html_landing": 90,
     "info_graphic_png": 120,   # infographic generation tends to be slow
-    "pdf_bound": 90,
-    "ppt_slides": 90,
-    "architecture_svg": 60,
-    "knowledge_comic": 90,
-    "ascii_video": 60,
-    "ascii_art": 30,
+    "report_png": 120,         # 🆕 same — image generation
     "markdown": 30,
     "plain_text": 20,
+    "rich_text": 30,            # 🆕 slightly slower than markdown
 }
 
 
@@ -226,6 +224,14 @@ def _row_to_share_task(row: dict[str, Any]) -> ShareTask:
         output_url=output_url,
         status=row.get("status", "pending"),
         error=row.get("error"),
+        # v1.0.5.17: 3 progress fields pass-through.  The worker
+        # (default_worker.sh) writes these at each stage transition
+        # so the user can see where a running task is without
+        # opening the modal.  Safe defaults (None) for pre-v1.0.5.17
+        # rows that were backfilled with CASE/CASE in the migration.
+        progress_stage=row.get("progress_stage"),
+        progress_pct=row.get("progress_pct"),
+        progress_message=row.get("progress_message"),
         created_at=row["created_at"],
         started_at=row.get("started_at"),
         finished_at=row.get("finished_at"),
@@ -286,6 +292,10 @@ def estimate_share_task(body: ShareTaskCreateV1) -> ShareTaskEstimateResponse:
     )
 
     return ShareTaskEstimateResponse(
+        # v1.0.5.18: echo the format the user is previewing so the
+        # frontend can show "正在预估 markdown..." without having
+        # to remember what the user clicked.
+        format=format_name,
         model_name=model_name,
         model_id=model_id,
         provider_name=provider_name,
@@ -339,6 +349,7 @@ def list_share_tasks(
     rows = conn.execute(
         """
         SELECT id, format, article_ids, output_path, status, error,
+               progress_stage, progress_pct, progress_message,
                created_at, started_at, finished_at, extra
         FROM share_tasks
         ORDER BY created_at DESC
@@ -366,6 +377,7 @@ def get_share_task(task_id: str) -> ShareTask:
     row = conn.execute(
         """
         SELECT id, format, article_ids, output_path, status, error,
+               progress_stage, progress_pct, progress_message,
                created_at, started_at, finished_at, extra
         FROM share_tasks WHERE id = ?
         """,
@@ -376,3 +388,56 @@ def get_share_task(task_id: str) -> ShareTask:
         raise NotFoundError(message=f"Share task {task_id!r} not found")
 
     return _row_to_share_task(dict(row))
+
+
+# ---------------------------------------------------------------------------
+# v1.0.5.17: worker on-demand trigger + log tail
+# ---------------------------------------------------------------------------
+# The UI's "▶ 立即处理队列" button hits POST /api/share/worker/run
+# which spawns default_worker.sh as a detached subprocess.  The
+# 30s queue-status polling (already in app.js) then surfaces the
+# pending → running → done transitions and progress_stage column.
+# ---------------------------------------------------------------------------
+
+
+@router.post("/worker/run")
+def run_worker() -> dict:
+    """Spawn the default worker subprocess on demand.
+
+    Response shape (always 200 unless the worker script itself is
+    missing — the UI prefers an error body over a 5xx so the modal
+    can show the message verbatim):
+
+    - {started: true,  pid: N, log_path: '...'}   — we just spawned it
+    - {started: false, already_running: true, pid: N, log_path: '...'}
+      — another worker was already up; no-op, UI tells the user
+    - {started: false, already_running: false, pid: null,
+       error: '...', log_path: '...'}
+      — failed (e.g. worker script missing); UI shows the error
+    """
+    result = launch_worker()
+    if result.error:
+        logger.warning("worker launch failed: %s", result.error)
+    return {
+        "started": result.started,
+        "already_running": result.already_running,
+        "pid": result.pid,
+        "log_path": result.log_path,
+        "error": result.error,
+    }
+
+
+@router.get("/worker/log")
+def read_worker_log(tail: int = Query(200, ge=1, le=5000)) -> dict:
+    """Return the last ``tail`` lines (default 200) of worker.log.
+
+    The frontend modal polls this every 2-3s while a worker is
+    running so the user can see live progress (hermes chat output
+    snippets, "DONE task_id", etc.) without tailing the file by
+    hand.  Returns ``{lines: [...], log_path: '...'}``.
+    """
+    body = tail_log(n=tail)
+    return {
+        "lines": body.splitlines() if body else [],
+        "log_path": str(LOG_FILE),
+    }
