@@ -31,6 +31,7 @@ function app() {
       llmJobs:  '/llmJobs',
       share:    '/share',
       config:   '/config',
+      llmSettings: '/llmSettings',
     },
     _pathToView: {
       '/articles': 'articles',
@@ -40,6 +41,7 @@ function app() {
       '/llmJobs':  'llmJobs',
       '/share':    'share',
       '/config':   'config',
+      '/llmSettings': 'llmSettings',
     },
 
     navigate(view) {
@@ -71,6 +73,12 @@ function app() {
         this.configLoadTags();
         this.configLoadFilters();
       }
+      else if (view === 'llmSettings') {
+        this.llmTab = 'providers';
+        this.loadLlmProviders();
+        this.loadLlmModels();
+        this.loadLlmSettings();
+      }
     },
 
     // v1.0.5.10: handle browser back/forward.  We only update state, not the
@@ -93,6 +101,12 @@ function app() {
         this.configLoadSources();
         this.configLoadTags();
         this.configLoadFilters();
+      }
+      else if (view === 'llmSettings') {
+        this.llmTab = 'providers';
+        this.loadLlmProviders();
+        this.loadLlmModels();
+        this.loadLlmSettings();
       }
     },
 
@@ -1382,6 +1396,343 @@ function app() {
         console.error('copyJobDetail failed:', err);
         alert('复制失败: ' + (err && err.message ? err.message : String(err)));
       }
+    },
+
+    // ── LLM Settings panel ───────────────────────────────────────
+    llmTab: 'providers',
+    llmProviders: [],
+    llmModels: [],
+    llmSettings: {},
+    llmSettingsDraft: { active_summary_model_id: '', active_fact_check_model_id: '' },
+
+    // Provider form modal state
+    llmProviderFormOpen: false,
+    llmProviderForm: { id: null, name: '', hermes_provider: '', notes: '' },
+    llmProviderFormSaving: false,
+    llmProviderFormError: '',
+
+    // Model form modal state
+    llmModelFormOpen: false,
+    llmModelForm: { id: null, provider_id: '', model_id: '', display_name: '', use_for_text: '' },
+    llmModelFormSaving: false,
+    llmModelFormError: '',
+
+    // Usage stats state
+    llmUsage: null,
+    llmUsageDays: 30,
+    llmUsageGroupBy: 'module',
+
+    switchLlmTab(tab) {
+      this.llmTab = tab;
+      if (tab === 'usage' && !this.llmUsage) {
+        this.loadLlmUsage();
+      }
+    },
+
+    llmProviderName(providerId) {
+      const p = this.llmProviders.find(x => x.id === providerId);
+      return p ? p.name : providerId;
+    },
+
+    loadLlmProviders() {
+      fetch('/api/llm/providers', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(data => {
+          const items = Array.isArray(data) ? data : (data.items || []);
+          // Initialize reactive _testing flag for each provider
+          items.forEach(p => { p._testing = false; });
+          this.llmProviders = items;
+        })
+        .catch(err => { console.error('loadLlmProviders failed:', err); this.llmProviders = []; });
+    },
+
+    loadLlmModels() {
+      fetch('/api/llm/models', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(data => { this.llmModels = Array.isArray(data) ? data : (data.items || []); })
+        .catch(err => { console.error('loadLlmModels failed:', err); this.llmModels = []; });
+    },
+
+    loadLlmSettings() {
+      fetch('/api/llm/settings', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(data => {
+          this.llmSettings = data || {};
+          this.llmSettingsDraft = {
+            active_summary_model_id: data.active_summary_model_id || '',
+            active_fact_check_model_id: data.active_fact_check_model_id || '',
+          };
+        })
+        .catch(err => { console.error('loadLlmSettings failed:', err); });
+    },
+
+    loadLlmUsage() {
+      const params = new URLSearchParams();
+      params.set('days', this.llmUsageDays);
+      params.set('group_by', this.llmUsageGroupBy);
+      fetch('/api/llm/usage?' + params.toString(), { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(data => { this.llmUsage = data; })
+        .catch(err => { console.error('loadLlmUsage failed:', err); this.llmUsage = null; });
+    },
+
+    llmBarWidth(item, groupKey) {
+      // Calculate bar width as percentage of max value in the group
+      const items = this.llmUsage?.[groupKey] || [];
+      if (items.length === 0) return 0;
+      const maxVal = Math.max(...items.map(x => x.total_tokens ?? x.tokens ?? 0));
+      if (maxVal === 0) return 0;
+      const val = item.total_tokens ?? item.tokens ?? 0;
+      return Math.max(1, Math.round((val / maxVal) * 100));
+    },
+
+    // ── Provider CRUD ────────────────────────────────────────────
+    openLlmProviderForm(provider) {
+      this.llmProviderFormError = '';
+      this.llmProviderFormSaving = false;
+      if (provider) {
+        this.llmProviderForm = {
+          id: provider.id,
+          name: provider.name || '',
+          hermes_provider: provider.hermes_provider || '',
+          notes: provider.notes || '',
+        };
+      } else {
+        this.llmProviderForm = { id: null, name: '', hermes_provider: '', notes: '' };
+      }
+      this.llmProviderFormOpen = true;
+    },
+
+    closeLlmProviderForm() {
+      this.llmProviderFormOpen = false;
+      this.llmProviderFormError = '';
+    },
+
+    saveLlmProvider() {
+      if (!this.llmProviderForm.name.trim() || !this.llmProviderForm.hermes_provider.trim()) {
+        this.llmProviderFormError = '显示名和 hermes_provider 不能为空';
+        return;
+      }
+      this.llmProviderFormSaving = true;
+      this.llmProviderFormError = '';
+
+      const isEdit = !!this.llmProviderForm.id;
+      const body = {
+        name: this.llmProviderForm.name.trim(),
+        hermes_provider: this.llmProviderForm.hermes_provider.trim(),
+        notes: this.llmProviderForm.notes.trim() || null,
+      };
+      const url = isEdit ? `/api/llm/providers/${this.llmProviderForm.id}` : '/api/llm/providers';
+      const method = isEdit ? 'PUT' : 'POST';
+
+      fetch(url, {
+        method,
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+        .then(async r => {
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok) {
+            const msg = (data && (data.detail || data.message)) || `${r.status} ${r.statusText}`;
+            throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+          }
+          return data;
+        })
+        .then(() => {
+          this.loadLlmProviders();
+          this.closeLlmProviderForm();
+        })
+        .catch(err => {
+          this.llmProviderFormError = '保存失败: ' + err.message;
+        })
+        .finally(() => { this.llmProviderFormSaving = false; });
+    },
+
+    toggleLlmProviderActive(provider) {
+      fetch(`/api/llm/providers/${provider.id}`, {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !provider.is_active }),
+      })
+        .then(r => {
+          if (!r.ok) throw new Error('Toggle failed');
+          this.loadLlmProviders();
+        })
+        .catch(err => alert('操作失败: ' + err.message));
+    },
+
+    deleteLlmProvider(provider) {
+      if (!confirm(`确定删除 Provider "${provider.name}"?`)) return;
+      fetch(`/api/llm/providers/${provider.id}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      })
+        .then(async r => {
+          if (!r.ok) {
+            if (r.status === 409) {
+              const data = await r.json().catch(() => ({}));
+              throw new Error(data.detail || '该 Provider 下仍有 Model, 请先删除相关 Model');
+            }
+            throw new Error('Delete failed: HTTP ' + r.status);
+          }
+          this.loadLlmProviders();
+        })
+        .catch(err => alert('删除失败: ' + err.message));
+    },
+
+    testLlmProvider(provider) {
+      // Single confirmation — warns about token usage
+      if (!confirm(`测试 "${provider.name}" (${provider.hermes_provider}) 连通性？\n\n⚠️ 将消耗约 5-10 tokens`)) return;
+
+      provider._testing = true;
+
+      fetch(`/api/llm/providers/${provider.id}/test`, {
+        method: 'POST',
+        credentials: 'same-origin',
+      })
+        .then(r => r.json())
+        .then(data => {
+          provider._testing = false;
+          if (data.ok) {
+            alert(`✅ 连通成功\n\nProvider: ${data.provider}\nModel: ${data.model}\n耗时: ${data.duration_ms}ms\n回复: ${data.reply_preview}`);
+          } else {
+            alert(`❌ 连通失败\n\nProvider: ${data.provider}\nModel: ${data.model}\n错误: ${data.error}`);
+          }
+        })
+        .catch(err => {
+          provider._testing = false;
+          alert('测试失败: ' + err.message);
+        });
+    },
+
+    // ── Model CRUD ───────────────────────────────────────────────
+    openLlmModelForm(model) {
+      this.llmModelFormError = '';
+      this.llmModelFormSaving = false;
+      if (model) {
+        this.llmModelForm = {
+          id: model.id,
+          provider_id: model.provider_id || '',
+          model_id: model.model_id || '',
+          display_name: model.display_name || '',
+          use_for_text: (model.use_for || []).join(', '),
+        };
+      } else {
+        this.llmModelForm = {
+          id: null,
+          provider_id: this.llmProviders[0]?.id || '',
+          model_id: '',
+          display_name: '',
+          use_for_text: '',
+        };
+      }
+      this.llmModelFormOpen = true;
+    },
+
+    closeLlmModelForm() {
+      this.llmModelFormOpen = false;
+      this.llmModelFormError = '';
+    },
+
+    saveLlmModel() {
+      if (!this.llmModelForm.provider_id || !this.llmModelForm.model_id.trim() || !this.llmModelForm.display_name.trim()) {
+        this.llmModelFormError = 'Provider、model_id 和显示名 不能为空';
+        return;
+      }
+      this.llmModelFormSaving = true;
+      this.llmModelFormError = '';
+
+      const isEdit = !!this.llmModelForm.id;
+      const useFor = this.llmModelForm.use_for_text
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+
+      if (isEdit) {
+        // PUT only accepts display_name and enabled
+        const body = { display_name: this.llmModelForm.display_name.trim() };
+        fetch(`/api/llm/models/${this.llmModelForm.id}`, {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+          .then(async r => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) {
+              const msg = (data && (data.detail || data.message)) || `${r.status}`;
+              throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+            }
+            return data;
+          })
+          .then(() => {
+            this.loadLlmModels();
+            this.closeLlmModelForm();
+          })
+          .catch(err => { this.llmModelFormError = '保存失败: ' + err.message; })
+          .finally(() => { this.llmModelFormSaving = false; });
+      } else {
+        const body = {
+          provider_id: this.llmModelForm.provider_id,
+          model_id: this.llmModelForm.model_id.trim(),
+          display_name: this.llmModelForm.display_name.trim(),
+          use_for: useFor,
+        };
+        fetch('/api/llm/models', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+          .then(async r => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) {
+              const msg = (data && (data.detail || data.message)) || `${r.status}`;
+              throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+            }
+            return data;
+          })
+          .then(() => {
+            this.loadLlmModels();
+            this.closeLlmModelForm();
+          })
+          .catch(err => { this.llmModelFormError = '保存失败: ' + err.message; })
+          .finally(() => { this.llmModelFormSaving = false; });
+      }
+    },
+
+    toggleLlmModelEnabled(model) {
+      fetch(`/api/llm/models/${model.id}`, {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !model.enabled }),
+      })
+        .then(r => {
+          if (!r.ok) throw new Error('Toggle failed');
+          this.loadLlmModels();
+        })
+        .catch(err => alert('操作失败: ' + err.message));
+    },
+
+    // ── Settings save ────────────────────────────────────────────
+    saveLlmSetting(key, value) {
+      const body = {};
+      body[key] = value || null;
+      fetch('/api/llm/settings', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+        .then(r => {
+          if (!r.ok) throw new Error('Save failed');
+          // Reload settings to stay in sync
+          this.loadLlmSettings();
+        })
+        .catch(err => alert('保存设置失败: ' + err.message));
     },
   };
 }

@@ -30,6 +30,7 @@
         </li>
         <li><a href="/share"    @click.prevent="navigate('share')"    :class="{ active: currentView === 'share'    }">分享</a></li>
         <li><a href="/config"   @click.prevent="navigate('config')"   :class="{ active: currentView === 'config'   }">配置管理</a></li>
+        <li><a href="/llmSettings" @click.prevent="navigate('llmSettings')" :class="{ active: currentView === 'llmSettings' }">LLM 设置</a></li>
       </ul>
     </nav>
 
@@ -673,9 +674,295 @@
         </div>
       </section>
 
+      <!-- ══ LLM Settings ══════════════════════════════════════════ -->
+      <section x-show="currentView === 'llmSettings'" x-cloak>
+        <div class="panel-header">
+          <h3>LLM 设置</h3>
+          <div class="config-tabs">
+            <button class="tab-btn" :class="{ active: llmTab === 'providers' }" @click="switchLlmTab('providers')">Provider 绑定</button>
+            <button class="tab-btn" :class="{ active: llmTab === 'models' }"    @click="switchLlmTab('models')">Model 选择</button>
+            <button class="tab-btn" :class="{ active: llmTab === 'usage' }"     @click="switchLlmTab('usage')">用量统计</button>
+          </div>
+        </div>
+
+        <!-- ── Sub-tab 1: Provider 绑定 ── -->
+        <div x-show="llmTab === 'providers'">
+          <div class="toolbar">
+            <button class="btn-primary" @click="openLlmProviderForm(null)">+ 新建 Provider</button>
+            <button class="btn-refresh" @click="loadLlmProviders()">刷新</button>
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>显示名</th><th>hermes_provider</th><th>备注</th><th>状态</th><th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="p in llmProviders" :key="p.id">
+                  <tr>
+                    <td x-text="p.name"></td>
+                    <td><code x-text="p.hermes_provider"></code></td>
+                    <td x-text="p.notes || '-'"></td>
+                    <td>
+                      <span class="status-badge" :class="p.is_active ? 'status-ok' : 'status-paused'"
+                            x-text="p.is_active ? '启用' : '停用'"></span>
+                    </td>
+                    <td>
+                      <button class="btn-link" @click="openLlmProviderForm(p)">编辑</button>
+                      <button class="btn-link" @click="testLlmProvider(p)"
+                              :disabled="p._testing"
+                              style="color: #059669;"
+                              x-text="p._testing ? '测试中...' : '测试'"></button>
+                      <button class="btn-secondary" @click="toggleLlmProviderActive(p)"
+                              x-text="p.is_active ? '停用' : '启用'"></button>
+                      <button class="btn-danger" @click="deleteLlmProvider(p)">删除</button>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="llmProviders.length === 0">
+                  <td colspan="5" class="empty-row">暂无 Provider</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ── Sub-tab 2: Model 选择 ── -->
+        <div x-show="llmTab === 'models'">
+          <div class="toolbar">
+            <button class="btn-primary" @click="openLlmModelForm(null)">+ 新建 Model</button>
+            <button class="btn-refresh" @click="loadLlmModels()">刷新</button>
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>显示名</th><th>model_id</th><th>Provider</th><th>用途</th><th>状态</th><th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="m in llmModels" :key="m.id">
+                  <tr>
+                    <td x-text="m.display_name"></td>
+                    <td><code x-text="m.model_id"></code></td>
+                    <td x-text="llmProviderName(m.provider_id)"></td>
+                    <td>
+                      <template x-for="u in (m.use_for || [])" :key="u">
+                        <span class="tag-chip" x-text="u"></span>
+                      </template>
+                      <span x-show="!m.use_for || m.use_for.length === 0" class="muted">-</span>
+                    </td>
+                    <td>
+                      <span class="status-badge" :class="m.enabled ? 'status-ok' : 'status-paused'"
+                            x-text="m.enabled ? '启用' : '停用'"></span>
+                    </td>
+                    <td>
+                      <button class="btn-link" @click="openLlmModelForm(m)">编辑</button>
+                      <button class="btn-secondary" @click="toggleLlmModelEnabled(m)"
+                              x-text="m.enabled ? '停用' : '启用'"></button>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="llmModels.length === 0">
+                  <td colspan="6" class="empty-row">暂无 Model，请先添加 Provider</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Active model settings -->
+          <div style="margin-top: 24px;">
+            <h4>默认模型设置</h4>
+            <p class="muted" style="margin-bottom: 12px;">选择各类任务使用的默认模型 (model_id)。</p>
+            <div class="form-row" style="max-width: 400px;">
+              <label>摘要模型 (active_summary_model_id)</label>
+              <select x-model="llmSettingsDraft.active_summary_model_id"
+                      @change="saveLlmSetting('active_summary_model_id', llmSettingsDraft.active_summary_model_id)">
+                <option value="">— 使用默认 —</option>
+                <template x-for="m in llmModels.filter(x => x.enabled)" :key="m.id">
+                  <option :value="m.model_id" x-text="m.display_name + ' (' + m.model_id + ')'"></option>
+                </template>
+              </select>
+            </div>
+            <div class="form-row" style="max-width: 400px;">
+              <label>事实核查模型 (active_fact_check_model_id)</label>
+              <select x-model="llmSettingsDraft.active_fact_check_model_id"
+                      @change="saveLlmSetting('active_fact_check_model_id', llmSettingsDraft.active_fact_check_model_id)">
+                <option value="">— 使用默认 —</option>
+                <template x-for="m in llmModels.filter(x => x.enabled)" :key="m.id">
+                  <option :value="m.model_id" x-text="m.display_name + ' (' + m.model_id + ')'"></option>
+                </template>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Sub-tab 3: 用量统计 ── -->
+        <div x-show="llmTab === 'usage'">
+          <div class="toolbar" style="gap: 12px;">
+            <label>
+              天数:
+              <select x-model.number="llmUsageDays" @change="loadLlmUsage()" style="padding: 4px 8px;">
+                <option value="7">7 天</option>
+                <option value="30">30 天</option>
+                <option value="90">90 天</option>
+              </select>
+            </label>
+            <label>
+              分组:
+              <select x-model="llmUsageGroupBy" @change="loadLlmUsage()" style="padding: 4px 8px;">
+                <option value="module">按模块</option>
+                <option value="model">按模型</option>
+                <option value="date">按日期</option>
+              </select>
+            </label>
+            <button class="btn-refresh" @click="loadLlmUsage()">刷新</button>
+          </div>
+
+          <div x-show="!llmUsage" class="empty-row" style="margin-top: 24px;">
+            点击"刷新"加载用量数据
+          </div>
+
+          <div x-show="llmUsage" style="margin-top: 16px;">
+            <!-- Summary cards -->
+            <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 24px;">
+              <div style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 12px 20px; min-width: 140px;">
+                <div class="muted" style="font-size: 0.85em;">总请求数</div>
+                <div style="font-size: 1.4em; font-weight: bold;" x-text="(llmUsage?.summary?.total_requests ?? 0).toLocaleString()"></div>
+              </div>
+              <div style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 12px 20px; min-width: 140px;">
+                <div class="muted" style="font-size: 0.85em;">总 Token</div>
+                <div style="font-size: 1.4em; font-weight: bold;" x-text="(llmUsage?.summary?.total_tokens ?? 0).toLocaleString()"></div>
+              </div>
+              <div style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 12px 20px; min-width: 140px;">
+                <div class="muted" style="font-size: 0.85em;">总费用 (估)</div>
+                <div style="font-size: 1.4em; font-weight: bold;" x-text="'$' + (llmUsage?.summary?.total_cost ?? 0).toFixed(4)"></div>
+              </div>
+            </div>
+
+            <!-- Bar chart -->
+            <h4 x-text="llmUsageGroupBy === 'module' ? '按模块' : (llmUsageGroupBy === 'model' ? '按模型' : '按日期')"></h4>
+            <div x-show="llmUsageGroupBy === 'module'" style="margin-top: 12px;">
+              <template x-for="item in (llmUsage?.by_module || [])" :key="item.module || item.label">
+                <div style="display: flex; align-items: center; margin-bottom: 8px; gap: 12px;">
+                  <span style="min-width: 120px; text-align: right; font-size: 0.9em;" x-text="item.module || item.label"></span>
+                  <div style="flex: 1; background: #e9ecef; border-radius: 4px; height: 24px; position: relative;">
+                    <div :style="'height:100%;border-radius:4px;background:#2563EB;width:' + llmBarWidth(item, 'by_module') + '%;min-width:2px;'"></div>
+                  </div>
+                  <span style="min-width: 60px; font-size: 0.85em;" x-text="(item.total_tokens ?? item.tokens ?? 0).toLocaleString()"></span>
+                </div>
+              </template>
+              <div x-show="!llmUsage?.by_module || llmUsage.by_module.length === 0" class="muted">暂无数据</div>
+            </div>
+            <div x-show="llmUsageGroupBy === 'model'" style="margin-top: 12px;">
+              <template x-for="item in (llmUsage?.by_model || [])" :key="item.model || item.label">
+                <div style="display: flex; align-items: center; margin-bottom: 8px; gap: 12px;">
+                  <span style="min-width: 160px; text-align: right; font-size: 0.9em; word-break:break-all;" x-text="item.model || item.label"></span>
+                  <div style="flex: 1; background: #e9ecef; border-radius: 4px; height: 24px; position: relative;">
+                    <div :style="'height:100%;border-radius:4px;background:#16A34A;width:' + llmBarWidth(item, 'by_model') + '%;min-width:2px;'"></div>
+                  </div>
+                  <span style="min-width: 60px; font-size: 0.85em;" x-text="(item.total_tokens ?? item.tokens ?? 0).toLocaleString()"></span>
+                </div>
+              </template>
+              <div x-show="!llmUsage?.by_model || llmUsage.by_model.length === 0" class="muted">暂无数据</div>
+            </div>
+            <div x-show="llmUsageGroupBy === 'date'" style="margin-top: 12px;">
+              <template x-for="item in (llmUsage?.by_date || [])" :key="item.date || item.label">
+                <div style="display: flex; align-items: center; margin-bottom: 8px; gap: 12px;">
+                  <span style="min-width: 100px; text-align: right; font-size: 0.9em;" x-text="item.date || item.label"></span>
+                  <div style="flex: 1; background: #e9ecef; border-radius: 4px; height: 24px; position: relative;">
+                    <div :style="'height:100%;border-radius:4px;background:#8A71E8;width:' + llmBarWidth(item, 'by_date') + '%;min-width:2px;'"></div>
+                  </div>
+                  <span style="min-width: 60px; font-size: 0.85em;" x-text="(item.total_tokens ?? item.tokens ?? 0).toLocaleString()"></span>
+                </div>
+              </template>
+              <div x-show="!llmUsage?.by_date || llmUsage.by_date.length === 0" class="muted">暂无数据</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
     </main>
 
-    <!-- v1.0.4 — Article detail modal (BUG #7: "查看" internal modal) -->
+    <!-- ══ LLM Provider Form Modal ════════════════════════════════ -->
+    <div class="modal-overlay" x-show="llmProviderFormOpen" x-cloak
+         @click.self="closeLlmProviderForm()"
+         @keydown.escape.window="closeLlmProviderForm()">
+      <div class="modal modal-config">
+        <div class="modal-header">
+          <h3 x-text="llmProviderForm.id ? '编辑 Provider' : '新建 Provider'"></h3>
+        </div>
+        <div class="modal-body">
+          <div class="form-row">
+            <label>显示名 (name) <span class="required">*</span></label>
+            <input type="text" x-model="llmProviderForm.name" placeholder="e.g. Hermes Cloud">
+          </div>
+          <div class="form-row">
+            <label>hermes_provider <span class="required">*</span></label>
+            <input type="text" x-model="llmProviderForm.hermes_provider" placeholder="e.g. openai, anthropic">
+            <small class="muted">CLI 中的实际 provider 名称</small>
+          </div>
+          <div class="form-row">
+            <label>备注</label>
+            <textarea x-model="llmProviderForm.notes" rows="2" placeholder="可选"></textarea>
+          </div>
+          <p class="muted" x-show="llmProviderFormError" x-text="llmProviderFormError" style="color:#dc2626;"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" @click="closeLlmProviderForm()">取消</button>
+          <button class="btn-primary" :disabled="llmProviderFormSaving" @click="saveLlmProvider()">
+            <span x-text="llmProviderFormSaving ? '保存中…' : '保存'"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ LLM Model Form Modal ═══════════════════════════════════ -->
+    <div class="modal-overlay" x-show="llmModelFormOpen" x-cloak
+         @click.self="closeLlmModelForm()"
+         @keydown.escape.window="closeLlmModelForm()">
+      <div class="modal modal-config">
+        <div class="modal-header">
+          <h3 x-text="llmModelForm.id ? '编辑 Model' : '新建 Model'"></h3>
+        </div>
+        <div class="modal-body">
+          <div class="form-row">
+            <label>Provider <span class="required">*</span></label>
+            <select x-model="llmModelForm.provider_id" :disabled="!!llmModelForm.id">
+              <option value="">— 选择 Provider —</option>
+              <template x-for="p in llmProviders" :key="p.id">
+                <option :value="p.id" x-text="p.name + ' (' + p.hermes_provider + ')'"></option>
+              </template>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>model_id <span class="required">*</span></label>
+            <input type="text" x-model="llmModelForm.model_id" :disabled="!!llmModelForm.id"
+                   placeholder="e.g. gpt-4o, claude-sonnet-4-20250514">
+          </div>
+          <div class="form-row">
+            <label>显示名 (display_name) <span class="required">*</span></label>
+            <input type="text" x-model="llmModelForm.display_name" placeholder="e.g. GPT-4o">
+          </div>
+          <div class="form-row">
+            <label>用途 (use_for) <small class="muted">逗号分隔</small></label>
+            <input type="text" x-model="llmModelForm.use_for_text"
+                   placeholder="e.g. summary, fact_check, share">
+            <small class="muted">逗号分隔的用途标签,如 summary, fact_check</small>
+          </div>
+          <p class="muted" x-show="llmModelFormError" x-text="llmModelFormError" style="color:#dc2626;"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" @click="closeLlmModelForm()">取消</button>
+          <button class="btn-primary" :disabled="llmModelFormSaving" @click="saveLlmModel()">
+            <span x-text="llmModelFormSaving ? '保存中…' : '保存'"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ Article detail modal ════════════════════════════════ -->
     <div class="modal-backdrop" x-show="articleDetail" x-cloak @click.self="closeArticleDetail()">
       <div class="modal-content" x-show="articleDetail">
         <div class="modal-header">

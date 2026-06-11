@@ -9,6 +9,7 @@ PRD §4.4 / §4.7 薄壳模式。
 from __future__ import annotations
 
 import logging
+import os
 import re
 import subprocess
 from typing import Any
@@ -73,6 +74,7 @@ def call_llm(
         "-q", prompt,
         "--provider", provider,
         "-m", model,
+        "--profile", os.environ.get("MONI_HERMES_PROFILE", "moni"),
         "-Q",
     ]
     if extra_args:
