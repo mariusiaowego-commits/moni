@@ -26,6 +26,7 @@ class TokenLogger:
 
     def log(self, *, model: str, prompt_tokens: int, completion_tokens: int,
              total_tokens: int = 0, cost_usd: float | None = None,
+             module: str = "",
              **extra: Any) -> None:
         entry: dict[str, Any] = {
             "ts": datetime.now(timezone.utc).isoformat(),
@@ -34,6 +35,8 @@ class TokenLogger:
             "completion_tokens": completion_tokens,
             "total_tokens": total_tokens,
         }
+        if module:
+            entry["module"] = module
         if cost_usd is not None:
             entry["cost_usd"] = cost_usd
         if extra:

@@ -52,6 +52,7 @@ def call_llm(
     *,
     timeout: int = _TIMEOUT_SECONDS,
     extra_args: list[str] | None = None,
+    module: str = "",
 ) -> str:
     """Call Hermes chat CLI and return the text reply.
 
@@ -111,6 +112,7 @@ def call_llm(
             model=model,
             prompt_tokens=estimate_tokens(prompt),
             completion_tokens=estimate_tokens(reply),
+            module=module,
             extra={"provider": provider, "source": "hermes_chat_cli"},
         )
     except Exception as exc:  # logging must not fail the call

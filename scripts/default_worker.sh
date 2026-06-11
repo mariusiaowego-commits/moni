@@ -518,56 +518,21 @@ print(p.get('generation_approach',''))
     update_progress "$task_id" "invoking_llm" 60 \
         "正在调 hermes chat (timeout=${TIMEOUT_SECONDS}s) ..."
 
-    # Invoke hermes agent with 5-minute timeout (Python, works on macOS + Linux).
-    # v1.0.5.18: pass through optional --provider / --model flags from
-    # the manifest payload, so the user can override the default
-    # hermes profile's choice when one provider's quota is exhausted.
+    # v1.0.5.19: Invoke LLM via call_llm() wrapper (unified path with
+    # token logging).  Write prompt to temp file to avoid shell escaping
+    # issues, then call shell_call.py which routes through call_llm().
     local hermes_exit=0
     local hermes_output
 
-    # Build the hermes argv.  Python's Popen needs a list, not a
-    # shell string, so we can't use bash arrays directly across the
-    # pipe boundary.  We encode the optional flags as positional
-    # arguments after the timeout and prompt.
-    local extra_args=""
-    [[ -n "$provider_override" ]] && extra_args+=" --provider $provider_override"
-    [[ -n "$model_override" ]] && extra_args+=" --model $model_override"
+    local prompt_file="/tmp/moni-prompt-${task_id}.txt"
+    printf '%s' "$prompt" > "$prompt_file"
 
-    hermes_output=$(python3 - "$TIMEOUT_SECONDS" "$prompt" "$extra_args" <<'PYEOF'
-import subprocess, sys, signal, shlex
+    local call_args=("--prompt-file" "$prompt_file" "--module" "share-content")
+    [[ -n "$provider_override" ]] && call_args+=("--provider" "$provider_override")
+    [[ -n "$model_override" ]] && call_args+=("--model" "$model_override")
 
-timeout_sec = int(sys.argv[1])
-prompt_text = sys.argv[2]
-extra_args_str = sys.argv[3] if len(sys.argv) > 3 else ""
-
-# Base argv: hermes -z <prompt> --profile default
-argv = ["hermes", "-z", prompt_text, "--profile", "default"]
-# Append the user-supplied --provider / --model flags if any.
-# We use shlex.split so values with spaces are quoted correctly.
-if extra_args_str.strip():
-    argv.extend(shlex.split(extra_args_str))
-
-proc = subprocess.Popen(
-    argv,  # v1.0.5.18 bug fix: was missing the args positional
-            # parameter (the Popen call only had kwargs, so the
-            # interpreter raised "missing 1 required positional
-            # argument: 'args'" and the worker reported exit 1).
-    stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
-    text=True,
-)
-
-try:
-    stdout, _ = proc.communicate(timeout=timeout_sec)
-    sys.stdout.write(stdout)
-    sys.exit(proc.returncode)
-except subprocess.TimeoutExpired:
-    proc.kill()
-    proc.wait()
-    sys.stderr.write(f"timeout after {timeout_sec}s\n")
-    sys.exit(124)
-PYEOF
-) || hermes_exit=$?
+    hermes_output=$(python3 "$REPO_ROOT/moni/llm/shell_call.py" "${call_args[@]}" 2>&1) || hermes_exit=$?
+    rm -f "$prompt_file"
 
     if [[ $hermes_exit -eq 124 ]]; then
         error_msg="timeout after ${TIMEOUT_SECONDS}s"

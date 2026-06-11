@@ -16,10 +16,8 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import sqlite3
-import subprocess
 import sys
 from datetime import datetime, timezone
 
@@ -104,31 +102,72 @@ def _build_prompt(articles: list[tuple[str, str, str]]) -> str:
     return SUMMARY_PROMPT.format(articles_text=articles_text)
 
 
-def _invoke_hermes(
-    prompt: str,
-    timeout_sec: int = 120,
-    extra_args: list[str] | None = None,
-) -> tuple[str, int]:
-    """Invoke hermes CLI and return (stdout, exit_code)."""
-    argv = ["hermes", "-z", prompt, "--profile", "default"]
-    if extra_args:
-        argv.extend(extra_args)
-    proc: subprocess.Popen | None = None
+def _resolve_provider_model(
+    manifest_path: str | None = None,
+) -> tuple[str, str]:
+    """Resolve provider/model from manifest payload or DB active model.
+
+    Returns (provider, model) tuple.  Falls back to sensible defaults
+    if neither manifest nor DB has configuration.
+    """
+    # 1. Try manifest payload (user override)
+    if manifest_path:
+        try:
+            d = json.load(open(manifest_path))
+            p = d.get("payload", {}) if isinstance(d.get("payload"), dict) else {}
+            prov = p.get("provider") or ""
+            mod = p.get("model") or ""
+            if prov and mod:
+                return prov, mod
+        except Exception:
+            pass
+
+    # 2. Try DB active model (llm_settings → llm_models → llm_providers)
     try:
-        proc = subprocess.Popen(
-            argv,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        stdout, _ = proc.communicate(timeout=timeout_sec)
-        return stdout, proc.returncode
-    except subprocess.TimeoutExpired:
-        if proc:
-            proc.kill()
-            proc.wait()
-        return "", 124
+        from moni.db.connection import get_db
+        conn = get_db()
+        row = conn.execute(
+            "SELECT value FROM llm_settings WHERE key='active_summary_model_id'"
+        ).fetchone()
+        if row:
+            model_id = row["value"]
+            model_row = conn.execute(
+                "SELECT model_id, provider_id FROM llm_models WHERE id=?",
+                (model_id,),
+            ).fetchone()
+            if model_row:
+                provider_row = conn.execute(
+                    "SELECT name FROM llm_providers WHERE id=?",
+                    (model_row["provider_id"],),
+                ).fetchone()
+                if provider_row:
+                    return provider_row["hermes_provider"], model_row["model_id"]
+    except Exception:
+        pass
+
+    # 3. Fallback defaults
+    return "google", "gemini-2.5-flash"
+
+
+def _invoke_llm(
+    prompt: str,
+    manifest_path: str | None = None,
+) -> tuple[str, int]:
+    """Call LLM via moni.llm.client.call_llm() and return (output, exit_code).
+
+    Uses module='share-summary' for token logging.
+    Returns ("", exit_code) on failure instead of raising.
+    """
+    provider, model = _resolve_provider_model(manifest_path)
+    try:
+        from moni.llm.client import call_llm
+        reply = call_llm(provider, model, prompt, module="share-summary")
+        return reply, 0
+    except RuntimeError as exc:
+        log.warning("summary_gen: call_llm failed: %s", exc)
+        return str(exc), 1
     except Exception as exc:
+        log.warning("summary_gen: unexpected error: %s", exc)
         return str(exc), 1
 
 
@@ -221,29 +260,11 @@ def generate_and_writeback(
 
     log.info("summary_gen: %d article(s) need AI summaries", len(need))
 
-    # 2. Read provider/model overrides from manifest
-    extra_args: list[str] = []
-    if manifest_path:
-        try:
-            d = json.load(open(manifest_path))
-            p = d.get("payload", {}) if isinstance(d.get("payload"), dict) else {}
-            prov = p.get("provider") or ""
-            model = p.get("model") or ""
-            if prov:
-                extra_args.extend(["--provider", prov])
-            if model:
-                extra_args.extend(["--model", model])
-        except Exception:
-            pass
-
     # 3. Process articles one at a time for reliability.
-    # The LLM sometimes skips articles when batched — single-article
-    # calls are more reliable and the cost is acceptable (1-2 articles
-    # is the common case).
     all_summaries: dict[str, str] = {}
     for aid, title, content in need:
         prompt = _build_prompt([(aid, title, content)])
-        output, exit_code = _invoke_hermes(prompt, timeout_sec=120, extra_args=extra_args)
+        output, exit_code = _invoke_llm(prompt, manifest_path)
 
         if exit_code != 0:
             log.warning(
