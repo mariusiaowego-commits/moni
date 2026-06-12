@@ -54,19 +54,22 @@ from moni.db.connection import get_db
 logger = logging.getLogger(__name__)
 
 
-def _load_tag_keywords_for_source(source_name: str) -> list[str]:
-    """Return the deduplicated union of keywords from every tag bound
+def _load_tag_keywords_for_source(source_name: str) -> dict[str, list[str]]:
+    """Return a dict of {tag_name: [keywords]} from every tag bound
     to the given source (by source ``name``, e.g. ``mpaypass``).
 
     Tags whose ``keywords`` is NULL or empty are skipped — they
     contribute nothing to the OR set.  This is the "any tag with
     keywords is enough" semantics: even if just one of the bound
     tags has keywords, the filter still runs.
+
+    v1.0.5.20: 返回 {tag_name: [keywords]} 而不是 [keywords]，
+    以便记录每个关键词属于哪个 tag。
     """
     conn = get_db()
     rows = conn.execute(
         """
-        SELECT t.keywords
+        SELECT t.name, t.keywords
         FROM source_tags st
         JOIN sources s         ON s.id  = st.source_id
         JOIN tag_definitions t  ON t.name = st.tag_name
@@ -75,8 +78,9 @@ def _load_tag_keywords_for_source(source_name: str) -> list[str]:
         """,
         (source_name,),
     ).fetchall()
-    keywords: list[str] = []
+    tag_keywords: dict[str, list[str]] = {}
     for r in rows:
+        tag_name = r["name"]
         raw = r["keywords"]
         if not raw:
             continue
@@ -85,34 +89,25 @@ def _load_tag_keywords_for_source(source_name: str) -> list[str]:
         except (TypeError, json.JSONDecodeError):
             logger.warning(
                 "[tag_filter] tag %r has invalid JSON keywords — skipping",
-                # tag name isn't in the SELECT — we have only its keywords.
-                # Logging the raw value is enough to find it.
-                raw,
+                tag_name,
             )
             continue
         if not isinstance(arr, list):
             continue
-        for kw in arr:
-            if isinstance(kw, str) and kw.strip():
-                keywords.append(kw.strip())
-    # De-dupe while preserving order (so test assertions stay stable).
-    seen: set[str] = set()
-    out: list[str] = []
-    for kw in keywords:
-        if kw not in seen:
-            seen.add(kw)
-            out.append(kw)
-    return out
+        kws = [kw.strip() for kw in arr if isinstance(kw, str) and kw.strip()]
+        if kws:
+            tag_keywords[tag_name] = kws
+    return tag_keywords
 
 
 def apply_tag_keyword_filter(
     source: str,
     articles: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], dict[str, int]]:
+) -> tuple[list[dict[str, Any]], dict[str, int], list[dict[str, Any]]]:
     """Drop articles whose title+content doesn't hit any of the
     source's tag-bound keywords.
 
-    Returns ``(kept_articles, stats)`` where ``stats`` has:
+    Returns ``(kept_articles, stats, keyword_hits)`` where ``stats`` has:
         * ``input``              — how many we received
         * ``kept``               — how many survived
         * ``dropped_tag_filter``  — how many were dropped here
@@ -120,6 +115,7 @@ def apply_tag_keyword_filter(
                                    OR set (0 means the filter was
                                    effectively disabled, no tags
                                    carry keywords)
+        * ``keyword_hits``       — list of {article_url, keyword, tag_name, filter_id, hit_field}
 
     Empty keyword set → no-op (kept = input).  This is the
     backwards-compat path: a tag system with no keywords configured
@@ -132,23 +128,49 @@ def apply_tag_keyword_filter(
         "tags_used": 0,
     }
     if not articles:
-        return articles, stats
+        return articles, stats, []
 
-    keywords = _load_tag_keywords_for_source(source)
-    stats["tags_used"] = len(keywords)
-    if not keywords:
+    tag_keywords = _load_tag_keywords_for_source(source)
+    # 合并所有 tag 的关键词用于过滤（OR 语义）
+    all_keywords: list[str] = []
+    seen: set[str] = set()
+    for kws in tag_keywords.values():
+        for kw in kws:
+            if kw not in seen:
+                seen.add(kw)
+                all_keywords.append(kw)
+
+    stats["tags_used"] = len(all_keywords)
+    if not all_keywords:
         # No tag is bound to this source, or no tag carries keywords.
         # Pass through unchanged.
         stats["kept"] = len(articles)
-        return articles, stats
+        return articles, stats, []
 
+    # v1.0.5.20: 记录命中的关键词及其所属 tag
+    keyword_hits: list[dict[str, Any]] = []
     kept: list[dict[str, Any]] = []
     for art in articles:
         title = (art.get("title") or "").strip()
         content = (art.get("content") or art.get("raw_content") or "").strip()
         haystack = title + "\n" + content
-        hit = any(kw in haystack for kw in keywords)
-        if hit:
+        art_url = art.get("url", "")
+
+        # 检查每个 tag 的命中情况
+        article_hit_tags: set[str] = set()
+        for tag_name, kws in tag_keywords.items():
+            for kw in kws:
+                if kw in haystack:
+                    keyword_hits.append({
+                        "article_url": art_url,
+                        "keyword": kw,
+                        "tag_name": tag_name,
+                        "filter_id": None,
+                        "hit_field": "title+content",
+                    })
+                    article_hit_tags.add(tag_name)
+
+        if article_hit_tags:
             kept.append(art)
         else:
             stats["dropped_tag_filter"] += 1
@@ -160,4 +182,4 @@ def apply_tag_keyword_filter(
             source, stats["kept"], stats["input"],
             stats["dropped_tag_filter"], stats["tags_used"],
         )
-    return kept, stats
+    return kept, stats, keyword_hits

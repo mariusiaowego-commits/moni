@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -27,30 +28,25 @@ def _row_to_article(row: dict[str, Any]) -> Article:
     v1.0.4: row includes 'source' (TEXT, name) and 'tags' (comma-joined
     string from GROUP_CONCAT).
     v1.0.5.12: each tag in the comma-joined string is "name" or
-    "name|color" (color from tag_definitions.color).  We split the
-    pipe to extract both, falling back to color=None if not present
-    or empty.  This way the frontend can render chips with the
-    user-chosen colour from /config.
-    v1.0.5.14: format extended to "name|display_name|color".  The
-    middle field is the human-friendly Chinese / unicode name the
-    user typed in /config; the frontend renders that string in the
-    chip with `name` as a fallback.  Splits with a max of 2 so a
-    `display_name` that itself contains a pipe (rare but legal)
-    still round-trips correctly.
-    v1.0.5.20: row includes 'keyword_hits' (comma-joined string from
-    GROUP_CONCAT). Format: "keyword1|filter_id1|hit_field1,keyword2|..."
+    "name|color" (color from tag_definitions.color).
+    v1.0.5.14: format extended to "name|display_name|color".
+    v1.0.5.20: row includes 'tag_keyword_hits' (JSON dict of
+    {tag_name: [keywords]}). Each tag gets its own keyword_hits.
     """
+    # v1.0.5.20: parse tag_keyword_hits (JSON)
+    tag_hits_str = row.get("tag_keyword_hits") or "{}"
+    tag_hits: dict[str, list[str]] = {}
+    try:
+        tag_hits = json.loads(tag_hits_str) if tag_hits_str else {}
+    except (json.JSONDecodeError, TypeError):
+        pass
+
     tags_str = row.get("tags") or ""
     tags: list[TagRef] = []
     for raw in tags_str.split(","):
         raw = raw.strip()
         if not raw:
             continue
-        # Each tag has 1-3 fields separated by '|':
-        #   "name"            → legacy rows (pre-v1.0.5.14)
-        #   "name|color"      → v1.0.5.12 era
-        #   "name||color"     → v1.0.5.14 with empty display_name
-        #   "name|disp|color" → v1.0.5.14 with all three set
         parts = raw.split("|", 2)
         if len(parts) == 1:
             name, display_name, color = parts[0], None, None
@@ -60,15 +56,9 @@ def _row_to_article(row: dict[str, Any]) -> Article:
             name, display_name, color = parts
             display_name = display_name.strip() or None
             color = color.strip() or None
-        tags.append(TagRef(name=name, display_name=display_name, color=color))
-
-    # v1.0.5.20: parse keyword_hits
-    keyword_hits_str = row.get("keyword_hits") or ""
-    keyword_hits: list[str] = []
-    for raw in keyword_hits_str.split(","):
-        raw = raw.strip()
-        if raw:
-            keyword_hits.append(raw)
+        # v1.0.5.20: 给每个 tag 附上该 tag 下的命中关键词
+        hits = tag_hits.get(name, [])
+        tags.append(TagRef(name=name, display_name=display_name, color=color, keyword_hits=hits))
 
     return Article(
         id=row["id"],
@@ -83,7 +73,6 @@ def _row_to_article(row: dict[str, Any]) -> Article:
         is_deleted=False,
         created_at=row["fetched_at"],
         updated_at=row["fetched_at"],
-        keyword_hits=keyword_hits,
     )
 
 
@@ -159,9 +148,11 @@ def list_articles(
                   FROM article_tags at
                   LEFT JOIN tag_definitions td ON td.name = at.tag_name
                  WHERE at.article_id = a.id) AS tags,
-               (SELECT GROUP_CONCAT(keyword, ',')
-                  FROM article_keyword_hits akh
-                 WHERE akh.article_id = a.id) AS keyword_hits
+               (SELECT '{{' || GROUP_CONCAT('"' || tag_name || '":[' || keywords || ']') || '}}'
+                  FROM (SELECT tag_name, GROUP_CONCAT('"' || keyword || '"') as keywords
+                          FROM article_keyword_hits
+                         WHERE article_id = a.id
+                         GROUP BY tag_name)) AS tag_keyword_hits
         FROM articles a
         {where_sql}
         ORDER BY a.fetched_at DESC
@@ -194,9 +185,11 @@ def get_article(article_id: str) -> Article:
                   FROM article_tags at
                   LEFT JOIN tag_definitions td ON td.name = at.tag_name
                  WHERE at.article_id = a.id) AS tags,
-               (SELECT GROUP_CONCAT(keyword, ',')
-                  FROM article_keyword_hits akh
-                 WHERE akh.article_id = a.id) AS keyword_hits
+               (SELECT '{{' || GROUP_CONCAT('"' || tag_name || '":[' || keywords || ']') || '}}'
+                  FROM (SELECT tag_name, GROUP_CONCAT('"' || keyword || '"') as keywords
+                          FROM article_keyword_hits
+                         WHERE article_id = a.id
+                         GROUP BY tag_name)) AS tag_keyword_hits
         FROM articles a
         WHERE a.id = ?
         """,

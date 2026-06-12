@@ -29,6 +29,8 @@ class TagRef(BaseModel):
     name: str
     display_name: str | None = None
     color: str | None = None
+    # v1.0.5.20: 该 tag 下命中的关键词
+    keyword_hits: list[str] = []
 
 
 class Article(BaseModel):
@@ -48,8 +50,6 @@ class Article(BaseModel):
     is_deleted: bool = False
     created_at: datetime
     updated_at: datetime
-    # v1.0.5.20: 文章命中的关键词列表
-    keyword_hits: list[str] = []
 
     model_config = ConfigDict(from_attributes=True)
 
