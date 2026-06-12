@@ -619,12 +619,11 @@ PYEOF
     fi
 
     if [[ -z "$output_path" ]]; then
-            # Fall back to a default location under MONI_OUTPUT_DIR
-            local output_dir="${MONI_OUTPUT_DIR:-$HOME/.moni/output}"
-            mkdir -p "$output_dir"
-            output_path="$output_dir/${task_id}.out"
-            echo "$hermes_output" > "$output_path"
-        fi
+        # Fall back to a default location under MONI_OUTPUT_DIR
+        local output_dir="${MONI_OUTPUT_DIR:-$HOME/.moni/output}"
+        mkdir -p "$output_dir"
+        output_path="$output_dir/${task_id}.out"
+        echo "$hermes_output" > "$output_path"
     fi
 
     # v1.0.5.17: 5-stage progress tracking.  Each stage transition
