@@ -175,7 +175,7 @@ prompt_file_for_format() {
         rich_text)        echo "format-rich-text.md" ;;
         report_png)       echo "format-report-png.md" ;;
         plain_text)       echo "" ;;  # no LLM pass
-        info_graphic_png) echo "" ;;  # baoyu-infographic skill has its own prompt
+        info_graphic_png) echo "format-info-graphic-png.md" ;;
         *)                echo "" ;;
     esac
 }
