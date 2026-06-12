@@ -452,13 +452,13 @@ PYEOF
         [[ -f "$format_prompt_file" ]] && format_prompt=$(<"$format_prompt_file")
     fi
 
-    # Skill clause — for non-report_png formats, we use the format's
-    # own skill_for_format() mapping.  For report_png, the skill is
-    # derived from the user's generation_approach choice (defaulting
-    # to baoyu-infographic if unspecified).
+    # Skill clause — for non-png formats, we use the format's
+    # own skill_for_format() mapping.  For report_png and info_graphic_png,
+    # the skill is derived from the user's generation_approach choice
+    # (defaulting to baoyu-infographic if unspecified).
     local skill_clause=""
     local effective_skill="$skill_name"
-    if [[ "$format" == "report_png" ]]; then
+    if [[ "$format" == "report_png" || "$format" == "info_graphic_png" ]]; then
         local approach
         approach=$(python3 -c "
 import json

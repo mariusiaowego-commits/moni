@@ -839,7 +839,7 @@ function app() {
       // the user actually configured.
       if (this.shareProvider) payload.provider = this.shareProvider;
       if (this.shareModel)    payload.model    = this.shareModel;
-      if (this.shareFormat === 'report_png' && this.sharePngApproach) {
+      if ((this.shareFormat === 'report_png' || this.shareFormat === 'info_graphic_png') && this.sharePngApproach) {
         payload.generation_approach = this.sharePngApproach;
       }
       if (this.shareFormatNeedsTitle()) {

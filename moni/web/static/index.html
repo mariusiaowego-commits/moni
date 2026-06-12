@@ -425,10 +425,10 @@
           </details>
         </div>
 
-        <!-- v1.0.5.18: report_png 专用 — 生图方式选择 (4 种 approach).
+        <!-- v1.0.5.18: report_png / info_graphic_png 专用 — 生图方式选择 (4 种 approach).
              Per PRD §4: baoyu-infographic (default) / ljg-card / kami / direct.
-             Only rendered when shareFormat === 'report_png' (x-show). -->
-        <div class="share-section" x-show="shareFormat === 'report_png'">
+             Only rendered when shareFormat is a PNG format (x-show). -->
+        <div class="share-section" x-show="shareFormat === 'report_png' || shareFormat === 'info_graphic_png'">
           <h4>生图方式</h4>
           <select x-model="sharePngApproach" style="width: 100%; max-width: 320px;">
             <option value="baoyu-infographic">信息图风格 (baoyu-infographic, 默认)</option>
