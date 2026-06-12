@@ -198,10 +198,10 @@ class BaseFetcher(ABC):
                 source, cleaned_count,
             )
 
-        # ── keyword filter (v1.0.2) ──────────────────────────────────────
+        # ── keyword filter (v1.0.2) ──────────────────────────────
         # 应用 source_keyword_filters (黑/白名单). 无 filter 时全保留.
         from .filters import apply_keyword_filters
-        filtered_articles, filter_stats = apply_keyword_filters(
+        filtered_articles, filter_stats, keyword_hits = apply_keyword_filters(
             source, parsed_articles
         )
         if filter_stats["filters_applied"] > 0:
@@ -241,7 +241,7 @@ class BaseFetcher(ABC):
         inserted = 0
         if filtered_articles and not dry_run:
             try:
-                inserted = self.dedupe_insert(filtered_articles)
+                inserted = self.dedupe_insert(filtered_articles, keyword_hits)
             except Exception as exc:
                 logger.error("[%s] dedupe_insert() raised %s: %s",
                              source, type(exc).__name__, exc)

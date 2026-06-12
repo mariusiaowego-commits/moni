@@ -37,6 +37,8 @@ def _row_to_article(row: dict[str, Any]) -> Article:
     chip with `name` as a fallback.  Splits with a max of 2 so a
     `display_name` that itself contains a pipe (rare but legal)
     still round-trips correctly.
+    v1.0.5.20: row includes 'keyword_hits' (comma-joined string from
+    GROUP_CONCAT). Format: "keyword1|filter_id1|hit_field1,keyword2|..."
     """
     tags_str = row.get("tags") or ""
     tags: list[TagRef] = []
@@ -59,6 +61,15 @@ def _row_to_article(row: dict[str, Any]) -> Article:
             display_name = display_name.strip() or None
             color = color.strip() or None
         tags.append(TagRef(name=name, display_name=display_name, color=color))
+
+    # v1.0.5.20: parse keyword_hits
+    keyword_hits_str = row.get("keyword_hits") or ""
+    keyword_hits: list[str] = []
+    for raw in keyword_hits_str.split(","):
+        raw = raw.strip()
+        if raw:
+            keyword_hits.append(raw)
+
     return Article(
         id=row["id"],
         source=row["source"],
@@ -72,6 +83,7 @@ def _row_to_article(row: dict[str, Any]) -> Article:
         is_deleted=False,
         created_at=row["fetched_at"],
         updated_at=row["fetched_at"],
+        keyword_hits=keyword_hits,
     )
 
 
@@ -146,7 +158,10 @@ def list_articles(
                   END, ',')
                   FROM article_tags at
                   LEFT JOIN tag_definitions td ON td.name = at.tag_name
-                 WHERE at.article_id = a.id) AS tags
+                 WHERE at.article_id = a.id) AS tags,
+               (SELECT GROUP_CONCAT(keyword, ',')
+                  FROM article_keyword_hits akh
+                 WHERE akh.article_id = a.id) AS keyword_hits
         FROM articles a
         {where_sql}
         ORDER BY a.fetched_at DESC
@@ -178,7 +193,10 @@ def get_article(article_id: str) -> Article:
                   END, ',')
                   FROM article_tags at
                   LEFT JOIN tag_definitions td ON td.name = at.tag_name
-                 WHERE at.article_id = a.id) AS tags
+                 WHERE at.article_id = a.id) AS tags,
+               (SELECT GROUP_CONCAT(keyword, ',')
+                  FROM article_keyword_hits akh
+                 WHERE akh.article_id = a.id) AS keyword_hits
         FROM articles a
         WHERE a.id = ?
         """,

@@ -133,16 +133,26 @@ function app() {
     // Returns the tag's description + keywords, or a fallback when the
     // tag isn't in the map yet.  Falls back gracefully during the
     // race between /api/config/tags loading and the first render.
-    formatTagTooltip(tagName) {
+    // v1.0.5.20: 高亮命中的关键词
+    formatTagTooltip(tagName, keywordHits = []) {
       const info = this.tagTooltipMap[tagName];
       if (!info) {
         return tagName + ' — 尚未加载 tag 描述';
       }
       const desc = info.description || '(无描述)';
       const kws = Array.isArray(info.keywords) && info.keywords.length > 0
-        ? info.keywords.join(', ')
+        ? info.keywords.map(kw => {
+            // 高亮命中的关键词
+            if (keywordHits.includes(kw)) {
+              return '【' + kw + '】';
+            }
+            return kw;
+          }).join(', ')
         : '(无关键词)';
-      return `${tagName}\n${desc}\n关键词: ${kws}\n(OR 匹配: 任一关键词命中即通过)`;
+      const hitKws = keywordHits.length > 0
+        ? '\n命中关键词: ' + keywordHits.join(', ')
+        : '';
+      return `${tagName}\n${desc}\n关键词: ${kws}${hitKws}\n(OR 匹配: 任一关键词命中即通过)`;
     },
 
     filterFiltersBySource() {

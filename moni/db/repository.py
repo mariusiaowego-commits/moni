@@ -19,7 +19,7 @@ class ArticleRepository:
     v1.0: single-method ``dedupe_insert()`` is all the fetch pipeline needs.
     """
 
-    def dedupe_insert(self, articles: Sequence[dict[str, Any]]) -> int:
+    def dedupe_insert(self, articles: Sequence[dict[str, Any]], keyword_hits: Sequence[dict[str, Any]] = ()) -> int:
         """Insert articles, skipping rows whose (source, url) already exist.
 
         v1.0.5: also copies ``source_tags`` into ``article_tags`` for every
@@ -28,10 +28,15 @@ class ArticleRepository:
         JOIN).  Pre-existing rows are not retroactively tagged — use
         ``backfill_article_tags_from_source_tags`` for that.
 
+        v1.0.5.20: records keyword hits into ``article_keyword_hits`` table
+        so the frontend can highlight which keywords matched.
+
         Args:
             articles: Sequence of normalised article dicts.
                 Required keys: ``title``, ``url``, ``source``.
                 Optional keys: ``published_at``, ``content``, ``publisher``.
+            keyword_hits: Sequence of keyword hit dicts.
+                Each dict: {article_url, keyword, filter_id, hit_field}
 
         Returns:
             Number of rows actually inserted (i.e. new articles, not duplicates).
@@ -41,6 +46,9 @@ class ArticleRepository:
 
         conn = get_db()
         inserted = 0
+
+        # v1.0.5.20: 建立 url -> article_id 的映射，用于记录 keyword_hits
+        url_to_id: dict[str, str] = {}
 
         for art in articles:
             title: str = art["title"]
@@ -80,10 +88,17 @@ class ArticleRepository:
                     # new row.  ``predicted = 0`` because the tag came
                     # from the source-level config, not from an LLM call.
                     self._copy_source_tags_to_article(aid, source, predicted=0)
+                # v1.0.5.20: 记录 url -> article_id 映射（不管是否新插入）
+                url_to_id[url] = aid
             except Exception as exc:
                 logger.warning("Failed to insert article %s (%s): %s", url, source, exc)
 
         conn.commit()
+
+        # v1.0.5.20: 记录 keyword hits
+        if keyword_hits:
+            self._insert_keyword_hits(conn, keyword_hits, url_to_id)
+
         return inserted
 
     @staticmethod
@@ -169,6 +184,53 @@ class ArticleRepository:
             "tagged": tagged,
             "already_tagged": already_tagged,
         }
+
+    @staticmethod
+    def _insert_keyword_hits(
+        conn: Any,
+        keyword_hits: Sequence[dict[str, Any]],
+        url_to_id: dict[str, str],
+    ) -> int:
+        """Insert keyword hits into article_keyword_hits table.
+
+        Args:
+            conn: Database connection
+            keyword_hits: List of {article_url, keyword, filter_id, hit_field}
+            url_to_id: Mapping of article URL -> article_id
+
+        Returns:
+            Number of rows inserted
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        inserted = 0
+        for hit in keyword_hits:
+            article_url = hit.get("article_url", "")
+            article_id = url_to_id.get(article_url)
+            if not article_id:
+                continue
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO article_keyword_hits
+                        (article_id, keyword, filter_id, hit_field, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        article_id,
+                        hit.get("keyword", ""),
+                        hit.get("filter_id"),
+                        hit.get("hit_field", "title+content"),
+                        now,
+                    ),
+                )
+                inserted += 1
+            except Exception as exc:
+                logger.warning(
+                    "Failed to insert keyword hit for article %s: %s",
+                    article_url, exc,
+                )
+        conn.commit()
+        return inserted
 
     def get_by_id(self, article_id: str) -> dict[str, Any] | None:
         """Return a full article dict by its id, or None if not found."""
