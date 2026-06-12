@@ -151,6 +151,7 @@ class InfoGraphicPngPayload(BaseModel):
     include_fact_check: bool = Field(default=False)
     provider: str | None = Field(default=None)
     model: str | None = Field(default=None)
+    generation_approach: str = Field(default="baoyu-infographic", description="baoyu-infographic / ljg-card / kami / direct")
 
 
 class RichTextPayload(BaseModel):

@@ -1126,12 +1126,11 @@ class TestShareV18ReportPng:
     def test_non_report_png_format_rejects_approach(
         self, client: TestClient, seeded_article: str,
     ):
-        """generation_approach is report_png-specific.  Sending it
-        on any other format must raise 400 (extra='forbid')."""
+        """generation_approach is report_png/info_graphic_png-specific.
+        Sending it on any other format must raise 400 (extra='forbid')."""
         for fmt, extra_payload in (
             ("markdown",      {}),
             ("rich_text",     {}),
-            ("info_graphic_png", {}),
             ("html_landing",  {"title": "Test"}),
             ("plain_text",    {}),
         ):
