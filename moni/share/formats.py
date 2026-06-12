@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class FormatEnum(str, Enum):
-    """All supported share/export formats (v1.0.5.18).
+    """All supported share/export formats (v1.0.5.21).
 
     v1.0.5.18 dropped 6 formats (architecture_svg, knowledge_comic,
     ascii_art, ascii_video, pdf_bound, ppt_slides) — they were
@@ -31,6 +31,7 @@ class FormatEnum(str, Enum):
     Two new formats were added: rich_text (a content-rich Markdown
     variant) and report_png (a one-image content report, with
     four generation-approach choices).
+    v1.0.5.21: added pdf format.
     """
 
     PLAIN_TEXT = "plain_text"
@@ -39,6 +40,7 @@ class FormatEnum(str, Enum):
     INFO_GRAPHIC_PNG = "info_graphic_png"
     RICH_TEXT = "rich_text"          # 🆕 v1.0.5.18
     REPORT_PNG = "report_png"        # 🆕 v1.0.5.18
+    PDF = "pdf"                      # 🆕 v1.0.5.21
 
 
 VALID_FORMATS: set[str] = {f.value for f in FormatEnum}
@@ -172,6 +174,23 @@ class RichTextPayload(BaseModel):
     model: str | None = Field(default=None)
 
 
+class PdfPayload(BaseModel):
+    """PDF 日报格式 (🆕 v1.0.5.21).
+
+    生成一份 PDF 格式的日报，展示文章的核心内容。
+    排版风格参考 BestBlogs.dev 日报格式。
+    """
+
+    model_config = _extra_forbid
+
+    article_ids: list[str] = Field(..., description="Articles to include")
+    title: str = Field(default="同业追踪日报", description="报告总标题")
+    include_abstract: bool = Field(default=True)
+    include_fact_check: bool = Field(default=False)
+    provider: str | None = Field(default=None)
+    model: str | None = Field(default=None)
+
+
 class ReportPngPayload(BaseModel):
     """One-image content report (🆕 v1.0.5.18).
 
@@ -259,6 +278,7 @@ _FORMAT_MODELS: dict[str, type[BaseModel]] = {
     FormatEnum.INFO_GRAPHIC_PNG.value: InfoGraphicPngPayload,
     FormatEnum.RICH_TEXT.value: RichTextPayload,           # 🆕
     FormatEnum.REPORT_PNG.value: ReportPngPayload,         # 🆕
+    FormatEnum.PDF.value: PdfPayload,                      # 🆕 v1.0.5.21
 }
 
 

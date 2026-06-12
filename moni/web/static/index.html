@@ -442,15 +442,15 @@
           </small>
         </div>
 
-        <!-- v1.0.5.20: info_graphic_png 专用 — 标题输入框.
-             用户可以自定义信息图的总标题，默认"同业追踪日报". -->
-        <div class="share-section" x-show="shareFormat === 'info_graphic_png'">
-          <h4>信息图标题</h4>
+        <!-- v1.0.5.20: info_graphic_png / pdf 专用 — 标题输入框.
+             用户可以自定义信息图/PDF 的总标题，默认"同业追踪日报". -->
+        <div class="share-section" x-show="shareFormat === 'info_graphic_png' || shareFormat === 'pdf'">
+          <h4>报告标题</h4>
           <input type="text" x-model="shareInfoGraphicTitle"
                  placeholder="同业追踪日报"
                  style="width: 100%; max-width: 320px;">
           <small class="muted">
-            信息图的总标题，默认"同业追踪日报".
+            信息图/PDF 的总标题，默认"同业追踪日报".
           </small>
         </div>
 

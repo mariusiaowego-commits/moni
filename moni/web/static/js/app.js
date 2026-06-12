@@ -731,6 +731,7 @@ function app() {
       { value: 'info_graphic_png',    label: '信息图 PNG' },
       { value: 'rich_text',           label: '富媒体文本' },  // 🆕
       { value: 'report_png',          label: '报告 PNG' },     // 🆕
+      { value: 'pdf',                 label: 'PDF 日报' },     // 🆕 v1.0.5.21
     ],
     // v1.0.5.18: 4 user-options (universal across all 6 formats, per
     // PRD §2).  include_abstract defaults to true (most users want
@@ -843,8 +844,8 @@ function app() {
       if ((this.shareFormat === 'report_png' || this.shareFormat === 'info_graphic_png') && this.sharePngApproach) {
         payload.generation_approach = this.sharePngApproach;
       }
-      // v1.0.5.20: info_graphic_png 格式传递用户自定义标题
-      if (this.shareFormat === 'info_graphic_png' && this.shareInfoGraphicTitle) {
+      // v1.0.5.20: info_graphic_png / pdf 格式传递用户自定义标题
+      if ((this.shareFormat === 'info_graphic_png' || this.shareFormat === 'pdf') && this.shareInfoGraphicTitle) {
         payload.title = this.shareInfoGraphicTitle.trim() || '同业追踪日报';
       }
       if (this.shareFormatNeedsTitle()) {

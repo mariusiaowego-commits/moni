@@ -176,6 +176,7 @@ prompt_file_for_format() {
         report_png)       echo "format-report-png.md" ;;
         plain_text)       echo "" ;;  # no LLM pass
         info_graphic_png) echo "format-info-graphic-png.md" ;;
+        pdf)              echo "format-pdf.md" ;;
         *)                echo "" ;;
     esac
 }
@@ -490,8 +491,8 @@ print(p.get('generation_approach',''))
     prompt+="---\n\n"
     prompt+="## 用户选项\n"
     [[ -n "$opts" ]] && prompt+="${opts}\n"
-    # v1.0.5.20: info_graphic_png 标题
-    if [[ "$format" == "info_graphic_png" && -n "$info_graphic_title" ]]; then
+    # v1.0.5.20: info_graphic_png / pdf 标题
+    if [[ "$format" == "info_graphic_png" || "$format" == "pdf" ]] && [[ -n "$info_graphic_title" ]]; then
         prompt+="信息图标题: ${info_graphic_title}\n"
     fi
     prompt+="---\n\n"
@@ -595,24 +596,29 @@ PYEOF
 
     # Success — extract output path from agent response if not already set
     if [[ -z "$output_path" ]]; then
-        # v1.0.5.19 fix: the old grep regex matched URLs like
-        # //www.mpaypass.com.cn/ and /体育用品/船舶运输 because
-        # [[:alnum:]_./-] includes dots and slashes.  Use Python
-        # with negative lookbehind to skip :// and // paths, then
-        # validate the path exists on the filesystem.
-        output_path=$(python3 -c "
-import re, os, sys
-text = sys.stdin.read()
-# (?<![:/]) rejects matches preceded by : (as in ://) or / (as in //)
-pattern = re.compile(r'(?<![:/])/[A-Za-z0-9_][A-Za-z0-9_./-]*')
-for m in pattern.finditer(text):
-    p = m.group(0)
-    if len(p) > 1 and os.path.exists(p):
-        print(p)
-        sys.exit(0)
-print('')
-" <<< "$hermes_output" 2>/dev/null || echo "")
-        if [[ -z "$output_path" ]]; then
+        # v1.0.5.21: pdf 格式后处理 — 将 Markdown 内容转换为 PDF
+        if [[ "$format" == "pdf" ]]; then
+            local pdf_dir="${ARTIFACTS_DIR:-$REPO_DIR/data/artifacts}"
+            mkdir -p "$pdf_dir"
+            local pdf_output="$pdf_dir/${task_id}.pdf"
+            local md_temp="/tmp/${task_id}.md"
+            
+            # 将 LLM 输出写到临时 Markdown 文件
+            echo "$hermes_output" > "$md_temp"
+            
+            # 调用 generate_pdf.py 生成 PDF
+            if python3 "$REPO_DIR/scripts/generate_pdf.py" "$md_temp" "$pdf_output" "$info_graphic_title" 2>&1; then
+                output_path="$pdf_output"
+                rm -f "$md_temp"
+                log "PDF generated: $pdf_output"
+            else
+                log "PDF generation failed, falling back to .out"
+                rm -f "$md_temp"
+            fi
+        fi
+    fi
+
+    if [[ -z "$output_path" ]]; then
             # Fall back to a default location under MONI_OUTPUT_DIR
             local output_dir="${MONI_OUTPUT_DIR:-$HOME/.moni/output}"
             mkdir -p "$output_dir"
@@ -634,12 +640,13 @@ print('')
         "正在写 artifact 到 $output_path ..."
 
     log "DONE $task_id -> $output_path"
+    log "DONE $task_id -> $output_path"
     task_status_update "$task_id" "done" "$output_path"
     # Bump pct to 100 alongside the done status so the UI bar fills
-    # exactly when the row turns green.
     sqlite3 "$DB_PATH" \
         "UPDATE share_tasks SET progress_pct=100 WHERE id='$task_id'" \
         >/dev/null 2>&1 || true
+    log "DONE $task_id -> $output_path"
     return 0
 }
 

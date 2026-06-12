@@ -124,6 +124,10 @@ _PAYLOADS_VALID: dict[str, dict[str, Any]] = {
     "report_png": {                             # 🆕 v1.0.5.18
         "article_ids": ["a1"],
     },
+    "pdf": {                                    # 🆕 v1.0.5.21
+        "article_ids": ["a1"],
+        "title": "测试日报",
+    },
 }
 
 
@@ -136,14 +140,15 @@ class TestSchemaValidation:
     """Each of the 6 v1.0.5.18 formats must validate correctly and reject bad input."""
 
     def test_valid_formats_set_has_6(self) -> None:
-        """The registry must contain exactly 6 v1.0.5.18 formats.
+        """The registry must contain exactly 7 v1.0.5.21 formats.
 
         v1.0.5.18: pruned 6 formats that had no real worker (ascii_art,
         ascii_video, architecture_svg, knowledge_comic, pdf_bound,
         ppt_slides) and added rich_text + report_png.  Frontend will
         also drop the 6 chips; 6 is the new canonical count.
+        v1.0.5.21: added pdf format.
         """
-        assert len(VALID_FORMATS) == 6
+        assert len(VALID_FORMATS) == 7
         # No concept_video (removed in v1.0.5.15), no architecture_svg /
         # knowledge_comic / ascii_art / ascii_video / pdf_bound /
         # ppt_slides (removed in v1.0.5.18).
