@@ -533,15 +533,20 @@ print(p.get('generation_approach',''))
     [[ -n "$provider_override" ]] && extra_args+=" --provider $provider_override"
     [[ -n "$model_override" ]] && extra_args+=" --model $model_override"
 
-    hermes_output=$(python3 - "$TIMEOUT_SECONDS" "$prompt" "$extra_args" <<'PYEOF'
-import subprocess, sys, signal, shlex
+    hermes_output=$(python3 - "$TIMEOUT_SECONDS" "$prompt" "$extra_args" "$effective_skill" <<'PYEOF'
+import os, subprocess, sys, signal, shlex
 
 timeout_sec = int(sys.argv[1])
 prompt_text = sys.argv[2]
 extra_args_str = sys.argv[3] if len(sys.argv) > 3 else ""
+skill_name = sys.argv[4] if len(sys.argv) > 4 else ""
 
-# Base argv: hermes -z <prompt> --profile default
-argv = ["hermes", "-z", prompt_text, "--profile", "default"]
+# Base argv: hermes -z <prompt> --profile <MONI_HERMES_PROFILE or moni>
+profile = os.environ.get("MONI_HERMES_PROFILE", "moni")
+argv = ["hermes", "-z", prompt_text, "--profile", profile]
+# Append skill if specified
+if skill_name.strip():
+    argv.extend(["-s", skill_name.strip()])
 # Append the user-supplied --provider / --model flags if any.
 # We use shlex.split so values with spaces are quoted correctly.
 if extra_args_str.strip():
