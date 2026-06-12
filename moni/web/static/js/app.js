@@ -745,6 +745,7 @@ function app() {
     // shareFormat === 'report_png').  Maps 1:1 to the 4 PRD §4
     // approaches.  Default 'baoyu-infographic' (most mature).
     sharePngApproach: 'baoyu-infographic',
+    shareInfoGraphicTitle: '同业追踪日报',
     shareQueue: [],
     _sharePollInterval: null,
 
@@ -841,6 +842,10 @@ function app() {
       if (this.shareModel)    payload.model    = this.shareModel;
       if ((this.shareFormat === 'report_png' || this.shareFormat === 'info_graphic_png') && this.sharePngApproach) {
         payload.generation_approach = this.sharePngApproach;
+      }
+      // v1.0.5.20: info_graphic_png 格式传递用户自定义标题
+      if (this.shareFormat === 'info_graphic_png' && this.shareInfoGraphicTitle) {
+        payload.title = this.shareInfoGraphicTitle.trim() || '同业追踪日报';
       }
       if (this.shareFormatNeedsTitle()) {
         const t = (this.shareFormatTitle || '').trim();

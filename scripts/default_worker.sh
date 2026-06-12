@@ -424,6 +424,7 @@ ia = p.get("include_abstract", True)
 fc = p.get("include_fact_check", False)
 prov = p.get("provider") or ""
 mod = p.get("model") or ""
+title = p.get("title") or ""
 def sq(s):
     # single-quote-wrap a string for safe shell eval
     return "'" + str(s).replace("'", "'\"'\"'") + "'"
@@ -431,6 +432,7 @@ print(f"include_abstract={sq('true' if ia else 'false')}")
 print(f"include_fact_check={sq('true' if fc else 'false')}")
 print(f"provider_override={sq(prov)}")
 print(f"model_override={sq(mod)}")
+print(f"info_graphic_title={sq(title)}")
 PYEOF
 )"
 
@@ -488,6 +490,10 @@ print(p.get('generation_approach',''))
     prompt+="---\n\n"
     prompt+="## 用户选项\n"
     [[ -n "$opts" ]] && prompt+="${opts}\n"
+    # v1.0.5.20: info_graphic_png 标题
+    if [[ "$format" == "info_graphic_png" && -n "$info_graphic_title" ]]; then
+        prompt+="信息图标题: ${info_graphic_title}\n"
+    fi
     prompt+="---\n\n"
     prompt+="## 文章数据\n\n${escaped_content}"
 

@@ -152,6 +152,7 @@ class InfoGraphicPngPayload(BaseModel):
     provider: str | None = Field(default=None)
     model: str | None = Field(default=None)
     generation_approach: str = Field(default="baoyu-infographic", description="baoyu-infographic / ljg-card / kami / direct")
+    title: str = Field(default="同业追踪日报", description="信息图总标题")
 
 
 class RichTextPayload(BaseModel):
