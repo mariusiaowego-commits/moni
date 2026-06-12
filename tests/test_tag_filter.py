@@ -60,13 +60,13 @@ def test_no_keywords_means_pass_through(fresh_db):
     """
     from moni.fetch import tag_filter
     original = tag_filter._load_tag_keywords_for_source
-    tag_filter._load_tag_keywords_for_source = lambda src: []
+    tag_filter._load_tag_keywords_for_source = lambda src: {}
     try:
         arts = [
             {"title": "Anything goes", "content": "blah"},
             {"title": "Foo", "content": "bar"},
         ]
-        kept, stats = apply_tag_keyword_filter(fresh_db, arts)
+        kept, stats, keyword_hits = apply_tag_keyword_filter(fresh_db, arts)
         assert len(kept) == 2
         assert stats["dropped_tag_filter"] == 0
         assert stats["tags_used"] == 0
@@ -80,7 +80,7 @@ def test_kept_when_any_tag_keyword_hits(fresh_db):
         {"title": "工行收紧支付", "content": "5月1日, 工商银行发布通知, 加强支付合规管理。"},
         {"title": "无关新闻", "content": "这是一篇完全无关的文章。"},
     ]
-    kept, stats = apply_tag_keyword_filter(fresh_db, arts)
+    kept, stats, keyword_hits = apply_tag_keyword_filter(fresh_db, arts)
     assert len(kept) == 1
     assert kept[0]["title"] == "工行收紧支付"
     assert stats["dropped_tag_filter"] == 1
@@ -92,14 +92,14 @@ def test_drop_when_no_keyword_hits(fresh_db):
     arts = [
         {"title": "纯旅游", "content": "介绍一些旅游景点。"},
     ]
-    kept, stats = apply_tag_keyword_filter(fresh_db, arts)
+    kept, stats, keyword_hits = apply_tag_keyword_filter(fresh_db, arts)
     assert kept == []
     assert stats["dropped_tag_filter"] == 1
 
 
 def test_empty_title_content_drops(fresh_db):
     """Empty article — dropped (no match possible)."""
-    kept, stats = apply_tag_keyword_filter(fresh_db, [{"title": "", "content": ""}])
+    kept, stats, keyword_hits = apply_tag_keyword_filter(fresh_db, [{"title": "", "content": ""}])
     assert kept == []
     assert stats["dropped_tag_filter"] == 1
 
@@ -111,7 +111,7 @@ def test_invalid_json_keywords_in_db_is_skipped(fresh_db):
     conn.execute("UPDATE tag_definitions SET keywords = 'not json' WHERE name = 'payment'")
     conn.commit()
     arts = [{"title": "支付新闻", "content": "支付"}]
-    kept, stats = apply_tag_keyword_filter(fresh_db, arts)
+    kept, stats, keyword_hits = apply_tag_keyword_filter(fresh_db, arts)
     # Garbage keywords are skipped → no keyword set → pass-through
     assert len(kept) == 1
     assert stats["tags_used"] == 0

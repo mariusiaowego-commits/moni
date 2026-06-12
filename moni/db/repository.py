@@ -19,7 +19,7 @@ class ArticleRepository:
     v1.0: single-method ``dedupe_insert()`` is all the fetch pipeline needs.
     """
 
-    def dedupe_insert(self, articles: Sequence[dict[str, Any]]) -> int:
+    def dedupe_insert(self, articles: Sequence[dict[str, Any]], keyword_hits: Sequence[dict[str, Any]] = ()) -> int:
         """Insert articles, skipping rows whose (source, url) already exist.
 
         v1.0.5: also copies ``source_tags`` into ``article_tags`` for every
@@ -28,10 +28,15 @@ class ArticleRepository:
         JOIN).  Pre-existing rows are not retroactively tagged — use
         ``backfill_article_tags_from_source_tags`` for that.
 
+        v1.0.5.20: records keyword hits into ``article_keyword_hits`` table
+        so the frontend can highlight which keywords matched.
+
         Args:
             articles: Sequence of normalised article dicts.
                 Required keys: ``title``, ``url``, ``source``.
                 Optional keys: ``published_at``, ``content``, ``publisher``.
+            keyword_hits: Sequence of keyword hit dicts.
+                Each dict: {article_url, keyword, filter_id, hit_field}
 
         Returns:
             Number of rows actually inserted (i.e. new articles, not duplicates).
@@ -41,6 +46,9 @@ class ArticleRepository:
 
         conn = get_db()
         inserted = 0
+
+        # v1.0.5.20: 建立 url -> article_id 的映射，用于记录 keyword_hits
+        url_to_id: dict[str, str] = {}
 
         for art in articles:
             title: str = art["title"]
@@ -76,14 +84,21 @@ class ArticleRepository:
                 n = conn.execute("SELECT changes()").fetchone()[0]
                 inserted += n
                 if n:
-                    # v1.0.5: copy source_tags -> article_tags for this
-                    # new row.  ``predicted = 0`` because the tag came
-                    # from the source-level config, not from an LLM call.
-                    self._copy_source_tags_to_article(aid, source, predicted=0)
+                    # v1.0.5.20: 不再复制 source 的所有 tag
+                    # 改为在 keyword_hits 写入后只插入命中的 tag
+                    pass
+                # v1.0.5.20: 记录 url -> article_id 映射（不管是否新插入）
+                url_to_id[url] = aid
             except Exception as exc:
                 logger.warning("Failed to insert article %s (%s): %s", url, source, exc)
 
         conn.commit()
+
+        # v1.0.5.20: 记录 keyword hits + 只插入命中的 tag
+        if keyword_hits:
+            self._insert_keyword_hits(conn, keyword_hits, url_to_id)
+            self._insert_hit_tags(conn, keyword_hits, url_to_id)
+
         return inserted
 
     @staticmethod
@@ -169,6 +184,106 @@ class ArticleRepository:
             "tagged": tagged,
             "already_tagged": already_tagged,
         }
+
+    @staticmethod
+    def _insert_keyword_hits(
+        conn: Any,
+        keyword_hits: Sequence[dict[str, Any]],
+        url_to_id: dict[str, str],
+    ) -> int:
+        """Insert keyword hits into article_keyword_hits table.
+
+        Args:
+            conn: Database connection
+            keyword_hits: List of {article_url, keyword, tag_name, filter_id, hit_field}
+            url_to_id: Mapping of article URL -> article_id
+
+        Returns:
+            Number of rows inserted
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        inserted = 0
+        for hit in keyword_hits:
+            article_url = hit.get("article_url", "")
+            article_id = url_to_id.get(article_url)
+            if not article_id:
+                continue
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO article_keyword_hits
+                        (article_id, keyword, tag_name, filter_id, hit_field, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        article_id,
+                        hit.get("keyword", ""),
+                        hit.get("tag_name"),
+                        hit.get("filter_id"),
+                        hit.get("hit_field", "title+content"),
+                        now,
+                    ),
+                )
+                inserted += 1
+            except Exception as exc:
+                logger.warning(
+                    "Failed to insert keyword hit for article %s: %s",
+                    article_url, exc,
+                )
+        conn.commit()
+        return inserted
+
+    @staticmethod
+    def _insert_hit_tags(
+        conn: Any,
+        keyword_hits: Sequence[dict[str, Any]],
+        url_to_id: dict[str, str],
+    ) -> int:
+        """Insert only the tags that were actually hit into article_tags.
+
+        v1.0.5.20: 替代 _copy_source_tags_to_article()，只插入命中的 tag。
+
+        Args:
+            conn: Database connection
+            keyword_hits: List of {article_url, keyword, tag_name, ...}
+            url_to_id: Mapping of article URL -> article_id
+
+        Returns:
+            Number of article_tags rows inserted
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        # 收集每个 article 命中的 tag（去重）
+        article_hit_tags: dict[str, set[str]] = {}
+        for hit in keyword_hits:
+            article_url = hit.get("article_url", "")
+            tag_name = hit.get("tag_name")
+            article_id = url_to_id.get(article_url)
+            if not article_id or not tag_name:
+                continue
+            if article_id not in article_hit_tags:
+                article_hit_tags[article_id] = set()
+            article_hit_tags[article_id].add(tag_name)
+
+        inserted = 0
+        for article_id, tags in article_hit_tags.items():
+            for tag_name in tags:
+                try:
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO article_tags
+                            (article_id, tag_name, predicted, created_at)
+                        VALUES (?, ?, 0, ?)
+                        """,
+                        (article_id, tag_name, now),
+                    )
+                    inserted += conn.execute("SELECT changes()").fetchone()[0]
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to insert article_tag %s/%s: %s",
+                        article_id, tag_name, exc,
+                    )
+        conn.commit()
+        return inserted
 
     def get_by_id(self, article_id: str) -> dict[str, Any] | None:
         """Return a full article dict by its id, or None if not found."""

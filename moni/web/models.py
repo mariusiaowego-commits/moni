@@ -29,6 +29,8 @@ class TagRef(BaseModel):
     name: str
     display_name: str | None = None
     color: str | None = None
+    # v1.0.5.20: 该 tag 下命中的关键词
+    keyword_hits: list[str] = []
 
 
 class Article(BaseModel):

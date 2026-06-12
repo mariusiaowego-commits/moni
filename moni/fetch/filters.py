@@ -104,7 +104,7 @@ def _is_whitelist_pass(article: Dict[str, Any], flt: Dict[str, Any]) -> Optional
 def apply_keyword_filters(
     source_name: str,
     articles: List[Dict[str, Any]],
-) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+) -> Tuple[List[Dict[str, Any]], Dict[str, int], List[Dict[str, Any]]]:
     """按 sources 关联的 source_keyword_filters 过滤 articles.
 
     Args:
@@ -112,8 +112,10 @@ def apply_keyword_filters(
         articles:    parse() 后的 normalised article dicts
 
     Returns:
-        (filtered_articles, stats)
+        (filtered_articles, stats, keyword_hits)
         stats 包含: input / kept / dropped_blacklist / dropped_whitelist
+        keyword_hits 包含: 每篇文章命中的关键词列表
+            [{article_url, keyword, filter_id, hit_field}, ...]
     """
     stats = {
         "input": len(articles),
@@ -127,17 +129,20 @@ def apply_keyword_filters(
     if source_id is None:
         # source 不在 sources 表里 — 不应用过滤, 全保留
         stats["kept"] = len(articles)
-        return articles, stats
+        return articles, stats, []
 
     filters = _load_active_filters(source_id)
     if not filters:
         stats["kept"] = len(articles)
-        return articles, stats
+        return articles, stats, []
 
     stats["filters_applied"] = len(filters)
 
+    # v1.0.5.20: 记录每篇文章命中的关键词
+    all_keyword_hits: List[Dict[str, Any]] = []
     kept: List[Dict[str, Any]] = []
     for art in articles:
+        art_url = art.get("url", "")
         # 先黑名单 (drop 命中)
         blacklisted = False
         for flt in filters:
@@ -157,22 +162,50 @@ def apply_keyword_filters(
 
         # 后白名单 (没命中就 drop)
         whitelists = [f for f in filters if f["mode"] == "whitelist"]
+        whitelist_passed = False
         if whitelists:
-            passed = False
             for flt in whitelists:
                 hit = _is_whitelist_pass(art, flt)
                 if hit is not None:
-                    passed = True
-                    break
-            if not passed:
+                    whitelist_passed = True
+                    # v1.0.5.20: 记录命中信息
+                    all_keyword_hits.append({
+                        "article_url": art_url,
+                        "keyword": hit,
+                        "filter_id": flt["id"],
+                        "hit_field": flt["match_field"],
+                    })
+                    # 继续检查其他关键词，记录所有命中
+                    text = _match_field(art, flt["match_field"])
+                    for kw in flt["keywords"]:
+                        if kw and kw in text and kw != hit:
+                            all_keyword_hits.append({
+                                "article_url": art_url,
+                                "keyword": kw,
+                                "filter_id": flt["id"],
+                                "hit_field": flt["match_field"],
+                            })
+            if not whitelist_passed:
                 logger.debug(
                     "[%s] whitelist drop (no kw matched): title=%r",
                     source_name, art.get("title", "")[:50],
                 )
                 stats["dropped_whitelist"] += 1
                 continue
+        else:
+            # 没有白名单 filter，检查所有 filter 的关键词
+            for flt in filters:
+                text = _match_field(art, flt["match_field"])
+                for kw in flt["keywords"]:
+                    if kw and kw in text:
+                        all_keyword_hits.append({
+                            "article_url": art_url,
+                            "keyword": kw,
+                            "filter_id": flt["id"],
+                            "hit_field": flt["match_field"],
+                        })
 
         kept.append(art)
 
     stats["kept"] = len(kept)
-    return kept, stats
+    return kept, stats, all_keyword_hits

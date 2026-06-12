@@ -110,11 +110,12 @@ class BaseFetcher(ABC):
 
     # ── dedupe ─────────────────────────────────────────────────────────────
 
-    def dedupe_insert(self, articles: list[dict[str, Any]]) -> int:
+    def dedupe_insert(self, articles: list[dict[str, Any]], keyword_hits: list[dict[str, Any]] = []) -> int:
         """Insert articles into the DB, skipping duplicates.
 
         Args:
             articles: Normalised list of article dicts.
+            keyword_hits: List of keyword hit dicts from apply_keyword_filters().
 
         Returns:
             Number of articles actually inserted (i.e. not duplicates).
@@ -122,7 +123,7 @@ class BaseFetcher(ABC):
         from ..db.repository import ArticleRepository
 
         repo = ArticleRepository()
-        return repo.dedupe_insert(articles)
+        return repo.dedupe_insert(articles, keyword_hits)
 
     # ── run ─────────────────────────────────────────────────────────────────
 
@@ -198,10 +199,10 @@ class BaseFetcher(ABC):
                 source, cleaned_count,
             )
 
-        # ── keyword filter (v1.0.2) ──────────────────────────────────────
+        # ── keyword filter (v1.0.2) ──────────────────────────────
         # 应用 source_keyword_filters (黑/白名单). 无 filter 时全保留.
         from .filters import apply_keyword_filters
-        filtered_articles, filter_stats = apply_keyword_filters(
+        filtered_articles, filter_stats, keyword_hits = apply_keyword_filters(
             source, parsed_articles
         )
         if filter_stats["filters_applied"] > 0:
@@ -225,9 +226,11 @@ class BaseFetcher(ABC):
         # tag carries keywords, this step is a pass-through.
         from .tag_filter import apply_tag_keyword_filter
 
-        filtered_articles, tag_stats = apply_tag_keyword_filter(
+        filtered_articles, tag_stats, tag_keyword_hits = apply_tag_keyword_filter(
             source, filtered_articles
         )
+        # v1.0.5.20: 合并 tag_keyword_hits 到 keyword_hits
+        keyword_hits.extend(tag_keyword_hits)
         if tag_stats["dropped_tag_filter"] > 0:
             logger.info(
                 "[%s] tag-keyword filter: %d kept, "
@@ -241,7 +244,7 @@ class BaseFetcher(ABC):
         inserted = 0
         if filtered_articles and not dry_run:
             try:
-                inserted = self.dedupe_insert(filtered_articles)
+                inserted = self.dedupe_insert(filtered_articles, keyword_hits)
             except Exception as exc:
                 logger.error("[%s] dedupe_insert() raised %s: %s",
                              source, type(exc).__name__, exc)
