@@ -598,7 +598,7 @@ PYEOF
     if [[ -z "$output_path" ]]; then
         # v1.0.5.21: pdf 格式后处理 — 将 Markdown 内容转换为 PDF
         if [[ "$format" == "pdf" ]]; then
-            local pdf_dir="${ARTIFACTS_DIR:-$REPO_DIR/data/artifacts}"
+            local pdf_dir="${ARTIFACTS_DIR:-$REPO_ROOT/data/artifacts}"
             mkdir -p "$pdf_dir"
             local pdf_output="$pdf_dir/${task_id}.pdf"
             local md_temp="/tmp/${task_id}.md"
@@ -607,7 +607,7 @@ PYEOF
             echo "$hermes_output" > "$md_temp"
             
             # 调用 generate_pdf.py 生成 PDF
-            if python3 "$REPO_DIR/scripts/generate_pdf.py" "$md_temp" "$pdf_output" "$info_graphic_title" 2>&1; then
+            if python3 "$REPO_ROOT/scripts/generate_pdf.py" "$md_temp" "$pdf_output" "$info_graphic_title" 2>&1; then
                 output_path="$pdf_output"
                 rm -f "$md_temp"
                 log "PDF generated: $pdf_output"
