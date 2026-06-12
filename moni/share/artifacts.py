@@ -41,6 +41,8 @@ def _ext_for_format(fmt: str) -> str:
         # v1.0.5.18 — new formats
         "rich_text": "md",          # 🆕 markdown with extra cross-article framing
         "report_png": "png",        # 🆕 one-image content report
+        # v1.0.5.21
+        "pdf": "pdf",               # 🆕 PDF 日报
     }.get(fmt, "out")
 
 
