@@ -143,7 +143,7 @@ PYEOF
 skill_for_format() {
     local format="$1"
     case "$format" in
-        info_graphic|infographic) echo "baoyu-infographic" ;;
+        info_graphic|infographic|info_graphic_png) echo "baoyu-infographic" ;;
         report_png)                echo "baoyu-infographic" ;;  # default; user can override via generation_approach
         *)                         echo "" ;;
     esac
