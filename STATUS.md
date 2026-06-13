@@ -4,12 +4,24 @@
 
 ---
 
-## 当前状态: **v1.0.5.21 — PDF 日报格式 + 版式配置化** (2026-06-12)
+## 当前状态: **v1.0.5.22 — keyword_hits 全覆盖** (2026-06-13)
 
-**主分支**: main @ `v1.0.5.21` (33 个 tag)
+**主分支**: main @ `v1.0.5.22` (34 个 tag)
 **Web 服务**: `127.0.0.1:8900` (200 OK)
-**数据库**: `data/news.db` — schema_version=11
+**数据库**: `data/news.db` — schema_version=11, 288 articles
 **测试**: 281 passed, 2 skipped
+
+### v1.0.5.22 进展 (2026-06-13)
+
+**Bug 修复**:
+- 黑名单模式记录 keyword_hits（之前 blacklist 命中不记录）
+- `scripts/backfill_keyword_hits.py` — 历史文章 keyword_hits 补录
+
+**数据清理**:
+- 262 篇无 keyword_hits 文章 → 补录 190 篇，删除 72 篇无关键词匹配的
+- 文章总数 360→288，keyword_hits 覆盖率 27%→100%
+
+---
 
 ### v1.0.5.21 进展 (2026-06-12)
 
@@ -23,10 +35,6 @@
 - REPO_DIR → REPO_ROOT 变量名错误
 - pdf 格式文件扩展名映射缺失
 - format-pdf.md prompt 优化（禁止表格、明确输出格式）
-
-**文档**:
-- `moni/share/templates/README.md` — 如何修改版式
-- `HANDOFF.md` — 如何修改分享格式（完整指南）
 
 ---
 

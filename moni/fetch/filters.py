@@ -155,6 +155,22 @@ def apply_keyword_filters(
                     source_name, art.get("title", "")[:50], hit,
                 )
                 stats["dropped_blacklist"] += 1
+                # v1.0.5.22: 记录 blacklist 命中关键词
+                all_keyword_hits.append({
+                    "article_url": art_url,
+                    "keyword": hit,
+                    "filter_id": flt["id"],
+                    "hit_field": flt["match_field"],
+                })
+                text = _match_field(art, flt["match_field"])
+                for kw in flt["keywords"]:
+                    if kw and kw in text and kw != hit:
+                        all_keyword_hits.append({
+                            "article_url": art_url,
+                            "keyword": kw,
+                            "filter_id": flt["id"],
+                            "hit_field": flt["match_field"],
+                        })
                 blacklisted = True
                 break
         if blacklisted:
