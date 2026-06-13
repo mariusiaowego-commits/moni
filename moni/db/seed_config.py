@@ -45,6 +45,7 @@ _DEFAULT_TAGS = [
     ("ai-fintech",   "AI×金融",     "AI × 金融 (智能投顾/风控模型/大模型落地)", "#DC2626"),  # red
     ("regulation",   "监管",        "监管 (政策/法规/合规)",              "#EA580C"),  # orange
     ("general-tech", "通用科技",    "通用科技 (不属于以上 4 类)",          "#6B7280"),  # gray
+    ("wechat",       "微信生态",    "微信公众号/小程序/企业微信",         "#7C3AED"),  # purple
 ]
 
 
@@ -92,9 +93,18 @@ _DEFAULT_SOURCES = [
         "name": "wechat_rss_b",
         "display_name": "WeChatRSS 账号 B",
         "source_type": "wechat_aggregator",
-        "url": "https://wechatrss.waytomaster.com/api/rss/all?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjQ5IiwidHlwZSI6InJzcyJ9._99_vOg3gSq1aLyoJxYQDZuhWaMEzP4YTcKQVKWYr7s",
+        "url": "https://wechatrss.waytomaster.com/api/rss/all?token=eyJhbG...Yr7s",
         "fetch_interval_min": 60,
         "notes": "WeChatRSS 账号 B，token 2（v1.0.5.6 启用）。免费账户上限 2 公众号。",
+    },
+    {
+        "id": "src-bestblogs",
+        "name": "bestblogs",
+        "display_name": "BestBlogs 公众号聚合",
+        "source_type": "rss",
+        "url": "https://raw.githubusercontent.com/ginobefun/BestBlogs/main/opml/bestblogs_wechat2rss_opml_all.opml",
+        "fetch_interval_min": 120,
+        "notes": "BestBlogs 375 公众号 RSS 聚合。OPML → 逐 feed 拉取，三层限制 (max_feeds/max_per_feed/max_total)。",
     },
 ]
 
@@ -121,6 +131,7 @@ _DEFAULT_SOURCE_TAGS = [
     ("src-qbitai", "ai-fintech"),
     ("src-wechat-rss-a", "general-tech"),
     ("src-wechat-rss-b", "general-tech"),
+    ("src-bestblogs", "wechat"),
 ]
 
 
