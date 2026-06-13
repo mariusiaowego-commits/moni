@@ -78,6 +78,11 @@ class BaseFetcher(ABC):
 
     source_name: str = ""
 
+    # ── date-range filtering (set by run() before calling fetch()) ──────────
+
+    date_from: str | None = None
+    date_to: str | None = None
+
     def _register(self) -> None:
         """Register this class in the global fetcher registry."""
         _FETCHER_REGISTRY[self.source_name] = type(self)

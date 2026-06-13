@@ -63,6 +63,45 @@ def _clean_description(text: str) -> str:
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
 
+
+def _in_date_range(
+    pub_date: str | None, date_from: str | None, date_to: str | None
+) -> bool:
+    """Check if an article's published_at falls within [date_from, date_to].
+
+    Args:
+        pub_date: ISO datetime string from the article (e.g. "2026-06-12T07:45:00+08:00")
+        date_from: ISO date string (e.g. "2026-06-10"), inclusive
+        date_to: ISO date string (e.g. "2026-06-13"), inclusive (end of day)
+
+    Returns:
+        True if the article is within range, or if pub_date is missing (keep it).
+    """
+    if not pub_date:
+        return True  # no date info — keep the article
+    try:
+        art_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return True  # unparseable — keep the article
+
+    if date_from:
+        try:
+            dt_from = datetime.fromisoformat(date_from + "T00:00:00+00:00")
+            if art_date < dt_from:
+                return False
+        except ValueError:
+            pass
+
+    if date_to:
+        try:
+            dt_to = datetime.fromisoformat(date_to + "T23:59:59+00:00")
+            if art_date > dt_to:
+                return False
+        except ValueError:
+            pass
+
+    return True
+
 # Defaults when fetch_config is missing or incomplete
 _DEFAULTS = {
     "max_feeds": 375,
@@ -127,6 +166,18 @@ class FetcherBestBlogs(BaseFetcher):
         # 3. Hard cap
         if len(all_articles) > max_total:
             all_articles = all_articles[:max_total]
+
+        # 4. Date-range filtering (v1.0.5.24)
+        if self.date_from or self.date_to:
+            before = len(all_articles)
+            all_articles = [
+                a for a in all_articles
+                if _in_date_range(a.get("published_at"), self.date_from, self.date_to)
+            ]
+            logger.info(
+                "[bestblogs] date filter: %d → %d articles (from=%s, to=%s)",
+                before, len(all_articles), self.date_from, self.date_to,
+            )
 
         logger.info(
             "[bestblogs] done — %d feeds, %d articles",

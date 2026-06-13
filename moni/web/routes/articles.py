@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Query
 
 from moni.db.connection import get_db
-from moni.web.exceptions import NotFoundError, ServiceUnavailableError
+from moni.web.exceptions import BadRequestError, NotFoundError, ServiceUnavailableError
 from moni.web.models import (
     Article,
     ArticleSummaryRequest,
     FactCheckRequest,
+    ImportFulltextRequest,
     TagRef,
 )
 
@@ -329,4 +332,70 @@ def fact_check_article(
         "article_id": article_id,
         "task_type": "fact_check",
         "poll_url": f"/api/llm/jobs/{job_id}",
+    }
+
+
+# ── import full-text (v1.0.5.24) ─────────────────────────────────────────
+
+
+@router.post("/{article_id}/import-fulltext")
+def import_fulltext(article_id: str, body: ImportFulltextRequest) -> dict[str, Any]:
+    """Import full-text content from a local .md file into the article.
+
+    Reads the file, validates it's a .md file that exists, and updates
+    ``articles.raw_content`` with the file content.  This enables LLM
+    summary / fact-check on articles that originally only had a snippet.
+    """
+    conn = get_db()
+
+    # Verify article exists
+    row = conn.execute("SELECT id FROM articles WHERE id = ?", (article_id,)).fetchone()
+    if row is None:
+        raise NotFoundError(message=f"Article {article_id!r} not found")
+
+    # Validate file
+    file_path = Path(body.file_path).expanduser()
+    if not file_path.exists():
+        raise NotFoundError(message=f"File not found: {body.file_path}")
+    if file_path.suffix.lower() not in (".md", ".markdown", ".txt"):
+        raise BadRequestError(
+            message=f"Only .md/.txt files are supported, got: {file_path.suffix}",
+        )
+
+    # Security: only allow files under common directories
+    home = Path("/Users/mt16")  # hardcoded to avoid sandbox Path.home() issue
+    allowed_prefixes = [
+        home / "Documents",
+        home / "Desktop",
+        home / "Downloads",
+        home / "Library" / "Mobile Documents",
+    ]
+    if not any(str(file_path).startswith(str(p)) for p in allowed_prefixes):
+        raise BadRequestError(
+            message=f"File must be under ~/Documents, ~/Desktop, ~/Downloads, or ~/Library/Mobile Documents",
+        )
+
+    try:
+        content = file_path.read_text(encoding="utf-8")
+    except Exception as exc:
+        raise BadRequestError(message=f"Failed to read file: {exc}")
+
+    if not content.strip():
+        raise BadRequestError(message="File is empty")
+
+    # Update article content
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "UPDATE articles SET raw_content = ?, summary = NULL, summary_at = NULL WHERE id = ?",
+        (content, article_id),
+    )
+    conn.commit()
+
+    logger.info("Imported full-text for article %s from %s (%d chars)", article_id, file_path, len(content))
+
+    return {
+        "article_id": article_id,
+        "file_path": str(file_path),
+        "char_count": len(content),
+        "content_preview": content[:500],
     }

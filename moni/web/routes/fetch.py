@@ -131,12 +131,19 @@ def update_fetch_sources(body: FetchSourceUpdate) -> list[FetchSource]:
 
 
 @router.post("/sources/{name}/run")
-def trigger_fetch_run(name: str) -> dict[str, Any]:
+def trigger_fetch_run(
+    name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
     """Trigger an immediate fetch for the named source.
 
     v1.0.5: ``name`` can be either the YAML ``source_name`` (e.g.
     ``36kr_rss``) or the DB source id (e.g. ``src-36kr-rss``) — see
     ``_resolve_source_name``.
+
+    v1.0.5.24: optional ``date_from`` / ``date_to`` (ISO date strings)
+    are passed through to the fetcher for date-range filtering.
 
     Calls ``moni.fetch.run(source_name)`` which checks the scheduler's
     should_fetch() gate before running.
@@ -145,7 +152,9 @@ def trigger_fetch_run(name: str) -> dict[str, Any]:
     if resolved is None:
         raise NotFoundError(message=f"Fetch source {name!r} not found")
 
-    result: dict[str, Any] | None = run_fetcher(resolved)
+    result: dict[str, Any] | None = run_fetcher(
+        resolved, date_from=date_from, date_to=date_to,
+    )
 
     if result is None:
         return {
