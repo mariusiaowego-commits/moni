@@ -179,7 +179,7 @@ def check_source_health(name: str) -> HealthResponse:
         db_connected = False
 
     source_ok = False
-    base_url = (cfg or {}).get("base_url", "")
+    base_url = (cfg or {}).get("base_url") or (cfg or {}).get("feed_url") or ""
     if base_url:
         try:
             import urllib.request
