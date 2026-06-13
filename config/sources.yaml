@@ -29,3 +29,9 @@ sources:
   fetch_interval_min: 60
   enabled: true
   crawler_type: rss
+- source_name: bestblogs
+  type: rss
+  feed_url: https://raw.githubusercontent.com/ginobefun/BestBlogs/main/opml/bestblogs_wechat2rss_opml_all.opml
+  fetch_interval_min: 120
+  enabled: true
+  crawler_type: rss

@@ -15,7 +15,7 @@ from pathlib import Path
 from .connection import get_db, get_db_path
 
 
-_CURRENT_VERSION = 11  # v1.0.5.20: article_keyword_hits + tag_name (010 + 011)
+_CURRENT_VERSION = 12  # v1.0.5.23: bestblogs fetch_config (012)
 
 
 def current_version(conn: sqlite3.Connection) -> int:
@@ -30,10 +30,26 @@ def current_version(conn: sqlite3.Connection) -> int:
 
 
 def _run_sql_file(conn: sqlite3.Connection, path: Path) -> None:
-    """Execute a .sql file, stripping -- comments so they don't produce empty statements."""
+    """Execute a .sql file, stripping -- comments so they don't produce empty statements.
+
+    Splits on ``;`` and runs each statement individually so that a
+    caught error (e.g. duplicate column from ALTER TABLE) doesn't
+    abort subsequent statements.
+    """
     raw = path.read_text(encoding="utf-8")
     sql = re.sub(r"--+.*", "", raw)
-    conn.executescript(sql)
+    for stmt in sql.split(";"):
+        stmt = stmt.strip()
+        if not stmt:
+            continue
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError as exc:
+            # Ignore "duplicate column" errors from ALTER TABLE (idempotent)
+            if "duplicate column" in str(exc).lower():
+                pass
+            else:
+                raise
 
 
 def migrate() -> None:
