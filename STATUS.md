@@ -4,12 +4,24 @@
 
 ---
 
-## 当前状态: **v1.0.5.22 — keyword_hits 全覆盖** (2026-06-13)
+## 当前状态: **v1.0.5.24 — BestBlogs 智能抓取 + 全文导入** (2026-06-13)
 
-**主分支**: main @ `v1.0.5.22` (34 个 tag)
+**主分支**: main @ `v1.0.5.24` (36 个 tag)
 **Web 服务**: `127.0.0.1:8900` (200 OK)
-**数据库**: `data/news.db` — schema_version=11, 288 articles
-**测试**: 281 passed, 2 skipped
+**数据库**: `data/news.db` — schema_version=12, 318 articles, 6 sources
+**测试**: 300 passed, 2 skipped
+
+### v1.0.5.24 进展 (2026-06-13)
+
+**新功能**:
+- BestBlogs 智能抓取：时间范围选择（自动/过去N天/自定义日期）
+- 全文导入：文章详情页粘贴本地 .md 路径 → 更新 raw_content → AI 摘要/核查使用全文
+- 复制原文链接：一键复制到剪贴板
+- tag filter: bestblogs 只匹配标题（避免摘要 boilerplate 误命中）
+
+**测试**: 300 passed (新增 19 tests: _in_date_range + _clean_description + bestblogs 标题匹配)
+
+---
 
 ### v1.0.5.22 进展 (2026-06-13)
 
@@ -18,8 +30,8 @@
 - `scripts/backfill_keyword_hits.py` — 历史文章 keyword_hits 补录
 
 **数据清理**:
-- 262 篇无 keyword_hits 文章 → 补录 190 篇，删除 72 篇无关键词匹配的
-- 文章总数 360→288，keyword_hits 覆盖率 27%→100%
+- 262 篇无 keyword_hits 文章 → 补录 190 篇，删除 72 篇
+- 文章 360→288，覆盖率 27%→100%
 
 ---
 
@@ -28,30 +40,12 @@
 **新功能**:
 - PDF 日报分享格式（7 种格式之一）
 - 版式配置化（`moni/share/templates/pdf-style.yaml`）
-- PDF 生成脚本（`scripts/generate_pdf.py`，使用 reportlab）
-
-**Bug 修复**:
-- worker 脚本语法错误（多余的 fi）
-- REPO_DIR → REPO_ROOT 变量名错误
-- pdf 格式文件扩展名映射缺失
-- format-pdf.md prompt 优化（禁止表格、明确输出格式）
-
----
-
-### v1.0.5.20 进展 (2026-06-12)
-
-**Bug fixes**:
-1. summary_gen profile 修复（--profile default → moni）
-2. keyword_hits 表 + tag_name 字段
-3. tag 关联逻辑修正（只关联命中的 tag）
-4. info_graphic_png 支持 generation_approach
-5. worker 传递 skill 参数
-6. 多篇文章竖排版 + 用户自定义标题
 
 ---
 
 ### 历史版本
 
+- v1.0.5.20: tag 关联逻辑修正 + keyword_hits 完善
 - v1.0.5.19: share bugfix + AI 摘要回写 + LLM 统一 + LLM 设置 UI
 - v1.0.5.18: share 功能 v2 重构
 - v1.0.5.17: UI worker 按钮 + 进度条
@@ -86,17 +80,15 @@
 | report_png | 报告 PNG | format-report-png.md |
 | pdf | PDF 日报 | format-pdf.md |
 
-**版式配置**：`moni/share/templates/pdf-style.yaml`
-**修改指南**：`moni/share/templates/README.md`
-
 ---
 
-## 抓取源 (5 active)
+## 抓取源 (6 active)
 
-| 源 | 间隔 | 状态 |
-|---|---|---|
-| 36kr_rss | 60min | ✅ |
-| mpaypass | 60min | ✅ |
-| qbitai | 60min | ✅ |
-| wechat_rss_a | 60min | ✅ |
-| wechat_rss_b | 60min | ✅ (免费账户, 限 2 公众号) |
+| 源 | 间隔 | 类型 | 状态 |
+|---|---|---|---|
+| 36kr_rss | 15min | html | ✅ |
+| mpaypass | 30min | html | ✅ |
+| qbitai | 30min | rss | ✅ |
+| wechat_rss_a | 60min | wechat_aggregator | ✅ |
+| wechat_rss_b | 60min | wechat_aggregator | ✅ |
+| bestblogs | 120min | rss (OPML 聚合) | ✅ (375 号, 三层限制) |

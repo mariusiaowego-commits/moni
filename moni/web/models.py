@@ -93,6 +93,12 @@ class FactCheckRequest(BaseModel):
     article_id: str
 
 
+class ImportFulltextRequest(BaseModel):
+    """Import full-text content from a local .md file."""
+
+    file_path: str
+
+
 # ---------------------------------------------------------------------------
 # Delete / confirm-token flow
 # ---------------------------------------------------------------------------

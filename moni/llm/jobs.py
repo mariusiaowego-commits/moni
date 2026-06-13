@@ -260,10 +260,17 @@ def _run_job(row: dict[str, Any]) -> None:
 
     article_dict = dict(article_row)
 
+    # v1.0.5.24: get article tags for perspective selection
+    tag_rows = conn.execute(
+        "SELECT tag_name FROM article_tags WHERE article_id = ?",
+        (article_id,),
+    ).fetchall()
+    article_tags = [r["tag_name"] for r in tag_rows]
+
     # Pick the right prompt renderer for the job type.
     try:
         if task_type == "summary":
-            prompt = render_summary(article_dict)
+            prompt = render_summary(article_dict, tags=article_tags)
         elif task_type == "fact_check":
             prompt = render_fact_check(article_dict)
         else:

@@ -637,6 +637,18 @@ function app() {
     // ── Fetch panel ───────────────────────────────────────────────
     sources: [],
     fetchResult: '',
+    // v1.0.5.24: date-range modal for bestblogs
+    fetchDateModal: false,
+    fetchTargetSource: '',
+    fetchDateRange: 'days',  // 'auto' | 'days' | 'custom'
+    fetchDateFrom: '',
+    fetchDateTo: '',
+    fetchDays: 7,
+    // v1.0.5.24: copy URL toast
+    copyToast: false,
+    // v1.0.5.24: import fulltext
+    importFilePath: '',
+    importLoading: false,
 
     loadSources() {
       // v1.0.4: was /api/fetch/sources (404). Use /api/config/sources
@@ -650,11 +662,68 @@ function app() {
     },
 
     runSource(id) {
+      // v1.0.5.24: bestblogs needs date-range selection first
+      const src = this.sources.find(s => s.id === id || s.name === id);
+      if (src && src.name === 'bestblogs') {
+        this.fetchTargetSource = src.id;
+        this.fetchDateModal = true;
+        return;
+      }
       this.fetchResult = '正在抓取...';
       fetch(`/api/fetch/sources/${id}/run`, { method: 'POST', credentials: 'same-origin' })
         .then(r => r.json().catch(() => ({ result: 'success' })))
         .then(data => { this.fetchResult = JSON.stringify(data, null, 2); })
         .catch(err => { this.fetchResult = '抓取失败: ' + err.message; });
+    },
+
+    confirmFetchDate() {
+      this.fetchDateModal = false;
+      let params = '';
+      if (this.fetchDateRange === 'days') {
+        const from = new Date(Date.now() - this.fetchDays * 86400000).toISOString().slice(0, 10);
+        params = `?date_from=${from}`;
+      } else if (this.fetchDateRange === 'custom') {
+        const parts = [];
+        if (this.fetchDateFrom) parts.push(`date_from=${this.fetchDateFrom}`);
+        if (this.fetchDateTo) parts.push(`date_to=${this.fetchDateTo}`);
+        if (parts.length) params = '?' + parts.join('&');
+      }
+      // auto: no params, fetcher uses last_run
+      this.fetchResult = '正在抓取 bestblogs (375 个号，预计 3-5 分钟)...';
+      fetch(`/api/fetch/sources/${this.fetchTargetSource}/run${params}`, {
+        method: 'POST', credentials: 'same-origin',
+      })
+        .then(r => r.json().catch(() => ({ result: 'success' })))
+        .then(data => { this.fetchResult = JSON.stringify(data, null, 2); })
+        .catch(err => { this.fetchResult = '抓取失败: ' + err.message; });
+    },
+
+    // v1.0.5.24: copy article URL to clipboard
+    copyArticleUrl() {
+      if (!this.articleDetail?.url) return;
+      navigator.clipboard.writeText(this.articleDetail.url)
+        .then(() => { this.copyToast = true; setTimeout(() => { this.copyToast = false; }, 2000); })
+        .catch(() => { alert('复制失败，请手动复制:\n' + this.articleDetail.url); });
+    },
+
+    // v1.0.5.24: import full-text from local .md file
+    importFulltext() {
+      if (!this.importFilePath || !this.articleDetail) return;
+      this.importLoading = true;
+      fetch(`/api/articles/${this.articleDetail.id}/import-fulltext`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ file_path: this.importFilePath }),
+      })
+        .then(r => r.json().then(d => r.ok ? d : Promise.reject(d)))
+        .then(data => {
+          this.articleDetail = { ...this.articleDetail, content: data.content_preview };
+          alert(`全文导入成功，${data.char_count} 字`);
+          this.importFilePath = '';
+        })
+        .catch(err => { alert('导入失败: ' + (err.message || err.detail || '未知错误')); })
+        .finally(() => { this.importLoading = false; });
     },
 
     pingSource(id) {

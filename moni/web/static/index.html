@@ -232,6 +232,39 @@
         <div class="result-box" x-show="fetchResult" x-text="fetchResult" x-cloak></div>
       </section>
 
+      <!-- ══ Date-range modal for bestblogs (v1.0.5.24) ═══════════════════ -->
+      <div class="modal-backdrop" x-show="fetchDateModal" x-cloak @click.self="fetchDateModal=false">
+        <div class="modal-content" style="max-width: 420px;">
+          <h3>选择抓取时间范围</h3>
+          <div style="display:flex; flex-direction:column; gap:12px; margin-top:16px;">
+            <label style="display:flex; align-items:center; gap:8px;">
+              <input type="radio" value="auto" x-model="fetchDateRange">
+              <span>自上次抓取至今</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:8px;">
+              <input type="radio" value="days" x-model="fetchDateRange">
+              <span>过去 <input type="number" x-model.number="fetchDays" min="1" max="365"
+                     style="width:60px; display:inline-block;" @click="fetchDateRange='days'"> 天</span>
+            </label>
+            <label style="display:flex; align-items:flex-start; gap:8px;">
+              <input type="radio" value="custom" x-model="fetchDateRange" style="margin-top:4px;">
+              <span style="display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
+                自定义
+                <input type="date" x-model="fetchDateFrom" @click="fetchDateRange='custom'"
+                       style="display:inline-block; width:140px;">
+                ~
+                <input type="date" x-model="fetchDateTo" @click="fetchDateRange='custom'"
+                       style="display:inline-block; width:140px;">
+              </span>
+            </label>
+          </div>
+          <div style="margin-top:20px; display:flex; justify-content:flex-end; gap:8px;">
+            <button class="btn-secondary" @click="fetchDateModal=false">取消</button>
+            <button class="btn-primary" @click="confirmFetchDate()">开始抓取</button>
+          </div>
+        </div>
+      </div>
+
       <!-- ══ LLM 任务 (v1.0.5.1) ══════════════════════════════════════════════ -->
       <section x-show="currentView === 'llmJobs'" x-cloak>
         <h3>LLM 任务
@@ -994,11 +1027,31 @@
               <span x-show="!summaryLoading">生成摘要</span>
               <span x-show="summaryLoading">生成中...</span>
             </button>
-            <button class="btn-primary" @click="generateFactCheck()" :disabled="factCheckLoading">
+            <button class="btn-secondary" @click="generateFactCheck()" :disabled="factCheckLoading">
               <span x-show="!factCheckLoading">事实核查</span>
               <span x-show="factCheckLoading">核查中...</span>
             </button>
             <a :href="articleDetail?.url" target="_blank" class="btn-secondary">查看原文</a>
+            <button class="btn-secondary" @click="copyArticleUrl()" title="复制原文链接到剪贴板">
+              📋 复制链接
+            </button>
+            <span x-show="copyToast" style="color:#16a34a; font-size:0.85em; margin-left:4px;">已复制 ✓</span>
+          </div>
+          <!-- v1.0.5.24: import full-text for AI analysis -->
+          <div x-show="articleDetail?.source === 'bestblogs'" style="margin: 12px 0; padding: 10px; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0;">
+            <details>
+              <summary style="cursor:pointer; color:#64748b; font-size:0.9em;">📥 导入全文（用于 AI 摘要/核查）</summary>
+              <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+                <input type="text" x-model="importFilePath" placeholder="粘贴本地 .md 文件路径"
+                       style="flex:1; font-size:0.85em; padding:6px 8px; border:1px solid #cbd5e1; border-radius:4px;">
+                <button class="btn-primary" @click="importFulltext()" :disabled="importLoading"
+                        style="white-space:nowrap; padding:6px 12px; font-size:0.85em;">
+                  <span x-show="!importLoading">导入</span>
+                  <span x-show="importLoading">导入中...</span>
+                </button>
+              </div>
+              <small class="muted" style="display:block; margin-top:4px;">用 Obsidian Web Clipper 抓取原文后，粘贴 .md 文件路径</small>
+            </details>
           </div>
           <div class="summary-box" x-show="articleDetail?.summary" x-cloak>
             <h4>摘要</h4>

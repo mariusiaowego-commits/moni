@@ -153,7 +153,12 @@ def apply_tag_keyword_filter(
     for art in articles:
         title = (art.get("title") or "").strip()
         content = (art.get("content") or art.get("raw_content") or "").strip()
-        haystack = title + "\n" + content
+        # v1.0.5.24: bestblogs RSS descriptions are short snippets prone to
+        # boilerplate false-positives — match title only.
+        if source == "bestblogs":
+            haystack = title
+        else:
+            haystack = title + "\n" + content
         art_url = art.get("url", "")
 
         # 检查每个 tag 的命中情况

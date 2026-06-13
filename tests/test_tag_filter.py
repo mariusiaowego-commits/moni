@@ -46,6 +46,16 @@ def fresh_db(tmp_path, monkeypatch):
         "INSERT INTO source_tags (source_id, tag_name, created_at) "
         "VALUES ('src-mp', 'payment', '2026-01-01')"
     )
+    # v1.0.5.24: wechat tag for bestblogs title-only test
+    conn.execute(
+        "INSERT INTO tag_definitions (name, description, color, created_at, is_active, keywords) "
+        "VALUES ('wechat', '微信生态', '#7C3AED', '2026-01-01', 1, ?)",
+        (json.dumps(["腾讯", "微信", "小程序", "公众号"], ensure_ascii=False),)
+    )
+    conn.execute(
+        "INSERT INTO source_tags (source_id, tag_name, created_at) "
+        "VALUES ('src-bestblogs', 'wechat', '2026-01-01')"
+    )
     conn.commit()
     yield "mpaypass"
     close_db()
@@ -115,3 +125,25 @@ def test_invalid_json_keywords_in_db_is_skipped(fresh_db):
     # Garbage keywords are skipped → no keyword set → pass-through
     assert len(kept) == 1
     assert stats["tags_used"] == 0
+
+
+def test_bestblogs_matches_title_only(fresh_db):
+    """v1.0.5.24: bestblogs source only matches title, not content."""
+    # Title contains keyword → kept
+    arts = [{"title": "腾讯混元AI Infra进化", "content": "无关内容"}]
+    kept, stats, _ = apply_tag_keyword_filter("bestblogs", arts)
+    assert len(kept) == 1
+
+    # Title does NOT contain keyword but content does → dropped
+    arts2 = [{"title": "普通新闻标题", "content": "腾讯混元AI Infra进化"}]
+    kept2, stats2, _ = apply_tag_keyword_filter("bestblogs", arts2)
+    assert len(kept2) == 0
+    assert stats2["dropped_tag_filter"] == 1
+
+
+def test_non_bestblogs_matches_content(fresh_db):
+    """Non-bestblogs sources still match title+content."""
+    # Content contains keyword → kept (for non-bestblogs sources)
+    arts = [{"title": "普通标题", "content": "支付新闻"}]
+    kept, stats, _ = apply_tag_keyword_filter("mpaypass", arts)
+    assert len(kept) == 1

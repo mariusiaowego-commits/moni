@@ -53,7 +53,15 @@ def generate_summary(req: ArticleSummaryRequest) -> dict:
     if not raw.strip():
         raise BadRequestError(message="Article has no content to summarise")
 
-    prompt = render_summary(article)
+    # v1.0.5.24: get article tags for perspective selection
+    conn = get_db()
+    tag_rows = conn.execute(
+        "SELECT tag_name FROM article_tags WHERE article_id = ?",
+        (req.article_id,),
+    ).fetchall()
+    tags = [r["tag_name"] for r in tag_rows]
+
+    prompt = render_summary(article, tags=tags)
 
     try:
         client = _get_client()
