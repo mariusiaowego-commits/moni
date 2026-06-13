@@ -23,11 +23,45 @@ from datetime import datetime
 from typing import Any
 from xml.etree import ElementTree as ET
 
+import re
+
 import httpx
 
 from ..base import BaseFetcher, register_fetcher
 
 logger = logging.getLogger(__name__)
+
+# WeChat RSS boilerplate patterns — strip from description before storing.
+# These appear in <description> but are NOT article content.
+_BOILERPLATE_RE = re.compile(
+    r"(?:"
+    r"点击关注.*$"
+    r"|长按识别.*$"
+    r"|扫描二维码.*$"
+    r"|分享到朋友圈.*$"
+    r"|点击「在看」.*$"
+    r"|喜欢这篇文章.*$"
+    r"|点击阅读原文.*$"
+    r"|阅读原文.*$"
+    r"|了解更多.*$"
+    r"|原创.*转载请.*$"
+    r"|本文来源.*$"
+    r"|免责声明.*$"
+    r"|商务合作.*$"
+    r"|投稿邮箱.*$"
+    r"|点击上方.*关注.*$"
+    r"|戳「.*」.*$"
+    r")",
+    re.MULTILINE,
+)
+
+
+def _clean_description(text: str) -> str:
+    """Strip WeChat boilerplate from RSS description."""
+    cleaned = _BOILERPLATE_RE.sub("", text)
+    # Collapse multiple newlines
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
 
 # Defaults when fetch_config is missing or incomplete
 _DEFAULTS = {
@@ -201,7 +235,9 @@ class FetcherBestBlogs(BaseFetcher):
             try:
                 title = (item.findtext("title") or "").strip()
                 link = (item.findtext("link") or "").strip()
-                description = (item.findtext("description") or "").strip()
+                description = _clean_description(
+                    (item.findtext("description") or "").strip()
+                )
                 pub_text = item.findtext("pubDate")
 
                 author = (
