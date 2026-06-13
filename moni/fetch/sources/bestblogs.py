@@ -31,9 +31,9 @@ logger = logging.getLogger(__name__)
 
 # Defaults when fetch_config is missing or incomplete
 _DEFAULTS = {
-    "max_feeds": 20,
+    "max_feeds": 375,
     "max_articles_per_feed": 5,
-    "max_articles_total": 50,
+    "max_articles_total": 500,
     "request_delay": 0.5,
 }
 

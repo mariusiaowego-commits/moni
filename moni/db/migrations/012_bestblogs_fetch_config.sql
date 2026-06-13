@@ -14,7 +14,7 @@ VALUES (
     'https://raw.githubusercontent.com/ginobefun/BestBlogs/main/opml/bestblogs_wechat2rss_opml_all.opml',
     120,
     1,
-    '{"max_feeds": 20, "max_articles_per_feed": 5, "max_articles_total": 50, "request_delay": 0.5}',
+    '{"max_feeds": 375, "max_articles_per_feed": 5, "max_articles_total": 500, "request_delay": 0.5}',
     datetime('now'),
     datetime('now')
 );
