@@ -33,13 +33,27 @@ def _render(template: str, **kwargs: Any) -> str:
     return _PLACEHOLDER_RE.sub(repl, template)
 
 
-def render_summary(article: dict) -> str:
-    """Render the summary prompt with an article dict.
+def render_summary(article: dict, tags: list[str] | None = None) -> str:
+    """Render the summary prompt with an article dict and optional tags.
+
+    v1.0.5.24: uses perspective system — selects the best-matching
+    perspective based on article tags, then fills the template.
 
     Uses ``content`` if present, else ``raw_content``.
     """
+    from .perspectives import select_perspective
+
+    perspective = select_perspective(tags or [])
+    questions_str = "\n".join(
+        f"{i+1}. {q}" for i, q in enumerate(perspective["questions"])
+    )
+
     return _render(
         _load("summary"),
+        role_name=perspective["name"],
+        reader=perspective["reader"],
+        focus=perspective["focus"],
+        questions=questions_str,
         title=article.get("title", ""),
         url=article.get("url", ""),
         content=article.get("content") or article.get("raw_content", ""),
