@@ -303,10 +303,16 @@ try:
         ids = ast.literal_eval(ids_str)
     conn = sqlite3.connect(db_path)
     placeholders = ",".join("?" * len(ids))
-    cur = conn.execute(
-        "SELECT id, title, raw_content, ai_summary, source, bb_score, bb_summary, bb_one_sentence, bb_main_points, bb_key_quotes, bb_tags FROM articles WHERE id IN ({})".format(placeholders),
-        ids
-    )
+    try:
+        cur = conn.execute(
+            "SELECT id, title, raw_content, ai_summary, source, bb_score, bb_summary, bb_one_sentence, bb_main_points, bb_key_quotes, bb_tags FROM articles WHERE id IN ({})".format(placeholders),
+            ids
+        )
+    except sqlite3.OperationalError:
+        cur = conn.execute(
+            "SELECT id, title, raw_content, ai_summary, source, NULL, NULL, NULL, NULL, NULL, NULL FROM articles WHERE id IN ({})".format(placeholders),
+            ids
+        )
     parts = []
     skipped = []
     for row in cur.fetchall():
@@ -425,10 +431,16 @@ try:
         ids = ast.literal_eval(ids_str)
     conn = sqlite3.connect(db_path)
     placeholders = ",".join("?" * len(ids))
-    cur = conn.execute(
-        "SELECT id, title, raw_content, ai_summary, source, bb_score, bb_summary, bb_one_sentence, bb_main_points, bb_key_quotes, bb_tags FROM articles WHERE id IN ({})".format(placeholders),
-        ids
-    )
+    try:
+        cur = conn.execute(
+            "SELECT id, title, raw_content, ai_summary, source, bb_score, bb_summary, bb_one_sentence, bb_main_points, bb_key_quotes, bb_tags FROM articles WHERE id IN ({})".format(placeholders),
+            ids
+        )
+    except sqlite3.OperationalError:
+        cur = conn.execute(
+            "SELECT id, title, raw_content, ai_summary, source, NULL, NULL, NULL, NULL, NULL, NULL FROM articles WHERE id IN ({})".format(placeholders),
+            ids
+        )
     parts = []
     skipped = []
     for row in cur.fetchall():
