@@ -856,6 +856,12 @@ function app() {
     // shareFormat === 'report_png').  Maps 1:1 to the 4 PRD §4
     // approaches.  Default 'baoyu-infographic' (most mature).
     sharePngApproach: 'baoyu-infographic',
+    // v1.0.5.25: BestBlogs API 增强选项
+    shareBBSummarySource: 'moni_ai',  // 'moni_ai' | 'bestblogs' | 'both' | 'none'
+    shareBBEnhanceScore: false,
+    shareBBEnhanceMainPoints: false,
+    shareBBEnhanceKeyQuotes: false,
+    shareBBEnhanceTags: false,
     shareInfoGraphicTitle: '同业追踪日报',
     shareQueue: [],
     _sharePollInterval: null,
@@ -971,6 +977,19 @@ function app() {
       // re-reading this.shareFormat, which the user may have
       // changed between estimate and confirm).  Server re-validates
       // either way (validate_manifest is the source of truth).
+      // v1.0.5.25: BestBlogs API 增强选项
+      // bb_enhance: true if any BB option is selected (triggers API calls)
+      const bbEnhance = this.shareBBEnhanceScore || this.shareBBEnhanceMainPoints
+        || this.shareBBEnhanceKeyQuotes || this.shareBBEnhanceTags
+        || this.shareBBSummarySource === 'bestblogs'
+        || this.shareBBSummarySource === 'both';
+      if (bbEnhance) payload.bb_enhance = true;
+      if (this.shareBBSummarySource !== 'moni_ai') payload.bb_summary_source = this.shareBBSummarySource;
+      if (this.shareBBEnhanceScore) payload.bb_score = true;
+      if (this.shareBBEnhanceMainPoints) payload.bb_main_points = true;
+      if (this.shareBBEnhanceKeyQuotes) payload.bb_key_quotes = true;
+      if (this.shareBBEnhanceTags) payload.bb_tags = true;
+
       this._shareEstimatePayload = payload;
       this._shareEstimateFormat = this.shareFormat;
       this.shareEstimateError = null;

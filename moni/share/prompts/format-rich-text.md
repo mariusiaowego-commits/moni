@@ -47,3 +47,16 @@ Feishu, Lark, Yuque, etc.).
   editing panes.
 - **Tone**: factual, no hype. No "重磅" "炸裂" "必读" — let the content speak.
 - **No HTML wrapping**: pure Markdown. The target editor handles rendering.
+
+## BestBlogs 增强数据（可选）
+
+如果文章数据中包含 BestBlogs 字段（评分、摘要、要点、金句、BestBlogs 标签），按以下规则嵌入：
+
+- **评分**：在标题后显示 `⭐ {score}/100`
+- **摘要来源**：
+  - 如果用户选了 "moni AI"：使用 AI 摘要，不展示 BestBlogs 摘要
+  - 如果用户选了 "BestBlogs"：使用 BestBlogs 摘要，不展示 AI 摘要
+  - 如果用户选了 "两者"：都展示，分别标注来源
+- **要点**：渲染为编号列表，放在摘要之后
+- **金句**：渲染为引用块（blockquote），放在要点之后
+- **BestBlogs 标签**：追加到 moni tags 后面，用 `[BB: tag]` 格式区分
