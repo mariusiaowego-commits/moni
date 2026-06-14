@@ -4,12 +4,29 @@
 
 ---
 
-## 当前状态: **v1.0.5.24 — BestBlogs 智能抓取 + 全文导入** (2026-06-13)
+## 当前状态: **v1.0.5.25 — fetch_config UI + BestBlogs API 按需接入** (2026-06-14)
 
-**主分支**: main @ `v1.0.5.24` (36 个 tag)
-**Web 服务**: `127.0.0.1:8900` (200 OK)
-**数据库**: `data/news.db` — schema_version=12, 318 articles, 6 sources
-**测试**: 300 passed, 2 skipped
+**主分支**: main @ `v1.0.5.25`
+**Web 服务**: `127.0.0.1:8900`
+**数据库**: `data/news.db` — schema_version=13, 6 sources
+**测试**: 322 passed, 2 skipped
+
+### v1.0.5.25 进展 (2026-06-14)
+
+**新功能**:
+- fetch_config UI 编辑器：配置管理 → 抓取源 → 「抓取配置」按钮 → modal 编辑参数
+- BestBlogs API 按需接入：分享时调 API 获取 score/summary/mainPoints/keyQuotes/tags
+- 分享选项扩展：摘要来源（moni AI / BestBlogs / 两者）、BB 增强字段可选
+- DB migration 013：articles 表加 bb_score/summary/one_sentence/main_points/key_quotes/tags/resource_id/fetched_at
+
+**Bug 修复**:
+- worker PNG/HTML 格式：检测 LLM 实际生成的文件并复制，不再保存文字描述
+- PDF 末尾标签：跳过文档末尾的孤立标签段落
+- SQL fallback：bb_* 列不存在时 fallback 到 NULL 查询
+
+**测试**: 322 passed (新增 22 tests: fetch_config 10 + bestblogs_api 12)
+
+---
 
 ### v1.0.5.24 进展 (2026-06-13)
 
@@ -19,32 +36,21 @@
 - 复制原文链接：一键复制到剪贴板
 - tag filter: bestblogs 只匹配标题（避免摘要 boilerplate 误命中）
 
-**测试**: 300 passed (新增 19 tests: _in_date_range + _clean_description + bestblogs 标题匹配)
+**测试**: 300 passed (新增 19 tests)
 
 ---
 
 ### v1.0.5.22 进展 (2026-06-13)
 
 **Bug 修复**:
-- 黑名单模式记录 keyword_hits（之前 blacklist 命中不记录）
+- 黑名单模式记录 keyword_hits
 - `scripts/backfill_keyword_hits.py` — 历史文章 keyword_hits 补录
-
-**数据清理**:
-- 262 篇无 keyword_hits 文章 → 补录 190 篇，删除 72 篇
-- 文章 360→288，覆盖率 27%→100%
-
----
-
-### v1.0.5.21 进展 (2026-06-12)
-
-**新功能**:
-- PDF 日报分享格式（7 种格式之一）
-- 版式配置化（`moni/share/templates/pdf-style.yaml`）
 
 ---
 
 ### 历史版本
 
+- v1.0.5.21: PDF 日报分享格式 + 版式配置化
 - v1.0.5.20: tag 关联逻辑修正 + keyword_hits 完善
 - v1.0.5.19: share bugfix + AI 摘要回写 + LLM 统一 + LLM 设置 UI
 - v1.0.5.18: share 功能 v2 重构
