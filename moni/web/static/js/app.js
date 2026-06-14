@@ -117,9 +117,10 @@ function app() {
     configFilters: [],
     configFilterSourceFilter: '',
     configModalOpen: false,
-    configModalType: null,  // 'tag' | 'source' | 'sourceTags' | 'filter'
+    configModalType: null,  // 'tag' | 'source' | 'sourceTags' | 'filter' | 'fetchConfig'
     configModalTarget: null,
     configModalTargetOriginal: null,  // for tag edit: original name (immutable)
+    fetchConfigData: { source_id: '', source_name: '', merged: {}, defaults: {}, has_custom: false },
 
     // v1.0.5.10: name -> {description, keywords} map for hover tooltips
     // on the articles page.  Built from configTags on demand.
@@ -245,6 +246,46 @@ function app() {
         this.configLoadSources();
         this.closeConfigModal();
       }).catch(err => alert('保存 tags 失败: ' + err.message));
+    },
+
+    // ── Fetch Config ─────────────────────────────────────────────
+    configEditFetchConfig(source) {
+      const sid = encodeURIComponent(source.id);
+      fetch(`/api/config/sources/${sid}/fetch_config`, { credentials: 'same-origin' })
+        .then(r => { if (!r.ok) throw new Error('加载失败'); return r.json(); })
+        .then(data => {
+          this.fetchConfigData = {
+            source_id: data.source_id,
+            source_name: data.source_name,
+            merged: { ...data.fetch_config },
+            defaults: { ...data.defaults },
+            has_custom: data.has_custom,
+          };
+          this.configModalType = 'fetchConfig';
+          this.configModalOpen = true;
+        })
+        .catch(err => alert('加载抓取配置失败: ' + err.message));
+    },
+    configSaveFetchConfig() {
+      const sid = encodeURIComponent(this.fetchConfigData.source_id);
+      fetch(`/api/config/sources/${sid}/fetch_config`, {
+        method: 'PUT', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this.fetchConfigData.merged),
+      }).then(r => {
+        if (!r.ok) return r.text().then(t => { throw new Error(t || `HTTP ${r.status}`); });
+        return r.json();
+      }).then(data => {
+        this.fetchConfigData = {
+          source_id: data.source_id,
+          source_name: data.source_name,
+          merged: { ...data.fetch_config },
+          defaults: { ...data.defaults },
+          has_custom: data.has_custom,
+        };
+        this.configLoadSources();
+        this.closeConfigModal();
+      }).catch(err => alert('保存抓取配置失败: ' + err.message));
     },
 
     // ── Filters CRUD ───────────────────────────────────────────────

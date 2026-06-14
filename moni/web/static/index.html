@@ -603,6 +603,7 @@
                       <button class="link-btn" @click="configEditSourceTags(s)">改 tags</button>
                     </td>
                     <td>
+                      <button class="link-btn" @click="configEditFetchConfig(s)">抓取配置</button>
                       <button class="btn-link" @click="configEditSource(s)">编辑</button>
                       <button class="btn-danger" @click="configDeleteSource(s)">删除</button>
                     </td>
@@ -1404,6 +1405,40 @@
             <div class="modal-footer">
               <button class="btn-secondary" @click="closeConfigModal()">取消</button>
               <button class="btn-primary" @click="configSaveSourceTags(configModalTarget.id, configModalTarget.tags)">保存</button>
+            </div>
+          </div>
+        </template>
+
+        <!-- Fetch config modal -->
+        <template x-if="configModalType === 'fetchConfig'">
+          <div>
+            <div class="modal-header">
+              <h3>抓取配置 — <span x-text="fetchConfigData.source_name"></span></h3>
+            </div>
+            <div class="modal-body">
+              <p class="hint" x-show="fetchConfigData.has_custom" style="color:#e67e22;">
+                * 有自定义配置（覆盖默认值）
+              </p>
+              <template x-for="(val, key) in fetchConfigData.merged" :key="key">
+                <div class="form-row">
+                  <label>
+                    <span x-text="key"></span>
+                    <span class="hint"
+                          x-show="fetchConfigData.defaults && fetchConfigData.defaults[key] !== undefined"
+                          style="color:#888; font-size:0.85em;">
+                      (默认: <span x-text="fetchConfigData.defaults[key]"></span>)
+                    </span>
+                  </label>
+                  <input type="number"
+                         x-model.number="fetchConfigData.merged[key]"
+                         :step="typeof val === 'number' && val < 1 ? 0.1 : 1"
+                         :min="0">
+                </div>
+              </template>
+            </div>
+            <div class="modal-footer">
+              <button class="btn-secondary" @click="closeConfigModal()">取消</button>
+              <button class="btn-primary" @click="configSaveFetchConfig()">保存</button>
             </div>
           </div>
         </template>

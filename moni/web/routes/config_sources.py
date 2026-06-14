@@ -6,6 +6,7 @@ M:N table.
 """
 from __future__ import annotations
 
+import json as _json
 import logging
 from datetime import datetime, timezone
 
@@ -14,6 +15,7 @@ from fastapi import APIRouter
 from moni.db.connection import get_db
 from moni.web.exceptions import ConflictError, NotFoundError
 from moni.web.models import (
+    FetchConfigResponse,
     Source,
     SourceCreate,
     SourceUpdate,
@@ -23,6 +25,16 @@ from moni.web.models import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/config/sources", tags=["config"])
+# Known fetch_config defaults per source type (for UI pre-fill)
+_FETCH_CONFIG_DEFAULTS: dict[str, dict] = {
+    "bestblogs": {
+        "max_feeds": 375,
+        "max_articles_per_feed": 5,
+        "max_articles_total": 500,
+        "request_delay": 0.5,
+    },
+}
+
 
 
 def _now() -> str:
@@ -30,6 +42,12 @@ def _now() -> str:
 
 
 def _row_to_source(r) -> Source:
+    fc = None
+    if r["fetch_config"]:
+        try:
+            fc = _json.loads(r["fetch_config"])
+        except (_json.JSONDecodeError, TypeError):
+            fc = None
     return Source(
         id=r["id"],
         name=r["name"],
@@ -39,6 +57,7 @@ def _row_to_source(r) -> Source:
         fetch_interval_min=r["fetch_interval_min"],
         is_active=bool(r["is_active"]),
         notes=r["notes"],
+        fetch_config=fc,
         created_at=r["created_at"],
         updated_at=r["updated_at"],
     )
@@ -51,7 +70,8 @@ def list_sources() -> list[SourceWithTags]:
     sources = conn.execute(
         """
         SELECT id, name, display_name, source_type, url,
-               fetch_interval_min, is_active, notes, created_at, updated_at
+               fetch_interval_min, is_active, notes, fetch_config,
+               created_at, updated_at
         FROM sources
         ORDER BY name
         """
@@ -92,11 +112,13 @@ def create_source(body: SourceCreate) -> SourceWithTags:
         """
         INSERT INTO sources
             (id, name, display_name, source_type, url,
-             fetch_interval_min, is_active, notes, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             fetch_interval_min, is_active, notes, fetch_config,
+             created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (body.id, body.name, body.display_name, body.source_type, body.url,
          body.fetch_interval_min, 1 if body.is_active else 0, body.notes,
+         _json.dumps(body.fetch_config, ensure_ascii=False) if body.fetch_config else None,
          now, now),
     )
     conn.commit()
@@ -105,6 +127,7 @@ def create_source(body: SourceCreate) -> SourceWithTags:
         source_type=body.source_type, url=body.url,
         fetch_interval_min=body.fetch_interval_min,
         is_active=body.is_active, notes=body.notes,
+        fetch_config=body.fetch_config,
         created_at=now, updated_at=now, tags=[],
     )
 
@@ -116,7 +139,8 @@ def get_source(source_id: str) -> SourceWithTags:
     row = conn.execute(
         """
         SELECT id, name, display_name, source_type, url,
-               fetch_interval_min, is_active, notes, created_at, updated_at
+               fetch_interval_min, is_active, notes, fetch_config,
+               created_at, updated_at
         FROM sources WHERE id = ?
         """,
         (source_id,),
@@ -139,7 +163,8 @@ def update_source(source_id: str, body: SourceUpdate) -> SourceWithTags:
     row = conn.execute(
         """
         SELECT id, name, display_name, source_type, url,
-               fetch_interval_min, is_active, notes, created_at, updated_at
+               fetch_interval_min, is_active, notes, fetch_config,
+               created_at, updated_at
         FROM sources WHERE id = ?
         """,
         (source_id,),
@@ -158,17 +183,20 @@ def update_source(source_id: str, body: SourceUpdate) -> SourceWithTags:
         fields["is_active"] = 1 if body.is_active else 0
     if body.notes is not None:
         fields["notes"] = body.notes
+    if body.fetch_config is not None:
+        fields["fetch_config"] = _json.dumps(body.fetch_config, ensure_ascii=False)
     fields["updated_at"] = _now()
 
     conn.execute(
         """
         UPDATE sources SET
             display_name = ?, url = ?, fetch_interval_min = ?,
-            is_active = ?, notes = ?, updated_at = ?
+            is_active = ?, notes = ?, fetch_config = ?, updated_at = ?
         WHERE id = ?
         """,
         (fields["display_name"], fields["url"], fields["fetch_interval_min"],
-         fields["is_active"], fields["notes"], fields["updated_at"], source_id),
+         fields["is_active"], fields["notes"], fields.get("fetch_config"),
+         fields["updated_at"], source_id),
     )
     conn.commit()
     tag_rows = conn.execute(
@@ -176,6 +204,13 @@ def update_source(source_id: str, body: SourceUpdate) -> SourceWithTags:
         (source_id,),
     ).fetchall()
     s = {**fields, "is_active": bool(fields["is_active"])}
+    # Parse fetch_config JSON string back to dict for the response model
+    fc_raw = s.get("fetch_config")
+    if isinstance(fc_raw, str) and fc_raw:
+        try:
+            s["fetch_config"] = _json.loads(fc_raw)
+        except (_json.JSONDecodeError, TypeError):
+            s["fetch_config"] = None
     s["tags"] = [t["tag_name"] for t in tag_rows]
     return SourceWithTags(**s)
 
@@ -231,3 +266,57 @@ def set_source_tags(source_id: str, tag_names: list[str]) -> SourceWithTags:
 
     # Return updated source
     return get_source(source_id)
+
+
+@router.get("/{source_id}/fetch_config", response_model=FetchConfigResponse)
+def get_fetch_config(source_id: str) -> FetchConfigResponse:
+    """Get the fetch_config for a source, merged with type defaults."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT name, fetch_config FROM sources WHERE id = ?",
+        (source_id,),
+   ).fetchone()
+    if row is None:
+        raise NotFoundError(message=f"Source {source_id!r} not found")
+
+    user_cfg: dict = {}
+    if row["fetch_config"]:
+        try:
+            user_cfg = _json.loads(row["fetch_config"])
+        except (_json.JSONDecodeError, TypeError):
+            pass
+
+    source_name = row["name"]
+    defaults = _FETCH_CONFIG_DEFAULTS.get(source_name, {})
+    # Merge: defaults first, user overrides on top
+    merged = {**defaults, **user_cfg}
+
+    return FetchConfigResponse(
+        source_id=source_id,
+        source_name=source_name,
+        fetch_config=merged,
+        has_custom=bool(user_cfg),
+        defaults=defaults,
+    )
+
+
+@router.put("/{source_id}/fetch_config", response_model=FetchConfigResponse)
+def update_fetch_config(source_id: str, body: dict) -> FetchConfigResponse:
+    """Update fetch_config for a source. Pass the full config dict."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT name FROM sources WHERE id = ?",
+        (source_id,),
+    ).fetchone()
+    if row is None:
+        raise NotFoundError(message=f"Source {source_id!r} not found")
+
+    now = _now()
+    conn.execute(
+        "UPDATE sources SET fetch_config = ?, updated_at = ? WHERE id = ?",
+        (_json.dumps(body, ensure_ascii=False), now, source_id),
+    )
+    conn.commit()
+
+    # Return merged config
+    return get_fetch_config(source_id)
