@@ -28,6 +28,20 @@ For each article, analyze and prepare the following:
 
 5. **Metadata** — Capture: publisher/source name, publication date, original URL.
 
+
+### BestBlogs 增强数据（可选）
+
+Article data may include BestBlogs enrichment fields (prefixed with **BestBlogs**). When present, use them as follows:
+
+- **BestBlogs 评分** (score, 0-100): Display near the title as `⭐ {score}/100`. Higher = better quality.
+- **BestBlogs 摘要** (bb_summary): Professional summary by BestBlogs editorial team. Use as primary abstract if no AI summary exists. If both exist, show both with source labels.
+- **一句话洞察** (bb_one_sentence): One-line insight. Use as a subtitle or highlight line.
+- **要点** (bb_main_points): Key points list. Render as numbered or bullet list after the abstract.
+- **金句** (bb_key_quotes): Key quotes from the article. Render as blockquotes.
+- **BestBlogs 标签** (bb_tags): Topic tags from BestBlogs (distinct from moni tags). Show with `[BB: tag]` format to distinguish from moni tags.
+
+**Important**: BestBlogs data is supplementary. If the user selected "moni AI" as summary source, prioritize the AI summary. If "BestBlogs" was selected, prioritize the BestBlogs summary. If "both" was selected, show both with clear source labels.
+
 ### Analysis principles
 - Be honest about article quality. If an article is thin on substance, say so.
 - Numbers and claims from the article are NOT automatically trusted — 

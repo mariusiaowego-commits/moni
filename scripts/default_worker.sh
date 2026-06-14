@@ -303,18 +303,57 @@ try:
         ids = ast.literal_eval(ids_str)
     conn = sqlite3.connect(db_path)
     placeholders = ",".join("?" * len(ids))
-    cur = conn.execute(
-        "SELECT id, title, raw_content, ai_summary FROM articles WHERE id IN ({})".format(placeholders),
-        ids
-    )
+    try:
+        cur = conn.execute(
+            "SELECT id, title, raw_content, ai_summary, source, bb_score, bb_summary, bb_one_sentence, bb_main_points, bb_key_quotes, bb_tags FROM articles WHERE id IN ({})".format(placeholders),
+            ids
+        )
+    except sqlite3.OperationalError:
+        cur = conn.execute(
+            "SELECT id, title, raw_content, ai_summary, source, NULL, NULL, NULL, NULL, NULL, NULL FROM articles WHERE id IN ({})".format(placeholders),
+            ids
+        )
     parts = []
     skipped = []
     for row in cur.fetchall():
-        aid, title, content, ai_summary = row
+        aid, title, content, ai_summary, source, bb_score, bb_summary, bb_one_sentence, bb_main_points, bb_key_quotes, bb_tags = row
         if content and content.strip():
             block = f"### 文章: {title}\nID: {aid}\n\n{content}"
             if ai_summary and ai_summary.strip():
                 block += f"\n\n**AI 摘要**: {ai_summary}"
+            # BestBlogs 增强数据（如果已拉取）
+            if bb_score is not None:
+                block += f"\n\n**BestBlogs 评分**: {bb_score}/100"
+            if bb_summary and bb_summary.strip():
+                block += f"\n\n**BestBlogs 摘要**: {bb_summary}"
+            if bb_one_sentence and bb_one_sentence.strip():
+                block += f"\n\n**一句话洞察**: {bb_one_sentence}"
+            if bb_main_points:
+                try:
+                    import json as _json
+                    points = _json.loads(bb_main_points)
+                    if points:
+                        lines = [f"- {p.get('point','')}" for p in points if p.get('point')]
+                        block += f"\n\n**要点**:\n" + "\n".join(lines)
+                except Exception:
+                    pass
+            if bb_key_quotes:
+                try:
+                    import json as _json
+                    quotes = _json.loads(bb_key_quotes)
+                    if quotes:
+                        lines = [f"> {q}" for q in quotes]
+                        block += f"\n\n**金句**:\n" + "\n".join(lines)
+                except Exception:
+                    pass
+            if bb_tags:
+                try:
+                    import json as _json
+                    tags = _json.loads(bb_tags)
+                    if tags:
+                        block += f"\n\n**BestBlogs 标签**: {', '.join(tags)}"
+                except Exception:
+                    pass
             parts.append(block)
         else:
             skipped.append(aid)
@@ -333,6 +372,128 @@ PYEOF
         log "FAIL $task_id — $error_msg"
         task_status_update "$task_id" "failed" "" "$error_msg"
         return 0
+    fi
+
+    # v1.0.5.25: BestBlogs API 按需拉取增强元数据.
+    # For bestblogs articles without bb_fetched_at, call the API to
+    # fetch score/summary/mainPoints/keyQuotes/tags and write to DB.
+    # The article_content block above will pick up the data on next read.
+    local bb_enhance_val
+    bb_enhance_val=$(python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+p = d.get('payload', {}) if isinstance(d.get('payload'), dict) else {}
+v = p.get('bb_enhance', False)
+print('true' if v else 'false')
+" "$manifest_path" 2>/dev/null || echo "false")
+
+    if [[ "$bb_enhance_val" == "true" && -n "$article_ids_str" ]]; then
+        update_progress "$task_id" "fetching_bb_meta" 30 \
+            "正在拉取 BestBlogs 增强数据 ..."
+        log "BB_FETCH $task_id — checking bestblogs articles for missing bb_fetched_at"
+
+        python3 - "$article_ids_str" "$DB_PATH" <<'BBEOF'
+import json, sys, os
+sys.path.insert(0, os.environ.get("REPO_ROOT", "."))
+from moni.fetch.bestblogs_api import fetch_and_store
+
+ids_str = sys.argv[1]
+try:
+    if ids_str.startswith("["):
+        ids = json.loads(ids_str)
+    else:
+        ids = eval(ids_str)
+    fetched = 0
+    for aid in ids:
+        result = fetch_and_store(aid)
+        if result:
+            fetched += 1
+    if fetched > 0:
+        print(f"[bb_fetch] fetched meta for {fetched} article(s)", file=sys.stderr)
+except Exception as e:
+    print(f"[bb_fetch] error: {e}", file=sys.stderr)
+BBEOF
+
+        # Re-read article content to pick up newly stored BB data
+        if [[ -n "$article_ids_str" ]]; then
+            article_content=$(python3 - "$article_ids_str" "$DB_PATH" <<'PYEOF'
+import json, ast, sqlite3, sys
+ids_str = sys.argv[1]
+db_path = sys.argv[2]
+try:
+    ids_str = ids_str.strip()
+    if ids_str.startswith("["):
+        try:
+            ids = json.loads(ids_str)
+        except Exception:
+            ids = ast.literal_eval(ids_str)
+    else:
+        ids = ast.literal_eval(ids_str)
+    conn = sqlite3.connect(db_path)
+    placeholders = ",".join("?" * len(ids))
+    try:
+        cur = conn.execute(
+            "SELECT id, title, raw_content, ai_summary, source, bb_score, bb_summary, bb_one_sentence, bb_main_points, bb_key_quotes, bb_tags FROM articles WHERE id IN ({})".format(placeholders),
+            ids
+        )
+    except sqlite3.OperationalError:
+        cur = conn.execute(
+            "SELECT id, title, raw_content, ai_summary, source, NULL, NULL, NULL, NULL, NULL, NULL FROM articles WHERE id IN ({})".format(placeholders),
+            ids
+        )
+    parts = []
+    skipped = []
+    for row in cur.fetchall():
+        aid, title, content, ai_summary, source, bb_score, bb_summary, bb_one_sentence, bb_main_points, bb_key_quotes, bb_tags = row
+        if content and content.strip():
+            block = f"### 文章: {title}\nID: {aid}\n\n{content}"
+            if ai_summary and ai_summary.strip():
+                block += f"\n\n**AI 摘要**: {ai_summary}"
+            if bb_score is not None:
+                block += f"\n\n**BestBlogs 评分**: {bb_score}/100"
+            if bb_summary and bb_summary.strip():
+                block += f"\n\n**BestBlogs 摘要**: {bb_summary}"
+            if bb_one_sentence and bb_one_sentence.strip():
+                block += f"\n\n**一句话洞察**: {bb_one_sentence}"
+            if bb_main_points:
+                try:
+                    import json as _json
+                    points = _json.loads(bb_main_points)
+                    if points:
+                        lines = [f"- {p.get('point','')}" for p in points if p.get('point')]
+                        block += f"\n\n**要点**:\n" + "\n".join(lines)
+                except Exception:
+                    pass
+            if bb_key_quotes:
+                try:
+                    import json as _json
+                    quotes = _json.loads(bb_key_quotes)
+                    if quotes:
+                        lines = [f"> {q}" for q in quotes]
+                        block += f"\n\n**金句**:\n" + "\n".join(lines)
+                except Exception:
+                    pass
+            if bb_tags:
+                try:
+                    import json as _json
+                    tags = _json.loads(bb_tags)
+                    if tags:
+                        block += f"\n\n**BestBlogs 标签**: {', '.join(tags)}"
+                except Exception:
+                    pass
+            parts.append(block)
+        else:
+            skipped.append(aid)
+    if skipped:
+        import sys as _sys
+        print(f"[warn] {len(skipped)} article(s) with empty content skipped: {skipped}", file=_sys.stderr)
+    print("\n\n---\n\n".join(parts))
+except Exception:
+    print("")
+PYEOF
+)
+        fi
+        log "BB_FETCH $task_id — done, article_content refreshed"
     fi
 
     # v1.0.5.19: AI summary generation + DB writeback.
@@ -434,6 +595,8 @@ print(f"include_fact_check={sq('true' if fc else 'false')}")
 print(f"provider_override={sq(prov)}")
 print(f"model_override={sq(mod)}")
 print(f"info_graphic_title={sq(title)}")
+bb = p.get("bb_enhance", False)
+print(f"bb_enhance={sq('true' if bb else 'false')}")
 PYEOF
 )"
 
@@ -592,6 +755,33 @@ PYEOF
         log "FAIL $task_id — exit $hermes_exit: $error_msg"
         task_status_update "$task_id" "failed" "" "$error_msg"
         return 0
+    fi
+
+    # v1.0.5.25: For PNG/HTML formats, the LLM may generate actual files
+    # (e.g. infographic.png, report.png) and return a text description
+    # with the file path.  Detect the real file and copy it to the
+    # artifact location instead of saving the text output.
+    local artifacts_dir="${ARTIFACTS_DIR:-$REPO_ROOT/data/artifacts}"
+    mkdir -p "$artifacts_dir"
+
+    if [[ "$format" == "info_graphic_png" || "$format" == "report_png" ]]; then
+        # Extract PNG file path from hermes output (look for /path/to/*.png)
+        local real_png=""
+        real_png=$(echo "$hermes_output" | grep -oE '/[^ ]+\.png' | head -1)
+        if [[ -n "$real_png" && -f "$real_png" && $(file -b "$real_png") == *"PNG"* ]]; then
+            output_path="$artifacts_dir/${task_id}-${format}.png"
+            cp "$real_png" "$output_path"
+            log "PNG artifact copied from $real_png -> $output_path"
+        fi
+    elif [[ "$format" == "html_landing" ]]; then
+        # Extract HTML file path from hermes output (look for /path/to/*.html)
+        local real_html=""
+        real_html=$(echo "$hermes_output" | grep -oE '/[^ ]+\.html' | head -1)
+        if [[ -n "$real_html" && -f "$real_html" ]]; then
+            output_path="$artifacts_dir/${task_id}-${format}.html"
+            cp "$real_html" "$output_path"
+            log "HTML artifact copied from $real_html -> $output_path"
+        fi
     fi
 
     # Success — extract output path from agent response if not already set

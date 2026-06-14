@@ -56,3 +56,10 @@ Your Nous subscription may be disconnected. Please reconnect and retry."
 ### Output
 Save the generated PNG to the specified output path. Report the path
 when done so the worker can register the artifact.
+
+## BestBlogs 增强数据（可选）
+
+如果文章数据中包含 BestBlogs 字段：
+- **评分**：在标题旁显示 `⭐ {score}/100`
+- **一句话洞察**：如果存在，用作核心洞察行（替代自动生成的 2-3 句洞察）
+- 其他字段（要点、金句、标签）：报告 PNG 空间有限，不展示

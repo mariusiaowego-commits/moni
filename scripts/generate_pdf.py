@@ -323,7 +323,8 @@ def build_pdf(md_text, output_path, title="同业追踪日报"):
         elif para_type == 'h3':
             label_text = content.strip()
             if '标签' in label_text:
-                if i + 1 < len(paragraphs):
+                # v1.0.5.25: Skip tags at end of document (LLM spurious output)
+                if i + 1 < len(paragraphs) and i + 2 < len(paragraphs):
                     i += 1
                     _, tags_content = paragraphs[i]
                     tags = [t.strip() for t in tags_content.split(',')][:cfg['tag']['max_display']]

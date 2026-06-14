@@ -422,10 +422,47 @@
             包含 AI 摘要
           </label>
           <label style="cursor: pointer;">
-            <input type="checkbox" x-model="shareIncludeFactCheck">
+            <input type="checkbox" x-model="shareIncludeFactCheck"
+                   :disabled="shareBBSummarySource === 'bestblogs'">
             包含事实核查
             <small class="muted">（较慢）</small>
           </label>
+        </div>
+
+
+        <!-- v1.0.5.25: BestBlogs 增强选项 -->
+        <div class="share-section">
+          <h4>BestBlogs 增强 <small class="muted">（仅 bestblogs 源文章可用，消耗 API 额度）</small></h4>
+          <div style="margin-bottom: 8px;">
+            <label style="cursor: pointer; font-weight: 500;">摘要来源:</label>
+            <select x-model="shareBBSummarySource" style="margin-left: 8px; padding: 4px 8px;">
+              <option value="moni_ai">moni AI 摘要</option>
+              <option value="bestblogs">BestBlogs 摘要</option>
+              <option value="both">两者都展示</option>
+              <option value="none">不展示摘要</option>
+            </select>
+          </div>
+          <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+            <label style="cursor: pointer;">
+              <input type="checkbox" x-model="shareBBEnhanceScore">
+              质量评分 (score)
+            </label>
+            <label style="cursor: pointer;">
+              <input type="checkbox" x-model="shareBBEnhanceMainPoints">
+              要点列表 (mainPoints)
+            </label>
+            <label style="cursor: pointer;">
+              <input type="checkbox" x-model="shareBBEnhanceKeyQuotes">
+              金句 (keyQuotes)
+            </label>
+            <label style="cursor: pointer;">
+              <input type="checkbox" x-model="shareBBEnhanceTags">
+              专业标签 (bbTags)
+            </label>
+          </div>
+          <p class="muted" style="font-size: 0.85em; margin-top: 4px;">
+            注: 勾选任一增强选项会调用 BestBlogs API（每天 50 次免费额度）。已拉取的文章不会重复调用。
+          </p>
         </div>
 
         <!-- v1.0.5.18: 高级选项 (provider / model override, 折叠).
@@ -603,6 +640,7 @@
                       <button class="link-btn" @click="configEditSourceTags(s)">改 tags</button>
                     </td>
                     <td>
+                      <button class="link-btn" @click="configEditFetchConfig(s)">抓取配置</button>
                       <button class="btn-link" @click="configEditSource(s)">编辑</button>
                       <button class="btn-danger" @click="configDeleteSource(s)">删除</button>
                     </td>
@@ -1404,6 +1442,40 @@
             <div class="modal-footer">
               <button class="btn-secondary" @click="closeConfigModal()">取消</button>
               <button class="btn-primary" @click="configSaveSourceTags(configModalTarget.id, configModalTarget.tags)">保存</button>
+            </div>
+          </div>
+        </template>
+
+        <!-- Fetch config modal -->
+        <template x-if="configModalType === 'fetchConfig'">
+          <div>
+            <div class="modal-header">
+              <h3>抓取配置 — <span x-text="fetchConfigData.source_name"></span></h3>
+            </div>
+            <div class="modal-body">
+              <p class="hint" x-show="fetchConfigData.has_custom" style="color:#e67e22;">
+                * 有自定义配置（覆盖默认值）
+              </p>
+              <template x-for="(val, key) in fetchConfigData.merged" :key="key">
+                <div class="form-row">
+                  <label>
+                    <span x-text="key"></span>
+                    <span class="hint"
+                          x-show="fetchConfigData.defaults && fetchConfigData.defaults[key] !== undefined"
+                          style="color:#888; font-size:0.85em;">
+                      (默认: <span x-text="fetchConfigData.defaults[key]"></span>)
+                    </span>
+                  </label>
+                  <input type="number"
+                         x-model.number="fetchConfigData.merged[key]"
+                         :step="typeof val === 'number' && val < 1 ? 0.1 : 1"
+                         :min="0">
+                </div>
+              </template>
+            </div>
+            <div class="modal-footer">
+              <button class="btn-secondary" @click="closeConfigModal()">取消</button>
+              <button class="btn-primary" @click="configSaveFetchConfig()">保存</button>
             </div>
           </div>
         </template>

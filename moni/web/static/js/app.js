@@ -117,9 +117,10 @@ function app() {
     configFilters: [],
     configFilterSourceFilter: '',
     configModalOpen: false,
-    configModalType: null,  // 'tag' | 'source' | 'sourceTags' | 'filter'
+    configModalType: null,  // 'tag' | 'source' | 'sourceTags' | 'filter' | 'fetchConfig'
     configModalTarget: null,
     configModalTargetOriginal: null,  // for tag edit: original name (immutable)
+    fetchConfigData: { source_id: '', source_name: '', merged: {}, defaults: {}, has_custom: false },
 
     // v1.0.5.10: name -> {description, keywords} map for hover tooltips
     // on the articles page.  Built from configTags on demand.
@@ -245,6 +246,46 @@ function app() {
         this.configLoadSources();
         this.closeConfigModal();
       }).catch(err => alert('保存 tags 失败: ' + err.message));
+    },
+
+    // ── Fetch Config ─────────────────────────────────────────────
+    configEditFetchConfig(source) {
+      const sid = encodeURIComponent(source.id);
+      fetch(`/api/config/sources/${sid}/fetch_config`, { credentials: 'same-origin' })
+        .then(r => { if (!r.ok) throw new Error('加载失败'); return r.json(); })
+        .then(data => {
+          this.fetchConfigData = {
+            source_id: data.source_id,
+            source_name: data.source_name,
+            merged: { ...data.fetch_config },
+            defaults: { ...data.defaults },
+            has_custom: data.has_custom,
+          };
+          this.configModalType = 'fetchConfig';
+          this.configModalOpen = true;
+        })
+        .catch(err => alert('加载抓取配置失败: ' + err.message));
+    },
+    configSaveFetchConfig() {
+      const sid = encodeURIComponent(this.fetchConfigData.source_id);
+      fetch(`/api/config/sources/${sid}/fetch_config`, {
+        method: 'PUT', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this.fetchConfigData.merged),
+      }).then(r => {
+        if (!r.ok) return r.text().then(t => { throw new Error(t || `HTTP ${r.status}`); });
+        return r.json();
+      }).then(data => {
+        this.fetchConfigData = {
+          source_id: data.source_id,
+          source_name: data.source_name,
+          merged: { ...data.fetch_config },
+          defaults: { ...data.defaults },
+          has_custom: data.has_custom,
+        };
+        this.configLoadSources();
+        this.closeConfigModal();
+      }).catch(err => alert('保存抓取配置失败: ' + err.message));
     },
 
     // ── Filters CRUD ───────────────────────────────────────────────
@@ -815,6 +856,12 @@ function app() {
     // shareFormat === 'report_png').  Maps 1:1 to the 4 PRD §4
     // approaches.  Default 'baoyu-infographic' (most mature).
     sharePngApproach: 'baoyu-infographic',
+    // v1.0.5.25: BestBlogs API 增强选项
+    shareBBSummarySource: 'moni_ai',  // 'moni_ai' | 'bestblogs' | 'both' | 'none'
+    shareBBEnhanceScore: false,
+    shareBBEnhanceMainPoints: false,
+    shareBBEnhanceKeyQuotes: false,
+    shareBBEnhanceTags: false,
     shareInfoGraphicTitle: '同业追踪日报',
     shareQueue: [],
     _sharePollInterval: null,
@@ -930,6 +977,19 @@ function app() {
       // re-reading this.shareFormat, which the user may have
       // changed between estimate and confirm).  Server re-validates
       // either way (validate_manifest is the source of truth).
+      // v1.0.5.25: BestBlogs API 增强选项
+      // bb_enhance: true if any BB option is selected (triggers API calls)
+      const bbEnhance = this.shareBBEnhanceScore || this.shareBBEnhanceMainPoints
+        || this.shareBBEnhanceKeyQuotes || this.shareBBEnhanceTags
+        || this.shareBBSummarySource === 'bestblogs'
+        || this.shareBBSummarySource === 'both';
+      if (bbEnhance) payload.bb_enhance = true;
+      if (this.shareBBSummarySource !== 'moni_ai') payload.bb_summary_source = this.shareBBSummarySource;
+      if (this.shareBBEnhanceScore) payload.bb_score = true;
+      if (this.shareBBEnhanceMainPoints) payload.bb_main_points = true;
+      if (this.shareBBEnhanceKeyQuotes) payload.bb_key_quotes = true;
+      if (this.shareBBEnhanceTags) payload.bb_tags = true;
+
       this._shareEstimatePayload = payload;
       this._shareEstimateFormat = this.shareFormat;
       this.shareEstimateError = null;

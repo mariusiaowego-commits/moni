@@ -392,6 +392,7 @@ class Source(BaseModel):
     fetch_interval_min: int
     is_active: bool
     notes: str | None = None
+    fetch_config: dict[str, Any] | None = None
     created_at: str
     updated_at: str
 
@@ -405,6 +406,7 @@ class SourceCreate(BaseModel):
     fetch_interval_min: int = 30
     is_active: bool = True
     notes: str | None = None
+    fetch_config: dict[str, Any] | None = None
 
 
 class SourceUpdate(BaseModel):
@@ -413,11 +415,21 @@ class SourceUpdate(BaseModel):
     fetch_interval_min: int | None = None
     is_active: bool | None = None
     notes: str | None = None
+    fetch_config: dict[str, Any] | None = None
 
 
 class SourceWithTags(Source):
     """Source + 关联的 tag_name 列表."""
     tags: list[str] = []
+
+
+class FetchConfigResponse(BaseModel):
+    """Response for GET /api/config/sources/{id}/fetch_config."""
+    source_id: str
+    source_name: str
+    fetch_config: dict[str, Any]
+    has_custom: bool
+    defaults: dict[str, Any]
 
 
 # ---------------------------------------------------------------------------

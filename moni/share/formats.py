@@ -74,6 +74,16 @@ _USER_OPTIONS_FIELDS = """
         "Hermes model override (e.g. 'gemini-2.5-pro'). "
         "Default profile's model is used if None."
     ))
+    bb_enhance: bool = Field(default=False, description=(
+        "Enable BestBlogs API metadata fetch (score/summary/mainPoints/keyQuotes/tags)"
+    ))
+    bb_summary_source: str | None = Field(default=None, description=(
+        "Summary source: 'moni_ai' | 'bestblogs' | 'both' | 'none'"
+    ))
+    bb_score: bool = Field(default=False, description="Include BestBlogs score")
+    bb_main_points: bool = Field(default=False, description="Include BestBlogs main points")
+    bb_key_quotes: bool = Field(default=False, description="Include BestBlogs key quotes")
+    bb_tags: bool = Field(default=False, description="Include BestBlogs tags")
 """
 
 
@@ -103,6 +113,12 @@ class PlainTextPayload(BaseModel):
     page_width: int = Field(default=80, ge=40, le=200, description="Characters per line")
     include_abstract: bool = Field(default=True)
     include_fact_check: bool = Field(default=False)
+    bb_enhance: bool = Field(default=False)
+    bb_summary_source: str | None = Field(default=None)
+    bb_score: bool = Field(default=False)
+    bb_main_points: bool = Field(default=False)
+    bb_key_quotes: bool = Field(default=False)
+    bb_tags: bool = Field(default=False)
     provider: str | None = Field(default=None)
     model: str | None = Field(default=None)
 
@@ -118,6 +134,12 @@ class MarkdownPayload(BaseModel):
     code_theme: str = Field(default="github-dark", description="Highlight.js theme name")
     include_abstract: bool = Field(default=True)
     include_fact_check: bool = Field(default=False)
+    bb_enhance: bool = Field(default=False)
+    bb_summary_source: str | None = Field(default=None)
+    bb_score: bool = Field(default=False)
+    bb_main_points: bool = Field(default=False)
+    bb_key_quotes: bool = Field(default=False)
+    bb_tags: bool = Field(default=False)
     provider: str | None = Field(default=None)
     model: str | None = Field(default=None)
 
@@ -135,6 +157,12 @@ class HtmlLandingPayload(BaseModel):
     logo_url: str | None = Field(default=None)
     include_abstract: bool = Field(default=True)
     include_fact_check: bool = Field(default=False)
+    bb_enhance: bool = Field(default=False)
+    bb_summary_source: str | None = Field(default=None)
+    bb_score: bool = Field(default=False)
+    bb_main_points: bool = Field(default=False)
+    bb_key_quotes: bool = Field(default=False)
+    bb_tags: bool = Field(default=False)
     provider: str | None = Field(default=None)
     model: str | None = Field(default=None)
 
@@ -151,6 +179,12 @@ class InfoGraphicPngPayload(BaseModel):
     color_scheme: str = Field(default="vibrant", description="Colour palette name")
     include_abstract: bool = Field(default=True)
     include_fact_check: bool = Field(default=False)
+    bb_enhance: bool = Field(default=False)
+    bb_summary_source: str | None = Field(default=None)
+    bb_score: bool = Field(default=False)
+    bb_main_points: bool = Field(default=False)
+    bb_key_quotes: bool = Field(default=False)
+    bb_tags: bool = Field(default=False)
     provider: str | None = Field(default=None)
     model: str | None = Field(default=None)
     generation_approach: str = Field(default="baoyu-infographic", description="baoyu-infographic / ljg-card / kami / direct")
@@ -170,6 +204,12 @@ class RichTextPayload(BaseModel):
     article_ids: list[str] = Field(..., description="Articles to include")
     include_abstract: bool = Field(default=True)
     include_fact_check: bool = Field(default=False)
+    bb_enhance: bool = Field(default=False)
+    bb_summary_source: str | None = Field(default=None)
+    bb_score: bool = Field(default=False)
+    bb_main_points: bool = Field(default=False)
+    bb_key_quotes: bool = Field(default=False)
+    bb_tags: bool = Field(default=False)
     provider: str | None = Field(default=None)
     model: str | None = Field(default=None)
 
@@ -187,6 +227,12 @@ class PdfPayload(BaseModel):
     title: str = Field(default="同业追踪日报", description="报告总标题")
     include_abstract: bool = Field(default=True)
     include_fact_check: bool = Field(default=False)
+    bb_enhance: bool = Field(default=False)
+    bb_summary_source: str | None = Field(default=None)
+    bb_score: bool = Field(default=False)
+    bb_main_points: bool = Field(default=False)
+    bb_key_quotes: bool = Field(default=False)
+    bb_tags: bool = Field(default=False)
     provider: str | None = Field(default=None)
     model: str | None = Field(default=None)
 
@@ -204,6 +250,12 @@ class ReportPngPayload(BaseModel):
     article_ids: list[str] = Field(..., description="Articles to include")
     include_abstract: bool = Field(default=True)
     include_fact_check: bool = Field(default=False)
+    bb_enhance: bool = Field(default=False)
+    bb_summary_source: str | None = Field(default=None)
+    bb_score: bool = Field(default=False)
+    bb_main_points: bool = Field(default=False)
+    bb_key_quotes: bool = Field(default=False)
+    bb_tags: bool = Field(default=False)
     provider: str | None = Field(default=None)
     model: str | None = Field(default=None)
     generation_approach: str = Field(
