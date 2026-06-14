@@ -757,6 +757,33 @@ PYEOF
         return 0
     fi
 
+    # v1.0.5.25: For PNG/HTML formats, the LLM may generate actual files
+    # (e.g. infographic.png, report.png) and return a text description
+    # with the file path.  Detect the real file and copy it to the
+    # artifact location instead of saving the text output.
+    local artifacts_dir="${ARTIFACTS_DIR:-$REPO_ROOT/data/artifacts}"
+    mkdir -p "$artifacts_dir"
+
+    if [[ "$format" == "info_graphic_png" || "$format" == "report_png" ]]; then
+        # Extract PNG file path from hermes output (look for /path/to/*.png)
+        local real_png=""
+        real_png=$(echo "$hermes_output" | grep -oE '/[^ ]+\.png' | head -1)
+        if [[ -n "$real_png" && -f "$real_png" && $(file -b "$real_png") == *"PNG"* ]]; then
+            output_path="$artifacts_dir/${task_id}-${format}.png"
+            cp "$real_png" "$output_path"
+            log "PNG artifact copied from $real_png -> $output_path"
+        fi
+    elif [[ "$format" == "html_landing" ]]; then
+        # Extract HTML file path from hermes output (look for /path/to/*.html)
+        local real_html=""
+        real_html=$(echo "$hermes_output" | grep -oE '/[^ ]+\.html' | head -1)
+        if [[ -n "$real_html" && -f "$real_html" ]]; then
+            output_path="$artifacts_dir/${task_id}-${format}.html"
+            cp "$real_html" "$output_path"
+            log "HTML artifact copied from $real_html -> $output_path"
+        fi
+    fi
+
     # Success — extract output path from agent response if not already set
     if [[ -z "$output_path" ]]; then
         # v1.0.5.21: pdf 格式后处理 — 将 Markdown 内容转换为 PDF
