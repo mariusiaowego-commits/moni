@@ -219,3 +219,143 @@ def check_source_health(name: str) -> HealthResponse:
 def ping_source_health(name: str) -> HealthResponse:
     """Alias of ``/sources/{name}/health`` for the SPA's ``pingSource()``."""
     return check_source_health(name)
+
+
+@router.post("/all/run")
+def trigger_fetch_all() -> dict[str, Any]:
+    """Fetch all enabled sources in one go.
+
+    Iterates every enabled source, runs the fetcher (no interval gate),
+    collects per-source results, and logs to cron_runs + fetch_log.
+
+    On Monday, automatically sets date_from to Saturday for weekend catch-up.
+    """
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from moni.cron.run_history import CronRunHistory
+    from moni.fetch.base import _ensure_sources_loaded, _FETCHER_REGISTRY
+    from moni.fetch.scheduler import Scheduler as FetchScheduler
+
+    CST = ZoneInfo("Asia/Shanghai")
+    now = datetime.now(CST)
+    triggered_at = now.isoformat()
+    history = CronRunHistory()
+
+    # Monday weekend catch-up
+    date_from: str | None = None
+    if now.weekday() == 0:
+        saturday = now - timedelta(days=2)
+        date_from = saturday.strftime("%Y-%m-%d")
+
+    fetch_scheduler = FetchScheduler()
+    enabled = list(fetch_scheduler.enabled_sources())
+    if not enabled:
+        return {"status": "skipped", "message": "No enabled sources", "results": []}
+
+    _ensure_sources_loaded()
+
+    # Create cron_runs row
+    cron_run_rowid = history.log_run(
+        "fetch_all_sources",
+        triggered_at=triggered_at,
+        finished_at=triggered_at,
+        success=True,
+        new_articles=0,
+        sources_run=0,
+    )
+
+    results: list[dict[str, Any]] = []
+    total_inserted = 0
+    sources_failed = 0
+
+    for cfg in enabled:
+        source_name: str = cfg["source_name"]
+
+        if source_name not in _FETCHER_REGISTRY:
+            results.append({"source": source_name, "error": "No fetcher registered"})
+            sources_failed += 1
+            continue
+
+        try:
+            fetcher = _FETCHER_REGISTRY[source_name]()
+            if date_from:
+                fetcher.date_from = date_from
+            result = fetcher.run()
+
+            # Calculate deduped
+            dropped_total = (
+                result.get("dropped_blacklist", 0)
+                + result.get("dropped_whitelist", 0)
+                + result.get("dropped_tag_filter", 0)
+            )
+            deduped = max(
+                0,
+                result.get("parsed", 0) - result.get("inserted", 0) - dropped_total,
+            )
+            result["deduped"] = deduped
+            results.append(result)
+
+            # Log to fetch_log
+            history.log_fetch(
+                cron_run_rowid=cron_run_rowid,
+                source=source_name,
+                fetched=result.get("fetched", 0),
+                parsed=result.get("parsed", 0),
+                inserted=result.get("inserted", 0),
+                parse_errors=result.get("parse_errors", 0),
+                cleaned=result.get("cleaned", 0),
+                filtered=result.get("filtered", 0),
+                dropped_blacklist=result.get("dropped_blacklist", 0),
+                dropped_whitelist=result.get("dropped_whitelist", 0),
+                dropped_tag_filter=result.get("dropped_tag_filter", 0),
+                filters_applied=result.get("filters_applied", 0),
+                tags_used=result.get("tags_used", 0),
+                deduped=deduped,
+                error=result.get("error"),
+            )
+
+            total_inserted += result.get("inserted", 0)
+            if result.get("error"):
+                sources_failed += 1
+
+        except Exception as exc:
+            error_msg = f"{type(exc).__name__}: {exc}"
+            results.append({"source": source_name, "error": error_msg})
+            history.log_fetch(
+                cron_run_rowid=cron_run_rowid,
+                source=source_name,
+                fetched=0, parsed=0, inserted=0, parse_errors=0,
+                error=error_msg,
+            )
+            sources_failed += 1
+
+    # Update cron_runs with final totals
+    finished_at = datetime.now(CST).isoformat()
+    try:
+        from moni.db.connection import get_db
+        conn = get_db()
+        conn.execute(
+            "UPDATE cron_runs SET finished_at=?, success=?, error=?, new_articles=?, sources_run=? WHERE id=?",
+            (
+                finished_at,
+                1 if sources_failed == 0 else 0,
+                None if sources_failed == 0 else f"{sources_failed} source(s) failed",
+                total_inserted,
+                len(enabled) - sources_failed,
+                cron_run_rowid,
+            ),
+        )
+        conn.commit()
+    except Exception:
+        pass
+
+    return {
+        "status": "done" if sources_failed == 0 else "partial",
+        "date_from": date_from,
+        "sources_total": len(enabled),
+        "sources_ok": len(enabled) - sources_failed,
+        "sources_failed": sources_failed,
+        "total_inserted": total_inserted,
+        "results": results,
+    }

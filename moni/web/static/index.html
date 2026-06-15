@@ -211,6 +211,10 @@
         <div class="panel-header">
           <h3>抓取管理</h3>
           <button class="btn-refresh" @click="loadSources()">刷新</button>
+          <button class="btn btn-primary" @click="fetchAllSources()" :disabled="fetchingAll" style="margin-left: 8px;">
+            <span x-show="!fetchingAll">⚡ 全部抓取</span>
+            <span x-show="fetchingAll">抓取中...</span>
+          </button>
         </div>
         <div class="table-container">
           <table>
@@ -235,6 +239,33 @@
             </tbody>
           </table>
         </div>
+        <!-- v1.0.6.2: fetch all result -->
+        <div x-show="fetchAllResult" x-cloak style="margin-top: 16px;">
+          <div class="fetch-all-summary">
+            <div class="fa-header">
+              <span x-show="fetchAllResult.status === 'done'" class="fa-status-ok">✅ 全部完成</span>
+              <span x-show="fetchAllResult.status === 'partial'" class="fa-status-warn">⚠️ 部分失败</span>
+              <span class="fa-stat" x-text="fetchAllResult.sources_ok + '/' + fetchAllResult.sources_total + ' 源成功'"></span>
+              <span class="fa-stat" x-text="'新增 ' + fetchAllResult.total_inserted + ' 篇'"></span>
+              <span x-show="fetchAllResult.date_from" class="fa-stat fa-catchup" x-text="'周末补抓: ' + fetchAllResult.date_from + ' 起'"></span>
+            </div>
+            <div class="fa-grid">
+              <template x-for="r in fetchAllResult.results" :key="r.source">
+                <div class="fa-row" :class="r.error ? 'fa-row-err' : 'fa-row-ok'">
+                  <span class="fa-src" x-text="r.source"></span>
+                  <span x-show="!r.error" class="fa-metrics">
+                    拉取 <b x-text="r.fetched || 0"></b> →
+                    入库 <b x-text="r.inserted || 0"></b> ·
+                    去重 <span x-text="r.deduped || 0"></span> ·
+                    过滤 <span x-text="(r.dropped_blacklist||0) + (r.dropped_whitelist||0) + (r.dropped_tag_filter||0)"></span>
+                  </span>
+                  <span x-show="r.error" class="fa-err" x-text="r.error"></span>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+
         <!-- v1.0.6.1: fetch result — structured explanation + raw JSON -->
         <div class="fetch-result-panel" x-show="fetchResult" x-cloak>
           <div class="fetch-result-explain" x-show="fetchResultObj">

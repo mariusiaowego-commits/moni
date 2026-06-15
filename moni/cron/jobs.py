@@ -28,7 +28,7 @@ All wall-clock comparisons use ``CST`` (UTC+8, ``zoneinfo.ZoneInfo("Asia/Shangha
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -52,11 +52,10 @@ def _cst_now() -> datetime:
 
 
 def fetch_all_sources() -> dict[str, Any] | None:
-    """Fetch all enabled sources that are due, with per-source failure isolation.
+    """Fetch all enabled sources, with per-source failure isolation.
 
-    Wraps each source's ``run()`` call in an independent try/except so that a
-    crashing or misconfigured fetcher is logged and skipped — it cannot prevent
-    other sources from being processed.
+    Runs on a cron schedule (weekday 9:10 AM). On Monday, automatically
+    sets date_from to cover Saturday+Sunday (weekend catch-up).
 
     Logs
     ----
@@ -73,7 +72,16 @@ def fetch_all_sources() -> dict[str, Any] | None:
 
     logger.info("[%s] job started at %s", job_id, triggered_at)
 
-    # Pull per-source configs and last-run state from the fetch Scheduler
+    # ── Monday weekend catch-up ──────────────────────────────────────────
+    # On Monday, set date_from to Saturday so we fetch weekend articles too.
+    now = _cst_now()
+    date_from: str | None = None
+    if now.weekday() == 0:  # Monday = 0
+        saturday = now - timedelta(days=2)
+        date_from = saturday.strftime("%Y-%m-%d")
+        logger.info("[%s] Monday detected — weekend catch-up from %s", job_id, date_from)
+
+    # Pull per-source configs from the fetch Scheduler
     fetch_scheduler = FetchScheduler()
     enabled = list(fetch_scheduler.enabled_sources())
     if not enabled:
@@ -110,19 +118,6 @@ def fetch_all_sources() -> dict[str, Any] | None:
     for cfg in enabled:
         source_name: str = cfg["source_name"]
 
-        # ── Interval check ──────────────────────────────────────────────────
-        # Re-use the existing FetchScheduler.should_fetch which reads
-        # fetch_interval_min from sources.yaml and last_run.json.
-        try:
-            due = fetch_scheduler.should_fetch(source_name)
-        except Exception as exc:
-            logger.warning("[%s] should_fetch() raised %s — treating as not due", source_name, exc)
-            due = False
-
-        if not due:
-            logger.info("[%s] skipped — within fetch interval", source_name)
-            continue
-
         # ── Per-source failure isolation ──────────────────────────────────
         fetched = parsed = inserted = parse_errors = 0
         cleaned = filtered = 0
@@ -136,6 +131,11 @@ def fetch_all_sources() -> dict[str, Any] | None:
 
             fetcher_cls = _FETCHER_REGISTRY[source_name]
             fetcher = fetcher_cls()
+
+            # Set date_from for Monday weekend catch-up
+            if date_from:
+                fetcher.date_from = date_from
+
             result: dict[str, Any] = fetcher.run()
 
             fetched = result.get("fetched", 0)

@@ -726,6 +726,8 @@ function app() {
     sources: [],
     fetchResult: '',
     fetchResultObj: null,
+    fetchAllResult: null,
+    fetchingAll: false,
     // v1.0.6.1: structured explanation of fetch result
     formatFetchResult() {
       const d = this.fetchResultObj;
@@ -833,6 +835,24 @@ function app() {
           this.fetchResult = JSON.stringify(data, null, 2);
         })
         .catch(err => { this.fetchResult = '抓取失败: ' + err.message; this.fetchResultObj = null; });
+    },
+
+    fetchAllSources() {
+      this.fetchingAll = true;
+      this.fetchAllResult = null;
+      this.fetchResult = '';
+      this.fetchResultObj = null;
+      fetch('/api/fetch/all/run', { method: 'POST', credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(data => {
+          this.fetchAllResult = data;
+          this.fetchingAll = false;
+          this.loadSources(); // refresh source list
+        })
+        .catch(err => {
+          this.fetchingAll = false;
+          this.showToast('全部抓取失败: ' + err.message);
+        });
     },
 
     confirmFetchDate() {

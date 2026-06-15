@@ -1,23 +1,27 @@
 # moni/cron schedule config
 #
-# All sources: 5min interval (user decision, 2026-06-15)
 # Jobs:
-#   - fetch_all_sources: 所有 enabled 源按 interval 抓取
-#   - predict_tags_pending: LLM 自动给无 tag 文章打标签
+#   - fetch_all_sources: 每工作日 9:10 AM 抓取所有源
+#     周一自动补抓周末 (周六+周日) 数据
+#   - predict_tags_pending: 每工作日 9:25 AM LLM 自动打标签
 
 jobs:
-  # ── 全量抓取 (统一入口, 按 per-source interval 调度) ──
+  # ── 全量抓取 ──
   - id: fetch_all_sources
     name: "抓取所有源"
-    trigger_type: interval
-    minutes: 5
+    trigger_type: cron
+    hour: 9
+    minute: 10
+    day_of_week: "mon-fri"
     func_path: moni.cron.jobs:fetch_all_sources
 
-  # ── LLM 自动打标签 ──
+  # ── LLM 自动打标签 (抓取后 15min) ──
   - id: predict_tags_pending
     name: "LLM 自动打标签"
-    trigger_type: interval
-    minutes: 30
+    trigger_type: cron
+    hour: 9
+    minute: 25
+    day_of_week: "mon-fri"
     func_path: moni.cron.jobs:predict_tags_pending
     func_kwargs:
       batch_size: 10
