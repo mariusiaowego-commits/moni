@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-sys.path.insert(0, os.path.expanduser("~/dev/source-monitor"))
+sys.path.insert(0, os.path.expanduser("~/dev/moni"))
 
 from moni.db.connection import close_db, get_db, set_db_path
 from moni.db.migrate import migrate

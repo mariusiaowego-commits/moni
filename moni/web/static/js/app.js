@@ -1,6 +1,53 @@
 // Root Alpine component — single source of truth for all state and methods
 function app() {
   return {
+    // ── Theme engine (from theme.js) ──
+    ...themeMixin(),
+
+    // ── Service control ──
+    serviceRunning: false,
+    servicePid: null,
+
+    loadServiceStatus() {
+      fetch('/api/service/status', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(d => {
+          this.serviceRunning = d.running;
+          this.servicePid = d.pid;
+        })
+        .catch(() => {
+          this.serviceRunning = false;
+          this.servicePid = null;
+        });
+    },
+
+    restartService() {
+      if (!confirm('确定重启服务？页面会短暂不可用 (~3秒)')) return;
+      fetch('/api/service/restart', { method: 'POST', credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(d => {
+          this.showToast('正在重启...');
+          // Poll for service to come back
+          let attempts = 0;
+          const poll = setInterval(() => {
+            attempts++;
+            fetch('/api/service/status', { credentials: 'same-origin' })
+              .then(r => r.json())
+              .then(d => {
+                if (d.running) {
+                  clearInterval(poll);
+                  this.serviceRunning = true;
+                  this.servicePid = d.pid;
+                  this.showToast('服务已重启 ✓');
+                }
+              })
+              .catch(() => {});
+            if (attempts > 15) { clearInterval(poll); this.showToast('重启超时，请手动检查'); }
+          }, 1000);
+        })
+        .catch(() => this.showToast('重启请求失败'));
+    },
+
     // v1.0.5.12: curated 8-color palette for /config > Tags > color picker.
     // Sourced from /Users/mt16/dev/uiux-asset-library so the tag chip
     // colours stay visually consistent with the rest of the SPA
@@ -1258,6 +1305,10 @@ function app() {
 
     // ── Init ────────────────────────────────────────────────
     init() {
+      // Apply saved theme (from theme.js mixin)
+      this.initTheme();
+      // Load service status for topnav indicator
+      this.loadServiceStatus();
       // v1.0.5.10: deep-link from current URL — visiting /crud opens
       // the CRUD tab directly.  Falls back to /articles for unknown paths.
       const view = this._pathToView[window.location.pathname] || 'articles';

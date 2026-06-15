@@ -18,7 +18,7 @@ Coverage:
  12. The /download/ filter survives the full run() pipeline.
 
 NOTE (v1.0.5 cleanup): Previously this test hardcoded the absolute path
-``/Users/mt16/dev/source-monitor/.worktrees/v1.0.3-mpaypass-deep`` and
+``/Users/mt16/dev/moni/.worktrees/v1.0.3-mpaypass-deep`` and
 called ``del sys.modules['moni.*']`` to force importing from the worktree
 branch (commit 2466a47, not yet on main). That made the test depend on a
 hidden worktree and contaminated the module cache for the rest of the
@@ -39,7 +39,7 @@ import pytest
 
 # Ensure the main checkout is importable. We deliberately do NOT inject
 # any worktree path here — the test must run against the code that is
-# actually installed (the editable install at /Users/mt16/dev/source-monitor).
+# actually installed (the editable install at /Users/mt16/dev/moni).
 TEST_DIR = Path(__file__).parent
 WT_ROOT = TEST_DIR.parent
 if str(WT_ROOT) not in sys.path:
@@ -461,7 +461,7 @@ class TestRunPipeline:
         env["MONI_DATA_DIR"] = str(tmp_path)
         # Use the main checkout for PYTHONPATH, NOT a worktree path.
         # (Earlier versions of this test hardcoded
-        # ``/Users/mt16/dev/source-monitor/.worktrees/v1.0.3-mpaypass-deep``
+        # ``/Users/mt16/dev/moni/.worktrees/v1.0.3-mpaypass-deep``
         # which v1.0.5 deleted — see v1.0.5 cleanup commit fa78f55.)
         env["PYTHONPATH"] = WT_ROOT_STR
         r = subprocess.run(

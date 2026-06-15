@@ -266,10 +266,10 @@ if "TTGCaptcha" in resp.text or "captcha" in resp.text.lower() and len(resp.text
 
 - x-watch 主脚本：`~/.hermes/scripts/x-watch.py`（245 行，含完整 Chrome 生命周期 + EXTRACT_JS + 虚拟化 DOM 兼容）
 - x-watch SKILL.md：`~/.hermes/skills/x-watch/SKILL.md`
-- 36kr captcha 检测代码：`/Users/mt16/dev/source-monitor/moni/fetch/sources/kr_newsflash.py:84-91`
-- moni fetcher base：`/Users/mt16/dev/source-monitor/moni/fetch/base.py`（268 行，`run()` 串起 fetch → parse → cleaner → filter → dedupe）
-- moni 36kr RSS fetcher：`/Users/mt16/dev/source-monitor/moni/fetch/sources/kr_rss.py`
-- moni 36kr newsflash fetcher：`/Users/mt16/dev/source-monitor/moni/fetch/sources/kr_newsflash.py`
+- 36kr captcha 检测代码：`/Users/mt16/dev/moni/moni/fetch/sources/kr_newsflash.py:84-91`
+- moni fetcher base：`/Users/mt16/dev/moni/moni/fetch/base.py`（268 行，`run()` 串起 fetch → parse → cleaner → filter → dedupe）
+- moni 36kr RSS fetcher：`/Users/mt16/dev/moni/moni/fetch/sources/kr_rss.py`
+- moni 36kr newsflash fetcher：`/Users/mt16/dev/moni/moni/fetch/sources/kr_newsflash.py`
 
 ---
 
