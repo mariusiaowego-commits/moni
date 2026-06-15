@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 
 # Ensure moni is importable from the repo root
-sys.path.insert(0, os.path.expanduser("~/dev/source-monitor/wt/t1-db"))
+sys.path.insert(0, os.path.expanduser("~/dev/moni/wt/t1-db"))
 
 from fastapi.testclient import TestClient
 

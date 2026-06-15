@@ -34,7 +34,7 @@ import pytest
 
 # Make `moni` importable.  The package is editable-installed at the main
 # checkout, so this is belt-and-suspenders for in-worktree runs.
-sys.path.insert(0, os.path.expanduser("~/dev/source-monitor"))
+sys.path.insert(0, os.path.expanduser("~/dev/moni"))
 
 from fastapi.testclient import TestClient
 

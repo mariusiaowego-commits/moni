@@ -18,6 +18,7 @@ from moni.web.routes.share import router as share_router
 from moni.web.routes.config_tags import router as config_tags_router
 from moni.web.routes.config_sources import router as config_sources_router
 from moni.web.routes.config_filters import router as config_filters_router
+from moni.web.routes.service import router as service_router
 
 _routers: list[APIRouter] = [
     articles_router,
@@ -31,4 +32,5 @@ _routers: list[APIRouter] = [
     config_tags_router,
     config_sources_router,
     config_filters_router,
+    service_router,  # service control (status/restart/stop)
 ]

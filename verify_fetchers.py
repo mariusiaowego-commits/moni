@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Verify all fetchers are importable and registered."""
 import sys
-sys.path.insert(0, "/Users/mt16/dev/source-monitor")
+sys.path.insert(0, "/Users/mt16/dev/moni")
 
 from moni.fetch.sources.kr_rss import Fetcher36krRSS
 from moni.fetch.sources.mpaypass import FetcherMpaypass

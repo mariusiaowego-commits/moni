@@ -18,14 +18,14 @@ concurrent invocations (e.g. cron + manual run) won't process the same manifest 
 ## 2. Install the 5-minute crontab
 
 ```bash
-cd /Users/mt16/dev/source-monitor
+cd /Users/mt16/dev/moni
 ./scripts/install_cron.sh install
 ```
 
 This appends the following line to your user crontab:
 
 ```
-*/5 * * * * /bin/bash /Users/mt16/dev/source-monitor/scripts/default_worker.sh >> /Users/mt16/.moni/cron.log 2>&1 # moni-default-worker
+*/5 * * * * /bin/bash /Users/mt16/dev/moni/scripts/default_worker.sh >> /Users/mt16/.moni/cron.log 2>&1 # moni-default-worker
 ```
 
 ### Other commands
@@ -70,7 +70,7 @@ output is `~/.moni/output/test-001.md`.
 mkdir -p ~/.moni/queue ~/.moni/output ~/.moni/data
 
 # 2. Ensure the DB schema is current
-cd /Users/mt16/dev/source-monitor
+cd /Users/mt16/dev/moni
 ./scripts/init_db.sh
 
 # 3. Create the sample manifest
@@ -91,7 +91,7 @@ db = pathlib.Path.home() / ".moni" / "data" / "moni.db"
 db.parent.mkdir(parents=True, exist_ok=True)
 conn = sqlite3.connect(db)
 now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-conn.executescript(open("/Users/mt16/dev/source-monitor/moni/db/schema.sql").read())
+conn.executescript(open("/Users/mt16/dev/moni/moni/db/schema.sql").read())
 conn.execute(
     "INSERT OR REPLACE INTO share_tasks (id, format, article_ids, status, created_at, extra) "
     "VALUES (?, ?, ?, 'pending', ?, ?)",
@@ -118,7 +118,7 @@ PY
 ### 4.2 Run the worker once (foreground)
 
 ```bash
-bash /Users/mt16/dev/source-monitor/scripts/default_worker.sh
+bash /Users/mt16/dev/moni/scripts/default_worker.sh
 ```
 
 You should see log output similar to:
@@ -174,7 +174,7 @@ conn.execute(
 conn.commit()
 PY
 
-bash /Users/mt16/dev/source-monitor/scripts/default_worker.sh
+bash /Users/mt16/dev/moni/scripts/default_worker.sh
 
 # Verify
 sqlite3 ~/.moni/data/moni.db \

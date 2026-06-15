@@ -2,7 +2,7 @@
 """Test 404 handling: mock a fetcher that returns 404, verify no crash."""
 import sys, unittest
 from unittest.mock import patch, MagicMock
-sys.path.insert(0, "/Users/mt16/dev/source-monitor/wt/t1-db")
+sys.path.insert(0, "/Users/mt16/dev/moni/wt/t1-db")
 
 from moni.fetch.sources.kr_rss import Fetcher36krRSS
 import httpx

@@ -1,0 +1,20 @@
+schema_version = 1
+
+[project]
+name = "moni"
+description = "同业信源自动抓取"
+
+[service.web]
+command = "scripts/web.sh start"
+port = 8900
+bind = "127.0.0.1"
+workdir = "~/dev/moni"
+
+[service.web.healthcheck]
+type = "http"
+url = "http://127.0.0.1:8900/"
+interval = 10
+timeout = 30
+
+[shutdown]
+group = 1

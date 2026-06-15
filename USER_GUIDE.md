@@ -8,7 +8,7 @@
 ## 1. 启动
 
 ```bash
-cd /Users/mt16/dev/source-monitor
+cd /Users/mt16/dev/moni
 
 # 1. 装包 (首次)
 pip install -e .
@@ -133,7 +133,7 @@ python3 -m moni fetch --health
 pkill -f "remote-debugging-port=9223" 2>/dev/null; sleep 1
 
 # 2. 启 headed Chrome 弹窗, 拖动 TTGCaptcha 滑块
-cd /Users/mt16/dev/source-monitor
+cd /Users/mt16/dev/moni
 MONI_36KR_HEADED=1 /usr/local/bin/python3 scripts/manual_captcha.py
 # → Chrome 窗口弹出 → 36kr.com/feed 加载 → 拖滑块过 captcha
 # → terminal 按 Enter → cookie 落盘 Profile 7
