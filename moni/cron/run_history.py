@@ -85,6 +85,15 @@ class CronRunHistory:
         parsed: int,
         inserted: int,
         parse_errors: int,
+        *,
+        cleaned: int = 0,
+        filtered: int = 0,
+        dropped_blacklist: int = 0,
+        dropped_whitelist: int = 0,
+        dropped_tag_filter: int = 0,
+        filters_applied: int = 0,
+        tags_used: int = 0,
+        deduped: int = 0,
         error: Optional[str] = None,
     ) -> None:
         """Write one row to ``fetch_log`` for a single source within a cron run.
@@ -96,6 +105,14 @@ class CronRunHistory:
             parsed:         Number successfully parsed
             inserted:       Number of new articles inserted
             parse_errors:   Number of parse errors
+            cleaned:        Number of articles with boilerplate cleaned
+            filtered:       Number of articles that passed filters
+            dropped_blacklist: Articles dropped by blacklist filter
+            dropped_whitelist: Articles dropped by whitelist filter
+            dropped_tag_filter: Articles dropped by tag filter
+            filters_applied: Number of filter rules checked
+            tags_used:      Number of tag keywords matched
+            deduped:        Articles skipped as duplicates (already in DB)
             error:          Exception message if the source fetch failed
         """
         conn = get_db()
@@ -103,8 +120,10 @@ class CronRunHistory:
             """
             INSERT INTO fetch_log
                 (cron_run_rowid, source, fetched, parsed, inserted,
-                 parse_errors, error)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                 parse_errors, cleaned, filtered, dropped_blacklist,
+                 dropped_whitelist, dropped_tag_filter, filters_applied,
+                 tags_used, deduped, error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 cron_run_rowid,
@@ -113,13 +132,21 @@ class CronRunHistory:
                 parsed,
                 inserted,
                 parse_errors,
+                cleaned,
+                filtered,
+                dropped_blacklist,
+                dropped_whitelist,
+                dropped_tag_filter,
+                filters_applied,
+                tags_used,
+                deduped,
                 error,
             ),
         )
         conn.commit()
         logger.debug(
-            "Logged fetch_log for cron_run=%d source=%s inserted=%d",
-            cron_run_rowid, source, inserted,
+            "Logged fetch_log for cron_run=%d source=%s inserted=%d deduped=%d",
+            cron_run_rowid, source, inserted, deduped,
         )
 
 

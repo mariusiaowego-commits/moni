@@ -57,7 +57,7 @@ _DEFAULT_SOURCES = [
         "display_name": "36氪 RSS",
         "source_type": "html",          # 实际是 RSS (server returns RSS XML)
         "url": "https://36kr.com/feed",
-        "fetch_interval_min": 15,
+        "fetch_interval_min": 5,
         "notes": "36氪 科技/创投资讯。范围广，需关键词过滤业务无关内容。",
     },
     {
@@ -66,7 +66,7 @@ _DEFAULT_SOURCES = [
         "display_name": "移动支付网",
         "source_type": "html",
         "url": "https://www.mpaypass.com.cn/",
-        "fetch_interval_min": 30,
+        "fetch_interval_min": 5,
         "notes": "移动支付网。业务天然相关（银行/支付）。v1.0.2 需深抓详情页正文。",
     },
     {
@@ -75,7 +75,7 @@ _DEFAULT_SOURCES = [
         "display_name": "量子位",
         "source_type": "rss",          # v1.0.3 改用 RSS feed (Cloudflare 403 on HTML)
         "url": "https://www.qbitai.com/feed",
-        "fetch_interval_min": 30,
+        "fetch_interval_min": 5,
         "notes": "量子位 AI/前沿科技。v1.0.3 改用 RSS feed 抓取。",
     },
     {
@@ -85,7 +85,7 @@ _DEFAULT_SOURCES = [
         "display_name": "WeChatRSS 账号 A",
         "source_type": "wechat_aggregator",
         "url": "https://wechatrss.waytomaster.com/api/rss/all?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMyIiwidHlwZSI6InJzcyJ9.gAFiD4UjeIrdQ4BNQSA5-QIV8YdpDVon4eNnisZu7NI",
-        "fetch_interval_min": 60,
+        "fetch_interval_min": 5,
         "notes": "WeChatRSS 账号 A，token 1（v1.0.5.6 启用）。免费账户上限 2 公众号。",
     },
     {
@@ -94,7 +94,7 @@ _DEFAULT_SOURCES = [
         "display_name": "WeChatRSS 账号 B",
         "source_type": "wechat_aggregator",
         "url": "https://wechatrss.waytomaster.com/api/rss/all?token=eyJhbG...Yr7s",
-        "fetch_interval_min": 60,
+        "fetch_interval_min": 5,
         "notes": "WeChatRSS 账号 B，token 2（v1.0.5.6 启用）。免费账户上限 2 公众号。",
     },
     {
@@ -103,7 +103,7 @@ _DEFAULT_SOURCES = [
         "display_name": "BestBlogs 公众号聚合",
         "source_type": "rss",
         "url": "https://raw.githubusercontent.com/ginobefun/BestBlogs/main/opml/bestblogs_wechat2rss_opml_all.opml",
-        "fetch_interval_min": 120,
+        "fetch_interval_min": 5,
         "notes": "BestBlogs 375 公众号 RSS 聚合。OPML → 逐 feed 拉取，三层限制 (max_feeds/max_per_feed/max_total)。",
     },
 ]

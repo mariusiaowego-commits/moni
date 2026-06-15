@@ -1,41 +1,23 @@
-# moni/cron schedule config — PRD §4.6
+# moni/cron schedule config
 #
-# Job types:
-#   interval : run every N seconds/minutes/hours/days
-#   cron     : run at specific cron-style times
-#
-# func_path format: "module.submodule:function_name"
-#   module.submodule is dot-separated, function_name is after ":"
-#   e.g. "moni.fetch:fetch_all"
-#
-# func_args / func_kwargs are passed to the function when called.
-#
-# For interval triggers: at least one of seconds/minutes/hours/days/weeks is required.
-# For cron triggers: minute/hour/day/month/day_of_week standard cron fields.
+# All sources: 5min interval (user decision, 2026-06-15)
+# Jobs:
+#   - fetch_all_sources: 所有 enabled 源按 interval 抓取
+#   - predict_tags_pending: LLM 自动给无 tag 文章打标签
 
 jobs:
-  # ── News source fetch jobs ──────────────────────────────────────────────
-
-  - id: fetch_36kr_rss
-    name: "Fetch 36氪 RSS"
+  # ── 全量抓取 (统一入口, 按 per-source interval 调度) ──
+  - id: fetch_all_sources
+    name: "抓取所有源"
     trigger_type: interval
-    minutes: 15
-    func_path: moni.fetch:run
-    func_kwargs:
-      source_name: "36kr_rss"
+    minutes: 5
+    func_path: moni.cron.jobs:fetch_all_sources
 
-  - id: fetch_mpaypass
-    name: "Fetch 移动支付网"
+  # ── LLM 自动打标签 ──
+  - id: predict_tags_pending
+    name: "LLM 自动打标签"
     trigger_type: interval
     minutes: 30
-    func_path: moni.fetch:run
+    func_path: moni.cron.jobs:predict_tags_pending
     func_kwargs:
-      source_name: "mpaypass"
-
-  - id: fetch_qbitai
-    name: "Fetch 量子位"
-    trigger_type: interval
-    minutes: 30
-    func_path: moni.fetch:run
-    func_kwargs:
-      source_name: "qbitai"
+      batch_size: 10
