@@ -725,6 +725,73 @@ function app() {
     // ── Fetch panel ───────────────────────────────────────────────
     sources: [],
     fetchResult: '',
+    fetchResultObj: null,
+    // v1.0.6.1: structured explanation of fetch result
+    formatFetchResult() {
+      const d = this.fetchResultObj;
+      if (!d || typeof d !== 'object') return [];
+      const lines = [];
+      const src = d.source || '未知源';
+      const inserted = d.inserted ?? 0;
+      const fetched = d.fetched ?? 0;
+      const parsed = d.parsed ?? 0;
+      const filtered = d.filtered ?? 0;
+      const droppedBL = d.dropped_blacklist ?? 0;
+      const droppedWL = d.dropped_whitelist ?? 0;
+      const droppedTag = d.dropped_tag_filter ?? 0;
+      const errors = d.parse_errors ?? 0;
+      const cleaned = d.cleaned ?? 0;
+      const tagsUsed = d.tags_used ?? 0;
+      const filtersApplied = d.filters_applied ?? 0;
+
+      // Header: outcome summary
+      if (inserted > 0) {
+        lines.push({ type: 'success', text: `✅ 新增 ${inserted} 篇文章入库` });
+      } else if (fetched > 0 && inserted === 0) {
+        lines.push({ type: 'warn', text: `⚠️ 抓取了 ${fetched} 条但无新增（全部重复或被过滤）` });
+      } else {
+        lines.push({ type: 'muted', text: `ℹ️ 无新内容` });
+      }
+
+      // Pipeline breakdown
+      lines.push({ type: 'section', text: '抓取流程' });
+      lines.push({ type: 'item', label: '远程拉取', value: `${fetched} 条`, detail: '从 RSS/HTML/API 拉到的原始条目数' });
+      if (parsed !== fetched) {
+        lines.push({ type: 'item', label: '解析成功', value: `${parsed} 条`, detail: `解析失败 ${errors} 条` });
+      }
+      if (cleaned > 0) {
+        lines.push({ type: 'item', label: 'Boilerplate 清理', value: `${cleaned} 条`, detail: '移除了尾部 CTA 等无关文本' });
+      }
+
+      // Dedup: articles fetched but not inserted and not filtered out
+      const droppedTotal = droppedBL + droppedWL + droppedTag;
+      const deduped = parsed - inserted - droppedTotal;
+      if (deduped > 0) {
+        lines.push({ type: 'item', label: '去重', value: `跳过 ${deduped} 条`, detail: 'URL 已存在，未重复入库' });
+      }
+
+      // Filter breakdown
+      lines.push({ type: 'section', text: '过滤情况' });
+      if (droppedBL > 0) {
+        lines.push({ type: 'item', label: '黑名单', value: `丢弃 ${droppedBL} 条`, detail: '命中排除关键词（如入境游/游戏等）' });
+      }
+      if (droppedWL > 0) {
+        lines.push({ type: 'item', label: '白名单', value: `丢弃 ${droppedWL} 条`, detail: '未命中任何包含关键词' });
+      }
+      if (droppedTag > 0) {
+        lines.push({ type: 'item', label: 'Tag 过滤', value: `丢弃 ${droppedTag} 条`, detail: `${tagsUsed} 个关键词命中，但无 tag 匹配` });
+      }
+      if (droppedBL === 0 && droppedWL === 0 && droppedTag === 0) {
+        lines.push({ type: 'item', label: '过滤结果', value: '全部通过', detail: filtersApplied > 0 ? `${filtersApplied} 条规则已检查，无命中` : '无过滤规则或全部通过' });
+      }
+
+      // Error
+      if (d.error) {
+        lines.push({ type: 'error', text: `❌ 错误: ${d.error}` });
+      }
+
+      return lines;
+    },
     // v1.0.5.24: date-range modal for bestblogs
     fetchDateModal: false,
     fetchTargetSource: '',
@@ -758,10 +825,14 @@ function app() {
         return;
       }
       this.fetchResult = '正在抓取...';
+      this.fetchResultObj = null;
       fetch(`/api/fetch/sources/${id}/run`, { method: 'POST', credentials: 'same-origin' })
         .then(r => r.json().catch(() => ({ result: 'success' })))
-        .then(data => { this.fetchResult = JSON.stringify(data, null, 2); })
-        .catch(err => { this.fetchResult = '抓取失败: ' + err.message; });
+        .then(data => {
+          this.fetchResultObj = data;
+          this.fetchResult = JSON.stringify(data, null, 2);
+        })
+        .catch(err => { this.fetchResult = '抓取失败: ' + err.message; this.fetchResultObj = null; });
     },
 
     confirmFetchDate() {
@@ -778,12 +849,16 @@ function app() {
       }
       // auto: no params, fetcher uses last_run
       this.fetchResult = '正在抓取 bestblogs (375 个号，预计 3-5 分钟)...';
+      this.fetchResultObj = null;
       fetch(`/api/fetch/sources/${this.fetchTargetSource}/run${params}`, {
         method: 'POST', credentials: 'same-origin',
       })
         .then(r => r.json().catch(() => ({ result: 'success' })))
-        .then(data => { this.fetchResult = JSON.stringify(data, null, 2); })
-        .catch(err => { this.fetchResult = '抓取失败: ' + err.message; });
+        .then(data => {
+          this.fetchResultObj = data;
+          this.fetchResult = JSON.stringify(data, null, 2);
+        })
+        .catch(err => { this.fetchResult = '抓取失败: ' + err.message; this.fetchResultObj = null; });
     },
 
     // v1.0.5.24: copy article URL to clipboard
