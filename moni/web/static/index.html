@@ -235,7 +235,26 @@
             </tbody>
           </table>
         </div>
-        <div class="result-box" x-show="fetchResult" x-text="fetchResult" x-cloak></div>
+        <!-- v1.0.6.1: fetch result — structured explanation + raw JSON -->
+        <div class="fetch-result-panel" x-show="fetchResult" x-cloak>
+          <div class="fetch-result-explain" x-show="fetchResultObj">
+            <template x-for="(line, idx) in formatFetchResult()" :key="idx">
+              <div>
+                <div x-show="line.type === 'success'" class="fr-success" x-text="line.text"></div>
+                <div x-show="line.type === 'warn'" class="fr-warn" x-text="line.text"></div>
+                <div x-show="line.type === 'muted'" class="fr-muted" x-text="line.text"></div>
+                <div x-show="line.type === 'error'" class="fr-error" x-text="line.text"></div>
+                <div x-show="line.type === 'section'" class="fr-section" x-text="line.text"></div>
+                <div x-show="line.type === 'item'" class="fr-item">
+                  <span class="fr-label" x-text="line.label"></span>
+                  <span class="fr-value" x-text="line.value"></span>
+                  <span class="fr-detail" x-text="line.detail"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+          <div class="result-box" x-text="fetchResult"></div>
+        </div>
       </section>
 
       <!-- ══ Date-range modal for bestblogs (v1.0.5.24) ═══════════════════ -->
