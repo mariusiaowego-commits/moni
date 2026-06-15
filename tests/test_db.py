@@ -92,7 +92,7 @@ class TestMigrate:
         migrate()  # must not fail
         conn = get_db()
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
-        assert version == 13  # current schema version (v1.0.5.25: +bestblogs API meta)
+        assert version == 14  # current schema version (v1.0.6.2: +fetch_log detail)
 
     def test_foreign_keys_enabled(self, tmp_db):
         migrate()
@@ -104,7 +104,7 @@ class TestMigrate:
         migrate()
         conn = get_db()
         row = conn.execute("SELECT version, applied_at FROM schema_version").fetchone()
-        assert row["version"] == 13  # current schema version (v1.0.5.25)
+        assert row["version"] == 14  # current schema version (v1.0.6.2)
         assert row["applied_at"] is not None
 
 

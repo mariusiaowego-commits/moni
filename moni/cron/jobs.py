@@ -125,6 +125,9 @@ def fetch_all_sources() -> dict[str, Any] | None:
 
         # ── Per-source failure isolation ──────────────────────────────────
         fetched = parsed = inserted = parse_errors = 0
+        cleaned = filtered = 0
+        dropped_blacklist = dropped_whitelist = dropped_tag_filter = 0
+        filters_applied = tags_used = deduped = 0
         error: str | None = None
 
         try:
@@ -139,7 +142,19 @@ def fetch_all_sources() -> dict[str, Any] | None:
             parsed = result.get("parsed", 0)
             inserted = result.get("inserted", 0)
             parse_errors = result.get("parse_errors", 0)
+            cleaned = result.get("cleaned", 0)
+            filtered = result.get("filtered", 0)
+            dropped_blacklist = result.get("dropped_blacklist", 0)
+            dropped_whitelist = result.get("dropped_whitelist", 0)
+            dropped_tag_filter = result.get("dropped_tag_filter", 0)
+            filters_applied = result.get("filters_applied", 0)
+            tags_used = result.get("tags_used", 0)
             error = result.get("error")
+
+            # Calculate deduped: articles that were parsed but not inserted
+            # and not filtered out (i.e., already existed in DB)
+            dropped_total = dropped_blacklist + dropped_whitelist + dropped_tag_filter
+            deduped = max(0, parsed - inserted - dropped_total)
 
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
@@ -166,6 +181,14 @@ def fetch_all_sources() -> dict[str, Any] | None:
                     parsed=parsed,
                     inserted=inserted,
                     parse_errors=parse_errors,
+                    cleaned=cleaned,
+                    filtered=filtered,
+                    dropped_blacklist=dropped_blacklist,
+                    dropped_whitelist=dropped_whitelist,
+                    dropped_tag_filter=dropped_tag_filter,
+                    filters_applied=filters_applied,
+                    tags_used=tags_used,
+                    deduped=deduped,
                     error=error,
                 )
             except Exception as log_exc:

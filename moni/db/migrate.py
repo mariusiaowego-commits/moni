@@ -15,7 +15,7 @@ from pathlib import Path
 from .connection import get_db, get_db_path
 
 
-_CURRENT_VERSION = 13  # v1.0.5.25: bestblogs API meta fields (013)
+_CURRENT_VERSION = 14  # v1.0.6.2: fetch_log detail metrics (014)
 
 
 def current_version(conn: sqlite3.Connection) -> int:

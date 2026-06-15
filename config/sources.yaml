@@ -2,36 +2,36 @@ sources:
 - source_name: 36kr_rss
   type: rss
   feed_url: https://36kr.com/feed
-  fetch_interval_min: 15
+  fetch_interval_min: 5
   enabled: true
   crawler_type: rss
 - source_name: mpaypass
   type: html
   feed_url: https://mpaypass.com.cn/
-  fetch_interval_min: 30
+  fetch_interval_min: 5
   enabled: true
   crawler_type: rss
 - source_name: qbitai
   type: rss
   feed_url: https://www.qbitai.com/feed
-  fetch_interval_min: 30
+  fetch_interval_min: 5
   enabled: true
   crawler_type: rss
 - source_name: wechat_rss_a
   type: rss
   feed_url: https://wechatrss.waytomaster.com/api/rss/all?token=eyJhbG...u7NI
-  fetch_interval_min: 60
+  fetch_interval_min: 5
   enabled: true
   crawler_type: rss
 - source_name: wechat_rss_b
   type: rss
   feed_url: https://wechatrss.waytomaster.com/api/rss/all?token=eyJhbG...Yr7s
-  fetch_interval_min: 60
+  fetch_interval_min: 5
   enabled: true
   crawler_type: rss
 - source_name: bestblogs
   type: rss
   feed_url: https://raw.githubusercontent.com/ginobefun/BestBlogs/main/opml/bestblogs_wechat2rss_opml_all.opml
-  fetch_interval_min: 120
+  fetch_interval_min: 5
   enabled: true
   crawler_type: rss
