@@ -126,6 +126,7 @@ def apply_tag_keyword_filter(
         "kept": 0,
         "dropped_tag_filter": 0,
         "tags_used": 0,
+        "dropped_articles": [],  # v1.0.6.4: 丢弃文章标题明细
     }
     if not articles:
         return articles, stats, []
@@ -179,6 +180,9 @@ def apply_tag_keyword_filter(
             kept.append(art)
         else:
             stats["dropped_tag_filter"] += 1
+            # v1.0.6.4: 记录丢弃文章标题 (最多 20 条)
+            if len(stats["dropped_articles"]) < 20:
+                stats["dropped_articles"].append({"title": title or "(无标题)"})
 
     stats["kept"] = len(kept)
     if stats["dropped_tag_filter"]:

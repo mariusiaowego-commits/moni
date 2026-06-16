@@ -272,5 +272,6 @@ class BaseFetcher(ABC):
             "filters_applied": filter_stats["filters_applied"],
             "dropped_tag_filter": tag_stats["dropped_tag_filter"],
             "tags_used": tag_stats["tags_used"],
+            "dropped_articles": tag_stats.get("dropped_articles", []),
             "error": None,
         }
