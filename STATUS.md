@@ -4,12 +4,30 @@
 
 ---
 
-## 当前状态: **v1.0.6.1 — 抓取结果结构化解释 + 前端重构** (2026-06-15)
+## 当前状态: **v1.0.6.3 — 全部抓取按钮 + cron 增强 + token 安全** (2026-06-15)
 
-**主分支**: main @ `v1.0.6.1`
+**主分支**: main @ `v1.0.6.3`
 **Web 服务**: `127.0.0.1:8900`
 **数据库**: `data/news.db` — schema_version=13, 6 sources
 **测试**: 322 passed, 2 skipped
+
+### v1.0.6.2 进展 (2026-06-15)
+
+**新功能**:
+- ⚡ 全部抓取按钮：抓取管理页顶部，一键跑所有源
+- POST /api/fetch/all/run 端点：遍历所有源 + 详细日志写 cron_runs + fetch_log
+- 周一补抓：自动检测周一 → date_from=周六
+- cron 改工作日 9:10 AM（不跑常驻进程，手动触发为主）
+- fetch_log 新增 8 列 (migration 014): cleaned/filtered/dropped_blacklist/dropped_whitelist/dropped_tag_filter/filters_applied/tags_used/deduped
+
+**Bug 修复**:
+- wechat_rss_b URL 截断修复（seed_config.py 存的是截断 token）
+- wechat_rss token 从 .env 读取，不硬编码在代码里（安全修复）
+- .env 拆成 WECHAT_RSS_A_TOKEN + WECHAT_RSS_B_TOKEN
+
+**测试**: 322 passed, 2 skipped
+
+---
 
 ### v1.0.6.0 进展 (2026-06-15)
 
