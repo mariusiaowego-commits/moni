@@ -581,6 +581,22 @@ label { font-size: 0.85rem; }
 .fa-err { color: var(--destructive); font-size: 0.82rem; }
 
 /* ═══════════════════════════════════════════════════════════════
+   Pagination
+   ═══════════════════════════════════════════════════════════════ */
+.pagination-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 12px; padding: 8px 0;
+}
+.pagination-left { display: flex; align-items: center; gap: 12px; }
+.pagination-right { display: flex; align-items: center; gap: 6px; }
+.pagination-label { font-size: 0.84rem; color: var(--muted-fg); display: flex; align-items: center; gap: 4px; }
+.pagination-select {
+  padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--card); color: var(--foreground); font-size: 0.82rem;
+}
+.pagination-info { font-size: 0.84rem; color: var(--muted-fg); }
+
+/* ═══════════════════════════════════════════════════════════════
    Fetch Result Panel (v1.0.6.1)
    ═══════════════════════════════════════════════════════════════ */
 .fetch-result-panel {

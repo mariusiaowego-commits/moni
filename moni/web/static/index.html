@@ -136,9 +136,25 @@
             </tbody>
           </table>
         </div>
+        <!-- Pagination controls -->
+        <div class="pagination-bar">
+          <div class="pagination-left">
+            <label class="pagination-label">
+              每页:
+              <select x-model.number="articlesPageSize" @change="articlesChangePageSize()" class="pagination-select">
+                <template x-for="n in articlesPageSizeOptions" :key="n">
+                  <option :value="n" x-text="n + ' 条'"></option>
+                </template>
+              </select>
+            </label>
+            <span class="pagination-info" x-text="'第 ' + articlesPage + ' 页'"></span>
+          </div>
+          <div class="pagination-right">
+            <button class="btn btn-secondary btn-sm" @click="articlesPrevPage()" :disabled="articlesPage <= 1">上一页</button>
+            <button class="btn btn-secondary btn-sm" @click="articlesNextPage()" :disabled="!articlesHasMore">下一页</button>
+          </div>
+        </div>
       </section>
-
-      <!-- ══ CRUD ═══════════════════════════════════════════════ -->
       <!-- ══ CRUD (v1.0.5.11: + edit/create buttons + form modal) ══ -->
       <section x-show="currentView === 'crud'" x-cloak>
         <div class="panel-header">
