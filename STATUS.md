@@ -4,12 +4,28 @@
 
 ---
 
-## 当前状态: **v1.0.6.4 — Tag 过滤丢弃明细** (2026-06-15)
+## 当前状态: **v1.0.6.6 — 虎嗅源 + boilerplate 清洗 + CRUD 修复 + 分页** (2026-06-16)
 
-**主分支**: main @ `v1.0.6.4`
+**主分支**: main @ `v1.0.6.6`
 **Web 服务**: `127.0.0.1:8900`
 **数据库**: `data/news.db` — schema_version=13, 6 sources
 **测试**: 322 passed, 2 skipped
+
+### v1.0.6.5 进展 (2026-06-16)
+
+**新功能**:
+- 虎嗅 RSS 源 (第 7 个源): FetcherHuxiu, 全文抓取, 绑定 ai-fintech/miniprogram/wechat
+- 单源「立即抓取」强制执行 (force=True)，不再被间隔挡住
+- 虎嗅/BestBlogs 点「立即抓取」弹时间范围选择 modal
+
+### v1.0.6.6 进展 (2026-06-16)
+
+**Bug 修复**:
+- 虎嗅 boilerplate 清洗: 清除 "本文来自微信公众号" / "原标题" 等来源声明
+- CRUD 删除失败: 前端加 `?confirm=1` 参数
+- 文章查阅分页: 新增每页条数选择 + 上下页翻页
+
+---
 
 ### v1.0.6.4 进展 (2026-06-15)
 
@@ -148,13 +164,14 @@
 
 ---
 
-## 抓取源 (6 active)
+## 抓取源 (7 active)
 
 | 源 | 间隔 | 类型 | 状态 |
 |---|---|---|---|
-| 36kr_rss | 15min | html | ✅ |
-| mpaypass | 30min | html | ✅ |
-| qbitai | 30min | rss | ✅ |
-| wechat_rss_a | 60min | wechat_aggregator | ✅ |
-| wechat_rss_b | 60min | wechat_aggregator | ✅ |
-| bestblogs | 120min | rss (OPML 聚合) | ✅ (375 号, 三层限制) |
+| 36kr_rss | 5min | html | ✅ |
+| mpaypass | 5min | html | ✅ |
+| qbitai | 5min | rss | ✅ |
+| wechat_rss_a | 5min | wechat_aggregator | ✅ |
+| wechat_rss_b | 5min | wechat_aggregator | ✅ |
+| bestblogs | 5min | rss (OPML 聚合, 375 号) | ✅ |
+| huxiu | 5min | rss | ✅ |
