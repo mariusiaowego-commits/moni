@@ -9,3 +9,4 @@ from . import mpaypass     # noqa: F401 — registers FetcherMpaypass
 from . import qbitai       # noqa: F401 — registers FetcherQbitai
 from . import wechat_rss   # noqa: F401 — registers FetcherWechatRSS
 from . import bestblogs    # noqa: F401 — registers FetcherBestBlogs
+from . import huxiu        # noqa: F401 — registers FetcherHuxiu

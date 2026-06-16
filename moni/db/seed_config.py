@@ -108,6 +108,15 @@ _DEFAULT_SOURCES = [
         "notes": "WeChatRSS 账号 B，token 2（v1.0.5.6 启用）。免费账户上限 2 公众号。",
     },
     {
+        "id": "src-huxiu",
+        "name": "huxiu",
+        "display_name": "虎嗅",
+        "source_type": "rss",
+        "url": "https://rss.huxiu.com/",
+        "fetch_interval_min": 5,
+        "notes": "虎嗅 RSS。科技商业深度分析，含全文。",
+    },
+    {
         "id": "src-bestblogs",
         "name": "bestblogs",
         "display_name": "BestBlogs 公众号聚合",
@@ -141,7 +150,11 @@ _DEFAULT_SOURCE_TAGS = [
     ("src-qbitai", "ai-fintech"),
     ("src-wechat-rss-a", "general-tech"),
     ("src-wechat-rss-b", "general-tech"),
-    ("src-bestblogs", "wechat"),
+    ("src-huxiu",       "ai-fintech"),
+    ("src-huxiu",       "banking"),
+    ("src-huxiu",       "general-tech"),
+    ("src-huxiu",       "wechat"),
+    ("src-bestblogs",   "wechat"),
 ]
 
 

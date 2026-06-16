@@ -19,13 +19,19 @@ sources:
   crawler_type: rss
 - source_name: wechat_rss_a
   type: rss
-  feed_url: "https://wechatrss.waytomaster.com/api/rss/all?token=__WECHAT_RSS_A_TOKEN__"
+  feed_url: https://wechatrss.waytomaster.com/api/rss/all?token=__WECHAT_RSS_A_TOKEN__
   fetch_interval_min: 5
   enabled: true
   crawler_type: rss
 - source_name: wechat_rss_b
   type: rss
-  feed_url: "https://wechatrss.waytomaster.com/api/rss/all?token=__WECHAT_RSS_B_TOKEN__"
+  feed_url: https://wechatrss.waytomaster.com/api/rss/all?token=__WECHAT_RSS_B_TOKEN__
+  fetch_interval_min: 5
+  enabled: true
+  crawler_type: rss
+- source_name: huxiu
+  type: rss
+  feed_url: https://rss.huxiu.com/
   fetch_interval_min: 5
   enabled: true
   crawler_type: rss

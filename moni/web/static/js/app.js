@@ -820,8 +820,10 @@ function app() {
 
     runSource(id) {
       // v1.0.5.24: bestblogs needs date-range selection first
+      // v1.0.6.5: huxiu also needs date-range selection
       const src = this.sources.find(s => s.id === id || s.name === id);
-      if (src && src.name === 'bestblogs') {
+      const needsDateRange = ['bestblogs', 'huxiu'].includes(src?.name);
+      if (src && needsDateRange) {
         this.fetchTargetSource = src.id;
         this.fetchDateModal = true;
         return;
@@ -868,7 +870,8 @@ function app() {
         if (parts.length) params = '?' + parts.join('&');
       }
       // auto: no params, fetcher uses last_run
-      this.fetchResult = '正在抓取 bestblogs (375 个号，预计 3-5 分钟)...';
+      const srcName = this.sources.find(s => s.id === this.fetchTargetSource)?.name || '';
+      this.fetchResult = `正在抓取 ${srcName}...`;
       this.fetchResultObj = null;
       fetch(`/api/fetch/sources/${this.fetchTargetSource}/run${params}`, {
         method: 'POST', credentials: 'same-origin',

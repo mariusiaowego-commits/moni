@@ -135,6 +135,7 @@ def trigger_fetch_run(
     name: str,
     date_from: str | None = None,
     date_to: str | None = None,
+    force: bool = True,
 ) -> dict[str, Any]:
     """Trigger an immediate fetch for the named source.
 
@@ -145,15 +146,15 @@ def trigger_fetch_run(
     v1.0.5.24: optional ``date_from`` / ``date_to`` (ISO date strings)
     are passed through to the fetcher for date-range filtering.
 
-    Calls ``moni.fetch.run(source_name)`` which checks the scheduler's
-    should_fetch() gate before running.
+    v1.0.6.5: ``force=True`` by default — UI "立即抓取" always fetches,
+    bypassing the interval check.
     """
     resolved = _resolve_source_name(name)
     if resolved is None:
         raise NotFoundError(message=f"Fetch source {name!r} not found")
 
     result: dict[str, Any] | None = run_fetcher(
-        resolved, date_from=date_from, date_to=date_to,
+        resolved, date_from=date_from, date_to=date_to, force=force,
     )
 
     if result is None:
