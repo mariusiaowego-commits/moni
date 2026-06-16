@@ -926,6 +926,8 @@ function app() {
     // 228 cards, most of which the user never wants to share).
     allArticlesSource: '',
     allArticlesSources: [],
+    allArticlesTag: '',
+    allArticlesTags: [],
     allArticlesPage: 1,
     allArticlesPageSize: 50,
     allArticlesPageSizeOptions: [20, 50, 100, 200],
@@ -1019,6 +1021,7 @@ function app() {
       const probe = parseInt(this.allArticlesPageSize, 10) || 50;
       const params = new URLSearchParams();
       if (this.allArticlesSource) params.set('source', this.allArticlesSource);
+      if (this.allArticlesTag) params.set('tag', this.allArticlesTag);
       params.set('limit', probe + 1);
       params.set('offset', (this.allArticlesPage - 1) * probe);
       const query = params.toString();
@@ -1042,6 +1045,13 @@ function app() {
           this.allArticlesSources = Array.isArray(data) ? data : (data.sources || []);
         })
         .catch(err => console.error('loadAllArticles (sources list) failed:', err));
+      // v1.0.6.7: also load tags for tag filter
+      fetch('/api/config/tags', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(data => {
+          this.allArticlesTags = Array.isArray(data) ? data : [];
+        })
+        .catch(err => console.error('loadAllArticles (sources list) failed:', err));
     },
 
     allArticlesPrevPage() {
@@ -1055,6 +1065,11 @@ function app() {
     },
     onAllArticlesSourceChange() {
       // v1.0.5.14: source filter changed — reset to page 1.
+      this.allArticlesPage = 1;
+      this.loadAllArticles();
+    },
+    onAllArticlesTagChange() {
+      // v1.0.6.7: tag filter changed — reset to page 1.
       this.allArticlesPage = 1;
       this.loadAllArticles();
     },

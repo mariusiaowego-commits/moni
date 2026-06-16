@@ -469,6 +469,15 @@
               </select>
             </label>
             <label>
+              分类:
+              <select x-model="allArticlesTag" @change="onAllArticlesTagChange()">
+                <option value="">全部分类</option>
+                <template x-for="t in allArticlesTags" :key="t.name">
+                  <option :value="t.name" x-text="t.display_name || t.name"></option>
+                </template>
+              </select>
+            </label>
+            <label>
               每页:
               <select x-model.number="allArticlesPageSize" @change="allArticlesChangePageSize()">
                 <template x-for="n in allArticlesPageSizeOptions" :key="n">
