@@ -32,6 +32,16 @@ from datetime import datetime, timezone
 from .connection import get_db
 
 
+def _env_token(account: str) -> str:
+    """Read WeChatRSS token from .env. Returns placeholder if not set."""
+    import os
+    key = f"WECHAT_RSS_{account}_TOKEN"
+    val = os.environ.get(key, "")
+    if not val and account == "A":
+        val = os.environ.get("WECHAT_RSS_TOKEN", "")
+    return val or f"__{key}__"
+
+
 # ── Tag 定义 (5 个) ─────────────────────────────────────────────────────────
 # v1.0.5.14: each tag now carries a `display_name` — a human-friendly
 # Chinese / unicode string the UI shows.  The `name` column is the

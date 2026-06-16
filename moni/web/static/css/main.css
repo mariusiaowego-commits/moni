@@ -514,6 +514,45 @@ label { font-size: 0.85rem; }
 .toast.show { opacity: 1; transform: translateY(0); }
 
 /* ═══════════════════════════════════════════════════════════════
+   Tag Filter Drop Detail Panel (v1.0.6.4)
+   ═══════════════════════════════════════════════════════════════ */
+.drop-detail-panel {
+  margin-top: 12px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; overflow: hidden;
+}
+.drop-detail-summary {
+  padding: 10px 16px; cursor: pointer;
+  font-size: 0.86rem; font-weight: 600;
+  color: var(--foreground);
+  display: flex; align-items: center; gap: 8px;
+  transition: background 0.12s;
+}
+.drop-detail-summary:hover { background: var(--muted); }
+.drop-detail-count { font-weight: 400; color: var(--muted-fg); font-size: 0.82rem; }
+.drop-detail-body { padding: 0 16px 16px; }
+.drop-source-block { margin-bottom: 12px; }
+.drop-source-block:last-child { margin-bottom: 0; }
+.drop-source-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 0; border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
+}
+.drop-source-name { font-weight: 600; font-size: 0.84rem; }
+.drop-source-count { font-size: 0.78rem; color: var(--muted-fg); }
+.drop-article-list { display: flex; flex-direction: column; gap: 2px; }
+.drop-article-item {
+  padding: 4px 8px; font-size: 0.82rem;
+  color: var(--muted-fg); border-radius: 4px;
+  transition: background 0.1s;
+}
+.drop-article-item:hover { background: var(--muted); color: var(--foreground); }
+.drop-article-more {
+  padding: 4px 8px; font-size: 0.78rem;
+  color: var(--accent); font-style: italic;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    Fetch All Result Panel (v1.0.6.2)
    ═══════════════════════════════════════════════════════════════ */
 .fetch-all-summary {

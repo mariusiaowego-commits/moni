@@ -266,6 +266,50 @@
           </div>
         </div>
 
+        <!-- v1.0.6.4: tag filter dropped articles detail -->
+        <div class="drop-detail-panel" x-show="fetchAllResult && fetchAllResult.results && fetchAllResult.results.some(r => r.dropped_articles && r.dropped_articles.length > 0)" x-cloak>
+          <details>
+            <summary class="drop-detail-summary">
+              Tag 过滤丢弃明细
+              <span class="drop-detail-count" x-text="'(' + (fetchAllResult?.results || []).reduce((s, r) => s + (r.dropped_articles?.length || 0), 0) + ' 条)'"></span>
+            </summary>
+            <div class="drop-detail-body">
+              <template x-for="r in (fetchAllResult?.results || []).filter(r => r.dropped_articles && r.dropped_articles.length > 0)" :key="r.source">
+                <div class="drop-source-block">
+                  <div class="drop-source-header">
+                    <span class="drop-source-name" x-text="r.source"></span>
+                    <span class="drop-source-count" x-text="r.dropped_tag_filter + ' 条被过滤'"></span>
+                  </div>
+                  <div class="drop-article-list">
+                    <template x-for="(d, idx) in r.dropped_articles" :key="idx">
+                      <div class="drop-article-item" x-text="d.title"></div>
+                    </template>
+                    <div class="drop-article-more" x-show="r.dropped_tag_filter > 20" x-text="'(共 ' + r.dropped_tag_filter + ' 条，显示前 20)'"></div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </details>
+        </div>
+
+        <!-- v1.0.6.4: single-source dropped articles -->
+        <div class="drop-detail-panel" x-show="fetchResultObj && fetchResultObj.dropped_articles && fetchResultObj.dropped_articles.length > 0" x-cloak>
+          <details>
+            <summary class="drop-detail-summary">
+              Tag 过滤丢弃明细
+              <span class="drop-detail-count" x-text="'(' + (fetchResultObj?.dropped_articles?.length || 0) + ' 条)'"></span>
+            </summary>
+            <div class="drop-detail-body">
+              <div class="drop-article-list">
+                <template x-for="(d, idx) in fetchResultObj.dropped_articles" :key="idx">
+                  <div class="drop-article-item" x-text="d.title"></div>
+                </template>
+                <div class="drop-article-more" x-show="fetchResultObj.dropped_tag_filter > 20" x-text="'(共 ' + fetchResultObj.dropped_tag_filter + ' 条，显示前 20)'"></div>
+              </div>
+            </div>
+          </details>
+        </div>
+
         <!-- v1.0.6.1: fetch result — structured explanation + raw JSON -->
         <div class="fetch-result-panel" x-show="fetchResult" x-cloak>
           <div class="fetch-result-explain" x-show="fetchResultObj">
