@@ -599,7 +599,7 @@ function app() {
     confirmDelete() {
       const article = this.deleteTarget;
       if (!article || !article.id) return;
-      fetch(`/api/articles/${article.id}`, { method: 'DELETE', credentials: 'same-origin' })
+      fetch(`/api/articles/${article.id}?confirm=1`, { method: 'DELETE', credentials: 'same-origin' })
         .then(r => {
           if (!r.ok) throw new Error('Delete failed');
           this.crudArticles = this.crudArticles.filter(a => a.id !== article.id);
