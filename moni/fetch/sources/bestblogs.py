@@ -117,15 +117,24 @@ class FetcherBestBlogs(BaseFetcher):
 
     def fetch(self) -> list[dict[str, Any]]:
         config = self._load_config()
-        opml_url = self._resolve_url()
-        if not opml_url:
+        opml_urls = self._resolve_urls()
+        if not opml_urls:
             logger.error("[bestblogs] no OPML URL in sources.url")
             return []
 
-        # 1. Fetch OPML → list of (title, feed_url)
-        feeds = self._fetch_opml(opml_url)
+        # 1. Fetch all OPMLs → merged list of (title, feed_url), deduped
+        feeds: list[tuple[str, str]] = []
+        seen_urls: set[str] = set()
+        for url in opml_urls:
+            for title, feed_url in self._fetch_opml(url):
+                if feed_url not in seen_urls:
+                    seen_urls.add(feed_url)
+                    feeds.append((title, feed_url))
+
         if not feeds:
             return []
+
+        logger.info("[bestblogs] merged %d OPML(s) → %d unique feeds", len(opml_urls), len(feeds))
 
         max_feeds = config["max_feeds"]
         if len(feeds) > max_feeds:
@@ -216,8 +225,8 @@ class FetcherBestBlogs(BaseFetcher):
             logger.debug("[bestblogs] failed to read fetch_config: %s", exc)
         return cfg
 
-    def _resolve_url(self) -> str:
-        """OPML URL from sources.url."""
+    def _resolve_urls(self) -> list[str]:
+        """OPML URL(s) from sources.url — comma-separated → list."""
         try:
             from ...db.connection import get_db
             conn = get_db()
@@ -226,10 +235,10 @@ class FetcherBestBlogs(BaseFetcher):
                 (self.source_name,),
             ).fetchone()
             if row and row["url"]:
-                return row["url"]
+                return [u.strip() for u in row["url"].split(",") if u.strip()]
         except Exception as exc:
             logger.debug("[bestblogs] DB lookup failed: %s", exc)
-        return ""
+        return []
 
     def _fetch_opml(self, opml_url: str) -> list[tuple[str, str]]:
         """Fetch OPML, return [(title, xmlUrl), ...]."""
@@ -326,3 +335,15 @@ class FetcherBestBlogs(BaseFetcher):
                 continue
 
         return articles
+
+
+@register_fetcher
+class FetcherBestBlogPodcast(FetcherBestBlogs):
+    """BestBlogs podcast — reuses FetcherBestBlogs with different source_name."""
+    source_name: str = "bestblog-podcast"
+
+
+@register_fetcher
+class FetcherBestBlogYt(FetcherBestBlogs):
+    """BestBlogs YouTube — reuses FetcherBestBlogs with different source_name."""
+    source_name: str = "bestblog-yt"

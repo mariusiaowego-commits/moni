@@ -37,7 +37,19 @@ sources:
   crawler_type: rss
 - source_name: bestblogs
   type: rss
-  feed_url: https://raw.githubusercontent.com/ginobefun/BestBlogs/main/opml/bestblogs_wechat2rss_opml_all.opml
+  feed_url: https://raw.githubusercontent.com/ginobefun/BestBlogs/main/opml/bestblogs_wechat2rss_opml_all.opml,https://raw.githubusercontent.com/ginobefun/BestBlogs/main/BestBlogs_RSS_ALL.opml
+  fetch_interval_min: 5
+  enabled: true
+  crawler_type: rss
+- source_name: bestblog-podcast
+  type: rss
+  feed_url: https://raw.githubusercontent.com/ginobefun/BestBlogs/main/opml/bestblogs_podcast_opml_all.opml
+  fetch_interval_min: 5
+  enabled: true
+  crawler_type: rss
+- source_name: bestblog-yt
+  type: rss
+  feed_url: https://raw.githubusercontent.com/ginobefun/BestBlogs/main/opml/bestblogs_youtube_opml_all.opml
   fetch_interval_min: 5
   enabled: true
   crawler_type: rss
