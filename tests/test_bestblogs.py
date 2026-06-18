@@ -158,3 +158,14 @@ class TestFetcherRegistration:
         from moni.fetch.sources.bestblogs import FetcherBestBlogs
         fetcher_cls = list_fetchers()["bestblog-yt"]
         assert issubclass(fetcher_cls, FetcherBestBlogs)
+
+    def test_bestblog_x_registered(self):
+        from moni.fetch.base import list_fetchers
+        fetchers = list_fetchers()
+        assert "bestblog-x" in fetchers
+
+    def test_bestblog_x_inherits_from_bestblogs(self):
+        from moni.fetch.base import list_fetchers
+        from moni.fetch.sources.bestblogs import FetcherBestBlogs
+        fetcher_cls = list_fetchers()["bestblog-x"]
+        assert issubclass(fetcher_cls, FetcherBestBlogs)

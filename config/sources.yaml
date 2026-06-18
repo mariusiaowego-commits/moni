@@ -53,3 +53,9 @@ sources:
   fetch_interval_min: 5
   enabled: true
   crawler_type: rss
+- source_name: bestblog-x
+  type: rss
+  feed_url: /Users/mt16/dev/moni/config/bestblogs_x.opml
+  fetch_interval_min: 5
+  enabled: true
+  crawler_type: rss

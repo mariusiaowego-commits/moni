@@ -33,31 +33,35 @@
 - **新增 tag 关联**:
   - `bestblog-podcast` → wechat, ai-fintech
   - `bestblog-yt` → wechat, ai-fintech
+  - `bestblog-x` → wechat, ai-fintech
 - **新增黑名单**:
   - `bestblog-podcast`: 入境游, 文娱, 明星, 游戏, 影视, 电商, 消费, 美食, 腾讯控股
-  - `bestblog-yt`: 入境游, 文娱, 明星, 游戏, 影视, 电商, 消费, 美食, 腾讯控股
+  - `bestblog-yt`: 同上
+  - `bestblog-x`: 同上
 - **新增 source 定义**:
   - `src-bestblog-podcast`: name=`bestblog-podcast`, OPML URL
   - `src-bestblog-yt`: name=`bestblog-yt`, OPML URL
+  - `src-bestblog-x`: name=`bestblog-x`, 本地 OPML 文件
 
 ### 2. `config/sources.yaml`
 
-- 新增 `bestblog-podcast` 和 `bestblog-yt` 条目
+- 新增 `bestblog-podcast`, `bestblog-yt`, `bestblog-x` 条目
 
-### 3. `moni/fetch/sources/bestblogs.py`
+### 3. `config/bestblogs_x.opml`
 
-- `_resolve_url()`: 支持逗号分隔的多 URL，返回 `list[str]`
-- `fetch()`: 遍历所有 URL 调 `_fetch_opml`，合并后按 feed_url 去重
-- `_load_config()`: 适配多 URL 场景
+- 从 ALL OPML 中提取的 x.com (Twitter) feed (160 个)
 
-### 4. `moni/db/seed_config.py` — bestblogs 补全
+### 4. `moni/fetch/sources/bestblogs.py`
 
-- 修改 `bestblogs` source 的 url 字段，追加 ALL OPML URL（逗号分隔）
+- `_fetch_opml()`: 支持本地文件路径
+- `fetch()`: 排除 xgo.ing 域名的 feed (已移到 bestblog-x)
+- 新增 `FetcherBestBlogX` 子类
 
 ### 5. Tests
 
 - 测试多 URL 合并去重逻辑
 - 测试新 source 的 seed 数据正确性
+- 测试 bestblog-x fetcher 注册
 
 ## 执行顺序
 
