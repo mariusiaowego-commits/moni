@@ -367,3 +367,84 @@ class FetcherBestBlogYt(FetcherBestBlogs):
 class FetcherBestBlogX(FetcherBestBlogs):
     """BestBlogs X (Twitter) — reuses FetcherBestBlogs with different source_name."""
     source_name: str = "bestblog-x"
+
+    def fetch(self) -> list[dict[str, Any]]:
+        config = self._load_config()
+        opml_urls = self._resolve_urls()
+        if not opml_urls:
+            logger.error("[bestblog-x] no OPML URL in sources.url")
+            return []
+
+        # Fetch all OPMLs → merged list of (title, feed_url), deduped
+        # DO NOT exclude xgo.ing feeds (this IS the x.com source)
+        feeds: list[tuple[str, str]] = []
+        seen_urls: set[str] = set()
+        for url in opml_urls:
+            for title, feed_url in self._fetch_opml(url):
+                if feed_url in seen_urls:
+                    continue
+                seen_urls.add(feed_url)
+                feeds.append((title, feed_url))
+
+        if not feeds:
+            return []
+
+        logger.info("[bestblog-x] merged %d OPML(s) → %d unique feeds", len(opml_urls), len(feeds))
+
+        max_feeds = config["max_feeds"]
+        if len(feeds) > max_feeds:
+            logger.info(
+                "[bestblog-x] OPML has %d feeds, limiting to %d",
+                len(feeds), max_feeds,
+            )
+        feeds = feeds[:max_feeds]
+
+        # Fetch each feed, collect articles
+        all_articles: list[dict[str, Any]] = []
+        delay = config["request_delay"]
+        max_per_feed = config["max_articles_per_feed"]
+        max_total = config["max_articles_total"]
+
+        for i, (feed_title, feed_url) in enumerate(feeds):
+            if len(all_articles) >= max_total:
+                logger.info(
+                    "[bestblog-x] reached total cap %d, stopping at feed %d/%d",
+                    max_total, i, len(feeds),
+                )
+                break
+
+            if i > 0 and delay > 0:
+                time.sleep(delay)
+
+            items = self._fetch_feed(feed_url, feed_title)
+            # Take latest N items per feed
+            items = items[:max_per_feed]
+            all_articles.extend(items)
+
+            if (i + 1) % 10 == 0:
+                logger.info(
+                    "[bestblog-x] fetched %d/%d feeds, %d articles so far",
+                    i + 1, len(feeds), len(all_articles),
+                )
+
+        # Hard cap
+        if len(all_articles) > max_total:
+            all_articles = all_articles[:max_total]
+
+        # Date-range filtering
+        if self.date_from or self.date_to:
+            before = len(all_articles)
+            all_articles = [
+                a for a in all_articles
+                if _in_date_range(a.get("published_at"), self.date_from, self.date_to)
+            ]
+            logger.info(
+                "[bestblog-x] date filter: %d → %d articles (from=%s, to=%s)",
+                before, len(all_articles), self.date_from, self.date_to,
+            )
+
+        logger.info(
+            "[bestblog-x] done — %d feeds, %d articles",
+            len(feeds), len(all_articles),
+        )
+        return all_articles
