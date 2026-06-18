@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/articles", tags=["articles"])
 
 
-def _row_to_article(row: dict[str, Any]) -> Article:
+def _row_to_article(row: dict[str, Any], fresh_thresholds: dict[str, str] | None = None) -> Article:
     """Convert a sqlite3.Row (dict-like) to an Article Pydantic model.
 
     v1.0.4: row includes 'source' (TEXT, name) and 'tags' (comma-joined
@@ -35,6 +35,7 @@ def _row_to_article(row: dict[str, Any]) -> Article:
     v1.0.5.14: format extended to "name|display_name|color".
     v1.0.5.20: row includes 'tag_keyword_hits' (JSON dict of
     {tag_name: [keywords]}). Each tag gets its own keyword_hits.
+    v1.0.7.0: 新增 is_fresh 标志，基于 fetched_at 与该信源最新抓取时间比较。
     """
     # v1.0.5.20: parse tag_keyword_hits (JSON)
     tag_hits_str = row.get("tag_keyword_hits") or "{}"
@@ -63,9 +64,16 @@ def _row_to_article(row: dict[str, Any]) -> Article:
         hits = tag_hits.get(name, [])
         tags.append(TagRef(name=name, display_name=display_name, color=color, keyword_hits=hits))
 
+    # v1.0.7.0: 计算 is_fresh
+    source = row["source"]
+    fetched_at = row["fetched_at"]
+    is_fresh = False
+    if fresh_thresholds and source in fresh_thresholds:
+        is_fresh = fetched_at == fresh_thresholds[source]
+
     return Article(
         id=row["id"],
-        source=row["source"],
+        source=source,
         tags=tags,
         title=row["title"],
         url=row["url"],
@@ -74,8 +82,9 @@ def _row_to_article(row: dict[str, Any]) -> Article:
         content=row["raw_content"],
         summary=row["summary"],
         is_deleted=False,
-        created_at=row["fetched_at"],
-        updated_at=row["fetched_at"],
+        is_fresh=is_fresh,
+        created_at=fetched_at,
+        updated_at=fetched_at,
     )
 
 
@@ -163,7 +172,16 @@ def list_articles(
     """
     params.extend([limit, offset])
     rows = conn.execute(sql, params).fetchall()
-    return [_row_to_article(dict(row)) for row in rows]
+
+    # v1.0.7.0: 计算每个信源的最新抓取时间
+    fresh_thresholds: dict[str, str] = {}
+    threshold_rows = conn.execute(
+        "SELECT source, MAX(fetched_at) as max_fetched FROM articles GROUP BY source"
+    ).fetchall()
+    for r in threshold_rows:
+        fresh_thresholds[r["source"]] = r["max_fetched"]
+
+    return [_row_to_article(dict(row), fresh_thresholds) for row in rows]
 
 
 @router.get("/{article_id}", response_model=Article)
@@ -202,7 +220,15 @@ def get_article(article_id: str) -> Article:
     if row is None:
         raise NotFoundError(message=f"Article {article_id!r} not found")
 
-    return _row_to_article(dict(row))
+    # v1.0.7.0: 计算该信源的最新抓取时间
+    fresh_thresholds: dict[str, str] = {}
+    threshold_rows = conn.execute(
+        "SELECT source, MAX(fetched_at) as max_fetched FROM articles GROUP BY source"
+    ).fetchall()
+    for r in threshold_rows:
+        fresh_thresholds[r["source"]] = r["max_fetched"]
+
+    return _row_to_article(dict(row), fresh_thresholds)
 
 
 @router.post("/{article_id}/summary", status_code=202)

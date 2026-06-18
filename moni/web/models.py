@@ -48,6 +48,7 @@ class Article(BaseModel):
     content: str | None = None
     summary: str | None = None
     is_deleted: bool = False
+    is_fresh: bool = False  # v1.0.7.0: 是否是该信源最新一次抓取的文章
     created_at: datetime
     updated_at: datetime
 
