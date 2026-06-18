@@ -90,7 +90,7 @@
             <tbody>
               <template x-for="a in articles" :key="a.id">
                 <tr>
-                  <td><span x-text="a.title"></span> <span class="badge badge-new" x-show="isNew(a.created_at)">NEW</span></td>
+                  <td><span x-text="a.title"></span> <span class="badge badge-fresh" x-show="a.is_fresh">fresh</span> <span class="badge badge-new" x-show="isNew(a.created_at)">NEW</span></td>
                   <td x-text="a.source"></td>
                   <td>
                     <!-- v1.0.5.10: one chip per tag, hover reveals styled popover with description + keywords (replaces native title)
