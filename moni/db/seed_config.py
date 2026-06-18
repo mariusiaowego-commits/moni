@@ -143,6 +143,15 @@ _DEFAULT_SOURCES = [
         "fetch_interval_min": 5,
         "notes": "BestBlogs YouTube 频道聚合 (20 feeds)。OPML → 逐 feed 拉取。",
     },
+    {
+        "id": "src-bestblog-x",
+        "name": "bestblog-x",
+        "display_name": "BestBlogs X (Twitter)",
+        "source_type": "rss",
+        "url": "/Users/mt16/dev/moni/config/bestblogs_x.opml",
+        "fetch_interval_min": 5,
+        "notes": "BestBlogs X (Twitter) 聚合 (160 feeds)。本地 OPML → 逐 feed 拉取。",
+    },
 ]
 
 
@@ -177,6 +186,8 @@ _DEFAULT_SOURCE_TAGS = [
     ("src-bestblog-podcast", "ai-fintech"),
     ("src-bestblog-yt",     "wechat"),
     ("src-bestblog-yt",     "ai-fintech"),
+    ("src-bestblog-x",      "wechat"),
+    ("src-bestblog-x",      "ai-fintech"),
 ]
 
 
@@ -209,6 +220,13 @@ _DEFAULT_FILTERS = [
         "match_field": "title+content",
         "keywords": ["入境游", "文娱", "明星", "游戏", "影视", "电商", "消费", "美食", "腾讯控股"],
         "notes": "BestBlogs YouTube，过滤业务无关内容。",
+    },
+    {
+        "source_id": "src-bestblog-x",
+        "mode": "blacklist",
+        "match_field": "title+content",
+        "keywords": ["入境游", "文娱", "明星", "游戏", "影视", "电商", "消费", "美食", "腾讯控股"],
+        "notes": "BestBlogs X (Twitter)，过滤业务无关内容。",
     },
 ]
 

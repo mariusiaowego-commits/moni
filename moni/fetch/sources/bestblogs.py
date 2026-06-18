@@ -123,13 +123,17 @@ class FetcherBestBlogs(BaseFetcher):
             return []
 
         # 1. Fetch all OPMLs → merged list of (title, feed_url), deduped
+        # Exclude x.com feeds (moved to bestblog-x source)
         feeds: list[tuple[str, str]] = []
         seen_urls: set[str] = set()
         for url in opml_urls:
             for title, feed_url in self._fetch_opml(url):
-                if feed_url not in seen_urls:
-                    seen_urls.add(feed_url)
-                    feeds.append((title, feed_url))
+                if feed_url in seen_urls:
+                    continue
+                if "xgo.ing" in feed_url:
+                    continue  # Skip x.com feeds (moved to bestblog-x)
+                seen_urls.add(feed_url)
+                feeds.append((title, feed_url))
 
         if not feeds:
             return []
@@ -241,16 +245,26 @@ class FetcherBestBlogs(BaseFetcher):
         return []
 
     def _fetch_opml(self, opml_url: str) -> list[tuple[str, str]]:
-        """Fetch OPML, return [(title, xmlUrl), ...]."""
+        """Fetch OPML, return [(title, xmlUrl), ...].
+
+        Supports both HTTP URLs and local file paths.
+        """
         try:
-            resp = httpx.get(opml_url, timeout=30.0)
-            resp.raise_for_status()
+            if opml_url.startswith("/") or opml_url.startswith("./"):
+                # Local file
+                with open(opml_url, "r", encoding="utf-8") as f:
+                    xml_text = f.read()
+            else:
+                # HTTP URL
+                resp = httpx.get(opml_url, timeout=30.0)
+                resp.raise_for_status()
+                xml_text = resp.text
         except Exception as exc:
             logger.error("[bestblogs] failed to fetch OPML: %s", exc)
             return []
 
         try:
-            root = ET.fromstring(resp.text.encode("utf-8"))
+            root = ET.fromstring(xml_text.encode("utf-8"))
         except Exception as exc:
             logger.error("[bestblogs] failed to parse OPML XML: %s", exc)
             return []
@@ -347,3 +361,9 @@ class FetcherBestBlogPodcast(FetcherBestBlogs):
 class FetcherBestBlogYt(FetcherBestBlogs):
     """BestBlogs YouTube — reuses FetcherBestBlogs with different source_name."""
     source_name: str = "bestblog-yt"
+
+
+@register_fetcher
+class FetcherBestBlogX(FetcherBestBlogs):
+    """BestBlogs X (Twitter) — reuses FetcherBestBlogs with different source_name."""
+    source_name: str = "bestblog-x"
