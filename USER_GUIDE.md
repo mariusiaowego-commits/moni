@@ -60,20 +60,25 @@ topnav 右侧显示服务状态：
 
 ### 3.1 抓取源 tab
 
-5 个默认源 (DB 主用, YAML 备用):
+10 个默认源 (DB 主用, YAML 备用):
 
 | name | URL | 抓什么 | 抓取间隔 |
 |---|---|---|---|
 | 36kr_rss | https://36kr.com/feed | 36氪 科技/创投 | 15 min |
 | mpaypass | https://www.mpaypass.com.cn/ | 移动支付网 银行/支付 | 30 min |
-| qbitai | https://www.qbitai.com/ | 量子位 AI (尚未抓通) | 30 min |
+| qbitai | https://www.qbitai.com/ | 量子位 AI | 30 min |
 | wechat_rss_a | https://wechatrss.waytomaster.com/api/rss/all?token=...账号A | 微信公众号聚合 A | 60 min |
 | wechat_rss_b | https://wechatrss.waytomaster.com/api/rss/all?token=...账号B | 微信公众号聚合 B | 60 min |
+| huxiu | https://rss.huxiu.com/ | 虎嗅 科技商业 | 15 min |
+| bestblogs | OPML 聚合 (公众号 + ALL 技术博客) | BestBlogs 公众号聚合 | 5 min |
+| bestblog-podcast | OPML 聚合 | BestBlogs 播客 (60 feeds) | 5 min |
+| bestblog-yt | OPML 聚合 | BestBlogs YouTube (20 feeds) | 5 min |
+| bestblog-x | 本地 OPML | BestBlogs X/Twitter (160 feeds) | 5 min |
 
 **新建源**: 点"+ 新建 source" → 填 id / name / url / type / interval → 保存
 **改 tags**: 行内 "改 tags" 按钮 → 多选弹窗
 **停用源**: 不删, is_active 设为 false 即可 (行内"编辑")
-**抓取配置**: bestblogs 源可点「抓取配置」编辑 max_feeds / max_articles_per_feed 等参数
+**抓取配置**: bestblogs/bestblog-* 源可点「抓取配置」编辑 max_feeds / max_articles_per_feed 等参数
 
 ### 3.2 业务 tag tab
 

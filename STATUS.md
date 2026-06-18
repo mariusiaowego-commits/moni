@@ -4,25 +4,28 @@
 
 ---
 
-## 当前状态: **v1.0.7.0 — fresh 标签** (2026-06-18)
+## 当前状态: **v1.0.7.3 — BestBlogs 系列信源扩展** (2026-06-18)
 
-**主分支**: main @ v1.0.7.0
+**主分支**: main @ v1.0.7.3
 **Web 服务**: `127.0.0.1:8900`
-**数据库**: `data/news.db` — schema_version=15, 6 sources
-**测试**: 340 passed, 2 skipped
+**数据库**: `data/news.db` — schema_version=15, 10 sources
+**测试**: 350 passed, 2 skipped
 
-### v1.0.7.0 进展 (2026-06-18)
+### v1.0.7.1 - v1.0.7.3 进展 (2026-06-18)
 
-**新功能 — fresh 标签**:
-- 标记每个信源最新一次抓取的文章为 `fresh`
-- 动态计算，零 migration，零表结构改动
-- 查 articles 表，按 source 分组取 MAX(fetched_at)
-- 文章 fetched_at === 该信源 MAX → 显示绿色 fresh 标签
+**新功能 — BestBlogs 系列信源扩展**:
+- 新增 `bestblog-podcast` (60 个小宇宙播客 feeds)
+- 新增 `bestblog-yt` (20 个 YouTube 频道 feeds)
+- 新增 `bestblog-x` (160 个 x.com/Twitter feeds)
+- `bestblogs` 合并 ALL OPML (291 个新英文技术博客)
+- 多 OPML URL 逗号分隔支持，fetch 时合并去重
+- 本地 OPML 文件支持
 
 **技术细节**:
-- 纯前端 + API 动态计算，无需额外字段
-- 每次新抓取后，旧文章自动去掉 fresh，新文章自动打上 fresh
-- 与 NEW 标签（24 小时）独立，fresh 标记"最新一批"
+- FetcherBestBlogPodcast / FetcherBestBlogYt / FetcherBestBlogX 子类复用 FetcherBestBlogs
+- bestblogs 排除 xgo.ing 域名的 feed (已移到 bestblog-x)
+- 默认 tag: wechat, ai-fintech
+- 黑名单: 入境游/文娱/明星/游戏/影视/电商/消费/美食/腾讯控股
 
 ---
 
