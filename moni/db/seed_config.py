@@ -121,9 +121,27 @@ _DEFAULT_SOURCES = [
         "name": "bestblogs",
         "display_name": "BestBlogs 公众号聚合",
         "source_type": "rss",
-        "url": "https://raw.githubusercontent.com/ginobefun/BestBlogs/main/opml/bestblogs_wechat2rss_opml_all.opml",
+        "url": "https://raw.githubusercontent.com/ginobefun/BestBlogs/main/opml/bestblogs_wechat2rss_opml_all.opml,https://raw.githubusercontent.com/ginobefun/BestBlogs/main/BestBlogs_RSS_ALL.opml",
         "fetch_interval_min": 5,
-        "notes": "BestBlogs 375 公众号 RSS 聚合。OPML → 逐 feed 拉取，三层限制 (max_feeds/max_per_feed/max_total)。",
+        "notes": "BestBlogs 公众号 RSS 聚合 (375 feeds) + ALL 技术博客 (72 feeds, 合并去重)。OPML → 逐 feed 拉取，三层限制。",
+    },
+    {
+        "id": "src-bestblog-podcast",
+        "name": "bestblog-podcast",
+        "display_name": "BestBlogs 播客",
+        "source_type": "rss",
+        "url": "https://raw.githubusercontent.com/ginobefun/BestBlogs/main/opml/bestblogs_podcast_opml_all.opml",
+        "fetch_interval_min": 5,
+        "notes": "BestBlogs 小宇宙播客聚合 (60 feeds)。OPML → 逐 feed 拉取。",
+    },
+    {
+        "id": "src-bestblog-yt",
+        "name": "bestblog-yt",
+        "display_name": "BestBlogs YouTube",
+        "source_type": "rss",
+        "url": "https://raw.githubusercontent.com/ginobefun/BestBlogs/main/opml/bestblogs_youtube_opml_all.opml",
+        "fetch_interval_min": 5,
+        "notes": "BestBlogs YouTube 频道聚合 (20 feeds)。OPML → 逐 feed 拉取。",
     },
 ]
 
@@ -155,6 +173,10 @@ _DEFAULT_SOURCE_TAGS = [
     ("src-huxiu",       "general-tech"),
     ("src-huxiu",       "wechat"),
     ("src-bestblogs",   "wechat"),
+    ("src-bestblog-podcast", "wechat"),
+    ("src-bestblog-podcast", "ai-fintech"),
+    ("src-bestblog-yt",     "wechat"),
+    ("src-bestblog-yt",     "ai-fintech"),
 ]
 
 
@@ -173,6 +195,20 @@ _DEFAULT_FILTERS = [
         "match_field": "title+content",
         "keywords": ["机器人", "自动驾驶", "波士顿动力", "Tesla"],
         "notes": "量子位多 AI 机器人/自动驾驶，过滤非金融 AI。",
+    },
+    {
+        "source_id": "src-bestblog-podcast",
+        "mode": "blacklist",
+        "match_field": "title+content",
+        "keywords": ["入境游", "文娱", "明星", "游戏", "影视", "电商", "消费", "美食", "腾讯控股"],
+        "notes": "BestBlogs 播客，过滤业务无关内容。",
+    },
+    {
+        "source_id": "src-bestblog-yt",
+        "mode": "blacklist",
+        "match_field": "title+content",
+        "keywords": ["入境游", "文娱", "明星", "游戏", "影视", "电商", "消费", "美食", "腾讯控股"],
+        "notes": "BestBlogs YouTube，过滤业务无关内容。",
     },
 ]
 

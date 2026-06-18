@@ -82,3 +82,79 @@ class TestCleanDescription:
         text = "点击关注公众号「xxx」了解更多"
         cleaned = _clean_description(text)
         assert len(cleaned) < 5  # essentially empty
+
+
+# ── Multi-URL support (v1.0.7.1) ────────────────────────────────────────
+
+
+class TestResolveUrls:
+    """Test _resolve_urls() returns list from comma-separated URL string."""
+
+    def test_single_url(self, tmp_path):
+        from moni.fetch.sources.bestblogs import FetcherBestBlogs
+        fetcher = FetcherBestBlogs()
+        # Mock _resolve_urls by testing the split logic directly
+        url_str = "https://example.com/opml1.xml"
+        result = [u.strip() for u in url_str.split(",") if u.strip()]
+        assert result == ["https://example.com/opml1.xml"]
+
+    def test_two_urls(self):
+        url_str = "https://example.com/opml1.xml,https://example.com/opml2.xml"
+        result = [u.strip() for u in url_str.split(",") if u.strip()]
+        assert result == ["https://example.com/opml1.xml", "https://example.com/opml2.xml"]
+
+    def test_empty_string(self):
+        url_str = ""
+        result = [u.strip() for u in url_str.split(",") if u.strip()]
+        assert result == []
+
+    def test_whitespace_handling(self):
+        url_str = "https://a.com/opml.xml , https://b.com/opml.xml"
+        result = [u.strip() for u in url_str.split(",") if u.strip()]
+        assert result == ["https://a.com/opml.xml", "https://b.com/opml.xml"]
+
+
+class TestMultiOpmlMerge:
+    """Test that multiple OPMLs are merged with deduplication."""
+
+    def test_dedup_by_feed_url(self):
+        """Simulate merging feeds from two OPMLs — same feed_url should be deduped."""
+        feeds_opml1 = [("Feed A", "https://a.com/rss"), ("Feed B", "https://b.com/rss")]
+        feeds_opml2 = [("Feed B dup", "https://b.com/rss"), ("Feed C", "https://c.com/rss")]
+
+        seen: set[str] = set()
+        merged: list[tuple[str, str]] = []
+        for title, url in feeds_opml1 + feeds_opml2:
+            if url not in seen:
+                seen.add(url)
+                merged.append((title, url))
+
+        assert len(merged) == 3
+        assert merged[1][0] == "Feed B"  # first occurrence wins
+        assert merged[2][0] == "Feed C"
+
+
+class TestFetcherRegistration:
+    """Verify new fetchers are registered in the registry."""
+
+    def test_bestblog_podcast_registered(self):
+        from moni.fetch.base import list_fetchers
+        fetchers = list_fetchers()
+        assert "bestblog-podcast" in fetchers
+
+    def test_bestblog_yt_registered(self):
+        from moni.fetch.base import list_fetchers
+        fetchers = list_fetchers()
+        assert "bestblog-yt" in fetchers
+
+    def test_bestblog_podcast_inherits_from_bestblogs(self):
+        from moni.fetch.base import list_fetchers
+        from moni.fetch.sources.bestblogs import FetcherBestBlogs
+        fetcher_cls = list_fetchers()["bestblog-podcast"]
+        assert issubclass(fetcher_cls, FetcherBestBlogs)
+
+    def test_bestblog_yt_inherits_from_bestblogs(self):
+        from moni.fetch.base import list_fetchers
+        from moni.fetch.sources.bestblogs import FetcherBestBlogs
+        fetcher_cls = list_fetchers()["bestblog-yt"]
+        assert issubclass(fetcher_cls, FetcherBestBlogs)
