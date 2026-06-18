@@ -26,6 +26,7 @@
                 x-text="llmJobsStats.pending + llmJobsStats.running"></span>
         </a>
         <a href="/share"    @click.prevent="navigate('share')"    :class="{ active: currentView === 'share'    }">分享</a>
+        <a href="/basket"   @click.prevent="navigate('basket')"   :class="{ active: currentView === 'basket'   }">菜篮子</a>
         <a href="/config"   @click.prevent="navigate('config')"   :class="{ active: currentView === 'config'   }">配置管理</a>
         <a href="/llmSettings" @click.prevent="navigate('llmSettings')" :class="{ active: currentView === 'llmSettings' }">LLM 设置</a>
       </div>
@@ -720,6 +721,166 @@
           </div>
         </div>
       </section>
+
+      <!-- ══ Basket (v1.0.6.9: 菜篮子) ════════════════════════════════ -->
+      <section x-show="currentView === 'basket'" x-cloak>
+        <div class="panel-header">
+          <h3>菜篮子</h3>
+          <div class="search-box">
+            <span class="muted" style="margin-right: 12px;">拉到篮子里就是菜，但还是有希望能再次被选中</span>
+            <select x-model="basketSource" @change="loadBasket()" title="按来源筛选" style="margin-left: 8px; padding: 4px 8px;">
+              <option value="">所有来源</option>
+              <template x-for="s in basketSources" :key="s">
+                <option :value="s" x-text="s"></option>
+              </template>
+            </select>
+            <select x-model="basketReason" @change="loadBasket()" title="按过滤原因筛选" style="margin-left: 8px; padding: 4px 8px;">
+              <option value="">所有原因</option>
+              <option value="blacklist">黑名单</option>
+              <option value="whitelist">白名单</option>
+              <option value="tag_filter">Tag 过滤</option>
+            </select>
+            <select x-model="basketRescued" @change="loadBasket()" title="按 rescue 状态筛选" style="margin-left: 8px; padding: 4px 8px;">
+              <option value="">全部</option>
+              <option value="0">未 rescue</option>
+              <option value="1">已 rescue</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>标题</th><th>来源</th><th>过滤原因</th><th>命中关键词</th><th>原文时间</th><th>抓取时间</th><th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="b in basketItems" :key="b.id">
+                <tr>
+                  <td><span x-text="b.title"></span></td>
+                  <td x-text="b.source"></td>
+                  <td>
+                    <span class="badge" :class="{
+                      'badge-danger': b.dropped_reason === 'blacklist',
+                      'badge-warning': b.dropped_reason === 'whitelist',
+                      'badge-info': b.dropped_reason === 'tag_filter'
+                    }" x-text="formatBasketReason(b.dropped_reason)"></span>
+                  </td>
+                  <td x-text="b.dropped_by || '-'"></td>
+                  <td x-text="formatTime(b.published_at)"></td>
+                  <td x-text="formatTime(b.created_at)"></td>
+                  <td>
+                    <a href="#" @click.prevent="showBasketDetail(b)" class="link-btn">查看</a>
+                    <span x-show="b.rescued_at" class="badge badge-success" style="margin-left: 4px;">已 rescue</span>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="basketItems.length === 0">
+                <td colspan="7" class="empty-row">暂无数据</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <!-- Pagination -->
+        <div class="pagination-bar">
+          <div class="pagination-left">
+            <label class="pagination-label">
+              每页:
+              <select x-model.number="basketPageSize" @change="loadBasket()" class="pagination-select">
+                <template x-for="n in [20, 50, 100]" :key="n">
+                  <option :value="n" x-text="n + ' 条'"></option>
+                </template>
+              </select>
+            </label>
+            <span class="pagination-info" x-text="'第 ' + basketPage + ' 页'"></span>
+            <span class="pagination-info" x-text="'共 ' + basketTotal + ' 条'"></span>
+          </div>
+          <div class="pagination-right">
+            <button class="btn btn-secondary btn-sm" @click="basketPrevPage()" :disabled="basketPage <= 1">上一页</button>
+            <button class="btn btn-secondary btn-sm" @click="basketNextPage()" :disabled="!basketHasMore">下一页</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Basket Detail Modal -->
+      <div class="modal-backdrop" x-show="basketDetail" x-cloak @click.self="basketDetail = null">
+        <div class="modal-content" x-show="basketDetail">
+          <div class="modal-header">
+            <h3>菜篮子详情</h3>
+            <button class="modal-close" @click="basketDetail = null">&times;</button>
+          </div>
+          <div class="modal-body" x-show="basketDetail">
+            <div class="detail-field">
+              <label>标题</label>
+              <div x-text="basketDetail?.title"></div>
+            </div>
+            <div class="detail-field">
+              <label>来源</label>
+              <div x-text="basketDetail?.source"></div>
+            </div>
+            <div class="detail-field">
+              <label>过滤原因</label>
+              <div>
+                <span class="badge" :class="{
+                  'badge-danger': basketDetail?.dropped_reason === 'blacklist',
+                  'badge-warning': basketDetail?.dropped_reason === 'whitelist',
+                  'badge-info': basketDetail?.dropped_reason === 'tag_filter'
+                }" x-text="formatBasketReason(basketDetail?.dropped_reason)"></span>
+              </div>
+            </div>
+            <div class="detail-field">
+              <label>命中关键词</label>
+              <div x-text="basketDetail?.dropped_by || '-'"></div>
+            </div>
+            <div class="detail-field">
+              <label>原文时间</label>
+              <div x-text="formatTime(basketDetail?.published_at)"></div>
+            </div>
+            <div class="detail-field">
+              <label>抓取时间</label>
+              <div x-text="formatTime(basketDetail?.created_at)"></div>
+            </div>
+            <div class="detail-field" x-show="basketDetail?.rescued_at">
+              <label>Rescue 时间</label>
+              <div x-text="formatTime(basketDetail?.rescued_at)"></div>
+            </div>
+            <div class="detail-field">
+              <label>原文链接</label>
+              <div><a :href="basketDetail?.url" target="_blank" class="link-btn">打开原文 ↗</a></div>
+            </div>
+            <div class="detail-field" x-show="basketDetail?.raw_content">
+              <label>内容预览</label>
+              <div class="content-preview" x-text="(basketDetail?.raw_content || '').substring(0, 500) + '...'"></div>
+            </div>
+
+            <!-- Rescue 操作 -->
+            <div class="rescue-section" x-show="!basketDetail?.rescued_at" style="margin-top: 16px; border-top: 1px solid var(--border); padding-top: 16px;">
+              <h4>Rescue 到文章库</h4>
+              <div class="tag-select" style="margin: 12px 0;">
+                <label style="margin-bottom: 8px; display: block;">选择 Tag:</label>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                  <template x-for="t in basketTags" :key="t.name">
+                    <label class="tag-checkbox">
+                      <input type="checkbox" :value="t.name" x-model="basketSelectedTags">
+                      <span class="tag-chip" :style="'--tag-bg: ' + (t.color || '#6B7280') + '1A; --tag-fg: ' + (t.color || '#6B7280') + ';'">
+                        <span x-text="t.display_name || t.name"></span>
+                      </span>
+                    </label>
+                  </template>
+                </div>
+              </div>
+              <button class="btn btn-primary" @click="rescueBasketItem()" :disabled="basketRescuing">
+                <span x-show="!basketRescuing">确认 Rescue</span>
+                <span x-show="basketRescuing">正在 rescue...</span>
+              </button>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" @click="basketDetail = null">关闭</button>
+            <button class="btn btn-danger" @click="deleteBasketItem()" x-show="!basketDetail?.rescued_at">删除</button>
+          </div>
+        </div>
+      </div>
 
       <!-- ══ Config Management (v1.0.2-F) ════════════════════════════════ -->
       <section x-show="currentView === 'config'" x-cloak>

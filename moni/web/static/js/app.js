@@ -65,6 +65,135 @@ function app() {
       { hex: '#1a1a2e', label: '深空'  },  // moni sidebar dark
     ],
 
+    // ── Basket (v1.0.6.9: 菜篮子) ──────────────────────────────
+    basketItems: [],
+    basketTotal: 0,
+    basketPage: 1,
+    basketPageSize: 20,
+    basketHasMore: false,
+    basketSource: '',
+    basketReason: '',
+    basketRescued: '',
+    basketSources: [],
+    basketDetail: null,
+    basketTags: [],
+    basketSelectedTags: [],
+    basketRescuing: false,
+
+    loadBasket() {
+      const params = new URLSearchParams({
+        page: this.basketPage,
+        page_size: this.basketPageSize,
+      });
+      if (this.basketSource) params.set('source', this.basketSource);
+      if (this.basketReason) params.set('reason', this.basketReason);
+      if (this.basketRescued !== '') params.set('rescued', this.basketRescued);
+
+      fetch(`/api/basket?${params}`, { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(d => {
+          this.basketItems = d.items || [];
+          this.basketTotal = d.total || 0;
+          this.basketHasMore = (d.page * d.page_size) < d.total;
+        })
+        .catch(() => {
+          this.basketItems = [];
+          this.basketTotal = 0;
+        });
+    },
+
+    loadBasketSources() {
+      fetch('/api/basket?page_size=1', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(() => {
+          // 从 basket 数据中提取唯一的 source 列表
+          fetch('/api/basket?page_size=1000', { credentials: 'same-origin' })
+            .then(r => r.json())
+            .then(d => {
+              const sources = new Set();
+              (d.items || []).forEach(item => sources.add(item.source));
+              this.basketSources = Array.from(sources).sort();
+            });
+        });
+    },
+
+    loadBasketTags() {
+      fetch('/api/config/tags', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(d => {
+          this.basketTags = d || [];
+        })
+        .catch(() => { this.basketTags = []; });
+    },
+
+    showBasketDetail(b) {
+      this.basketDetail = { ...b };
+      this.basketSelectedTags = [];
+      this.loadBasketTags();
+    },
+
+    rescueBasketItem() {
+      if (!this.basketDetail) return;
+      this.basketRescuing = true;
+      fetch(`/api/basket/${this.basketDetail.id}/rescue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ tags: this.basketSelectedTags }),
+      })
+        .then(r => r.json())
+        .then(d => {
+          if (d.ok) {
+            this.showToast('已 rescue 到文章库 ✓');
+            this.basketDetail = null;
+            this.loadBasket();
+          } else {
+            this.showToast(d.message || 'rescue 失败');
+          }
+        })
+        .catch(() => this.showToast('rescue 请求失败'))
+        .finally(() => { this.basketRescuing = false; });
+    },
+
+    deleteBasketItem() {
+      if (!this.basketDetail) return;
+      if (!confirm('确定从菜篮子删除？')) return;
+      fetch(`/api/basket/${this.basketDetail.id}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      })
+        .then(r => r.json())
+        .then(d => {
+          if (d.ok) {
+            this.showToast('已删除 ✓');
+            this.basketDetail = null;
+            this.loadBasket();
+          } else {
+            this.showToast(d.message || '删除失败');
+          }
+        })
+        .catch(() => this.showToast('删除请求失败'));
+    },
+
+    basketPrevPage() {
+      if (this.basketPage > 1) {
+        this.basketPage--;
+        this.loadBasket();
+      }
+    },
+
+    basketNextPage() {
+      if (this.basketHasMore) {
+        this.basketPage++;
+        this.loadBasket();
+      }
+    },
+
+    formatBasketReason(reason) {
+      const map = { blacklist: '黑名单', whitelist: '白名单', tag_filter: 'Tag 过滤' };
+      return map[reason] || reason;
+    },
+
     // ── Navigation ────────────────────────────────────────────────
     currentView: 'articles',
 
@@ -77,6 +206,7 @@ function app() {
       fetch:    '/fetch',
       llmJobs:  '/llmJobs',
       share:    '/share',
+      basket:   '/basket',
       config:   '/config',
       llmSettings: '/llmSettings',
     },
@@ -87,6 +217,7 @@ function app() {
       '/fetch':    'fetch',
       '/llmJobs':  'llmJobs',
       '/share':    'share',
+      '/basket':   'basket',
       '/config':   'config',
       '/llmSettings': 'llmSettings',
     },
@@ -114,6 +245,7 @@ function app() {
       else if (view === 'fetch') this.loadSources();
       else if (view === 'llmJobs') this.loadLlmJobs();  // v1.0.5.1
       else if (view === 'share') { this.loadAllArticles(); this._startSharePoll(); }
+      else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
       else if (view === 'config') {
         this.configTab = 'sources';
         this.configLoadSources();
@@ -143,6 +275,7 @@ function app() {
       else if (view === 'fetch') this.loadSources();
       else if (view === 'llmJobs') this.loadLlmJobs();
       else if (view === 'share') { this.loadAllArticles(); this._startSharePoll(); }
+      else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
       else if (view === 'config') {
         this.configTab = 'sources';
         this.configLoadSources();
