@@ -4,12 +4,38 @@
 
 ---
 
-## 当前状态: **v1.0.6.7 — 分享页 tag 分类筛选** (2026-06-16)
+## 当前状态: **v1.0.6.9 — 菜篮子 (Basket) 功能** (2026-06-18)
 
-**主分支**: main @ `v1.0.6.7`
+**主分支**: feature/v1.0.6.9-basket
 **Web 服务**: `127.0.0.1:8900`
-**数据库**: `data/news.db` — schema_version=13, 6 sources
-**测试**: 322 passed, 2 skipped
+**数据库**: `data/news.db` — schema_version=15, 6 sources
+**测试**: 340 passed, 2 skipped
+
+### v1.0.6.9 进展 (2026-06-18)
+
+**新功能 — 菜篮子 (Basket)**:
+- 被过滤丢弃的文章不再消失，自动存入 basket 表
+- 新增「菜篮子」UI tab，查看被丢弃文章 + rescue 回正式文章库
+- 支持按来源/过滤原因/rescue 状态筛选
+- rescue 时可选择 tag，自动关联到 article_tags
+- 新增 4 个 API 端点: 列表/详情/rescue/删除
+
+**技术细节**:
+- 过滤器 (blacklist/whitelist/tag_filter) 丢弃时自动写 basket
+- basket 表 schema 同 articles，额外加 dropped_reason/dropped_by/rescued_at
+- INSERT OR IGNORE 防重复
+- 新增 18 个测试覆盖 basket 功能
+
+---
+
+### v1.0.6.8 进展 (2026-06-17)
+
+**功能**:
+- 导入全文功能从仅 bestblogs/虎嗅 扩展到所有信源
+- 移除前端 x-show 源过滤，mpaypass/36kr/qbitai 等均可导入 .md 全文
+- 后端 import-fulltext 接口本身无源限制，改动仅在前端
+
+---
 
 ### v1.0.6.7 进展 (2026-06-16)
 

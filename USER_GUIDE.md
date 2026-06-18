@@ -422,6 +422,33 @@ worker 跑 4 种方式分别走不同 skill, 详细见 `moni/share/prompts/forma
 
 ---
 
+## 6. 菜篮子 (v1.0.6.9 新增)
+
+### 6.1 是什么
+
+被过滤规则（黑名单/白名单/tag 过滤）丢弃的文章自动存入「菜篮子」，不再消失。
+
+### 6.2 怎么用
+
+1. 点顶部「菜篮子」tab
+2. 看到所有被丢弃的文章，显示：标题、来源、过滤原因、命中关键词
+3. 可按来源/过滤原因/rescue 状态筛选
+4. 点「查看」打开详情弹窗：
+   - 看原文内容预览
+   - 点「打开原文 ↗」看原始链接
+   - 选 tag 后点「确认 Rescue」→ 文章回到正式文章库
+   - 不想要的直接点「删除」
+
+### 6.3 Rescue 流程
+
+Rescue = 把菜篮子里的文章「救回」到正式文章库：
+- 选择要打的 tag（可多选）
+- 点「确认 Rescue」
+- 文章自动插入 articles 表 + 关联 article_tags
+- 已 rescue 的文章会标记「已 rescue」，不能重复 rescue
+
+---
+
 ## 5. LLM 摘要 / 事实核查
 
 ### 5.1 当前状态 (v1.0.1 修完)
@@ -434,20 +461,20 @@ worker 跑 4 种方式分别走不同 skill, 详细见 `moni/share/prompts/forma
 ### 5.2 怎么用
 
 1. 进"文章查阅"菜单
-2. 找篇文章
-3. **注**: v1.0.2-F 还没加 "摘要/核查" 按钮 UI (PRD §4.7 第 6 菜单计划)
-4. **临时**: 用 curl 触发
-   ```bash
-   # 摘要
-   curl -X POST http://127.0.0.1:8900/api/articles/<article_id>/summary \
-     -H "Content-Type: application/json" \
-     -d '{"article_id":"<article_id>"}'
-   
-   # 事实核查
-   curl -X POST http://127.0.0.1:8900/api/articles/<article_id>/fact-check \
-     -H "Content-Type: application/json" \
-     -d '{"article_id":"<article_id>"}'
-   ```
+2. 找篇文章，点击打开详情面板
+3. 点「生成摘要」或「事实核查」按钮
+4. 如果文章只有标题/片段，可先用「📥 导入全文」导入 .md 文件补全文再生成
+
+### 5.3 导入全文 (v1.0.5.24+)
+
+所有信源的文章详情面板都有「📥 导入全文」折叠区:
+
+1. 用 Obsidian Web Clipper 或浏览器复制原文
+2. 保存为本地 .md 文件
+3. 在详情面板展开「导入全文」，粘贴文件路径，点「导入」
+4. 导入后旧摘要自动清除，需重新点「生成摘要」
+
+**注意**: 导入会整体替换原有正文，不合并。
 
 ### 5.3 LLM 配置
 

@@ -45,13 +45,40 @@ log shows both pass/fail counts.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from moni.db.connection import get_db
 
 logger = logging.getLogger(__name__)
+
+
+def _insert_basket(art: dict, reason: str, dropped_by: str) -> None:
+    """将被过滤丢弃的文章写入 basket 表."""
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    source = art.get("source", "")
+    url = art.get("url", "")
+    title = art.get("title", "")
+    raw_id = f"{source}{url}{title}"
+    art_id = hashlib.sha256(raw_id.encode()).hexdigest()[:16]
+    try:
+        conn.execute(
+            """INSERT OR IGNORE INTO basket
+               (id, title, url, source, publisher, published_at, fetched_at,
+                raw_content, dropped_reason, dropped_by, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (art_id, title, url,
+             source, art.get("publisher"), art.get("published_at"),
+             art.get("fetched_at", now), art.get("content") or art.get("raw_content"),
+             reason, dropped_by, now),
+        )
+        conn.commit()
+    except Exception:
+        logger.debug("[basket] failed to insert %s", url[:60])
 
 
 def _load_tag_keywords_for_source(source_name: str) -> dict[str, list[str]]:
@@ -180,6 +207,8 @@ def apply_tag_keyword_filter(
             kept.append(art)
         else:
             stats["dropped_tag_filter"] += 1
+            # v1.0.6.9: 丢弃时写 basket
+            _insert_basket(art, "tag_filter", "no_tag_keyword_match")
             # v1.0.6.4: 记录丢弃文章标题 (最多 20 条)
             if len(stats["dropped_articles"]) < 20:
                 stats["dropped_articles"].append({"title": title or "(无标题)"})

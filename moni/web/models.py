@@ -481,6 +481,42 @@ class ErrorResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Basket schemas (v1.0.6.9)
+# ---------------------------------------------------------------------------
+
+
+class BasketItem(BaseModel):
+    """菜篮子中的单条被过滤文章."""
+    id: str
+    title: str
+    url: str
+    source: str
+    publisher: str | None = None
+    published_at: str | None = None
+    fetched_at: str
+    raw_content: str | None = None
+    dropped_reason: str  # 'blacklist' | 'whitelist' | 'tag_filter'
+    dropped_by: str | None = None
+    rescued_at: str | None = None
+    created_at: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BasketListResponse(BaseModel):
+    """分页的 basket 列表响应."""
+    items: list[BasketItem]
+    total: int
+    page: int
+    page_size: int
+
+
+class BasketRescueRequest(BaseModel):
+    """rescue 请求: 选择要打的 tag."""
+    tags: list[str] = []  # tag names to assign
+
+
+# ---------------------------------------------------------------------------
 # Re-export for convenience
 # ---------------------------------------------------------------------------
 

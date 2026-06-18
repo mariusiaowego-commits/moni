@@ -275,6 +275,10 @@ tbody tr:last-child td { border-bottom: none; }
   font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em;
 }
 .badge-new { background: var(--accent); color: var(--accent-fg); }
+.badge-danger { background: oklch(0.85 0.1 25); color: oklch(0.35 0.1 25); }
+.badge-warning { background: oklch(0.88 0.08 80); color: oklch(0.35 0.08 80); }
+.badge-info { background: oklch(0.88 0.06 240); color: oklch(0.35 0.06 240); }
+.badge-success { background: oklch(0.85 0.08 150); color: oklch(0.3 0.08 150); }
 .status-badge { padding: 3px 10px; border-radius: 4px; font-size: 0.78rem; font-weight: 500; }
 .status-success { background: oklch(0.85 0.08 150); color: oklch(0.3 0.08 150); }
 .status-failed { background: oklch(0.85 0.1 25); color: oklch(0.35 0.1 25); }
@@ -397,6 +401,21 @@ label { font-size: 0.85rem; }
 .modal-body { margin-bottom: 16px; }
 .modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
 .modal-content-wide { max-width: 720px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Basket (v1.0.6.9: 菜篮子)
+   ═══════════════════════════════════════════════════════════════ */
+.detail-field { margin-bottom: 12px; }
+.detail-field label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--muted-fg); margin-bottom: 4px; }
+.content-preview {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 6px; padding: 12px; font-size: 0.85rem;
+  max-height: 200px; overflow-y: auto; white-space: pre-wrap;
+}
+.tag-checkbox { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.tag-checkbox input[type="checkbox"] { margin: 0; }
+.rescue-section { border-top: 1px solid var(--border); padding-top: 16px; margin-top: 16px; }
+.rescue-section h4 { font-size: 0.92rem; font-weight: 600; margin-bottom: 8px; }
 
 /* ═══════════════════════════════════════════════════════════════
    Share Page

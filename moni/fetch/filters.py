@@ -17,8 +17,10 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from moni.db.connection import get_db
@@ -26,7 +28,29 @@ from moni.db.connection import get_db
 logger = logging.getLogger(__name__)
 
 
-logger = logging.getLogger(__name__)
+def _insert_basket(art: dict, reason: str, dropped_by: str) -> None:
+    """将被过滤丢弃的文章写入 basket 表."""
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    source = art.get("source", "")
+    url = art.get("url", "")
+    title = art.get("title", "")
+    raw_id = f"{source}{url}{title}"
+    art_id = hashlib.sha256(raw_id.encode()).hexdigest()[:16]
+    try:
+        conn.execute(
+            """INSERT OR IGNORE INTO basket
+               (id, title, url, source, publisher, published_at, fetched_at,
+                raw_content, dropped_reason, dropped_by, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (art_id, title, url,
+             source, art.get("publisher"), art.get("published_at"),
+             art.get("fetched_at", now), art.get("content") or art.get("raw_content"),
+             reason, dropped_by, now),
+        )
+        conn.commit()
+    except Exception:
+        logger.debug("[basket] failed to insert %s", url[:60])
 
 
 def _resolve_source_id(source_name: str) -> Optional[str]:
@@ -172,6 +196,8 @@ def apply_keyword_filters(
                             "hit_field": flt["match_field"],
                         })
                 blacklisted = True
+                # v1.0.6.9: 丢弃时写 basket
+                _insert_basket(art, "blacklist", hit)
                 break
         if blacklisted:
             continue
@@ -207,6 +233,8 @@ def apply_keyword_filters(
                     source_name, art.get("title", "")[:50],
                 )
                 stats["dropped_whitelist"] += 1
+                # v1.0.6.9: 丢弃时写 basket
+                _insert_basket(art, "whitelist", "no_keyword_match")
                 continue
         else:
             # 没有白名单 filter，检查所有 filter 的关键词
