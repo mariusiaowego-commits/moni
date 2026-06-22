@@ -4,12 +4,25 @@
 
 ---
 
-## 当前状态: **v1.0.7.3 — BestBlogs 系列信源扩展** (2026-06-18)
+## 当前状态: **v1.0.7.4 — 清理历史包袱** (2026-06-22)
 
-**主分支**: main @ v1.0.7.3
-**Web 服务**: `127.0.0.1:8900`
+**主分支**: main @ v1.0.7.4 (9e0b103)
+**Web 服务**: `127.0.0.1:8900` (PID 1905)
 **数据库**: `data/news.db` — schema_version=15, 10 sources
-**测试**: 350 passed, 2 skipped
+**测试**: 351 passed, 2 skipped
+
+### v1.0.7.4 进展 (2026-06-22)
+
+**清理**:
+- 删 `source_monitor.py` (598 行) — 早期 cron 脚本，已被 moni 包完整替代
+- `moni/cron/scheduler.py` 清理 2 处 "migrated from source_monitor.py" 注释
+- 移除 `/Users/mt16/dev/source-monitor/` 空壳目录 (根因: editable install 误指导致回归时全 API 404)
+
+**PR**: #31 squash merge → tag v1.0.7.4
+**测试**: 351 passed, 2 skipped (与 main 一致)
+**影响**: 纯清理，无功能/行为变更
+
+---
 
 ### v1.0.7.1 - v1.0.7.3 进展 (2026-06-18)
 
