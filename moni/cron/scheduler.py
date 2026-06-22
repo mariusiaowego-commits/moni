@@ -3,7 +3,7 @@
 Design (v1.0):
 - Runs as a SEPARATE process from uvicorn/web; communicates via SQLite DB.
 - Scheduler state is in-process only — crash = no automatic reschedule.
-- CST timezone, migrated from source_monitor.py.
+- CST timezone (Asia/Shanghai).
 - SQLite WAL mode + busy_timeout configured at connection level.
 """
 
@@ -23,7 +23,7 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-# CST = UTC+8, migrated from source_monitor.py (use ZoneInfo for apscheduler compat)
+# CST = UTC+8 (Asia/Shanghai, use ZoneInfo for apscheduler compat)
 CST = ZoneInfo("Asia/Shanghai")
 
 # Path to schedule config, relative to the moni package root
