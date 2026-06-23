@@ -382,6 +382,73 @@
         </div>
       </div>
 
+      <!-- ══ Fetch progress modal (v1.0.7.6) ════════════════════════════════ -->
+      <div class="modal-backdrop" x-show="fetchProgressModal" x-cloak @click.self="fetchProgressModal=false">
+        <div class="modal-content" style="max-width: 520px;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0;">
+              抓取中: <span x-text="fetchProgress?.source || '...'"></span>
+            </h3>
+            <button class="btn-secondary" @click="closeFetchProgress()" style="padding:4px 10px;">×</button>
+          </div>
+
+          <!-- Status badge -->
+          <div style="margin-top:12px; display:flex; align-items:center; gap:10px;">
+            <span class="dot" :class="{
+              'dot-running': fetchProgress?.status === 'running',
+              'dot-done': fetchProgress?.status === 'done',
+              'dot-failed': fetchProgress?.status === 'failed' || fetchProgress?.status === 'timeout'
+            }"></span>
+            <span x-text="({
+              'running': '抓取中...',
+              'done': '完成',
+              'failed': '失败',
+              'timeout': '超时'
+            })[fetchProgress?.status] || fetchProgress?.status || '初始化...'"
+              :class="{
+                'fr-success': fetchProgress?.status === 'done',
+                'fr-error': fetchProgress?.status === 'failed' || fetchProgress?.status === 'timeout'
+              }"></span>
+            <span class="muted" x-text="fetchProgress ? `(${fetchProgress.elapsed_seconds}s)` : ''"></span>
+          </div>
+
+          <!-- Progress bar -->
+          <div style="margin-top:14px;">
+            <div style="background:var(--bg-secondary); border-radius:6px; height:18px; overflow:hidden; position:relative;">
+              <div :style="`background:var(--accent-primary); height:100%; width:${fetchProgressPercent}%; transition:width 0.3s ease;`"></div>
+              <div style="position:absolute; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:600;"
+                x-text="fetchProgress ? `${fetchProgress.done_feeds || 0} / ${fetchProgress.total_feeds || 0}` : '...'"></div>
+            </div>
+          </div>
+
+          <!-- Current feed -->
+          <div style="margin-top:12px; font-size:13px;">
+            <div class="muted">当前 feed:</div>
+            <div x-text="fetchProgress?.current_feed || '(初始化中)'" style="font-family:monospace;"></div>
+          </div>
+
+          <!-- Articles counter -->
+          <div style="margin-top:10px; font-size:13px; display:flex; gap:20px;">
+            <span>已抓 <b x-text="fetchProgress?.articles_so_far || 0"></b> 篇</span>
+            <span class="muted">每 5 秒自动刷新</span>
+          </div>
+
+          <!-- Error block -->
+          <div x-show="fetchProgress?.error" class="fr-error" style="margin-top:14px; padding:10px; border-radius:4px; background:rgba(239,68,68,0.1);"
+            x-text="fetchProgress?.error"></div>
+
+          <!-- Final result (shown when done) -->
+          <div x-show="fetchProgress?.status === 'done' && fetchProgress?.result" style="margin-top:14px; padding:10px; border-radius:4px; background:rgba(16,185,129,0.08); font-size:13px;">
+            <div><b x-text="fetchProgress?.result?.fetched || 0"></b> 原始 → <b x-text="fetchProgress?.result?.parsed || 0"></b> 解析 → <b x-text="fetchProgress?.result?.inserted || 0"></b> 入库</div>
+            <div class="muted" style="margin-top:4px;">
+              <span x-show="fetchProgress?.result?.dropped_blacklist > 0">黑名单丢弃 <b x-text="fetchProgress?.result?.dropped_blacklist"></b> · </span>
+              <span x-show="fetchProgress?.result?.dropped_tag_filter > 0">tag 丢弃 <b x-text="fetchProgress?.result?.dropped_tag_filter"></b> · </span>
+              <span>用时 <b x-text="fetchProgress?.elapsed_seconds"></b>s</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- ══ LLM 任务 (v1.0.5.1) ══════════════════════════════════════════════ -->
       <section x-show="currentView === 'llmJobs'" x-cloak>
         <h3>LLM 任务

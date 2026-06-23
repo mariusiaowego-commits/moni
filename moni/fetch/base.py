@@ -83,6 +83,14 @@ class BaseFetcher(ABC):
     date_from: str | None = None
     date_to: str | None = None
 
+    # ── progress callback (v1.0.7.6) ────────────────────────────────────────
+    # Optional callable invoked from inside fetch() to report progress.
+    # Signature: cb(total_feeds=int|None, done_feeds=int|None,
+    #               current_feed=str|None, articles_so_far=int|None) -> None
+    # Routes set this so they can persist progress into fetch_jobs.
+
+    progress_callback: Any = None
+
     def _register(self) -> None:
         """Register this class in the global fetcher registry."""
         _FETCHER_REGISTRY[self.source_name] = type(self)

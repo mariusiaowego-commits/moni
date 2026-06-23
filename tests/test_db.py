@@ -92,7 +92,10 @@ class TestMigrate:
         migrate()  # must not fail
         conn = get_db()
         version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
-        assert version == 15  # current schema version (v1.0.6.9: +basket)
+        # Read live version from module so this test stays in sync as
+        # migrations are added.
+        from moni.db import migrate as _m
+        assert version == _m._CURRENT_VERSION
 
     def test_foreign_keys_enabled(self, tmp_db):
         migrate()
@@ -100,13 +103,14 @@ class TestMigrate:
         fk = conn.execute("PRAGMA foreign_keys").fetchone()[0]
         assert fk == 1
 
+
     def test_schema_version_recorded(self, tmp_db):
         migrate()
         conn = get_db()
         row = conn.execute("SELECT version, applied_at FROM schema_version").fetchone()
-        assert row["version"] == 15  # current schema version (v1.0.6.9)
+        from moni.db import migrate as _m
+        assert row["version"] == _m._CURRENT_VERSION
         assert row["applied_at"] is not None
-
 
 class TestCRUD:
     """Basic CRUD sanity checks (no FTS5 triggers yet — those need F-Fetch)."""

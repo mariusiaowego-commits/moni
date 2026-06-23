@@ -148,6 +148,17 @@ class FetcherBestBlogs(BaseFetcher):
             )
         feeds = feeds[:max_feeds]
 
+        # v1.0.7.6: notify progress hook of total feed count up front.
+        if self.progress_callback is not None:
+            try:
+                self.progress_callback(
+                    total_feeds=len(feeds),
+                    done_feeds=0,
+                    articles_so_far=0,
+                )
+            except Exception:
+                pass
+
         # 2. Fetch each feed, collect articles
         all_articles: list[dict[str, Any]] = []
         delay = config["request_delay"]
@@ -169,6 +180,17 @@ class FetcherBestBlogs(BaseFetcher):
             # Take latest N items per feed
             items = items[:max_per_feed]
             all_articles.extend(items)
+
+            # v1.0.7.6: per-feed progress callback (current_feed + counters).
+            if self.progress_callback is not None:
+                try:
+                    self.progress_callback(
+                        done_feeds=i + 1,
+                        current_feed=feed_title,
+                        articles_so_far=len(all_articles),
+                    )
+                except Exception:
+                    pass
 
             if (i + 1) % 10 == 0:
                 logger.info(
