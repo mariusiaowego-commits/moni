@@ -4,12 +4,33 @@
 
 ---
 
-## 当前状态: **v1.0.7.5 — BestBlog 子类 bug 修复** (2026-06-22)
+## 当前状态: **v1.0.7.6-hotfix — 异步 fetch + zombie 清理** (2026-06-23)
 
-**主分支**: main @ v1.0.7.5 (c869f52)
-**Web 服务**: `127.0.0.1:8900` (PID 1905)
-**数据库**: `data/news.db` — schema_version=15, 10 sources
-**测试**: 359 passed, 2 skipped
+**主分支**: main @ v1.0.7.6-hotfix (8476a92)
+**Web 服务**: `127.0.0.1:8900` (PID 49726)
+**数据库**: `data/news.db` — schema_version=16, 10 sources
+**测试**: 380 passed, 2 skipped
+
+### v1.0.7.6-hotfix 进展 (2026-06-23)
+
+**Bug 修复**:
+- **fetch_jobs 僵尸**: 8 个 36kr_rss running job 卡死 (daemon thread 异常退出但 mark_done 没成功), has_running() 永远返回 True 挡住新请求
+- **修复**: sweep_zombies() 每次 /run 自动清理 2h+ 仍 running 的 job → status='stale'
+- **前端**: status='stale' 映射「已中止(无响应)」红字, 轮询终止
+
+### v1.0.7.6 进展 (2026-06-22)
+
+**功能**:
+- 异步 fetch 任务: POST /api/fetch/sources/{name}/run 立即返回 job_id, 后台线程跑
+- 进度轮询: GET /api/fetch/jobs/{job_id} 每 5s 刷新
+- 进度 modal: 实时显示 done_feeds/total_feeds, 当前 feed 名, 已抓文章数
+- 错误处理: 10min hard timeout, 同源并发返 409, 失败/超时/僵尸状态红字提示
+- 新表 fetch_jobs (migration 016): 存每次抓取实时状态
+
+**测试**: 376 passed, 2 skipped (+17 新增)
+**实测**: bestblog-yt (124 feeds) 174s 完成, 进度条实时更新
+
+---
 
 ### v1.0.7.5 进展 (2026-06-22)
 
