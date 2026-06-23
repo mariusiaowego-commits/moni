@@ -4,12 +4,28 @@
 
 ---
 
-## 当前状态: **v1.0.7.4 — 清理历史包袱** (2026-06-22)
+## 当前状态: **v1.0.7.5 — BestBlog 子类 bug 修复** (2026-06-22)
 
-**主分支**: main @ v1.0.7.4 (9e0b103)
+**主分支**: main @ v1.0.7.5 (c869f52)
 **Web 服务**: `127.0.0.1:8900` (PID 1905)
 **数据库**: `data/news.db` — schema_version=15, 10 sources
-**测试**: 351 passed, 2 skipped
+**测试**: 359 passed, 2 skipped
+
+### v1.0.7.5 进展 (2026-06-22)
+
+**Bug 修复**:
+- **bestblog-yt 0 篇** → YouTube feed 用 Atom 1.0 格式，原代码只解析 RSS 2.0，导致 channel.find() 永远 None。修复：_fetch_feed 加 root tag 检测，Atom 走 _parse_atom。
+- **bestblog-podcast 误命中 wechat tag** → tag_filter 只对 source=='bestblogs' 走 title-only，子类 fallback 到 title+content，导致 description 里的「关注公众号/小程序」误命中。修复：source.startswith('bestblog')。
+
+**技术细节**:
+- 重构 _extract_items 公共方法，RSS 和 Atom 共用 article 构造逻辑
+- 修复 Python 3.12 Element truthiness deprecation 导致 find() or find() 链失败
+
+**PR**: #33 squash merge → tag v1.0.7.5
+**测试**: 359 passed, 2 skipped (351 → 359, +8 新增)
+**实测**: bestblog-yt 5 feeds 抓 75 篇（修复前 0 篇）
+
+---
 
 ### v1.0.7.4 进展 (2026-06-22)
 
