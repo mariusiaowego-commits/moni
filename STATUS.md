@@ -4,12 +4,28 @@
 
 ---
 
-## 当前状态: **v1.0.7.6.1 — 409 job_id scope 修复** (2026-06-23)
+## 当前状态: **v1.0.7.6.2 — wechat_rss 占位符修复 + token 安全** (2026-06-23)
 
-**主分支**: main @ v1.0.7.6.1 (66c6f96)
-**Web 服务**: `127.0.0.1:8900` (PID 96977, python 3.12)
+**主分支**: main @ v1.0.7.6.2 (83a1e0d)
+**Web 服务**: `127.0.0.1:8900` (待重启)
 **数据库**: `data/news.db` — schema_version=16, 10 sources
-**测试**: 383 passed, 2 skipped
+**测试**: 388 passed, 2 skipped
+
+### v1.0.7.6.2 进展 (2026-06-23)
+
+**Bug 修复**:
+- **wechat_rss_a/b 0 篇** → _env_token() 没读到 WECHAT_RSS_A_TOKEN env 时返占位符 URL `?token=__WECHAT_RSS_A_TOKEN__`, 入库 sources.url, waytomaster API 401, 用户看到 0 篇无错误提示
+- **修复**: _env_token() 没读到时返空字符串, fetch() 检测占位符 URL 时 loud error + [] 拒绝发起请求, config/sources.yaml 改空字符串 + 注释
+
+**安全发现** (待用户处理):
+- **git 历史 token 泄漏**: commit 5b86616 (v1.0.5.6) 曾经在 sources.url 字段 hardcode 真实 token `eyJhbG...`, 7b5f52c 改为 _env_token 注入但没清 git 历史
+- **影响范围**: 任何有 moni 仓库读权限的人 `git log -S "?token="` 可拿到 token
+- **建议**: 用户在 waytomaster 控制台轮换 2 个 token, 旧 token 失效即不需清理 git history (轮换 vs git-filter-repo 二选一)
+
+**测试**: +5 新增 (test_env_token_returns_empty_string_when_unset / returns_actual_value_when_set / a_falls_back_to_legacy_token / fetcher_refuses_placeholder_url / fetcher_refuses_empty_url)
+**PR**: #39 squash merge → tag v1.0.7.6.2
+
+**bestblog-x 状态**: 6:39-6:45 自动 done 5 篇入库, zombie sweeper (PR #36) 已自动清理, 无需代码修改
 
 ### v1.0.7.6.1 进展 (2026-06-23)
 
