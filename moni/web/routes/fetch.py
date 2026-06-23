@@ -17,16 +17,20 @@ This module now resolves either form.
 
 from __future__ import annotations
 
+import json
 import logging
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from moni.db.connection import get_db
 from moni.fetch import run as run_fetcher
+from moni.fetch.jobs import FetchJobStore
+from moni.fetch.base import _FETCHER_REGISTRY, _ensure_sources_loaded
 from moni.web.exceptions import NotFoundError
 from moni.web.models import FetchSource, FetchSourceUpdate, HealthResponse
 
@@ -36,6 +40,9 @@ router = APIRouter(prefix="/api/fetch", tags=["fetch"])
 
 # Path to sources config — same resolution as moni.fetch.scheduler
 _CONFIG_PATH = Path(__file__).parent.parent.parent.parent / "config" / "sources.yaml"
+
+# v1.0.7.6: hard timeout for async fetch jobs (10 minutes per user spec).
+JOB_TIMEOUT_SECONDS = 600
 
 
 def _load_sources() -> list[dict[str, Any]]:
@@ -148,6 +155,61 @@ def trigger_fetch_run(
 
     v1.0.6.5: ``force=True`` by default — UI "立即抓取" always fetches,
     bypassing the interval check.
+
+    v1.0.7.6: ASYNC — returns immediately with ``{job_id, status:running}``
+    while the actual fetch runs in a background thread. The frontend
+    polls ``GET /api/fetch/jobs/{job_id}`` every 5s to render a
+    progress bar. Pass ``?async=false`` to fall back to the old
+    blocking behaviour (used by CLI smoke tests).
+    """
+    resolved = _resolve_source_name(name)
+    if resolved is None:
+        raise NotFoundError(message=f"Fetch source {name!r} not found")
+
+    jobs = FetchJobStore()
+    if jobs.has_running(resolved):
+        existing = jobs.list_recent(limit=1, status="running")
+        running_job_id = existing[0]["id"] if existing else None
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "fetch_in_progress",
+                "message": f"Source {resolved!r} is already being fetched",
+                "running_job_id": running_job_id,
+            },
+        )
+
+    job_id = jobs.create(resolved, total_feeds=0)
+    thread = threading.Thread(
+        target=_run_fetch_job,
+        args=(job_id, resolved, date_from, date_to, force),
+        daemon=True,
+        name=f"fetch-{resolved}-{job_id[:8]}",
+    )
+    thread.start()
+
+    return {
+        "job_id": job_id,
+        "source": resolved,
+        "status": "running",
+        "poll_url": f"/api/fetch/jobs/{job_id}",
+    }
+
+
+# ── v1.0.7.6: synchronous fallback for CLI / smoke tests ────────────────────
+
+
+@router.post("/sources/{name}/run-sync")
+def trigger_fetch_run_sync(
+    name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    force: bool = True,
+) -> dict[str, Any]:
+    """Synchronous fetch — blocks until done. Used by CLI tests.
+
+    Kept separate from ``/run`` so the SPA never accidentally calls
+    the blocking variant.
     """
     resolved = _resolve_source_name(name)
     if resolved is None:
@@ -165,6 +227,128 @@ def trigger_fetch_run(
         }
 
     return result
+
+
+def _run_fetch_job(
+    job_id: str,
+    source_name: str,
+    date_from: str | None,
+    date_to: str | None,
+    force: bool,
+) -> None:
+    """Background worker — runs the fetcher and persists progress.
+
+    Catches all exceptions to ensure the job row always reaches a
+    terminal status (done | failed | timeout).  Uses a wall-clock
+    deadline to enforce JOB_TIMEOUT_SECONDS.
+    """
+    import time
+
+    from datetime import datetime, timezone
+
+    jobs = FetchJobStore()
+    started = time.monotonic()
+    deadline = started + JOB_TIMEOUT_SECONDS
+
+    try:
+        _ensure_sources_loaded()
+        if source_name not in _FETCHER_REGISTRY:
+            jobs.mark_failed(job_id, f"No fetcher registered for {source_name!r}")
+            return
+
+        fetcher = _FETCHER_REGISTRY[source_name]()
+        if date_from:
+            fetcher.date_from = date_from
+        if date_to:
+            fetcher.date_to = date_to
+
+        # Wire progress callback to persist into fetch_jobs.
+        def _persist_progress(
+            *,
+            total_feeds: int | None = None,
+            done_feeds: int | None = None,
+            current_feed: str | None = None,
+            articles_so_far: int | None = None,
+        ) -> None:
+            try:
+                jobs.update_progress(
+                    job_id,
+                    total_feeds=total_feeds,
+                    done_feeds=done_feeds,
+                    current_feed=current_feed,
+                    articles_so_far=articles_so_far,
+                )
+            except Exception as exc:
+                logger.debug("[%s] progress persist failed: %s", source_name, exc)
+            # Check timeout opportunistically — keeps the job from
+            # running past 10 minutes even if downstream httpx hangs.
+            if time.monotonic() > deadline:
+                raise TimeoutError(
+                    f"Fetch exceeded {JOB_TIMEOUT_SECONDS}s timeout"
+                )
+
+        fetcher.progress_callback = _persist_progress
+
+        result = fetcher.run()
+
+        # Defensive: in case the fetcher didn't raise but we're past
+        # the deadline, mark as timeout.
+        if time.monotonic() > deadline:
+            jobs.mark_timeout(job_id)
+            return
+
+        if result is None:
+            jobs.mark_done(
+                job_id,
+                {
+                    "source": source_name,
+                    "status": "skipped",
+                    "message": "Source not due for fetching",
+                },
+            )
+            return
+
+        jobs.mark_done(job_id, result)
+
+    except TimeoutError as exc:
+        logger.warning("[%s] job %s timed out: %s", source_name, job_id[:8], exc)
+        jobs.mark_timeout(job_id, str(exc))
+    except Exception as exc:
+        logger.exception("[%s] job %s failed", source_name, job_id[:8])
+        jobs.mark_failed(job_id, f"{type(exc).__name__}: {exc}")
+
+
+# ── v1.0.7.6: fetch_jobs query endpoints (SPA polls these) ──────────────────
+
+
+@router.get("/jobs/{job_id}")
+def get_fetch_job(job_id: str) -> dict[str, Any]:
+    """Return the current status of a single fetch job.
+
+    Frontend polls this every 5s while the job is running to render
+    a progress bar.  Once ``status`` becomes ``done | failed | timeout``
+    the SPA stops polling and shows the final result / error.
+    """
+    job = FetchJobStore().get(job_id)
+    if job is None:
+        raise NotFoundError(message=f"Fetch job {job_id!r} not found")
+    return job
+
+
+@router.get("/jobs")
+def list_fetch_jobs(
+    status: str | None = None,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """List recent fetch jobs (newest first), optionally filtered by status.
+
+    The SPA uses ``status=running`` on page load to discover jobs that
+    survived a page refresh and resume polling.
+    """
+    if limit < 1 or limit > 100:
+        limit = 20
+    jobs = FetchJobStore().list_recent(limit=limit, status=status)
+    return {"jobs": jobs, "count": len(jobs)}
 
 
 @router.post("/sources/{name}/health", response_model=HealthResponse)

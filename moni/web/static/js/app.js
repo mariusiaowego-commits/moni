@@ -932,6 +932,10 @@ function app() {
     fetchTargetSource: '',
     fetchDateRange: 'days',  // 'auto' | 'days' | 'custom'
     fetchDateFrom: '',
+    // v1.0.7.6: fetch progress modal + 5s polling state
+    fetchProgressModal: false,
+    fetchProgress: null,
+    _fetchPollTimer: null,
     fetchDateTo: '',
     fetchDays: 7,
     // v1.0.5.24: copy URL toast
@@ -963,13 +967,8 @@ function app() {
       }
       this.fetchResult = '正在抓取...';
       this.fetchResultObj = null;
-      fetch(`/api/fetch/sources/${id}/run`, { method: 'POST', credentials: 'same-origin' })
-        .then(r => r.json().catch(() => ({ result: 'success' })))
-        .then(data => {
-          this.fetchResultObj = data;
-          this.fetchResult = JSON.stringify(data, null, 2);
-        })
-        .catch(err => { this.fetchResult = '抓取失败: ' + err.message; this.fetchResultObj = null; });
+      // v1.0.7.6: async fetch with progress modal + 5s polling
+      this.startAsyncFetch(id);
     },
 
     fetchAllSources() {
@@ -1006,15 +1005,100 @@ function app() {
       const srcName = this.sources.find(s => s.id === this.fetchTargetSource)?.name || '';
       this.fetchResult = `正在抓取 ${srcName}...`;
       this.fetchResultObj = null;
-      fetch(`/api/fetch/sources/${this.fetchTargetSource}/run${params}`, {
-        method: 'POST', credentials: 'same-origin',
-      })
-        .then(r => r.json().catch(() => ({ result: 'success' })))
-        .then(data => {
-          this.fetchResultObj = data;
-          this.fetchResult = JSON.stringify(data, null, 2);
-        })
-        .catch(err => { this.fetchResult = '抓取失败: ' + err.message; this.fetchResultObj = null; });
+      // v1.0.7.6: async fetch with progress modal + 5s polling
+      this.startAsyncFetch(this.fetchTargetSource, params);
+    },
+
+    // ── v1.0.7.6: async fetch + progress polling ──────────────────────────
+
+    async startAsyncFetch(sourceRef, queryParams = '') {
+      // POST /run returns {job_id, source, status:running} immediately.
+      // Open modal, then poll /api/fetch/jobs/{job_id} every 5s until
+      // terminal status (done | failed | timeout).
+      this.fetchProgressModal = true;
+      this.fetchProgress = { source: sourceRef, status: 'running', done_feeds: 0, total_feeds: 0, current_feed: '(初始化中)', articles_so_far: 0, elapsed_seconds: 0 };
+
+      try {
+        const r = await fetch(`/api/fetch/sources/${sourceRef}/run${queryParams}`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const data = await r.json();
+        if (r.status === 409) {
+          // Already running — resume polling the existing job
+          this.fetchProgress = {
+            source: sourceRef,
+            status: 'running',
+            done_feeds: 0,
+            total_feeds: 0,
+            current_feed: '已有抓取任务在进行中',
+            articles_so_far: 0,
+            elapsed_seconds: 0,
+            error: data?.detail?.message || '另一个抓取任务正在进行',
+          };
+          if (data?.detail?.running_job_id) {
+            this._pollFetchJob(data.detail.running_job_id);
+          }
+          return;
+        }
+        if (!r.ok || !data.job_id) {
+          this.fetchProgress.status = 'failed';
+          this.fetchProgress.error = data?.detail?.message || data?.error || `HTTP ${r.status}`;
+          return;
+        }
+        this.fetchProgress.source = data.source;
+        this.fetchProgress.job_id = data.job_id;
+        this._pollFetchJob(data.job_id);
+      } catch (err) {
+        this.fetchProgress.status = 'failed';
+        this.fetchProgress.error = '启动抓取失败: ' + err.message;
+      }
+    },
+
+    _pollFetchJob(jobId) {
+      // Poll every 5s. Stop when status is terminal.
+      if (this._fetchPollTimer) {
+        clearInterval(this._fetchPollTimer);
+      }
+      const tick = async () => {
+        try {
+          const r = await fetch(`/api/fetch/jobs/${jobId}`, { credentials: 'same-origin' });
+          if (!r.ok) return; // transient — try again next tick
+          const data = await r.json();
+          this.fetchProgress = data;
+          if (['done', 'failed', 'timeout'].includes(data.status)) {
+            if (this._fetchPollTimer) {
+              clearInterval(this._fetchPollTimer);
+              this._fetchPollTimer = null;
+            }
+            // When done, refresh the source list so the UI reflects new state
+            if (data.status === 'done') {
+              this.loadSources();
+            }
+          }
+        } catch (err) {
+          // network blip — keep polling
+        }
+      };
+      // First poll immediately, then every 5s
+      tick();
+      this._fetchPollTimer = setInterval(tick, 5000);
+    },
+
+    closeFetchProgress() {
+      this.fetchProgressModal = false;
+      if (this._fetchPollTimer) {
+        clearInterval(this._fetchPollTimer);
+        this._fetchPollTimer = null;
+      }
+    },
+
+    get fetchProgressPercent() {
+      const p = this.fetchProgress;
+      if (!p || !p.total_feeds) return 0;
+      return Math.min(100, Math.round((p.done_feeds / p.total_feeds) * 100));
     },
 
     // v1.0.5.24: copy article URL to clipboard
