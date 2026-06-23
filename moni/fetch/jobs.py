@@ -24,6 +24,14 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# v1.0.7.6 zombie fix: jobs older than this with status=running are
+# considered dead (the daemon thread crashed or the process was killed
+# mid-fetch) and should be swept to 'stale' on the next request.
+# 2h is well above JOB_TIMEOUT_SECONDS (10min) so legitimate long fetches
+# are never incorrectly swept.
+STALE_THRESHOLD_SECONDS = 7200
+
+
 def _row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
     if row is None:
         return None
@@ -124,6 +132,25 @@ class FetchJobStore:
             current_feed=None,
         )
 
+    def mark_stale(self, job_id: str) -> None:
+        """Mark a long-running job as 'stale' (daemon thread presumed dead).
+
+        Called by sweep_zombies() when a job has been 'running' for more
+        than STALE_THRESHOLD_SECONDS. The user-facing API surfaces this
+        as an error so the SPA knows to prompt the user to retry.
+        """
+        self._atomic_update(
+            job_id,
+            status="stale",
+            finished_at=_now_iso(),
+            error=(
+                "Aborted: daemon thread presumed dead (no progress for "
+                f">{STALE_THRESHOLD_SECONDS // 3600}h). "
+                "Likely SQLite contention or process restart."
+            )[:2000],
+            current_feed=None,
+        )
+
     # ── queries (called from request thread) ───────────────────────────────
 
     def get(self, job_id: str) -> dict[str, Any] | None:
@@ -155,8 +182,10 @@ class FetchJobStore:
         """True if any job is still running (optionally for a specific source).
 
         Used by /api/fetch/sources/{name}/run to refuse concurrent fetches
-        of the same source.
+        of the same source. Sweeps stale jobs first so a dead daemon
+        doesn't block new fetches forever.
         """
+        self.sweep_zombies()
         if source:
             row = get_db().execute(
                 "SELECT 1 FROM fetch_jobs WHERE status = 'running' AND source = ? LIMIT 1",
@@ -167,6 +196,24 @@ class FetchJobStore:
                 "SELECT 1 FROM fetch_jobs WHERE status = 'running' LIMIT 1"
             ).fetchone()
         return row is not None
+
+    def sweep_zombies(self) -> int:
+        """Mark any 'running' job older than STALE_THRESHOLD_SECONDS as 'stale'.
+
+        Returns the number of jobs swept. Safe to call on every
+        /api/fetch/sources/{name}/run request — idempotent and cheap
+        (a single UPDATE statement).
+        """
+        from datetime import timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=STALE_THRESHOLD_SECONDS)).isoformat()
+        cur = get_db().execute(
+            "SELECT id FROM fetch_jobs WHERE status = 'running' AND started_at < ?",
+            (cutoff,),
+        )
+        stale_ids = [row["id"] for row in cur.fetchall()]
+        for jid in stale_ids:
+            self.mark_stale(jid)
+        return len(stale_ids)
 
     # ── internals ──────────────────────────────────────────────────────────
 

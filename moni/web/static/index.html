@@ -403,11 +403,12 @@
               'running': '抓取中...',
               'done': '完成',
               'failed': '失败',
-              'timeout': '超时'
+              'timeout': '超时',
+              'stale': '已中止（无响应）'
             })[fetchProgress?.status] || fetchProgress?.status || '初始化...'"
               :class="{
                 'fr-success': fetchProgress?.status === 'done',
-                'fr-error': fetchProgress?.status === 'failed' || fetchProgress?.status === 'timeout'
+                'fr-error': fetchProgress?.status === 'failed' || fetchProgress?.status === 'timeout' || fetchProgress?.status === 'stale'
               }"></span>
             <span class="muted" x-text="fetchProgress ? `(${fetchProgress.elapsed_seconds}s)` : ''"></span>
           </div>

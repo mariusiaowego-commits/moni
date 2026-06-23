@@ -1068,7 +1068,7 @@ function app() {
           if (!r.ok) return; // transient — try again next tick
           const data = await r.json();
           this.fetchProgress = data;
-          if (['done', 'failed', 'timeout'].includes(data.status)) {
+          if (['done', 'failed', 'timeout', 'stale'].includes(data.status)) {
             if (this._fetchPollTimer) {
               clearInterval(this._fetchPollTimer);
               this._fetchPollTimer = null;
