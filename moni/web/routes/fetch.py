@@ -168,16 +168,25 @@ def trigger_fetch_run(
 
     jobs = FetchJobStore()
     if jobs.has_running(resolved):
-        existing = jobs.list_recent(limit=1, status="running")
+        # v1.0.7.6-hotfix.1: scope the lookup to THIS source so the SPA
+        # doesn't get a job_id from a different (or already-swept) job.
+        # If we can't find a live job for this source, treat it as not
+        # running and fall through to start a new one.
+        existing = jobs.list_recent(limit=1, status="running", source=resolved)
         running_job_id = existing[0]["id"] if existing else None
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error": "fetch_in_progress",
-                "message": f"Source {resolved!r} is already being fetched",
-                "running_job_id": running_job_id,
-            },
-        )
+        if not running_job_id:
+            # Race: has_running said True but the row vanished (swept
+            # between the two calls). Don't 409 — let the new job start.
+            pass
+        else:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "fetch_in_progress",
+                    "message": f"Source {resolved!r} is already being fetched",
+                    "running_job_id": running_job_id,
+                },
+            )
 
     job_id = jobs.create(resolved, total_feeds=0)
     thread = threading.Thread(

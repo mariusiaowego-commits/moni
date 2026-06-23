@@ -135,6 +135,22 @@ class TestFetchJobStore:
         assert len(done) == 1
         assert done[0]["source"] == "36kr_rss"
 
+    def test_list_recent_filters_by_source(self, fresh_db):
+        # v1.0.7.6-hotfix.1: when 409 returns running_job_id to the SPA,
+        # the job_id must belong to the requested source. Otherwise the
+        # progress modal polls the wrong job and sticks on "(初始化中)".
+        store = FetchJobStore()
+        store.create("36kr_rss")  # running
+        store.create("mpaypass")  # running
+        only_36kr = store.list_recent(limit=10, status="running", source="36kr_rss")
+        assert len(only_36kr) == 1
+        assert only_36kr[0]["source"] == "36kr_rss"
+        only_mp = store.list_recent(limit=10, status="running", source="mpaypass")
+        assert len(only_mp) == 1
+        assert only_mp[0]["source"] == "mpaypass"
+        none = store.list_recent(limit=10, status="running", source="bestblog-yt")
+        assert none == []
+
 
 # ── HTTP endpoint tests ────────────────────────────────────────────────────
 
@@ -226,6 +242,74 @@ class TestFetchJobsEndpoints:
         import threading
         for t in threading.enumerate():
             if t is not threading.current_thread() and t.name.startswith("fetch-36kr_rss"):
+                t.join(timeout=2.5)
+
+    def test_409_job_id_is_scoped_to_requested_source(self, client, monkeypatch):
+        """v1.0.7.6-hotfix.1: when 36kr is already running and the user
+        clicks fetch on mpaypass, the 409 should NOT happen (mpaypass is
+        free), OR if it does the running_job_id must belong to the
+        requested source. Regression: previously list_recent returned
+        the first running row regardless of source, so the SPA polled
+        the wrong job and the progress modal stuck on "(初始化中)"."""
+        import moni.web.routes.fetch as fetch_route
+        monkeypatch.setattr(
+            fetch_route, "_run_fetch_job",
+            lambda *a, **kw: time.sleep(2),
+        )
+        # Start 36kr
+        r1 = client.post("/api/fetch/sources/36kr_rss/run")
+        assert r1.status_code == 200
+        first_job_id = r1.json()["job_id"]
+        # Click mpaypass — different source, should succeed
+        r2 = client.post("/api/fetch/sources/mpaypass/run")
+        assert r2.status_code == 200, (
+            f"expected 200 (mpaypass is free), got {r2.status_code}: {r2.text}"
+        )
+        second_job_id = r2.json()["job_id"]
+        # Now click 36kr again — same source as first → 409, and the
+        # running_job_id in the 409 body MUST be the 36kr one, not mpaypass.
+        r3 = client.post("/api/fetch/sources/36kr_rss/run")
+        assert r3.status_code == 409
+        scoped_id = r3.json()["detail"]["running_job_id"]
+        assert scoped_id == first_job_id, (
+            f"409 fallback returned job_id {scoped_id}, expected {first_job_id} "
+            f"(the 36kr job, not the mpaypass one {second_job_id})"
+        )
+        # Let daemon threads finish before fixture teardown.
+        import threading
+        for t in threading.enumerate():
+            if t is not threading.current_thread() and t.name.startswith("fetch-"):
+                t.join(timeout=2.5)
+
+    def test_409_falls_through_when_running_row_vanished(self, client, monkeypatch):
+        """v1.0.7.6-hotfix.1: race window where has_running() says True
+        but the running row was just swept between the two calls. The
+        endpoint must not 409 in that case — it should start a fresh job."""
+        import moni.web.routes.fetch as fetch_route
+        from moni.fetch.jobs import FetchJobStore
+        monkeypatch.setattr(
+            fetch_route, "_run_fetch_job",
+            lambda *a, **kw: time.sleep(2),
+        )
+        # Simulate: has_running says yes, but list_recent returns empty
+        # (the row was swept between the two DB calls).
+        real_has_running = FetchJobStore.has_running
+        def fake_has_running(self, source=None):
+            real_has_running(self, source)  # do the sweep first
+            return True
+        monkeypatch.setattr(FetchJobStore, "has_running", fake_has_running)
+        monkeypatch.setattr(
+            FetchJobStore, "list_recent",
+            lambda self, limit=20, status=None, source=None: [],
+        )
+        r = client.post("/api/fetch/sources/36kr_rss/run")
+        assert r.status_code == 200, (
+            f"expected 200 (race: row vanished), got {r.status_code}: {r.text}"
+        )
+        # Let daemon thread finish before fixture teardown.
+        import threading
+        for t in threading.enumerate():
+            if t is not threading.current_thread() and t.name.startswith("fetch-"):
                 t.join(timeout=2.5)
 
     def test_run_sync_legacy_endpoint_still_blocks(self, client):

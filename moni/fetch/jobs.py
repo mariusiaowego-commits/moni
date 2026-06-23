@@ -159,18 +159,28 @@ class FetchJobStore:
         ).fetchone()
         return _row_to_dict(row)
 
-    def list_recent(self, limit: int = 20, status: str | None = None) -> list[dict[str, Any]]:
+    def list_recent(
+        self,
+        limit: int = 20,
+        status: str | None = None,
+        source: str | None = None,
+    ) -> list[dict[str, Any]]:
+        # v1.0.7.6-hotfix.1: optional source filter so 409 fallback can scope
+        # the running_job_id to the requested source (avoids handing the
+        # SPA a job_id from a different source, which would leave the
+        # progress modal stuck on "(初始化中)").
+        clauses: list[str] = []
+        params: list[Any] = []
         if status:
-            rows = get_db().execute(
-                "SELECT * FROM fetch_jobs WHERE status = ? "
-                "ORDER BY started_at DESC LIMIT ?",
-                (status, limit),
-            ).fetchall()
-        else:
-            rows = get_db().execute(
-                "SELECT * FROM fetch_jobs ORDER BY started_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            clauses.append("status = ?")
+            params.append(status)
+        if source:
+            clauses.append("source = ?")
+            params.append(source)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        sql = f"SELECT * FROM fetch_jobs{where} ORDER BY started_at DESC LIMIT ?"
+        params.append(limit)
+        rows = get_db().execute(sql, params).fetchall()
         result: list[dict[str, Any]] = []
         for r in rows:
             d = _row_to_dict(r)
