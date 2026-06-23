@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
+import httpx
 import pytest
 
-from moni.fetch.sources.bestblogs import _clean_description, _in_date_range
+from moni.fetch.sources.bestblogs import (
+    FetcherBestBlogs,
+    _clean_description,
+    _in_date_range,
+)
 
 
 # ── _in_date_range ────────────────────────────────────────────────────────
@@ -169,3 +176,117 @@ class TestFetcherRegistration:
         from moni.fetch.sources.bestblogs import FetcherBestBlogs
         fetcher_cls = list_fetchers()["bestblog-x"]
         assert issubclass(fetcher_cls, FetcherBestBlogs)
+
+
+# ── v1.0.7.5: Atom feed parsing (YouTube/GitHub) ───────────────────────────
+
+
+ATOM_YOUTUBE_FEED = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt="http://www.youtube.com/xml/schemas/2015">
+  <title>AI Engineer</title>
+  <link rel="alternate" href="https://www.youtube.com/channel/UCLKPca3kwwd-B59HNr-_lvA"/>
+  <author><name>AI Engineer</name></author>
+  <entry>
+    <id>yt:video:0S8xe9ftGTM</id>
+    <title>6 Things to Know about AIE World's Fair 2026</title>
+    <link rel="alternate" href="https://www.youtube.com/watch?v=0S8xe9ftGTM"/>
+    <author><name>AI Engineer</name></author>
+    <published>2026-06-21T03:46:17+00:00</published>
+    <summary>We're back in SF!</summary>
+  </entry>
+  <entry>
+    <id>yt:video:AAAA</id>
+    <title>Building Agents with LangGraph</title>
+    <link rel="alternate" href="https://www.youtube.com/watch?v=AAAA"/>
+    <author><name>AI Engineer</name></author>
+    <published>2026-06-20T10:00:00+00:00</published>
+    <summary>Deep dive into agentic workflows.</summary>
+  </entry>
+</feed>
+"""
+
+
+class TestAtomParsing:
+    """v1.0.7.5: YouTube / GitHub / podcast Atom feeds must parse correctly."""
+
+    def test_atom_youtube_extracts_entries(self):
+        """_fetch_feed must handle Atom feeds and extract <entry> items."""
+        f = FetcherBestBlogs.__new__(FetcherBestBlogs)
+        f.source_name = "bestblog-yt"
+
+        # Patch httpx.get to return our canned Atom feed.
+        mock_response = httpx.Response(
+            200,
+            content=ATOM_YOUTUBE_FEED.encode("utf-8"),
+            request=httpx.Request("GET", "https://example.com"),
+        )
+        with patch("moni.fetch.sources.bestblogs.httpx.get", return_value=mock_response):
+            items = f._fetch_feed("https://example.com/feed.xml", "AI Engineer")
+
+        assert len(items) == 2
+        assert items[0]["title"] == "6 Things to Know about AIE World's Fair 2026"
+        assert items[0]["url"] == "https://www.youtube.com/watch?v=0S8xe9ftGTM"
+        assert items[0]["publisher"] == "AI Engineer"
+        assert items[0]["published_at"] is not None
+        assert items[0]["published_at"].startswith("2026-06-21")
+        assert items[1]["title"] == "Building Agents with LangGraph"
+        assert items[1]["url"] == "https://www.youtube.com/watch?v=AAAA"
+
+    def test_atom_youtube_empty_when_no_entries(self):
+        """Atom feed with zero <entry> items must return []."""
+        empty_atom = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Empty</title>
+</feed>"""
+        f = FetcherBestBlogs.__new__(FetcherBestBlogs)
+        f.source_name = "bestblog-yt"
+        mock_response = httpx.Response(
+            200,
+            content=empty_atom.encode("utf-8"),
+            request=httpx.Request("GET", "https://example.com"),
+        )
+        with patch("moni.fetch.sources.bestblogs.httpx.get", return_value=mock_response):
+            items = f._fetch_feed("https://example.com/feed.xml", "Empty")
+        assert items == []
+
+    def test_atom_entry_without_link_is_skipped(self):
+        """Entries lacking <link rel=alternate href> must be skipped."""
+        no_link = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry><title>no link here</title></entry>
+</feed>"""
+        f = FetcherBestBlogs.__new__(FetcherBestBlogs)
+        f.source_name = "bestblog-yt"
+        mock_response = httpx.Response(
+            200,
+            content=no_link.encode("utf-8"),
+            request=httpx.Request("GET", "https://example.com"),
+        )
+        with patch("moni.fetch.sources.bestblogs.httpx.get", return_value=mock_response):
+            items = f._fetch_feed("https://example.com/feed.xml", "x")
+        assert items == []
+
+    def test_rss_still_works_after_atom_added(self):
+        """Regression: existing RSS 2.0 parsing must not be broken."""
+        rss = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <title>Test</title>
+  <item>
+    <title>RSS Item</title>
+    <link>https://example.com/rss1</link>
+    <description>desc</description>
+    <pubDate>Fri, 20 Jun 2026 10:00:00 +0000</pubDate>
+  </item>
+</channel></rss>"""
+        f = FetcherBestBlogs.__new__(FetcherBestBlogs)
+        f.source_name = "bestblogs"
+        mock_response = httpx.Response(
+            200,
+            content=rss.encode("utf-8"),
+            request=httpx.Request("GET", "https://example.com"),
+        )
+        with patch("moni.fetch.sources.bestblogs.httpx.get", return_value=mock_response):
+            items = f._fetch_feed("https://example.com/feed.xml", "Test")
+        assert len(items) == 1
+        assert items[0]["title"] == "RSS Item"
+        assert items[0]["url"] == "https://example.com/rss1"

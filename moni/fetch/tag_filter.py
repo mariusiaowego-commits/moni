@@ -183,7 +183,10 @@ def apply_tag_keyword_filter(
         content = (art.get("content") or art.get("raw_content") or "").strip()
         # v1.0.5.24: bestblogs RSS descriptions are short snippets prone to
         # boilerplate false-positives — match title only.
-        if source == "bestblogs":
+        # v1.0.7.5: extend to all bestblog* subclasses (podcast/yt/x) —
+        # their RSS/Atom <description> also contains boilerplate (subscribe
+        # CTAs, sponsor mentions) that triggers false-positive tag matches.
+        if source.startswith("bestblog"):
             haystack = title
         else:
             haystack = title + "\n" + content
