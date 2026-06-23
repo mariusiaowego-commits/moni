@@ -322,3 +322,73 @@ def test_background_thread_writes_terminal_status(tmp_path, monkeypatch):
 
     # cleanup registry so it doesn't leak into other tests
     _FETCHER_REGISTRY.pop("stub-source", None)
+
+
+# ── v1.0.7.6 zombie sweep tests ────────────────────────────────────────────
+
+
+class TestZombieSweep:
+    """v1.0.7.6: jobs whose daemon thread died must not block new fetches.
+
+    When a daemon thread crashes (e.g. SQLite contention during shutdown
+    leaves a job in 'running' state forever), the next request must
+    sweep those jobs to 'stale' so the user can retry.
+    """
+
+    def test_mark_stale_sets_status_and_error(self, fresh_db):
+        store = FetchJobStore()
+        job_id = store.create("36kr_rss")
+        store.mark_stale(job_id)
+        job = store.get(job_id)
+        assert job["status"] == "stale"
+        assert "Aborted" in job["error"]
+        assert "daemon thread presumed dead" in job["error"]
+
+    def test_sweep_zombies_only_targets_running(self, fresh_db):
+        from datetime import datetime, timedelta, timezone
+        store = FetchJobStore()
+        old_job = store.create("36kr_rss")
+        # Backdate started_at to 3h ago.
+        old_start = (
+            datetime.now(timezone.utc) - timedelta(hours=3)
+        ).isoformat()
+        get_db = __import__("moni.db.connection", fromlist=["get_db"]).get_db
+        get_db().execute(
+            "UPDATE fetch_jobs SET started_at = ? WHERE id = ?",
+            (old_start, old_job),
+        )
+        get_db().commit()
+
+        new_job = store.create("mpaypass")  # fresh, just now
+
+        swept = store.sweep_zombies()
+        assert swept == 1
+        assert store.get(old_job)["status"] == "stale"
+        assert store.get(new_job)["status"] == "running"
+
+    def test_sweep_zombies_no_op_for_recent_jobs(self, fresh_db):
+        store = FetchJobStore()
+        store.create("36kr_rss")  # just started, way under threshold
+        swept = store.sweep_zombies()
+        assert swept == 0
+
+    def test_has_running_sweeps_stale_before_check(self, fresh_db):
+        """has_running() must call sweep_zombies() first so dead daemons
+        don't lock out new fetches."""
+        from datetime import datetime, timedelta, timezone
+        store = FetchJobStore()
+        old_job = store.create("36kr_rss")
+        old_start = (
+            datetime.now(timezone.utc) - timedelta(hours=3)
+        ).isoformat()
+        from moni.db.connection import get_db
+        get_db().execute(
+            "UPDATE fetch_jobs SET started_at = ? WHERE id = ?",
+            (old_start, old_job),
+        )
+        get_db().commit()
+
+        # Without sweep: would be True (job is 'running')
+        assert store.has_running("36kr_rss") is False  # sweep clears it first
+        # Stale, so a new fetch would be allowed
+        assert store.has_running("36kr_rss") is False
