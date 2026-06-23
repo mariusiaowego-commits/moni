@@ -14,18 +14,26 @@
 ### v1.0.7.6.2 进展 (2026-06-23)
 
 **Bug 修复**:
-- **wechat_rss_a/b 0 篇** → _env_token() 没读到 WECHAT_RSS_A_TOKEN env 时返占位符 URL `?token=__WECHAT_RSS_A_TOKEN__`, 入库 sources.url, waytomaster API 401, 用户看到 0 篇无错误提示
-- **修复**: _env_token() 没读到时返空字符串, fetch() 检测占位符 URL 时 loud error + [] 拒绝发起请求, config/sources.yaml 改空字符串 + 注释
+- **wechat_rss_a/b 0 篇 (实际根因)** → `moni db seed-config` 上次跑时 env 变量没加载 (用户没 `set -a && source .env` 直接跑), `_env_token()` 返 `__WECHAT_RSS_A_TOKEN__` 占位符, 入库 `sources.url`, waytomaster 401 → 0 篇无错误提示
+- **修复**: 实际抓取时 fetcher 检测占位符 URL (regex `__WECHAT_RSS_\w+TOKEN__`) loud error + [] 拒绝发起请求, 用户立即知道要 source .env 重跑 seed-config
+- **诊断 SQL**: `SELECT name, substr(url, 1, 80) FROM sources WHERE name LIKE 'wechat%';` — 如果 url 包含 `__WECHAT_RSS_*_TOKEN__` 就是这个 bug
 
-**安全发现** (待用户处理):
-- **git 历史 token 泄漏**: commit 5b86616 (v1.0.5.6) 曾经在 sources.url 字段 hardcode 真实 token `eyJhbG...`, 7b5f52c 改为 _env_token 注入但没清 git 历史
+**安全告警** (待用户处理):
+- **git 历史 token 泄漏**: commit 5b86616 (v1.0.5.6) 曾经在 sources.url 字段 hardcode 真实 token `eyJhbG...`, 7b5f52c 改为 _env_token 注入但没清 git history
 - **影响范围**: 任何有 moni 仓库读权限的人 `git log -S "?token="` 可拿到 token
 - **建议**: 用户在 waytomaster 控制台轮换 2 个 token, 旧 token 失效即不需清理 git history (轮换 vs git-filter-repo 二选一)
 
-**测试**: +5 新增 (test_env_token_returns_empty_string_when_unset / returns_actual_value_when_set / a_falls_back_to_legacy_token / fetcher_refuses_placeholder_url / fetcher_refuses_empty_url)
+**测试**: +5 新增 (test_env_token_returns_placeholder_when_unset / returns_actual_value_when_set / a_falls_back_to_legacy_token / fetcher_refuses_placeholder_url / fetcher_refuses_empty_url)
 **PR**: #39 squash merge → tag v1.0.7.6.2
 
+**实际验证** (06-23 抓取):
+- wechat_rss_a: 37 篇历史 + 6 fetched (0 inserted, dedupe 命中)
+- wechat_rss_b: 41 → 59 (+18 inserted)
+- 2026-06-23 发布的新文章已入库 ([未央科技weiyangx] 国务院报告)
+
 **bestblog-x 状态**: 6:39-6:45 自动 done 5 篇入库, zombie sweeper (PR #36) 已自动清理, 无需代码修改
+
+**操作 SOP** (写入 AGENTS.md): 任何 moni 命令前必须 `set -a && source .env && set +a` 让 env 变量自动 export
 
 ### v1.0.7.6.1 进展 (2026-06-23)
 

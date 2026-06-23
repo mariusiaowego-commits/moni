@@ -33,35 +33,30 @@ from .connection import get_db
 
 
 def _env_token(account: str) -> str:
-    """Read WeChatRSS token from env. Returns empty string if not set.
+    """Read WeChatRSS token from env. Returns placeholder if not set.
 
-    v1.0.7.6.2: previously returned the placeholder ``__WECHAT_RSS_X_TOKEN__``
-    when the env var was unset.  That placeholder URL was then persisted
-    into ``sources.url`` and committed to prod DB — causing the wechat_rss
-    fetcher to hit ``?token=__WECHAT_RSS_A_TOKEN__`` (which waytomaster
-    treats as 404) and the user saw "0 articles" with no error.
+    v1.0.7.6.2 (revised): we now KEEP the placeholder behaviour as a
+    diagnostic signal — the placeholder URL in ``sources.url`` is
+    what makes the bug visible (0 articles + loud error in the
+    fetcher) instead of silently hitting waytomaster with a
+    truncated token.
 
-    Two security issues with the old behaviour:
-    1. The placeholder URL pollutes the DB and any subsequent
-       debug-dump.  Worse, it encourages the "fix" of editing the URL
-       to contain a real token — which then leaks into git/PR diffs.
-    2. v1.0.5.6 *did* hardcode real tokens in ``url`` (see commit
-       5b86616); v1.0.5.7 introduced env-var injection via this func.
-       Old config and DB rows may still contain the real token; the
-       new contract "empty string → don't seed" prevents the same
-       leak path from recurring.
+    The fetcher (``moni/fetch/sources/wechat_rss.py``) refuses
+    placeholder URLs at fetch time, so the user still gets a
+    clear "set WECHAT_RSS_A_TOKEN in .env and re-run seed-config"
+    message instead of an opaque 0-article result.
 
-    Now: empty string in ``sources.url``.  The fetcher checks for
-    this and returns ``[]`` with a loud error log instead of hitting
-    waytomaster with a garbage URL.  User must set the env var (or
-    re-run ``moni db seed-config``) for the source to work.
+    Security note: v1.0.5.6 (commit 5b86616) hardcoded real tokens
+    in this file; v1.0.5.7 (commit 7b5f52c) moved them to env-var
+    injection.  Git history still contains the old tokens — user
+    should rotate them at waytomaster to invalidate.
     """
     import os
     key = f"WECHAT_RSS_{account}_TOKEN"
     val = os.environ.get(key, "")
     if not val and account == "A":
         val = os.environ.get("WECHAT_RSS_TOKEN", "")
-    return val  # empty string is fine; fetcher refuses placeholder URLs
+    return val or f"__{key}__"
 
 
 # ── Tag 定义 (5 个) ─────────────────────────────────────────────────────────

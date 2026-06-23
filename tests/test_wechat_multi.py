@@ -192,14 +192,19 @@ class TestPlaceholderUrlRejected:
     (b) refuse placeholder URLs at fetch time with a clear log.
     """
 
-    def test_env_token_returns_empty_string_when_unset(self, monkeypatch):
-        """``_env_token`` must NOT synthesise a placeholder string any more."""
+    def test_env_token_returns_placeholder_when_unset(self, monkeypatch):
+        """``_env_token`` returns a ``__WECHAT_RSS_X_TOKEN__`` placeholder
+        when the env var is unset.  The placeholder is a diagnostic
+        signal: it shows up in ``sources.url`` so the user can see
+        at a glance which sources are missing tokens.  The fetcher
+        (``moni/fetch/sources/wechat_rss.py``) refuses these URLs
+        with a loud error instead of hitting waytomaster."""
         monkeypatch.delenv("WECHAT_RSS_A_TOKEN", raising=False)
         monkeypatch.delenv("WECHAT_RSS_B_TOKEN", raising=False)
         monkeypatch.delenv("WECHAT_RSS_TOKEN", raising=False)
         from moni.db.seed_config import _env_token
-        assert _env_token("A") == ""
-        assert _env_token("B") == ""
+        assert _env_token("A") == "__WECHAT_RSS_A_TOKEN__"
+        assert _env_token("B") == "__WECHAT_RSS_B_TOKEN__"
 
     def test_env_token_returns_actual_value_when_set(self, monkeypatch):
         monkeypatch.setenv("WECHAT_RSS_A_TOKEN", "real-token-A")
