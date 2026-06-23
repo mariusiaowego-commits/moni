@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -23,6 +24,18 @@ import pytest
 WORKTREE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if WORKTREE not in sys.path:
     sys.path.insert(0, WORKTREE)
+
+
+@pytest.fixture
+def fresh_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Per-test isolated SQLite DB (matches other test files' convention)."""
+    from moni.db.connection import set_db_path
+    from moni.db.migrate import migrate
+
+    db_path = tmp_path / "news.db"
+    set_db_path(db_path)
+    migrate()
+    yield db_path
 
 
 # ── alias registration ─────────────────────────────────────────────────────
@@ -167,4 +180,95 @@ class TestAliasIdempotent:
         # If we got here without errors, idempotency holds.
         from moni.fetch.base import list_fetchers
         assert "wechat_rss_a" in list_fetchers()
+
+
+# ── v1.0.7.6.2: placeholder-URL rejection ─────────────────────────────────
+
+
+class TestPlaceholderUrlRejected:
+    """v1.0.7.6.2: seed_config used to insert ``?token=__WECHAT_RSS_X_TOKEN__``
+    into sources.url when the env var was unset.  waytomaster then
+    404'd and the user saw 0 articles.  We now (a) seed empty string,
+    (b) refuse placeholder URLs at fetch time with a clear log.
+    """
+
+    def test_env_token_returns_empty_string_when_unset(self, monkeypatch):
+        """``_env_token`` must NOT synthesise a placeholder string any more."""
+        monkeypatch.delenv("WECHAT_RSS_A_TOKEN", raising=False)
+        monkeypatch.delenv("WECHAT_RSS_B_TOKEN", raising=False)
+        monkeypatch.delenv("WECHAT_RSS_TOKEN", raising=False)
+        from moni.db.seed_config import _env_token
+        assert _env_token("A") == ""
+        assert _env_token("B") == ""
+
+    def test_env_token_returns_actual_value_when_set(self, monkeypatch):
+        monkeypatch.setenv("WECHAT_RSS_A_TOKEN", "real-token-A")
+        monkeypatch.setenv("WECHAT_RSS_B_TOKEN", "real-token-B")
+        from moni.db.seed_config import _env_token
+        assert _env_token("A") == "real-token-A"
+        assert _env_token("B") == "real-token-B"
+
+    def test_env_token_a_falls_back_to_legacy_token(self, monkeypatch):
+        """Account A still honours the legacy WECHAT_RSS_TOKEN env var."""
+        monkeypatch.delenv("WECHAT_RSS_A_TOKEN", raising=False)
+        monkeypatch.setenv("WECHAT_RSS_TOKEN", "legacy-token")
+        from moni.db.seed_config import _env_token
+        assert _env_token("A") == "legacy-token"
+
+    def test_fetcher_refuses_placeholder_url(self, fresh_db, caplog):
+        """If a stale DB row still has the placeholder URL, fetch() must
+        return [] and log a clear error instead of hitting waytomaster."""
+        from moni.fetch.base import list_fetchers
+        from moni.fetch.sources import wechat_rss  # noqa: F401 — register
+
+        # fresh_db doesn't seed sources rows, so insert one with the
+        # placeholder URL (mimic pre-fix state)
+        from datetime import datetime, timezone
+        from moni.db.connection import get_db
+        now = datetime.now(timezone.utc).isoformat()
+        get_db().execute(
+            "INSERT INTO sources (id, name, display_name, source_type, url, "
+            "fetch_interval_min, is_active, notes, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "src-wechat-rss-a", "wechat_rss_a", "WeChatRSS 账号 A",
+                "wechat_aggregator",
+                "https://wechatrss.waytomaster.com/api/rss/all?token=__WECHAT_RSS_A_TOKEN__",
+                5, 1, "", now, now,
+            ),
+        )
+
+        fetcher_cls = list_fetchers()["wechat_rss_a"]
+        fetcher = fetcher_cls()
+        with caplog.at_level("ERROR"):
+            articles = fetcher.fetch()
+        assert articles == []
+        # Verify the error mentions the placeholder so the user can fix it
+        assert any(
+            "placeholder" in rec.message.lower() for rec in caplog.records
+        ), f"expected a 'placeholder' error log, got: {[r.message for r in caplog.records]}"
+
+    def test_fetcher_refuses_empty_url(self, fresh_db, caplog):
+        """Empty URL = env var was unset during seed.  fetch() must not
+        hit waytomaster; loud error, no articles."""
+        from moni.fetch.base import list_fetchers
+        from moni.fetch.sources import wechat_rss  # noqa: F401
+
+        from datetime import datetime, timezone
+        from moni.db.connection import get_db
+        now = datetime.now(timezone.utc).isoformat()
+        get_db().execute(
+            "INSERT INTO sources (id, name, display_name, source_type, url, "
+            "fetch_interval_min, is_active, notes, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "src-wechat-rss-b-empty", "wechat_rss_b", "WeChatRSS 账号 B",
+                "wechat_aggregator", "", 5, 1, "", now, now,
+            ),
+        )
+
+        fetcher = list_fetchers()["wechat_rss_b"]()
+        with caplog.at_level("ERROR"):
+            articles = fetcher.fetch()
+        assert articles == []
         assert "wechat_rss_b" in list_fetchers()

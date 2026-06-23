@@ -141,6 +141,21 @@ class FetcherWechatRSS(BaseFetcher):
             )
             return []
 
+        # v1.0.7.6.2: refuse placeholder URLs (e.g. __WECHAT_RSS_A_TOKEN__)
+        # that the old seed_config used to insert when the env var was
+        # unset.  waytomaster returns 404 for those, but the log noise is
+        # misleading; better to fail loud with a clear "configure your
+        # token" message.
+        import re as _re
+        if _re.search(r"__WECHAT_RSS_[A-Z0-9_]*TOKEN__", feed_url):
+            logger.error(
+                "[%s] feed URL still contains the env-var placeholder "
+                "(__WECHAT_RSS_X_TOKEN__) — re-run 'moni db seed-config' "
+                "after setting WECHAT_RSS_A_TOKEN / WECHAT_RSS_B_TOKEN in .env",
+                self.source_name,
+            )
+            return []
+
         try:
             resp = httpx.get(feed_url, timeout=15.0)
             if resp.status_code == 404:
