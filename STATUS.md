@@ -4,12 +4,22 @@
 
 ---
 
-## 当前状态: **v1.0.7.6-hotfix — 异步 fetch + zombie 清理** (2026-06-23)
+## 当前状态: **v1.0.7.6.1 — 409 job_id scope 修复** (2026-06-23)
 
-**主分支**: main @ v1.0.7.6-hotfix (8476a92)
-**Web 服务**: `127.0.0.1:8900` (PID 49726)
+**主分支**: main @ v1.0.7.6.1 (66c6f96)
+**Web 服务**: `127.0.0.1:8900` (PID 96977, python 3.12)
 **数据库**: `data/news.db` — schema_version=16, 10 sources
-**测试**: 380 passed, 2 skipped
+**测试**: 383 passed, 2 skipped
+
+### v1.0.7.6.1 进展 (2026-06-23)
+
+**Bug 修复**:
+- **409 fallback 返错源 job_id** → list_recent(limit=1, status='running') 不按 source 过滤, 当 36kr_rss zombie 被 sweep 而 mpaypass/其他源仍有 fresh running row 时, 36kr 的 409 返的 running_job_id 可能是别源。前端拿错 job_id 轮询, modal 永远卡在「初始化中」。
+- **修复**: list_recent 加 `source=` 参数 + 409 fallback 用 `source=resolved` 查同源 running job。Race 兜底: 查不到 running job_id 时(sweep 在两次 DB 调用之间发生)放过, 启动新 job。
+- **手动清理**: 4 个 36kr_rss zombie running job (最早 1.5h 前) 手动 mark stale, 否则 36kr 继续被挡住
+
+**测试**: +3 新增 (test_list_recent_filters_by_source / test_409_job_id_is_scoped_to_requested_source / test_409_falls_through_when_running_row_vanished)
+**PR**: #38 squash merge → tag v1.0.7.6.1
 
 ### v1.0.7.6-hotfix 进展 (2026-06-23)
 
