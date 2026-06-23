@@ -56,6 +56,20 @@ def fresh_db(tmp_path, monkeypatch):
         "INSERT INTO source_tags (source_id, tag_name, created_at) "
         "VALUES ('src-bestblogs', 'wechat', '2026-01-01')"
     )
+    # v1.0.7.5: bestblog subclass sources for title-only matching tests
+    for sub in ("src-podcast", "src-yt", "src-x"):
+        conn.execute(
+            "INSERT INTO sources (id, name, display_name, source_type, url, "
+            "fetch_interval_min, is_active, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'rss', ?, 30, 1, '2026-01-01', '2026-01-01')",
+            (sub, sub.replace("src-", "bestblog-"), sub.replace("src-", "bestblog-"),
+             f"https://example.com/{sub}"),
+        )
+        conn.execute(
+            "INSERT INTO source_tags (source_id, tag_name, created_at) "
+            "VALUES (?, 'wechat', '2026-01-01')",
+            (sub,),
+        )
     conn.commit()
     yield "mpaypass"
     close_db()
@@ -147,3 +161,69 @@ def test_non_bestblogs_matches_content(fresh_db):
     arts = [{"title": "普通标题", "content": "支付新闻"}]
     kept, stats, _ = apply_tag_keyword_filter("mpaypass", arts)
     assert len(kept) == 1
+
+
+# ── v1.0.7.5: bestblog subclass source-name matching ────────────────────────
+
+
+def test_bestblog_podcast_matches_title_only(fresh_db):
+    """v1.0.7.5: bestblog-podcast matches title only — content like
+    '关注公众号/小程序' is boilerplate, must not trigger wechat tag."""
+    arts = [
+        {
+            "title": "444. 在编织的一针一线中，把时间变成具体的东西 NEW",
+            "content": (
+                "本期节目我们聊编织... 你可以关注布尽其用的小程序"
+                "以及江南布衣的公众号，了解更多"
+            ),
+            "url": "https://example.com/ep444",
+        },
+        {
+            "title": "Vol.265 河西走廊",
+            "content": "主播施展聊历史... 欢迎扫码关注公众号",
+            "url": "https://example.com/ep265",
+        },
+    ]
+    kept, stats, _ = apply_tag_keyword_filter("bestblog-podcast", arts)
+    assert len(kept) == 0
+    assert stats["dropped_tag_filter"] == 2
+
+
+def test_bestblog_yt_matches_title_only(fresh_db):
+    """v1.0.7.5: bestblog-yt matches title only."""
+    arts = [
+        {
+            "title": "AI Engineering tutorial",
+            "content": "Subscribe to our channel! Mentioned: 公众号 + 小程序",
+            "url": "https://example.com/yt1",
+        }
+    ]
+    kept, stats, _ = apply_tag_keyword_filter("bestblog-yt", arts)
+    assert len(kept) == 0
+
+
+def test_bestblog_x_matches_title_only(fresh_db):
+    """v1.0.7.5: bestblog-x matches title only."""
+    arts = [
+        {
+            "title": "On AI agents",
+            "content": "Reply to @user: 关注我们公众号 / scan for 微信小程序",
+            "url": "https://example.com/x1",
+        }
+    ]
+    kept, stats, _ = apply_tag_keyword_filter("bestblog-x", arts)
+    assert len(kept) == 0
+
+
+def test_bestblog_subclass_title_keyword_still_kept(fresh_db):
+    """v1.0.7.5: bestblog subclasses still tag when TITLE contains keyword."""
+    arts = [
+        {
+            "title": "AI 与小程序开发的结合",
+            "content": "无关内容",
+            "url": "https://example.com/p1",
+        }
+    ]
+    kept, stats, _ = apply_tag_keyword_filter("bestblog-podcast", arts)
+    assert len(kept) == 1
+    assert stats["dropped_tag_filter"] == 0

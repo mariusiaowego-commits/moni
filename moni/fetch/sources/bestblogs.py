@@ -282,7 +282,12 @@ class FetcherBestBlogs(BaseFetcher):
     def _fetch_feed(
         self, feed_url: str, feed_title: str
     ) -> list[dict[str, Any]]:
-        """Fetch one RSS feed, return article dicts."""
+        """Fetch one RSS feed, return article dicts.
+
+        Supports both RSS 2.0 (<rss><channel><item>) and Atom
+        (<feed xmlns=...Atom><entry>) — YouTube / GitHub / many podcast
+        platforms publish Atom.  Detection is by root element name.
+        """
         try:
             resp = httpx.get(feed_url, timeout=15.0)
             if resp.status_code == 404:
@@ -301,27 +306,105 @@ class FetcherBestBlogs(BaseFetcher):
         except Exception:
             return []
 
+        # Atom detection: root tag == {http://www.w3.org/2005/Atom}feed
+        if root.tag.endswith("}feed") or root.tag == "feed":
+            return self._parse_atom(root, feed_title)
+        return self._parse_rss(root, feed_title)
+
+    def _parse_rss(
+        self, root: ET.Element, feed_title: str
+    ) -> list[dict[str, Any]]:
+        """Parse RSS 2.0 (<rss><channel><item>)."""
         channel = root.find("channel")
         items = channel.findall("item") if channel is not None else []
+        return self._extract_items(
+            items, feed_title, item_tag="item",
+            title_path="title", link_path="link", desc_path="description",
+            pub_tag="pubDate", author_fallback=feed_title,
+        )
 
+    def _parse_atom(
+        self, root: ET.Element, feed_title: str
+    ) -> list[dict[str, Any]]:
+        """Parse Atom 1.0 (<feed xmlns=...Atom><entry>)."""
+        ATOM_NS = "{http://www.w3.org/2005/Atom}"
+        entries = root.findall(f"{ATOM_NS}entry")
+        # Wrap each Atom <entry> in a synthesized <item> with simple child
+        # elements so the generic _extract_items logic works uniformly.
+        items: list[ET.Element] = []
+        for entry in entries:
+            # Atom <link rel="alternate"> holds the article URL.
+            link_alt = None
+            for link in entry.findall(f"{ATOM_NS}link"):
+                rel = link.get("rel") or "alternate"
+                if rel == "alternate" and link.get("href"):
+                    link_alt = link.get("href")
+                    break
+            wrapper = ET.Element("item")
+            # <title>
+            title_el = entry.find(f"{ATOM_NS}title")
+            wrapper_title = ET.SubElement(wrapper, "title")
+            if title_el is not None and title_el.text:
+                wrapper_title.text = title_el.text.strip()
+            # <link>
+            link_el = ET.SubElement(wrapper, "link")
+            link_el.text = link_alt or ""
+            # <published> → <pubDate>
+            pub_el = entry.find(f"{ATOM_NS}published")
+            if pub_el is not None and pub_el.text:
+                ET.SubElement(wrapper, "pubDate").text = pub_el.text
+            # <author><name>
+            author_el = entry.find(f"{ATOM_NS}author")
+            if author_el is not None:
+                name_el = author_el.find(f"{ATOM_NS}name")
+                if name_el is not None and name_el.text:
+                    ET.SubElement(wrapper, "author").text = name_el.text.strip()
+            # <summary> or <content> → <description> (best-effort snippet)
+            desc_el = entry.find(f"{ATOM_NS}summary")
+            if desc_el is None:
+                desc_el = entry.find(f"{ATOM_NS}content")
+            if desc_el is not None and desc_el.text:
+                ET.SubElement(wrapper, "description").text = desc_el.text[:5000]
+            items.append(wrapper)
+
+        return self._extract_items(
+            items, feed_title, item_tag="item",
+            title_path="title", link_path="link", desc_path="description",
+            pub_tag="pubDate", author_fallback=feed_title,
+        )
+
+    def _extract_items(
+        self,
+        items: list[ET.Element],
+        feed_title: str,
+        *,
+        item_tag: str,
+        title_path: str,
+        link_path: str,
+        desc_path: str,
+        pub_tag: str,
+        author_fallback: str,
+    ) -> list[dict[str, Any]]:
+        """Extract article dicts from a list of parsed <item>/<entry> elements."""
         articles: list[dict[str, Any]] = []
         for item in items:
             try:
-                title = (item.findtext("title") or "").strip()
-                link = (item.findtext("link") or "").strip()
+                title = (item.findtext(title_path) or "").strip()
+                link = (item.findtext(link_path) or "").strip()
                 description = _clean_description(
-                    (item.findtext("description") or "").strip()
+                    (item.findtext(desc_path) or "").strip()
                 )
-                pub_text = item.findtext("pubDate")
+                pub_text = item.findtext(pub_tag)
 
                 author = (
                     item.findtext("dc:creator")
                     or item.findtext("author")
-                    or feed_title  # use feed name as publisher fallback
+                    or author_fallback
                 ).strip()
 
                 published_at: str | None = None
                 if pub_text:
+                    # Try RFC 822 (RSS pubDate) first, then ISO 8601 (Atom published).
                     try:
                         dt = datetime.strptime(
                             pub_text, "%a, %d %b %Y %H:%M:%S %z"
