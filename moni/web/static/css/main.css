@@ -372,6 +372,82 @@ label { font-size: 0.85rem; }
 .muted { color: var(--muted-fg); font-size: 0.84rem; }
 
 /* ═══════════════════════════════════════════════════════════════
+   Inline SVG icons (v1.0.8)
+   nullframe-inspired geometry: glyph-grid, single stroke, currentColor
+   ═══════════════════════════════════════════════════════════════ */
+.icon {
+  display: inline-block; vertical-align: middle;
+  flex-shrink: 0;
+  /* Default color follows text; pin-active overrides */
+  color: var(--muted-fg);
+  transition: color 0.12s;
+}
+.icon-pin {
+  /* Sized by the SVG width attr; this is for spacing/alignment */
+  vertical-align: -2px;
+}
+/* Active (pinned) state — the icon CSS can't know it's active,
+   so the inline SVG sets fill="currentColor" with fill-opacity=0.18.
+   The active state is signalled by the parent .is-pinned rule. */
+.is-pinned .icon-pin,
+.icon-pin.is-active { color: var(--accent); }
+/* Pin button (list + detail) */
+.pin-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: none; border: none; padding: 4px 6px;
+  border-radius: 4px; cursor: pointer;
+  color: var(--muted-fg); transition: color 0.12s, background 0.12s;
+  font-size: 0.84rem; line-height: 1;
+}
+.pin-btn:hover { background: var(--muted); color: var(--foreground); }
+.pin-btn.is-pinned { color: var(--accent); }
+.pin-btn.is-pinned:hover { color: var(--accent); background: oklch(from var(--accent) l c h / 0.1); }
+/* Larger variant for the article detail modal */
+.pin-btn.pin-btn-lg { padding: 6px 10px; font-size: 0.92rem; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Pin undo toast (v1.0.8)
+   ═══════════════════════════════════════════════════════════════ */
+.pin-undo-toast {
+  position: fixed; bottom: 24px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;  /* above modals (z=100) */
+  pointer-events: auto;
+}
+.pin-undo-content {
+  display: flex; align-items: center; gap: 16px;
+  background: var(--foreground); color: var(--background);
+  padding: 10px 16px; border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+  font-size: 0.9rem;
+}
+.pin-undo-seconds { color: var(--muted-fg); margin-left: 4px; }
+.pin-undo-btn {
+  background: transparent; color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 4px 10px; border-radius: 4px;
+  font-size: 0.86rem; cursor: pointer;
+  transition: background 0.12s;
+}
+.pin-undo-btn:hover { background: oklch(from var(--accent) l c h / 0.15); }
+
+/* v1.0.8: sub-tab buttons (used by the Pin tab in the articles view) */
+.subtab {
+  background: transparent; border: 1px solid transparent;
+  padding: 6px 14px; border-radius: 6px;
+  color: var(--muted-fg); cursor: pointer;
+  font-size: 0.88rem; font-weight: 500;
+  display: inline-flex; align-items: center; gap: 4px;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+.subtab:hover { color: var(--foreground); background: var(--muted); }
+.subtab.is-active {
+  color: var(--accent-fg);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ═══════════════════════════════════════════════════════════════
    Modal
    ═══════════════════════════════════════════════════════════════ */
 .modal-backdrop {

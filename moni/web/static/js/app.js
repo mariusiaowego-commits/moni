@@ -244,7 +244,7 @@ function app() {
       else if (view === 'cron') this.loadCronRuns();
       else if (view === 'fetch') this.loadSources();
       else if (view === 'llmJobs') this.loadLlmJobs();  // v1.0.5.1
-      else if (view === 'share') { this.loadAllArticles(); this._startSharePoll(); }
+      else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
       else if (view === 'config') {
         this.configTab = 'sources';
@@ -274,7 +274,7 @@ function app() {
       else if (view === 'cron') this.loadCronRuns();
       else if (view === 'fetch') this.loadSources();
       else if (view === 'llmJobs') this.loadLlmJobs();
-      else if (view === 'share') { this.loadAllArticles(); this._startSharePoll(); }
+      else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
       else if (view === 'config') {
         this.configTab = 'sources';
@@ -588,6 +588,26 @@ function app() {
     articlesTag: '',      // v1.0.5.10: '' = all tags
     articlesSources: [],  // v1.0.5.10: list of {id, name, display_name} for the source <select>
     articlesTags: [],     // v1.0.5.10: list of {name} for the tag <select>
+    // v1.0.8: Pin 子 tab.  'all' = existing flow, 'pinned' = article_pins
+    // data source.  Pinned data is loaded into its own array; we
+    // switch the table's x-for binding between articles[] and
+    // pinnedArticles[] via the computed activeArticles getter.
+    articlesSubTab: 'all',
+    pinnedArticles: [],
+    pinnedTotal: 0,
+    pinnedPage: 1,
+    pinnedPageSize: 20,
+    pinnedHasMore: false,
+    pinnedSelectedIds: [],  // bulk action selection (in-memory only)
+    pinnedSort: 'pinned_at_desc',
+    get activeArticles() {
+      return this.articlesSubTab === 'pinned' ? this.pinnedArticles : this.articles;
+    },
+    get pinnedCount() {
+      // Number of items in the current view (per-page count).  Good
+      // enough for the tab label; the backend total is in pinnedTotal.
+      return this.pinnedTotal || this.pinnedArticles.length;
+    },
 
     loadArticles() {
       const params = new URLSearchParams();
@@ -1149,6 +1169,14 @@ function app() {
     allArticlesPageSize: 50,
     allArticlesPageSizeOptions: [20, 50, 100, 200],
     allArticlesHasMore: false,
+    // v1.0.8: share page article source chip.  'pinned' (default, per
+    // user decision 3) shows only article_pins data; 'all' is the
+    // legacy behaviour.  selectedArticleIds is preserved across
+    // modes so a user's in-progress share isn't lost on toggle.
+    shareArticleSource: 'pinned',
+    get shareArticles() {
+      return this.shareArticleSource === 'pinned' ? this.pinnedArticles : this.allArticles;
+    },
     selectedArticleIds: [],
     // v1.0.5.14: share format values MUST match the backend
     // moni.share.formats.FormatEnum.  Previously these used friendly
@@ -1663,7 +1691,7 @@ function app() {
       else if (view === 'cron') this.loadCronRuns();
       else if (view === 'fetch') this.loadSources();
       else if (view === 'llmJobs') this.loadLlmJobs();
-      else if (view === 'share') { this.loadAllArticles(); this._startSharePoll(); }
+      else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
       else if (view === 'config') {
         this.configTab = 'sources';
         this.configLoadSources();
@@ -1695,6 +1723,214 @@ function app() {
       this.articleDetail = null;
       this.summaryLoading = false;
       this.factCheckLoading = false;
+    },
+
+    // ── Pin (v1.0.8) ─────────────────────────────────────────────
+    // Toggle pin for an article.  Optimistic update: flip the local
+    // state immediately, then send POST.  On failure, revert and
+    // alert.  Updates the article in BOTH the list (articles[]) and
+    // the detail modal (articleDetail) so the icon stays in sync.
+    togglePin(articleId) {
+      if (!articleId) return;
+      const wasPinned = this._isArticlePinned(articleId);
+      const newPinned = !wasPinned;
+      // Optimistic update: list
+      this.articles = this.articles.map(a =>
+        a.id === articleId
+          ? { ...a, is_pinned: newPinned, pinned_at: newPinned ? new Date().toISOString() : null }
+          : a
+      );
+      // Optimistic update: detail modal
+      if (this.articleDetail && this.articleDetail.id === articleId) {
+        this.articleDetail = {
+          ...this.articleDetail,
+          is_pinned: newPinned,
+          pinned_at: newPinned ? new Date().toISOString() : null,
+        };
+      }
+      // Send to backend
+      fetch(`/api/articles/${articleId}/pin?on=${newPinned}`, {
+        method: 'POST',
+        credentials: 'same-origin',
+      })
+        .then(r => r.json().then(d => r.ok ? d : Promise.reject(d)))
+        .then(data => {
+          // Reconcile with server timestamp (in case of sub-second race)
+          this.articles = this.articles.map(a =>
+            a.id === articleId ? { ...a, is_pinned: data.is_pinned, pinned_at: data.pinned_at } : a
+          );
+          if (this.articleDetail && this.articleDetail.id === articleId) {
+            this.articleDetail = {
+              ...this.articleDetail,
+              is_pinned: data.is_pinned,
+              pinned_at: data.pinned_at,
+            };
+          }
+        })
+        .catch(err => {
+          // Revert
+          this.articles = this.articles.map(a =>
+            a.id === articleId ? { ...a, is_pinned: wasPinned } : a
+          );
+          if (this.articleDetail && this.articleDetail.id === articleId) {
+            this.articleDetail = { ...this.articleDetail, is_pinned: wasPinned };
+          }
+          alert('Pin 切换失败: ' + (err.detail?.message || err.message || err));
+        });
+    },
+
+    // Helper: look up is_pinned for an article by id (from articles list).
+    _isArticlePinned(articleId) {
+      const a = (this.articles || []).find(x => x.id === articleId);
+      if (a) return !!a.is_pinned;
+      if (this.articleDetail && this.articleDetail.id === articleId) {
+        return !!this.articleDetail.is_pinned;
+      }
+      return false;
+    },
+
+    // ── Pin sub-tab (v1.0.8) ─────────────────────────────────────
+    // 5-second undo window after a bulk unpin.  Memory-only: if the
+    // user refreshes the page, the staged articles stay unpinned
+    // (per the user's decision 4 in the plan).
+    pinUndoBatch: null,  // { articles: [...], secondsLeft: 5, timer: <interval> }
+    get pinUndoActive() { return !!this.pinUndoBatch; },
+
+    startPinUndo(stagedArticles) {
+      // Cancel any prior undo window — the new batch supersedes it.
+      if (this.pinUndoBatch && this.pinUndoBatch.timer) {
+        clearInterval(this.pinUndoBatch.timer);
+      }
+      const batch = {
+        articles: stagedArticles,
+        secondsLeft: 5,
+        timer: null,
+      };
+      batch.timer = setInterval(() => {
+        batch.secondsLeft -= 1;
+        if (batch.secondsLeft <= 0) {
+          clearInterval(batch.timer);
+          this.pinUndoBatch = null;
+          this._commitPinUndo(batch.articles);
+        } else {
+          // Trigger Alpine reactivity by reassigning the object.
+          this.pinUndoBatch = { ...batch };
+        }
+      }, 1000);
+      this.pinUndoBatch = batch;
+    },
+
+    cancelPinUndo() {
+      if (!this.pinUndoBatch) return;
+      if (this.pinUndoBatch.timer) clearInterval(this.pinUndoBatch.timer);
+      // Restore the staged articles to the visible list.
+      // Sort by pinned_at desc to match the tab's default order.
+      const restored = this.pinUndoBatch.articles;
+      restored.sort((a, b) => (b.pinned_at || '').localeCompare(a.pinned_at || ''));
+      // Prepend (or append if already present from another source).
+      const existingIds = new Set(this.pinnedArticles.map(a => a.id));
+      const toAdd = restored.filter(a => !existingIds.has(a.id));
+      this.pinnedArticles = [...toAdd, ...this.pinnedArticles];
+      this.pinnedTotal = this.pinnedTotal + toAdd.length;
+      this.pinUndoBatch = null;
+    },
+
+    _commitPinUndo(articles) {
+      if (!articles || articles.length === 0) return;
+      // Send the actual unpin to the server.  Fire-and-forget; on
+      // failure the user can re-pin manually.
+      const ids = articles.map(a => a.id);
+      fetch('/api/articles/pins/bulk-unpin', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ article_ids: ids }),
+      })
+        .then(r => r.json().then(d => r.ok ? d : Promise.reject(d)))
+        .catch(err => {
+          console.error('bulk unpin failed:', err);
+          alert('批量 unpin 失败: ' + (err.detail?.message || err.message || err));
+        });
+    },
+
+    setArticlesSubTab(tab) {
+      if (tab === this.articlesSubTab) return;
+      this.articlesSubTab = tab;
+      this.pinnedSelectedIds = [];  // reset selection on tab switch
+      if (tab === 'pinned') this.loadPinnedArticles();
+    },
+
+    loadPinnedArticles() {
+      const params = new URLSearchParams();
+      params.set('page', this.pinnedPage);
+      params.set('page_size', this.pinnedPageSize);
+      params.set('sort', this.pinnedSort);
+      if (this.articlesSource) params.set('sources', this.articlesSource);
+      if (this.articlesTag) params.set('tags', this.articlesTag);
+      fetch(`/api/articles/pinned?${params}`, { credentials: 'same-origin' })
+        .then(r => r.json().then(d => r.ok ? d : Promise.reject(d)))
+        .then(data => {
+          this.pinnedArticles = data.items || [];
+          this.pinnedTotal = data.total || 0;
+          this.pinnedHasMore = (this.pinnedPage * this.pinnedPageSize) < this.pinnedTotal;
+        })
+        .catch(err => console.error('loadPinnedArticles failed:', err));
+    },
+
+    // v1.0.8: share page chip handler.  selectedArticleIds is NOT
+    // reset on toggle — the user's in-progress share is preserved
+    // even if they switch modes to grab more articles.
+    setShareArticleSource(src) {
+      if (src === this.shareArticleSource) return;
+      this.shareArticleSource = src;
+      // Re-page both lists to be safe (the share page may have a
+      // different filter context than the articles page).
+      if (src === 'pinned') this.loadPinnedArticles();
+      else this.loadAllArticles();
+    },
+
+    // Bulk-action helpers for the Pin tab.
+    pinnedAllSelectedOnPage() {
+      if (!this.pinnedArticles || this.pinnedArticles.length === 0) return false;
+      return this.pinnedArticles.every(a => this.pinnedSelectedIds.includes(a.id));
+    },
+    pinnedToggleAllOnPage(ev) {
+      const wantSelected = ev.target.checked;
+      const pageIds = this.pinnedArticles.map(a => a.id);
+      if (wantSelected) {
+        // Add all page ids that aren't already in the selection.
+        const set = new Set(this.pinnedSelectedIds);
+        pageIds.forEach(id => set.add(id));
+        this.pinnedSelectedIds = Array.from(set);
+      } else {
+        // Remove page ids from the selection.
+        const set = new Set(this.pinnedSelectedIds);
+        pageIds.forEach(id => set.delete(id));
+        this.pinnedSelectedIds = Array.from(set);
+      }
+    },
+    pinnedSelectAll() {
+      const set = new Set(this.pinnedSelectedIds);
+      this.pinnedArticles.forEach(a => set.add(a.id));
+      this.pinnedSelectedIds = Array.from(set);
+    },
+    pinnedSelectNone() {
+      this.pinnedSelectedIds = [];
+    },
+
+    // Bulk unpin — uses the 5-second undo flow (see Step 6).
+    bulkUnpin() {
+      if (this.pinnedSelectedIds.length === 0) return;
+      // Stage a soft-delete: remove from the visible list + mark
+      // them as "in undo" so the user can re-pin within 5s.
+      const ids = [...this.pinnedSelectedIds];
+      const staged = this.pinnedArticles.filter(a => ids.includes(a.id));
+      // Remove from the visible pinned list immediately.
+      this.pinnedArticles = this.pinnedArticles.filter(a => !ids.includes(a.id));
+      this.pinnedTotal = Math.max(0, this.pinnedTotal - ids.length);
+      this.pinnedSelectedIds = [];
+      // Start the undo window.
+      this.startPinUndo(staged);
     },
 
     generateSummary() {

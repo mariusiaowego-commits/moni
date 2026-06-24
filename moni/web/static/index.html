@@ -45,7 +45,7 @@
     <main class="content">
 
       <!-- ══ Articles ══════════════════════════════════════════ -->
-      <!-- ══ Articles (v1.0.5.10: + source/tag filter) ══════════════════════════════════════════ -->
+      <!-- v1.0.8: 子 tab [全部] [Pin (N)] — Pin 模式切到 article_pins 数据源 -->
       <section x-show="currentView === 'articles'" x-cloak>
         <div class="panel-header">
           <h3>文章查阅</h3>
@@ -80,37 +80,49 @@
             </select>
           </div>
         </div>
+        <!-- v1.0.8: 子 tab — 在文章查阅页内切换 [全部] / [Pin (N)] -->
+        <div class="subtab-bar" style="display: flex; gap: 4px; margin: 12px 0;">
+          <button class="subtab"
+                  :class="{ 'is-active': articlesSubTab === 'all' }"
+                  @click="setArticlesSubTab('all')">全部</button>
+          <button class="subtab"
+                  :class="{ 'is-active': articlesSubTab === 'pinned' }"
+                  @click="setArticlesSubTab('pinned')">
+            <span x-html="pinIcon(true)"></span> Pin (<span x-text="pinnedCount"></span>)
+          </button>
+        </div>
+        <!-- v1.0.8: 批量操作栏 — 仅 Pin tab 显示.  选中 N 篇时激活 unpin. -->
+        <div class="bulk-bar"
+             x-show="articlesSubTab === 'pinned' && pinnedSelectedIds.length > 0"
+             style="display: flex; gap: 12px; align-items: center; padding: 8px 12px; background: oklch(from var(--accent) l c h / 0.08); border-radius: 6px; margin-bottom: 8px;">
+          <span class="muted">已选 <b x-text="pinnedSelectedIds.length"></b> 篇</span>
+          <button class="btn-secondary" @click="pinnedSelectAll()">全选当前页</button>
+          <button class="btn-secondary" @click="pinnedSelectNone()">清空选择</button>
+          <span style="flex: 1"></span>
+          <button class="btn-danger" @click="bulkUnpin()">批量 unpin</button>
+        </div>
         <div class="table-container">
           <table>
             <thead>
               <tr>
-                <th>标题</th><th>来源</th><th>分类</th><th>原文时间</th><th>抓取时间</th><th>操作</th>
+                <th x-show="articlesSubTab === 'pinned'"><input type="checkbox" :checked="pinnedAllSelectedOnPage()" @change="pinnedToggleAllOnPage($event)"></th>
+                <th>标题</th><th>来源</th><th>分类</th>
+                <th x-show="articlesSubTab === 'pinned'">Pin 时间</th>
+                <th x-show="articlesSubTab === 'all'">原文时间</th>
+                <th>抓取时间</th><th>操作</th>
               </tr>
             </thead>
             <tbody>
-              <template x-for="a in articles" :key="a.id">
+              <template x-for="a in activeArticles" :key="a.id">
                 <tr>
+                  <td x-show="articlesSubTab === 'pinned'">
+                    <input type="checkbox" :value="a.id" x-model="pinnedSelectedIds">
+                  </td>
                   <td><span x-text="a.title"></span> <span class="badge badge-fresh" x-show="a.is_fresh">fresh</span> <span class="badge badge-new" x-show="isNew(a.created_at)">NEW</span></td>
                   <td x-text="a.source"></td>
                   <td>
-                    <!-- v1.0.5.10: one chip per tag, hover reveals styled popover with description + keywords (replaces native title)
-                         v1.0.5.12: tagName is now {name, color} (TagRef), not just a string.  The :key
-                         uses name (a stable string) and the x-text / :style read name + color. -->
                     <template x-for="tagObj in (a.tags || [])" :key="tagObj.name">
-                      <!--
-                        Wrap the chip + tip together so CSS :hover on the wrap
-                        drives the tip's visibility.  Alpine x-data is unused —
-                        CSS is the only thing controlling visibility, which
-                        stays stable under Alpine re-renders.
-                      -->
                       <span class="tag-chip-wrap">
-                        <!-- v1.0.5.12: tag chip now uses the colour from
-                             tag_definitions.color (via /api/articles
-                             .tags[].color) instead of the hard-coded
-                             blue/lavender.  If the colour is missing
-                             (or the article_tags row has no matching
-                             tag_definitions entry) the CSS default kicks
-                             in via .tag-chip-no-color. -->
                         <span class="tag-chip"
                               :class="{ 'tag-chip-no-color': !tagObj?.color }"
                               :style="tagObj?.color
@@ -118,21 +130,29 @@
                                 : ''"
                               tabindex="0"
                               x-text="tagObj ? (tagObj.display_name || tagObj.name) : tagName"></span>
-                        <!-- v1.0.5.14: tooltip still uses the system name (so
-                             users can copy the exact identifier for SQL
-                             / debugging), not the display name. -->
                         <span class="tip" x-text="formatTagTooltip(tagObj ? tagObj.name : tagName, tagObj?.keyword_hits || [])"></span>
                       </span>
                     </template>
                     <span x-show="!a.tags || a.tags.length === 0" class="muted">-</span>
                   </td>
-                  <td x-text="formatTime(a.published_at)"></td>
+                  <td x-show="articlesSubTab === 'pinned'" x-text="formatTime(a.pinned_at)"></td>
+                  <td x-show="articlesSubTab === 'all'" x-text="formatTime(a.published_at)"></td>
                   <td x-text="formatTime(a.created_at)"></td>
-                  <td><a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a></td>
+                  <td><a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a>
+                    <button class="pin-btn"
+                            :class="{ 'is-pinned': a.is_pinned }"
+                            @click="togglePin(a.id)"
+                            :title="a.is_pinned ? '取消 Pin' : 'Pin 这篇文章'">
+                      <span x-html="pinIcon(a.is_pinned)"></span>
+                    </button>
+                  </td>
                 </tr>
               </template>
-              <tr x-show="articles.length === 0">
-                <td colspan="6" class="empty-row">暂无数据</td>
+              <tr x-show="activeArticles.length === 0">
+                <td colspan="7" class="empty-row">
+                  <span x-show="articlesSubTab === 'pinned'">还没有 pin 任何文章。点击列表旁的 Pin 按钮开始收集。</span>
+                  <span x-show="articlesSubTab === 'all'">暂无数据</span>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -382,6 +402,24 @@
         </div>
       </div>
 
+      <!-- ══ Pin undo toast (v1.0.8) ══════════════════════════════ -->
+      <!-- 5-second undo window after bulk unpin.  Pinned to the
+           bottom of the viewport, doesn't block other UI.  The
+           counter ticks down, then the undo window expires and
+           the actual bulk-unpin POST is sent. -->
+      <div class="pin-undo-toast" x-show="pinUndoActive" x-cloak
+           x-transition.opacity>
+        <div class="pin-undo-content">
+          <span class="pin-undo-text">
+            <b x-text="pinUndoBatch?.articles.length"></b> 篇已 unpin
+            <span class="pin-undo-seconds" x-text="'(' + (pinUndoBatch?.secondsLeft || 0) + 's)'"></span>
+          </span>
+          <button class="pin-undo-btn" @click="cancelPinUndo()">
+            ↶ 撤销
+          </button>
+        </div>
+      </div>
+
       <!-- ══ Fetch progress modal (v1.0.7.6) ════════════════════════════════ -->
       <div class="modal-backdrop" x-show="fetchProgressModal" x-cloak @click.self="fetchProgressModal=false">
         <div class="modal-content" style="max-width: 520px;">
@@ -526,6 +564,22 @@
 
         <div class="share-section">
           <h4>选择文章</h4>
+          <!-- v1.0.8: chip 切换 [全部] / [仅 Pin]. 默认 Pin 模式
+               (按用户决策 3: 先展示新方式). selectedArticleIds 跨
+               模式保留, 已选的不会被清空. -->
+          <div class="share-source-chip" style="display: flex; gap: 8px; margin-bottom: 12px;">
+            <button class="subtab"
+                    :class="{ 'is-active': shareArticleSource === 'all' }"
+                    @click="setShareArticleSource('all')">
+              <span class="subtab-icon">📋</span> 全部文章
+            </button>
+            <button class="subtab"
+                    :class="{ 'is-active': shareArticleSource === 'pinned' }"
+                    @click="setShareArticleSource('pinned')">
+              <span x-html="pinIcon(true)"></span> 仅我的 Pin
+              <span class="muted" x-text="'(' + (pinnedTotal || 0) + ')'"></span>
+            </button>
+          </div>
           <!-- v1.0.5.15: source filter + pagination (跟文章查阅菜单一致) -->
           <div class="filter-bar" style="margin-bottom: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
             <label>
@@ -564,7 +618,7 @@
                source + checkbox.  Selection state visible via a
                violet border (calendar-date-picker accent). -->
           <div class="article-card-grid">
-            <template x-for="a in allArticles" :key="a.id">
+            <template x-for="a in shareArticles" :key="a.id">
               <label class="article-card"
                      :class="{ 'is-selected': selectedArticleIds.includes(a.id) }">
                 <input type="checkbox" :value="a.id"
@@ -575,8 +629,9 @@
               </label>
             </template>
             <div class="article-card empty"
-                 x-show="allArticles.length === 0">
-              暂无数据
+                 x-show="shareArticles.length === 0">
+              <span x-show="shareArticleSource === 'pinned'">还没有 pin 任何文章</span>
+              <span x-show="shareArticleSource === 'all'">暂无数据</span>
             </div>
           </div>
         </div>
@@ -1404,7 +1459,18 @@
       <div class="modal-content" x-show="articleDetail">
         <div class="modal-header">
           <h3 x-text="articleDetail?.title"></h3>
-          <button class="modal-close" @click="closeArticleDetail()">×</button>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <!-- v1.0.8: pin toggle in the article detail modal.  Same
+                 SVG icon as the list view, just a bigger button. -->
+            <button class="pin-btn pin-btn-lg"
+                    :class="{ 'is-pinned': articleDetail?.is_pinned }"
+                    @click="togglePin(articleDetail?.id)"
+                    :title="articleDetail?.is_pinned ? '取消 Pin' : 'Pin 这篇文章'">
+              <span x-html="pinIcon(articleDetail?.is_pinned)"></span>
+              <span x-text="articleDetail?.is_pinned ? '已 Pin' : 'Pin'"></span>
+            </button>
+            <button class="modal-close" @click="closeArticleDetail()">×</button>
+          </div>
         </div>
         <div class="modal-body">
           <div class="article-meta">
@@ -2019,5 +2085,6 @@
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <script src="js/app.js?v=1781496537"></script>
   <script src="js/theme.js?v=1781496537"></script>
+  <script src="js/icons.js?v=1781496537"></script>
 </body>
 </html>
