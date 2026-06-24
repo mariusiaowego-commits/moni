@@ -582,6 +582,26 @@ function app() {
              `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     },
 
+    // v1.0.8.5: truncate long titles in list views.  Returns the
+    // string unchanged if it's already within `max` chars; otherwise
+    // slices on a char boundary and appends an ellipsis.  Counts
+    // JavaScript .length (UTF-16 code units) which is close enough
+    // for "around 150 Chinese chars" — at 150 we never slice a
+    // surrogate pair in practice.  Use this everywhere a list-row
+    // title is shown; the detail modal keeps the full title.
+    truncateTitle(text, max = 150) {
+      if (text == null) return '';
+      const s = String(text);
+      if (s.length <= max) return s;
+      // Slice at max, then trim a trailing half-word / comma /
+      // bracket so the visible text doesn't end mid-punctuation.
+      let cut = s.slice(0, max);
+      // Strip trailing whitespace + common CJK / ASCII
+      // punctuation so the ellipsis reads cleanly.
+      cut = cut.replace(/[\s,。.;；:：、\)\)\}\]」』]+$/, '');
+      return cut + '…';
+    },
+
     isNew(fetchedAt) {
       if (!fetchedAt) return false;
       // Accept ISO 8601 string OR epoch seconds.

@@ -131,7 +131,17 @@
                   <td x-show="articlesSubTab === 'pinned'">
                     <input type="checkbox" :value="a.id" x-model="pinnedSelectedIds">
                   </td>
-                  <td><span x-text="a.title"></span> <span class="badge badge-fresh" x-show="a.is_fresh">fresh</span> <span class="badge badge-new" x-show="isNew(a.created_at)">NEW</span></td>
+                  <td>
+                    <!-- v1.0.8.5: long titles are truncated to 150 chars
+                         with an ellipsis.  The full title is shown in
+                         the article detail modal.  title attribute
+                         on the <span> gives a hover tooltip so the
+                         user can preview the rest without opening
+                         the modal. -->
+                    <span :title="a.title" x-text="truncateTitle(a.title, 150)"></span>
+                    <span class="badge badge-fresh" x-show="a.is_fresh">fresh</span>
+                    <span class="badge badge-new" x-show="isNew(a.created_at)">NEW</span>
+                  </td>
                   <td x-text="a.source"></td>
                   <td>
                     <template x-for="tagObj in (a.tags || [])" :key="tagObj.name">
@@ -198,7 +208,7 @@
             <tbody>
               <template x-for="a in crudArticles" :key="a.id">
                 <tr>
-                  <td x-text="a.title"></td>
+                  <td><span :title="a.title" x-text="truncateTitle(a.title, 150)"></span></td>
                   <td x-text="a.source"></td>
                   <td class="url-cell"><a :href="a.url" target="_blank" x-text="a.url"></a></td>
                   <td>
@@ -631,7 +641,7 @@
                        x-model="selectedArticleIds"
                        class="article-card-check">
                 <div class="article-card-source" x-text="a.source"></div>
-                <div class="article-card-title" x-text="a.title"></div>
+                <div class="article-card-title" :title="a.title" x-text="truncateTitle(a.title, 150)"></div>
               </label>
             </template>
             <div class="article-card empty"
