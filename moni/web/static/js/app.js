@@ -984,6 +984,7 @@ function app() {
     fetchProgressModal: false,
     fetchProgress: null,
     _fetchPollTimer: null,
+    fetchBatchMode: false,  // v1.0.8.9: true when "全部抓取" modal is open
     fetchDateTo: '',
     fetchDays: 7,
     // v1.0.5.24: copy URL toast
@@ -1019,22 +1020,41 @@ function app() {
       this.startAsyncFetch(id);
     },
 
-    fetchAllSources() {
+    async fetchAllSources() {
       this.fetchingAll = true;
       this.fetchAllResult = null;
       this.fetchResult = '';
       this.fetchResultObj = null;
-      fetch('/api/fetch/all/run', { method: 'POST', credentials: 'same-origin' })
-        .then(r => r.json())
-        .then(data => {
-          this.fetchAllResult = data;
+      this.fetchBatchMode = true;
+      this.fetchProgressModal = true;
+      this.fetchProgress = {
+        status: 'running',
+        total_sources: 0,
+        done_sources: 0,
+        total_feeds: 0,
+        done_feeds: 0,
+        current_source: '(初始化中)',
+        current_feed: '',
+        articles_so_far: 0,
+        elapsed_seconds: 0,
+      };
+
+      try {
+        const r = await fetch('/api/fetch/all/run', { method: 'POST', credentials: 'same-origin' });
+        const data = await r.json();
+        if (!r.ok || !data.batch_id) {
+          this.fetchProgress.status = 'failed';
+          this.fetchProgress.error = data?.detail?.message || data?.error || `HTTP ${r.status}`;
           this.fetchingAll = false;
-          this.loadSources(); // refresh source list
-        })
-        .catch(err => {
-          this.fetchingAll = false;
-          this.showToast('全部抓取失败: ' + err.message);
-        });
+          return;
+        }
+        this.fetchProgress.total_sources = data.sources_total || 0;
+        this._pollBatchJob(data.batch_id);
+      } catch (err) {
+        this.fetchProgress.status = 'failed';
+        this.fetchProgress.error = '启动全部抓取失败: ' + err.message;
+        this.fetchingAll = false;
+      }
     },
 
     confirmFetchDate() {
@@ -1063,6 +1083,7 @@ function app() {
       // POST /run returns {job_id, source, status:running} immediately.
       // Open modal, then poll /api/fetch/jobs/{job_id} every 5s until
       // terminal status (done | failed | timeout).
+      this.fetchBatchMode = false;
       this.fetchProgressModal = true;
       this.fetchProgress = { source: sourceRef, status: 'running', done_feeds: 0, total_feeds: 0, current_feed: '(初始化中)', articles_so_far: 0, elapsed_seconds: 0 };
 
@@ -1135,8 +1156,81 @@ function app() {
       this._fetchPollTimer = setInterval(tick, 5000);
     },
 
+    async openRecentBatch() {
+      // Re-open the batch progress modal for the most recent batch
+      // fetch.  Called from the "📋 上次结果" button on the fetch panel.
+      try {
+        const r = await fetch('/api/fetch/jobs/batch/recent', { credentials: 'same-origin' });
+        if (!r.ok) {
+          this.showToast('暂无抓取历史');
+          return;
+        }
+        const { batch_id } = await r.json();
+        // Show the modal in batch mode; _pollBatchJob handles both
+        // running and terminal status (stops polling on done/partial/failed).
+        this.fetchBatchMode = true;
+        this.fetchProgressModal = true;
+        this.fetchProgress = {
+          status: 'running',
+          total_sources: 0,
+          done_sources: 0,
+          current_source: '(加载中)',
+          current_feed: '',
+          articles_so_far: 0,
+          elapsed_seconds: 0,
+        };
+        this._pollBatchJob(batch_id);
+      } catch (err) {
+        this.showToast('打开上次结果失败: ' + err.message);
+      }
+    },
+
+    _pollBatchJob(batchId) {
+      // Poll batch endpoint every 5s. Stop when status is terminal.
+      if (this._fetchPollTimer) {
+        clearInterval(this._fetchPollTimer);
+      }
+      const tick = async () => {
+        try {
+          const r = await fetch(`/api/fetch/jobs/batch/${batchId}`, { credentials: 'same-origin' });
+          if (!r.ok) return;
+          const data = await r.json();
+          // Preserve batchMode flag through the merge
+          this.fetchProgress = { ...data, batchMode: true };
+          if (['done', 'partial', 'failed'].includes(data.status)) {
+            if (this._fetchPollTimer) {
+              clearInterval(this._fetchPollTimer);
+              this._fetchPollTimer = null;
+            }
+            this.fetchingAll = false;
+            // Merge results + errors into fetchAllResult for the summary panel
+            const allResults = [
+              ...(data.results || []),
+              ...(data.errors || []).map(e => ({ source: e.source, error: e.error })),
+            ];
+            this.fetchAllResult = {
+              status: data.status === 'failed' ? 'partial' : data.status,
+              sources_total: data.total_sources,
+              sources_ok: data.total_sources - (data.failed_sources || 0),
+              sources_failed: data.failed_sources || 0,
+              total_inserted: (data.results || []).reduce((s, r) => s + (r.inserted || 0), 0),
+              results: allResults,
+            };
+            if (data.status === 'done' || data.status === 'partial') {
+              this.loadSources();
+            }
+          }
+        } catch (err) {
+          // network blip — keep polling
+        }
+      };
+      tick();
+      this._fetchPollTimer = setInterval(tick, 5000);
+    },
+
     closeFetchProgress() {
       this.fetchProgressModal = false;
+      this.fetchBatchMode = false;
       if (this._fetchPollTimer) {
         clearInterval(this._fetchPollTimer);
         this._fetchPollTimer = null;
@@ -1147,6 +1241,12 @@ function app() {
       const p = this.fetchProgress;
       if (!p || !p.total_feeds) return 0;
       return Math.min(100, Math.round((p.done_feeds / p.total_feeds) * 100));
+    },
+
+    get fetchBatchPercent() {
+      const p = this.fetchProgress;
+      if (!p || !p.total_sources) return 0;
+      return Math.min(100, Math.round((p.done_sources / p.total_sources) * 100));
     },
 
     // v1.0.5.24: copy article URL to clipboard

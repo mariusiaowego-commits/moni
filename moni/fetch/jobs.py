@@ -50,18 +50,28 @@ class FetchJobStore:
 
     # ── create ─────────────────────────────────────────────────────────────
 
-    def create(self, source: str, total_feeds: int = 0) -> str:
-        """Insert a new job in running state. Returns the job id."""
+    def create(
+        self,
+        source: str,
+        total_feeds: int = 0,
+        batch_id: str | None = None,
+    ) -> str:
+        """Insert a new job in running state. Returns the job id.
+
+        If ``batch_id`` is provided, this job belongs to a batch (used by
+        "全部抓取"). The frontend can poll ``get_batch(batch_id)`` to get
+        aggregate progress across all jobs in the batch.
+        """
         job_id = str(uuid.uuid4())
         conn = get_db()
         conn.execute(
             """
             INSERT INTO fetch_jobs (
                 id, source, status, total_feeds, done_feeds,
-                articles_so_far, started_at
-            ) VALUES (?, ?, 'running', ?, 0, 0, ?)
+                articles_so_far, started_at, batch_id
+            ) VALUES (?, ?, 'running', ?, 0, 0, ?, ?)
             """,
-            (job_id, source, total_feeds, _now_iso()),
+            (job_id, source, total_feeds, _now_iso(), batch_id),
         )
         conn.commit()
         return job_id
@@ -187,6 +197,117 @@ class FetchJobStore:
             if d is not None:
                 result.append(d)
         return result
+
+    # ── batch queries (called from request thread) ────────────────────────
+
+    def get_recent_batch(self) -> str | None:
+        """Return the batch_id of the most recent batch (by earliest job
+        started_at), or None if no batch jobs exist yet.
+
+        Used by the "📋 上次结果" button to re-open the batch progress
+        modal after the user has closed it.
+        """
+        row = get_db().execute(
+            """
+            SELECT batch_id, MIN(started_at) AS batch_started
+            FROM fetch_jobs
+            WHERE batch_id IS NOT NULL
+            GROUP BY batch_id
+            ORDER BY batch_started DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        return row["batch_id"] if row else None
+
+    def get_batch(self, batch_id: str) -> dict[str, Any] | None:
+        """Aggregate progress for all jobs sharing a batch_id.
+
+        Returns a dict suitable for the frontend batch progress modal:
+        - batch_id, status (running | done | partial | failed)
+        - total_sources, done_sources (terminal count)
+        - total_feeds, done_feeds (summed across jobs)
+        - articles_so_far (summed)
+        - current_source, current_feed (from the running job, if any)
+        - elapsed_seconds (max across jobs)
+        - results: list of per-source result dicts (for done jobs)
+        - errors: list of {source, error} for failed jobs
+        """
+        rows = get_db().execute(
+            "SELECT * FROM fetch_jobs WHERE batch_id = ? ORDER BY started_at ASC",
+            (batch_id,),
+        ).fetchall()
+        if not rows:
+            return None
+
+        jobs = [_row_to_dict(r) for r in rows]
+        jobs = [j for j in jobs if j is not None]
+
+        total_sources = len(jobs)
+        done_sources = 0
+        failed_sources = 0
+        total_feeds = 0
+        done_feeds = 0
+        articles_so_far = 0
+        max_elapsed = 0
+        current_source = None
+        current_feed = None
+        results: list[dict[str, Any]] = []
+        errors: list[dict[str, str]] = []
+
+        for j in jobs:
+            st = j.get("status", "")
+            if st in ("done", "timeout", "stale"):
+                done_sources += 1
+                if st != "done":
+                    failed_sources += 1
+            elif st == "failed":
+                done_sources += 1
+                failed_sources += 1
+
+            total_feeds += j.get("total_feeds", 0) or 0
+            done_feeds += j.get("done_feeds", 0) or 0
+            articles_so_far += j.get("articles_so_far", 0) or 0
+            elapsed = j.get("elapsed_seconds", 0) or 0
+            if elapsed > max_elapsed:
+                max_elapsed = elapsed
+
+            if st == "running":
+                cf = j.get("current_feed")
+                # Skip pending jobs (pre-created with '(排队中)' marker)
+                if cf and cf != "(排队中)":
+                    current_source = j.get("source")
+                    current_feed = cf
+
+            if st == "done" and j.get("result"):
+                results.append(j["result"])
+            elif st in ("failed", "timeout", "stale") and j.get("error"):
+                errors.append({"source": j.get("source", "?"), "error": j["error"]})
+
+        # Determine batch status
+        if done_sources < total_sources:
+            status = "running"
+        elif failed_sources == 0:
+            status = "done"
+        elif failed_sources == total_sources:
+            status = "failed"
+        else:
+            status = "partial"
+
+        return {
+            "batch_id": batch_id,
+            "status": status,
+            "total_sources": total_sources,
+            "done_sources": done_sources,
+            "failed_sources": failed_sources,
+            "total_feeds": total_feeds,
+            "done_feeds": done_feeds,
+            "articles_so_far": articles_so_far,
+            "current_source": current_source,
+            "current_feed": current_feed,
+            "elapsed_seconds": max_elapsed,
+            "results": results,
+            "errors": errors,
+        }
 
     def has_running(self, source: str | None = None) -> bool:
         """True if any job is still running (optionally for a specific source).
