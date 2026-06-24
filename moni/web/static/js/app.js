@@ -1775,7 +1775,29 @@ function app() {
           if (this.articleDetail && this.articleDetail.id === articleId) {
             this.articleDetail = { ...this.articleDetail, is_pinned: wasPinned };
           }
-          alert('Pin 切换失败: ' + (err.detail?.message || err.message || err));
+          // Build a human-readable error message.  FastAPI's error
+          // shape is {detail: "..."} or {detail: [{msg, loc, ...}, ...]}.
+          // We try to extract a useful string from any of these,
+          // and fall back to JSON.stringify so we never show
+          // "[object Object]".
+          let msg = '';
+          if (err && err.detail) {
+            if (typeof err.detail === 'string') msg = err.detail;
+            else if (Array.isArray(err.detail)) {
+              msg = err.detail.map(d => d.msg || JSON.stringify(d)).join('; ');
+            } else msg = JSON.stringify(err.detail);
+          } else if (err && err.message) {
+            msg = err.message;
+          } else {
+            msg = JSON.stringify(err);
+          }
+          // Note: a 405 here means 8900 is running the old code
+          // (before the pins router was added).  Tell the user to
+          // restart the service so they don't keep retrying.
+          if (err && err.status === 405) {
+            msg = '后端不支持 Pin 接口 (405). 请重启 8900 服务 (v1.0.8 部署后). ' + msg;
+          }
+          alert('Pin 切换失败: ' + msg);
         });
     },
 
