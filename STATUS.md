@@ -4,56 +4,42 @@
 
 ---
 
-## 当前状态: **v1.0.8 — Pin Tab + 分享从 Pin 选择** (2026-06-23)
+## 当前状态: **v1.0.8.3 — solid pin icon (img-gen 选 B)** (2026-06-24)
 
-**主分支**: main @ 待 PR 合并 (branch `feature/v1.0.8-pin-tab`)
-**Web 服务**: `127.0.0.1:8900` (代码已是 v1.0.8, 待重启)
-**数据库**: `data/news.db` — schema_version=17, 11 tables (+ article_pins)
+**主分支**: main @ v1.0.8.3 (1599b45)
+**Web 服务**: `127.0.0.1:8900` (代码已是 v1.0.8.3, 待用户 uni restart moni)
+**数据库**: `data/news.db` — schema_version=17, 11 tables
 **测试**: 412 passed, 2 skipped
 
-### v1.0.8 进展 (2026-06-23)
+### v1.0.8.3 进展 (2026-06-24)
 
-**新功能**:
-- **Pin/Unpin 文章**: 列表行 + 详情 modal 都有 pin 按钮 (nullframe 风格 SVG, 不用 emoji), 乐观更新 + 失败 revert
-- **文章查阅 Pin 子 tab**: 顶部 [全部] [📌 Pin (N)] 切换, Pin tab 显示 pin 列表, 支持多选 + 批量 unpin
-- **5s 倒计时撤销**: 批量 unpin 后底部 toast, 5s 内可撤销, 超时发 POST 持久化
-- **分享 page chip 切换**: [📋 全部文章] [📌 仅我的 Pin], 默认 Pin 模式 (按用户决策 3), selectedArticleIds 跨模式保留
-- **Pin icon**: nullframe-inspired 几何 SVG (梯形头 + 针 + 锚点圆), 24x24 viewBox, currentColor 跟主题色同步
+**Pin icon 改版**:
+- Pinned: SOLID silhouette (梯形头 + 粗针 + 底点), 17px 紫藤萝 — 来自 image gen (Fal gpt-image-2), 用户选候选 B
+- Unpinned: outline (1.6px stroke, 17px) — 跟 v1.0.8 不变
+- 撤掉 v1.0.8.1 的 5 层 3D enamel (用户 push "太丑了 不要背景")
+- 撤掉 v1.0.8.2 的 40px 圆 + 26px svg (用户 push "缩小 1/3")
+- 现状: 17px icon, 32px 圆 cell, 44px 列宽, 紫藤萝只 color swap (无背景/无阴影)
 
-**后端**:
-- `moni/db/migrations/017_article_pins.sql`: `article_pins(article_id PK, pinned_at)` + FK CASCADE
-- `moni/web/routes/pins.py` (新): 5 endpoints
-  - `POST /api/articles/{id}/pin?on=true|false` (toggle, idempotent)
-  - `DELETE /api/articles/{id}/pin` (explicit unpin)
-  - `GET /api/articles/pinned?sources=&tags=&sort=&page=&page_size=` (多选并集)
-  - `POST /api/articles/pins/bulk-unpin` (返 unpinned + not_found)
-- `moni/web/routes/articles.py`: LEFT JOIN article_pins 注入 `is_pinned` + `pinned_at` 字段
-- `moni/web/models.py`: Article 加 `is_pinned: bool` + `pinned_at: datetime | None`
+### v1.0.8.1 进展 (2026-06-23) — Pin UX 改版
 
-**前端**:
-- `moni/web/static/js/icons.js` (新): pinIcon() SVG 函数
-- `moni/web/static/css/main.css`: `.icon-pin`, `.pin-btn`, `.subtab`, `.pin-undo-toast`
-- `moni/web/static/index.html`:
-  - 文章查阅内加 [全部] [Pin (N)] subtab
-  - 批量操作栏 + checkbox 列 (仅 Pin tab)
-  - Pin undo toast (fixed bottom, 5s 倒计时)
-  - 分享 page "选择文章" 顶部加 chip 切换
-- `moni/web/static/js/app.js`:
-  - `togglePin(articleId)` action (乐观更新)
-  - `setArticlesSubTab`, `loadPinnedArticles`, `bulkUnpin` + 撤销机制
-  - `shareArticleSource` state + `shareArticles` getter (默认 'pinned')
-  - `setShareArticleSource(src)` action
+**3 个修复**:
+1. Pin 按钮位置 + 大小: 移到最左新增列, 32px → 40px → 17px (演化), GSAP 弹一下 (scale 0.85→1)
+2. 单篇 togglePin 也走 5s 反悔: `_pendingPinToggles[articleId]` map, 双击撤销
+3. bulk unpin 改即时 POST + 撤销=重新 pin: `_commitBulkUnpin` 立即发请求, `_repinBatch` 走 togglePin pipeline 撤销
 
-**测试**: +24 新增 (toggle/delete/list/bulk-unpin/CASCADE/route precedence/listing surfaces pin status)
-**全套**: 412/412 pass
+**踩坑**:
+- 用户先后两次推翻了 v1.0.8.1 的 3D enamel (太丑) + v1.0.8.2 的放大版 (太大), 最终 v1.0.8.3 用 image gen solid silhouette 17px
+- v1.0.8.1 togglePin staging 模式 + bulk unpin 即时 POST = 行为统一, 撤销都走 _repinBatch/togglePin
+- 沙箱拦 image gen (FAL_KEY 没配), 用户配 Nous Portal 后可用
+- image gen 实际"圆头" prompt 跑了简化梯形, vision 描述为准
 
-**关键决策落地**:
-- 1. article_pins 独立表 + CASCADE ✅
-- 2. Pin tab 在文章查阅子 tab (不放顶层 nav) ✅
-- 3. Share page chip 切换, 默认 Pin 模式 ✅
-- 4. 5s 倒计时 + 内存撤销, 刷新失效 ✅
-- 5. 无 pin 数量限制 ✅
-- 6. Pin icon nullframe 风格 SVG, 不用 emoji ✅
+### v1.0.8 进展 (2026-06-23) — Pin Tab + 分享从 Pin 选择
+
+**新功能**: Pin/Unpin 文章 + 文章查阅子 tab [全部] [Pin (N)] + 批量 unpin + 5s 倒计时撤销 + 分享 page chip 切换 [📋 全部] [📌 仅 Pin] (默认 Pin 模式) + Pin icon (nullframe 风格 SVG, 不用 emoji)
+**后端**: migration 017 (article_pins + CASCADE) + 5 endpoints
+**前端**: pinCol + subtab + toast + chip 切换
+**测试**: 24 个新 test, 412/412 pass
+**PR**: #40 squash merge → tag v1.0.8
 
 ### v1.0.7.6.2 进展 (2026-06-23)
 
