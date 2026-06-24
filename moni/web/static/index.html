@@ -139,8 +139,10 @@
                          user can preview the rest without opening
                          the modal. -->
                     <span :title="a.title" x-text="truncateTitle(a.title, 150)"></span>
-                    <span class="badge badge-fresh" x-show="a.is_fresh">fresh</span>
-                    <span class="badge badge-new" x-show="isNew(a.created_at)">NEW</span>
+                    <span class="badge badge-fresh" x-show="a.is_fresh"
+                          title="本次抓取新增 (该信源最新一轮)">fresh</span>
+                    <span class="badge badge-new" x-show="isNew(a.created_at)"
+                          title="最近 24 小时内抓取">new</span>
                   </td>
                   <td x-text="a.source"></td>
                   <td>
