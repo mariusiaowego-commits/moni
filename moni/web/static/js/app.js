@@ -239,6 +239,13 @@ function app() {
       if (view === 'articles') {
         this._loadArticlesWithPaging();
         this.loadArticlesFilters();  // v1.0.5.10: refresh source/tag <select> option lists
+        // v1.0.8.4: kick off the Pin-tab fetch too so the "Pin (N)"
+        // badge in the subtab bar shows the real count on first
+        // render.  Without this the badge stays at 0 until the
+        // user clicks the Pin tab.  Cheap (default page=1) and
+        // re-entrant: when the user actually switches tabs, the
+        // existing handler re-fetches with the current page state.
+        this.loadPinnedArticles();
       }
       else if (view === 'crud') this.loadCrudArticles();
       else if (view === 'cron') this.loadCronRuns();
@@ -269,6 +276,7 @@ function app() {
       if (view === 'articles') {
         this._loadArticlesWithPaging();
         this.loadArticlesFilters();
+        this.loadPinnedArticles();  // v1.0.8.4: see note above
       }
       else if (view === 'crud') this.loadCrudArticles();
       else if (view === 'cron') this.loadCronRuns();
@@ -1725,54 +1733,81 @@ function app() {
       this.factCheckLoading = false;
     },
 
-    // ── Pin (v1.0.8.1) ─────────────────────────────────────────
-    // Toggle pin for a single article.  v1.0.8.1: uses the SAME
-    // 5-second undo flow as bulk unpin — flip the local state
-    // optimistically, kick off the GSAP pop, then stage the actual
-    // POST until the undo window expires.  If the user re-toggles
-    // the same article within the window, we cancel the pending
-    // POST and flip the optimistic state back.
+    // ── Pin (v1.0.8.4) ──────────────────────────────────────
+    // Single-article toggle.  Sends the POST IMMEDIATELY (like the
+    // v1.0.8.1 bulk-unpin fix) and stages a 5-second undo window.
+    // Cancelling the undo just re-sends the opposite POST.
+    //
+    // Bug history (v1.0.8.1–8.3): we used a setTimeout 5s for the
+    // POST itself.  The window was a *commit* delay, not an *undo*
+    // window.  When the user navigated away (or the Pin tab reloaded)
+    // the staging timer was never observed but the visual state
+    // stayed "flipped" — so toggles looked like they "didn't stick".
+    // v1.0.8.4: fire-and-forget POST, undo lives in memory only.
     togglePin(articleId) {
       if (!articleId) return;
       const wasPinned = this._isArticlePinned(articleId);
       const newPinned = !wasPinned;
+      // Apply the visual flip on both lists + the detail modal.
       this._applyPinVisual(articleId, newPinned);
       this._pinPopByAid(articleId, newPinned);
-      // If there's already a pending toggle for this article, undo
-      // it (the user is un-doing their first click).  We just flip
-      // visual back and cancel the timer.
+      // Cancel any pending undo for this same article (re-click
+      // within 5s restores the previous state by sending the
+      // opposite POST).
       const existing = this._pendingPinToggles[articleId];
       if (existing) {
         clearTimeout(existing.timer);
         delete this._pendingPinToggles[articleId];
+        // Send the *opposite* POST to restore the previous state.
         this._applyPinVisual(articleId, wasPinned);
         this._pinPopByAid(articleId, wasPinned);
+        this._commitPinToggle(articleId, wasPinned);
         return;
       }
-      // Stage the actual POST for 5s.
+      // Send the POST now (no delay).
+      this._commitPinToggle(articleId, newPinned);
+      // Stage a 5-second undo window: visual stays flipped; if the
+      // user clicks again we restore above.
       const timer = setTimeout(() => {
         delete this._pendingPinToggles[articleId];
-        this._commitPinToggle(articleId, newPinned);
       }, 5000);
       this._pendingPinToggles[articleId] = { newPinned, timer };
     },
 
-    // Apply the optimistic pin state to both the list and the detail
-    // modal.  Used by both the initial toggle and the cancellation
-    // (when the user double-clicks).
+    // Apply the optimistic pin state to BOTH the articles[] list
+    // (the "全部" tab) and pinnedArticles[] (the "Pin" tab) plus
+    // the detail modal.  Kept in sync so a single click visually
+    // updates everywhere regardless of which tab is open.
     _applyPinVisual(articleId, isPinned) {
       const pinnedAt = isPinned ? new Date().toISOString() : null;
       this.articles = this.articles.map(a =>
         a.id === articleId ? { ...a, is_pinned: isPinned, pinned_at: pinnedAt } : a
       );
-      // Pin tab's local list mirrors articles[] for re-pinned items.
-      // If the article is now pinned, ensure it shows up; if unpinned,
-      // remove it (matches backend semantics: pinning adds a row,
-      // unpinning removes it).
+      // Update pinnedTotal so the tab badge (e.g. "Pin (6)") stays
+      // accurate even before the user re-loads the Pin tab.  We
+      // detect whether this article was already in pinnedArticles
+      // (transition: was-pinned → not-pinned OR was-not-pinned →
+      // pinned) to decide whether to +/- 1.
+      const wasInPinned = this.pinnedArticles.some(a => a.id === articleId);
+      if (isPinned && !wasInPinned) {
+        this.pinnedTotal = (this.pinnedTotal || 0) + 1;
+      } else if (!isPinned && wasInPinned) {
+        this.pinnedTotal = Math.max(0, (this.pinnedTotal || 0) - 1);
+      }
+      // If the article isn't in articles[] yet (e.g. user is on
+      // Pin tab, page 2, and toggled an article we don't have a
+      // full copy of), fetch the article from pinnedArticles or
+      // synthesise a stub so the Pin tab UI has SOMETHING to display
+      // after a re-pin.  Without this the row would vanish and
+      // reappear only on the next /pinned refetch.
       if (isPinned) {
-        if (!this.pinnedArticles.find(a => a.id === articleId)) {
-          const src = this.articles.find(a => a.id === articleId);
-          if (src) this.pinnedArticles = [src, ...this.pinnedArticles];
+        const inPinned = this.pinnedArticles.find(a => a.id === articleId);
+        if (!inPinned) {
+          const src = this.articles.find(a => a.id === articleId)
+                   || this.pinnedArticles.find(a => a.id === articleId)
+                   || { id: articleId, is_pinned: true, pinned_at: pinnedAt };
+          const enriched = { ...src, id: articleId, is_pinned: true, pinned_at: pinnedAt };
+          this.pinnedArticles = [enriched, ...this.pinnedArticles];
         }
       } else {
         this.pinnedArticles = this.pinnedArticles.filter(a => a.id !== articleId);
@@ -1792,9 +1827,11 @@ function app() {
       });
     },
 
-    // Actually send the POST.  Revert on failure (rare — usually
-    // means the article was deleted or 405 because the backend is
-    // running the old code).
+    // Send the actual POST.  Reverts the visual on failure (rare —
+    // usually means the article was deleted or 405 because the
+    // backend is running the old code).  On success, reconcile
+    // the server timestamp into BOTH list arrays so the Pin tab
+    // and the "全部" tab stay in sync.
     _commitPinToggle(articleId, isPinned) {
       fetch(`/api/articles/${articleId}/pin?on=${isPinned}`, {
         method: 'POST',
@@ -1802,15 +1839,36 @@ function app() {
       })
         .then(r => r.json().then(d => r.ok ? d : Promise.reject(d)))
         .then(data => {
-          // Reconcile with server timestamp
+          // Reconcile into BOTH lists (articles[] + pinnedArticles[]).
+          const newPinned = data.is_pinned;
+          const newPinnedAt = data.pinned_at;
           this.articles = this.articles.map(a =>
-            a.id === articleId ? { ...a, is_pinned: data.is_pinned, pinned_at: data.pinned_at } : a
+            a.id === articleId ? { ...a, is_pinned: newPinned, pinned_at: newPinnedAt } : a
           );
+          // Apply the same patch into pinnedArticles[] (the article
+          // may be present in either or both, depending on which tab
+          // the user is on and the pagination state).
+          if (newPinned) {
+            const existing = this.pinnedArticles.find(a => a.id === articleId);
+            if (existing) {
+              this.pinnedArticles = this.pinnedArticles.map(a =>
+                a.id === articleId ? { ...a, is_pinned: true, pinned_at: newPinnedAt } : a
+              );
+            } else {
+              const src = this.articles.find(a => a.id === articleId);
+              const enriched = src
+                ? { ...src, is_pinned: true, pinned_at: newPinnedAt }
+                : { id: articleId, is_pinned: true, pinned_at: newPinnedAt };
+              this.pinnedArticles = [enriched, ...this.pinnedArticles];
+            }
+          } else {
+            this.pinnedArticles = this.pinnedArticles.filter(a => a.id !== articleId);
+          }
           if (this.articleDetail && this.articleDetail.id === articleId) {
             this.articleDetail = {
               ...this.articleDetail,
-              is_pinned: data.is_pinned,
-              pinned_at: data.pinned_at,
+              is_pinned: newPinned,
+              pinned_at: newPinnedAt,
             };
           }
         })
@@ -1834,10 +1892,18 @@ function app() {
         });
     },
 
-    // Helper: look up is_pinned for an article by id (from articles list).
+    // v1.0.8.4: check pin state across BOTH lists (and the
+    // detail modal) so the toggle works regardless of which tab
+    // is active.  v1.0.8.1–8.3 only looked at articles[] which
+    // missed the Pin-tab-only case.
     _isArticlePinned(articleId) {
+      // 1. The Pin tab's local list (most up-to-date on the Pin tab)
+      const pa = (this.pinnedArticles || []).find(x => x.id === articleId);
+      if (pa) return !!pa.is_pinned;
+      // 2. The "全部" tab's local list
       const a = (this.articles || []).find(x => x.id === articleId);
       if (a) return !!a.is_pinned;
+      // 3. The detail modal
       if (this.articleDetail && this.articleDetail.id === articleId) {
         return !!this.articleDetail.is_pinned;
       }
