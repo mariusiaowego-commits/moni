@@ -405,17 +405,17 @@ label { font-size: 0.85rem; }
 /* Larger variant for the article detail modal */
 .pin-btn.pin-btn-lg { padding: 6px 10px; font-size: 0.92rem; }
 
-/* v1.0.8.1: pin column — dedicated leftmost column, 32px button.
+/* v1.0.8.1: pin column — dedicated leftmost column, 40px button.
    Sized large so the pin is visible at a glance even on a row of
    100+ articles.  GSAP scales the button on click (see pin_anim.js). */
-.pin-col { width: 56px; text-align: center; }
-.pin-col-head { width: 56px; text-align: center; color: var(--muted-fg); font-weight: 500; font-size: 0.78rem; }
+.pin-col { width: 64px; text-align: center; }
+.pin-col-head { width: 64px; text-align: center; color: var(--muted-fg); font-weight: 500; font-size: 0.78rem; }
 .pin-col .pin-btn {
-  width: 32px; height: 32px;
+  width: 40px; height: 40px;
   padding: 0;
   display: inline-flex; align-items: center; justify-content: center;
 }
-.pin-col .pin-btn svg { width: 22px; height: 22px; }
+.pin-col .pin-btn svg { width: 20px; height: 20px; }
 /* Transient flash classes — set by pin_anim.js for ~350ms after a
    click.  Provides a colour-pulse on top of the GSAP scale. */
 .pin-btn--just-pinned {
@@ -433,6 +433,88 @@ label { font-size: 0.85rem; }
   0%   { background: oklch(from var(--accent) l c h / 0.2); }
   50%  { background: oklch(from var(--accent) l c h / 0); }
   100% { background: transparent; }
+}
+
+/* v1.0.8.1: 3D enamel pin — "emoji-adjacent" but not an emoji.
+   Five layers stacked to give a depth-of-0.4em stamped-on-enamel
+   look that doesn't fade into the row:
+     1. Outer drop shadow (the "raised" depth, ~0.4em)
+     2. Bottom dark rim (shadow colour, lower in lightness)
+     3. Radial-style vertical gradient (top highlight → base → bottom shade)
+     4. Inner top rim (white sheen) + inner bottom rim (dark inset)
+     5. Pin icon (accent-fg = moni 玄色 for contrast)
+   Two-colour palette: moni 紫藤萝 (enamel) + 玄色 (icon + depths).
+   Nullframe-inspired geometry — no decorative texture, no glow. */
+.pin-col .pin-btn.is-pinned {
+  border-radius: 50%;
+  background:
+    /* top highlight → base → bottom shade, using accent as anchor */
+    linear-gradient(
+      180deg,
+      oklch(from var(--accent) calc(l + 0.14) c h) 0%,
+      oklch(from var(--accent) calc(l + 0.06) c h) 28%,
+      var(--accent) 55%,
+      oklch(from var(--accent) calc(l - 0.06) c h) 100%
+    );
+  box-shadow:
+    /* depth shadow (the "stamped" feel) */
+    0 2px 0 oklch(from var(--accent) calc(l - 0.20) c h),
+    0 3px 6px rgba(0, 0, 0, 0.18),
+    /* inner top rim (white sheen — enamel gloss) */
+    inset 0 1px 2px oklch(1 0 0 / 0.55),
+    /* inner bottom rim (depth / inset) */
+    inset 0 -1px 2px oklch(0 0 0 / 0.15);
+  color: var(--accent-fg);
+  transition: transform 0.18s ease-out, box-shadow 0.18s ease-out;
+}
+.pin-col .pin-btn.is-pinned:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 3px 0 oklch(from var(--accent) calc(l - 0.20) c h),
+    0 5px 10px rgba(0, 0, 0, 0.22),
+    inset 0 1px 2px oklch(1 0 0 / 0.65),
+    inset 0 -1px 2px oklch(0 0 0 / 0.18);
+}
+.pin-col .pin-btn.is-pinned:active {
+  transform: translateY(1px);
+  box-shadow:
+    0 1px 0 oklch(from var(--accent) calc(l - 0.20) c h),
+    0 1px 2px rgba(0, 0, 0, 0.18),
+    inset 0 1px 2px oklch(1 0 0 / 0.55),
+    inset 0 -1px 2px oklch(0 0 0 / 0.15);
+}
+/* Unpinned: keeps the flat outline from v1.0.8 so the contrast
+   with the 3D pinned state is dramatic.  Same 40px round footprint
+   for layout consistency — only the "look" flips. */
+.pin-col .pin-btn:not(.is-pinned) {
+  border-radius: 50%;
+  background: transparent;
+  border: 1.5px solid oklch(from var(--muted-fg) l c h / 0.5);
+  color: var(--muted-fg);
+}
+.pin-col .pin-btn:not(.is-pinned):hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+/* On the detail modal we keep the larger button but apply the same
+   3D treatment so the icon is consistent across the app. */
+.pin-btn-lg.is-pinned {
+  border-radius: 50%;
+  background:
+    linear-gradient(
+      180deg,
+      oklch(from var(--accent) calc(l + 0.14) c h) 0%,
+      oklch(from var(--accent) calc(l + 0.06) c h) 28%,
+      var(--accent) 55%,
+      oklch(from var(--accent) calc(l - 0.06) c h) 100%
+    );
+  box-shadow:
+    0 2px 0 oklch(from var(--accent) calc(l - 0.20) c h),
+    0 3px 8px rgba(0, 0, 0, 0.20),
+    inset 0 1px 2px oklch(1 0 0 / 0.55),
+    inset 0 -1px 2px oklch(0 0 0 / 0.15);
+  color: var(--accent-fg);
+  padding: 6px 12px;
 }
 
 /* ═══════════════════════════════════════════════════════════════
