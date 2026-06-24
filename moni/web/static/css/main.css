@@ -405,6 +405,36 @@ label { font-size: 0.85rem; }
 /* Larger variant for the article detail modal */
 .pin-btn.pin-btn-lg { padding: 6px 10px; font-size: 0.92rem; }
 
+/* v1.0.8.1: pin column — dedicated leftmost column, 32px button.
+   Sized large so the pin is visible at a glance even on a row of
+   100+ articles.  GSAP scales the button on click (see pin_anim.js). */
+.pin-col { width: 56px; text-align: center; }
+.pin-col-head { width: 56px; text-align: center; color: var(--muted-fg); font-weight: 500; font-size: 0.78rem; }
+.pin-col .pin-btn {
+  width: 32px; height: 32px;
+  padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.pin-col .pin-btn svg { width: 22px; height: 22px; }
+/* Transient flash classes — set by pin_anim.js for ~350ms after a
+   click.  Provides a colour-pulse on top of the GSAP scale. */
+.pin-btn--just-pinned {
+  animation: pin-flash-on 0.35s ease-out;
+}
+.pin-btn--just-unpinned {
+  animation: pin-flash-off 0.35s ease-out;
+}
+@keyframes pin-flash-on {
+  0%   { background: oklch(from var(--accent) l c h / 0); }
+  50%  { background: oklch(from var(--accent) l c h / 0.35); }
+  100% { background: oklch(from var(--accent) l c h / 0); }
+}
+@keyframes pin-flash-off {
+  0%   { background: oklch(from var(--accent) l c h / 0.2); }
+  50%  { background: oklch(from var(--accent) l c h / 0); }
+  100% { background: transparent; }
+}
+
 /* ═══════════════════════════════════════════════════════════════
    Pin undo toast (v1.0.8)
    ═══════════════════════════════════════════════════════════════ */

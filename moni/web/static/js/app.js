@@ -1725,37 +1725,84 @@ function app() {
       this.factCheckLoading = false;
     },
 
-    // ── Pin (v1.0.8) ─────────────────────────────────────────────
-    // Toggle pin for an article.  Optimistic update: flip the local
-    // state immediately, then send POST.  On failure, revert and
-    // alert.  Updates the article in BOTH the list (articles[]) and
-    // the detail modal (articleDetail) so the icon stays in sync.
+    // ── Pin (v1.0.8.1) ─────────────────────────────────────────
+    // Toggle pin for a single article.  v1.0.8.1: uses the SAME
+    // 5-second undo flow as bulk unpin — flip the local state
+    // optimistically, kick off the GSAP pop, then stage the actual
+    // POST until the undo window expires.  If the user re-toggles
+    // the same article within the window, we cancel the pending
+    // POST and flip the optimistic state back.
     togglePin(articleId) {
       if (!articleId) return;
       const wasPinned = this._isArticlePinned(articleId);
       const newPinned = !wasPinned;
-      // Optimistic update: list
-      this.articles = this.articles.map(a =>
-        a.id === articleId
-          ? { ...a, is_pinned: newPinned, pinned_at: newPinned ? new Date().toISOString() : null }
-          : a
-      );
-      // Optimistic update: detail modal
-      if (this.articleDetail && this.articleDetail.id === articleId) {
-        this.articleDetail = {
-          ...this.articleDetail,
-          is_pinned: newPinned,
-          pinned_at: newPinned ? new Date().toISOString() : null,
-        };
+      this._applyPinVisual(articleId, newPinned);
+      this._pinPopByAid(articleId, newPinned);
+      // If there's already a pending toggle for this article, undo
+      // it (the user is un-doing their first click).  We just flip
+      // visual back and cancel the timer.
+      const existing = this._pendingPinToggles[articleId];
+      if (existing) {
+        clearTimeout(existing.timer);
+        delete this._pendingPinToggles[articleId];
+        this._applyPinVisual(articleId, wasPinned);
+        this._pinPopByAid(articleId, wasPinned);
+        return;
       }
-      // Send to backend
-      fetch(`/api/articles/${articleId}/pin?on=${newPinned}`, {
+      // Stage the actual POST for 5s.
+      const timer = setTimeout(() => {
+        delete this._pendingPinToggles[articleId];
+        this._commitPinToggle(articleId, newPinned);
+      }, 5000);
+      this._pendingPinToggles[articleId] = { newPinned, timer };
+    },
+
+    // Apply the optimistic pin state to both the list and the detail
+    // modal.  Used by both the initial toggle and the cancellation
+    // (when the user double-clicks).
+    _applyPinVisual(articleId, isPinned) {
+      const pinnedAt = isPinned ? new Date().toISOString() : null;
+      this.articles = this.articles.map(a =>
+        a.id === articleId ? { ...a, is_pinned: isPinned, pinned_at: pinnedAt } : a
+      );
+      // Pin tab's local list mirrors articles[] for re-pinned items.
+      // If the article is now pinned, ensure it shows up; if unpinned,
+      // remove it (matches backend semantics: pinning adds a row,
+      // unpinning removes it).
+      if (isPinned) {
+        if (!this.pinnedArticles.find(a => a.id === articleId)) {
+          const src = this.articles.find(a => a.id === articleId);
+          if (src) this.pinnedArticles = [src, ...this.pinnedArticles];
+        }
+      } else {
+        this.pinnedArticles = this.pinnedArticles.filter(a => a.id !== articleId);
+      }
+      if (this.articleDetail && this.articleDetail.id === articleId) {
+        this.articleDetail = { ...this.articleDetail, is_pinned: isPinned, pinned_at: pinnedAt };
+      }
+    },
+
+    // Find the DOM button for an article and trigger the GSAP pop.
+    // Uses data-aid so we don't have to keep a separate ref map.
+    _pinPopByAid(articleId, filled) {
+      // Defer to next tick so the class flip (.is-pinned) lands first.
+      requestAnimationFrame(() => {
+        const btn = document.querySelector(`.pin-btn[data-aid="${articleId}"]`);
+        if (btn && window.pinPop) window.pinPop(btn, filled);
+      });
+    },
+
+    // Actually send the POST.  Revert on failure (rare — usually
+    // means the article was deleted or 405 because the backend is
+    // running the old code).
+    _commitPinToggle(articleId, isPinned) {
+      fetch(`/api/articles/${articleId}/pin?on=${isPinned}`, {
         method: 'POST',
         credentials: 'same-origin',
       })
         .then(r => r.json().then(d => r.ok ? d : Promise.reject(d)))
         .then(data => {
-          // Reconcile with server timestamp (in case of sub-second race)
+          // Reconcile with server timestamp
           this.articles = this.articles.map(a =>
             a.id === articleId ? { ...a, is_pinned: data.is_pinned, pinned_at: data.pinned_at } : a
           );
@@ -1768,18 +1815,7 @@ function app() {
           }
         })
         .catch(err => {
-          // Revert
-          this.articles = this.articles.map(a =>
-            a.id === articleId ? { ...a, is_pinned: wasPinned } : a
-          );
-          if (this.articleDetail && this.articleDetail.id === articleId) {
-            this.articleDetail = { ...this.articleDetail, is_pinned: wasPinned };
-          }
-          // Build a human-readable error message.  FastAPI's error
-          // shape is {detail: "..."} or {detail: [{msg, loc, ...}, ...]}.
-          // We try to extract a useful string from any of these,
-          // and fall back to JSON.stringify so we never show
-          // "[object Object]".
+          this._applyPinVisual(articleId, !isPinned);
           let msg = '';
           if (err && err.detail) {
             if (typeof err.detail === 'string') msg = err.detail;
@@ -1791,9 +1827,6 @@ function app() {
           } else {
             msg = JSON.stringify(err);
           }
-          // Note: a 405 here means 8900 is running the old code
-          // (before the pins router was added).  Tell the user to
-          // restart the service so they don't keep retrying.
           if (err && err.status === 405) {
             msg = '后端不支持 Pin 接口 (405). 请重启 8900 服务 (v1.0.8 部署后). ' + msg;
           }
@@ -1816,6 +1849,11 @@ function app() {
     // user refreshes the page, the staged articles stay unpinned
     // (per the user's decision 4 in the plan).
     pinUndoBatch: null,  // { articles: [...], secondsLeft: 5, timer: <interval> }
+    // v1.0.8.1: pending single-article toggles.  Map<articleId, {newPinned, timer}>.
+    // The user can double-click within 5s to cancel; otherwise the
+    // timer fires and the actual POST is sent.  Keeps single-pin
+    // behaviour consistent with bulk-unpin.
+    _pendingPinToggles: {},
     get pinUndoActive() { return !!this.pinUndoBatch; },
 
     startPinUndo(stagedArticles) {
@@ -1845,34 +1883,14 @@ function app() {
     cancelPinUndo() {
       if (!this.pinUndoBatch) return;
       if (this.pinUndoBatch.timer) clearInterval(this.pinUndoBatch.timer);
-      // Restore the staged articles to the visible list.
-      // Sort by pinned_at desc to match the tab's default order.
-      const restored = this.pinUndoBatch.articles;
-      restored.sort((a, b) => (b.pinned_at || '').localeCompare(a.pinned_at || ''));
-      // Prepend (or append if already present from another source).
-      const existingIds = new Set(this.pinnedArticles.map(a => a.id));
-      const toAdd = restored.filter(a => !existingIds.has(a.id));
-      this.pinnedArticles = [...toAdd, ...this.pinnedArticles];
-      this.pinnedTotal = this.pinnedTotal + toAdd.length;
+      // v1.0.8.1: re-pin via togglePin so the actual POST goes
+      // out (we already un-pinned on click).  Each article's
+      // single-toggle 5s window starts now.  We don't restore to
+      // pinnedArticles[] here — togglePin will add them back
+      // optimistically.
+      const restored = this.pinUndoBatch.articles.slice();
       this.pinUndoBatch = null;
-    },
-
-    _commitPinUndo(articles) {
-      if (!articles || articles.length === 0) return;
-      // Send the actual unpin to the server.  Fire-and-forget; on
-      // failure the user can re-pin manually.
-      const ids = articles.map(a => a.id);
-      fetch('/api/articles/pins/bulk-unpin', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ article_ids: ids }),
-      })
-        .then(r => r.json().then(d => r.ok ? d : Promise.reject(d)))
-        .catch(err => {
-          console.error('bulk unpin failed:', err);
-          alert('批量 unpin 失败: ' + (err.detail?.message || err.message || err));
-        });
+      this._repinBatch(restored);
     },
 
     setArticlesSubTab(tab) {
@@ -1940,19 +1958,54 @@ function app() {
       this.pinnedSelectedIds = [];
     },
 
-    // Bulk unpin — uses the 5-second undo flow (see Step 6).
+    // Bulk unpin — v1.0.8.1: send the actual POST IMMEDIATELY (not
+    // delayed) so that switching tabs and back doesn't show stale
+    // "still pinned" rows.  The 5-second undo window re-pins the
+    // articles if the user clicks 撤销.  Net effect on the backend
+    // is the same as the old flow, but the visual state is honest.
     bulkUnpin() {
       if (this.pinnedSelectedIds.length === 0) return;
-      // Stage a soft-delete: remove from the visible list + mark
-      // them as "in undo" so the user can re-pin within 5s.
       const ids = [...this.pinnedSelectedIds];
       const staged = this.pinnedArticles.filter(a => ids.includes(a.id));
-      // Remove from the visible pinned list immediately.
+      // Optimistically remove from the visible pinned list.
       this.pinnedArticles = this.pinnedArticles.filter(a => !ids.includes(a.id));
       this.pinnedTotal = Math.max(0, this.pinnedTotal - ids.length);
       this.pinnedSelectedIds = [];
-      // Start the undo window.
+      // Fire the actual bulk-unpin POST right away.  The undo
+      // window re-pins via per-article POST if the user clicks 撤销.
+      this._commitBulkUnpin(ids);
+      // Start the 5-second undo window so the user can re-pin.
       this.startPinUndo(staged);
+    },
+
+    _commitBulkUnpin(ids) {
+      fetch('/api/articles/pins/bulk-unpin', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ article_ids: ids }),
+      })
+        .then(r => r.json().then(d => r.ok ? d : Promise.reject(d)))
+        .catch(err => {
+          console.error('bulk unpin POST failed:', err);
+          // Don't alert: the user can manually re-pin via single-toggle.
+        });
+    },
+
+    // Re-pin each article in the staged batch.  Used by the undo
+    // button.  Each article goes through togglePin so the GSAP
+    // pop + 5s single-undo window applies individually.
+    _repinBatch(articles) {
+      if (!articles || articles.length === 0) return;
+      for (const a of articles) {
+        // Use the existing togglePin pipeline (it has the 5s undo
+        // window per article).  We re-insert into pinnedArticles and
+        // articles[] first so the optimistic state is correct.
+        if (!this.articles.find(x => x.id === a.id)) {
+          this.articles = [a, ...this.articles];
+        }
+        this.togglePin(a.id);
+      }
     },
 
     generateSummary() {

@@ -105,6 +105,9 @@
           <table>
             <thead>
               <tr>
+                <!-- v1.0.8.1: Pin 列固定最左, 大按钮, 不依赖操作列
+                     (之前 "操作"列里的 pin 按钮太靠右, 不明显) -->
+                <th class="pin-col-head">Pin</th>
                 <th x-show="articlesSubTab === 'pinned'"><input type="checkbox" :checked="pinnedAllSelectedOnPage()" @change="pinnedToggleAllOnPage($event)"></th>
                 <th>标题</th><th>来源</th><th>分类</th>
                 <th x-show="articlesSubTab === 'pinned'">Pin 时间</th>
@@ -115,6 +118,16 @@
             <tbody>
               <template x-for="a in activeArticles" :key="a.id">
                 <tr>
+                  <!-- v1.0.8.1: 32px pin button 在最左, 单独列. 点击 GSAP 弹一下. -->
+                  <td class="pin-col">
+                    <button class="pin-btn pin-btn-lg"
+                            :class="{ 'is-pinned': a.is_pinned }"
+                            :data-aid="a.id"
+                            @click="togglePin(a.id)"
+                            :title="a.is_pinned ? '取消 Pin' : 'Pin 这篇文章'">
+                      <span x-html="pinIcon(a.is_pinned)"></span>
+                    </button>
+                  </td>
                   <td x-show="articlesSubTab === 'pinned'">
                     <input type="checkbox" :value="a.id" x-model="pinnedSelectedIds">
                   </td>
@@ -138,19 +151,12 @@
                   <td x-show="articlesSubTab === 'pinned'" x-text="formatTime(a.pinned_at)"></td>
                   <td x-show="articlesSubTab === 'all'" x-text="formatTime(a.published_at)"></td>
                   <td x-text="formatTime(a.created_at)"></td>
-                  <td><a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a>
-                    <button class="pin-btn"
-                            :class="{ 'is-pinned': a.is_pinned }"
-                            @click="togglePin(a.id)"
-                            :title="a.is_pinned ? '取消 Pin' : 'Pin 这篇文章'">
-                      <span x-html="pinIcon(a.is_pinned)"></span>
-                    </button>
-                  </td>
+                  <td><a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a></td>
                 </tr>
               </template>
               <tr x-show="activeArticles.length === 0">
-                <td colspan="7" class="empty-row">
-                  <span x-show="articlesSubTab === 'pinned'">还没有 pin 任何文章。点击列表旁的 Pin 按钮开始收集。</span>
+                <td colspan="8" class="empty-row">
+                  <span x-show="articlesSubTab === 'pinned'">还没有 pin 任何文章。点击列表最左的 Pin 按钮开始收集。</span>
                   <span x-show="articlesSubTab === 'all'">暂无数据</span>
                 </td>
               </tr>
@@ -1464,6 +1470,7 @@
                  SVG icon as the list view, just a bigger button. -->
             <button class="pin-btn pin-btn-lg"
                     :class="{ 'is-pinned': articleDetail?.is_pinned }"
+                    :data-aid="articleDetail?.id"
                     @click="togglePin(articleDetail?.id)"
                     :title="articleDetail?.is_pinned ? '取消 Pin' : 'Pin 这篇文章'">
               <span x-html="pinIcon(articleDetail?.is_pinned)"></span>
@@ -2083,8 +2090,10 @@
   </div>
 
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
   <script src="js/app.js?v=1781496537"></script>
   <script src="js/theme.js?v=1781496537"></script>
   <script src="js/icons.js?v=1781496537"></script>
+  <script src="js/pin_anim.js?v=1781496537"></script>
 </body>
 </html>
