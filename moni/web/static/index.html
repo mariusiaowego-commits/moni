@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css?v=1783496537">
+  <link rel="stylesheet" href="css/main.css?v=1784496537">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -146,9 +146,9 @@
                          the modal. -->
                     <span :title="a.title" x-text="truncateTitle(a.title, 150)"></span>
                     <span class="badge badge-fresh" x-show="a.is_fresh"
-                          title="本次抓取新增 (该信源最新一轮)">fresh</span>
+                          data-tooltip="本次抓取新增 (该信源最新一轮)">fresh</span>
                     <span class="badge badge-new" x-show="isNew(a.created_at)"
-                          title="最近 24 小时内抓取">new</span>
+                          data-tooltip="最近 24 小时内抓取">new</span>
                   </td>
                   <td x-text="a.source"></td>
                   <td>
@@ -2109,9 +2109,9 @@
 
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
-  <script src="js/app.js?v=1783496537"></script>
-  <script src="js/theme.js?v=1783496537"></script>
-  <script src="js/icons.js?v=1783496537"></script>
-  <script src="js/pin_anim.js?v=1783496537"></script>
+  <script src="js/app.js?v=1784496537"></script>
+  <script src="js/theme.js?v=1784496537"></script>
+  <script src="js/icons.js?v=1784496537"></script>
+  <script src="js/pin_anim.js?v=1784496537"></script>
 </body>
 </html>
