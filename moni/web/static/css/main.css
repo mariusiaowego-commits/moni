@@ -405,18 +405,29 @@ label { font-size: 0.85rem; }
 /* Larger variant for the article detail modal */
 .pin-btn.pin-btn-lg { padding: 6px 10px; font-size: 0.92rem; }
 
-/* v1.0.8.1: pin column — dedicated leftmost column, 40px button.
-   Sized large so the pin is visible at a glance even on a row of
-   100+ articles.  GSAP scales the button on click (see pin_anim.js).
-   v1.0.8.2: dropped 3D enamel — just a bigger, color-flipped icon. */
-.pin-col { width: 56px; text-align: center; }
-.pin-col-head { width: 56px; text-align: center; color: var(--muted-fg); font-weight: 500; font-size: 0.78rem; }
+/* v1.0.8.3: pin column — 17px icon, simple.
+   No 3D enamel, no big circle background.  Just a clean icon
+   inside a 36px cell.  Pinned = solid (icon is filled via SVG);
+   Unpinned = outline. */
+.pin-col { width: 44px; text-align: center; }
+.pin-col-head { width: 44px; text-align: center; color: var(--muted-fg); font-weight: 500; font-size: 0.78rem; }
 .pin-col .pin-btn {
-  width: 40px; height: 40px;
+  width: 32px; height: 32px;
   padding: 0;
   display: inline-flex; align-items: center; justify-content: center;
 }
-.pin-col .pin-btn svg { width: 26px; height: 26px; }
+.pin-col .pin-btn svg { width: 17px; height: 17px; }
+/* Pinned: just colour swap to moni accent — the SVG itself is
+   the solid silhouette, so the visual weight is the icon itself.
+   No extra background. */
+.pin-col .pin-btn.is-pinned {
+  color: var(--accent);
+}
+/* Unpinned: muted grey */
+.pin-col .pin-btn:not(.is-pinned) {
+  color: var(--muted-fg);
+}
+.pin-col .pin-btn:hover { color: var(--accent); }
 /* Transient flash classes — set by pin_anim.js for ~350ms after a
    click.  Provides a colour-pulse on top of the GSAP scale. */
 .pin-btn--just-pinned {
