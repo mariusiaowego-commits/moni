@@ -35,7 +35,13 @@ _start() {
         set +a
     fi
 
-    python3 -c "
+    # v1.0.8: hardcode the 3.12 interpreter so this script works
+    # regardless of which `python3` is first in $PATH.  Homebrew's
+    # 3.14 lacks the `yaml` module, which causes the routes package
+    # to fail import — all API endpoints silently 404 (regression
+    # observed after uni restart moni / supervisor-launched restarts).
+    # 3.12 is the version moni's pinned deps were installed against.
+    /usr/local/bin/python3 -c "
 import uvicorn
 from moni.web.server import create_app
 uvicorn.run(create_app(), host='127.0.0.1', port=8900, log_level='error')
