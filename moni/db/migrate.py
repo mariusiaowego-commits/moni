@@ -15,7 +15,7 @@ from pathlib import Path
 from .connection import get_db, get_db_path
 
 
-_CURRENT_VERSION = 16  # v1.0.7.6: fetch_jobs table (016)
+_CURRENT_VERSION = 17  # v1.0.8: article_pins table (017)
 
 
 def current_version(conn: sqlite3.Connection) -> int:

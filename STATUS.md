@@ -4,12 +4,56 @@
 
 ---
 
-## 当前状态: **v1.0.7.6.2 — wechat_rss 占位符修复 + token 安全** (2026-06-23)
+## 当前状态: **v1.0.8 — Pin Tab + 分享从 Pin 选择** (2026-06-23)
 
-**主分支**: main @ v1.0.7.6.2 (83a1e0d)
-**Web 服务**: `127.0.0.1:8900` (待重启)
-**数据库**: `data/news.db` — schema_version=16, 10 sources
-**测试**: 388 passed, 2 skipped
+**主分支**: main @ 待 PR 合并 (branch `feature/v1.0.8-pin-tab`)
+**Web 服务**: `127.0.0.1:8900` (代码已是 v1.0.8, 待重启)
+**数据库**: `data/news.db` — schema_version=17, 11 tables (+ article_pins)
+**测试**: 412 passed, 2 skipped
+
+### v1.0.8 进展 (2026-06-23)
+
+**新功能**:
+- **Pin/Unpin 文章**: 列表行 + 详情 modal 都有 pin 按钮 (nullframe 风格 SVG, 不用 emoji), 乐观更新 + 失败 revert
+- **文章查阅 Pin 子 tab**: 顶部 [全部] [📌 Pin (N)] 切换, Pin tab 显示 pin 列表, 支持多选 + 批量 unpin
+- **5s 倒计时撤销**: 批量 unpin 后底部 toast, 5s 内可撤销, 超时发 POST 持久化
+- **分享 page chip 切换**: [📋 全部文章] [📌 仅我的 Pin], 默认 Pin 模式 (按用户决策 3), selectedArticleIds 跨模式保留
+- **Pin icon**: nullframe-inspired 几何 SVG (梯形头 + 针 + 锚点圆), 24x24 viewBox, currentColor 跟主题色同步
+
+**后端**:
+- `moni/db/migrations/017_article_pins.sql`: `article_pins(article_id PK, pinned_at)` + FK CASCADE
+- `moni/web/routes/pins.py` (新): 5 endpoints
+  - `POST /api/articles/{id}/pin?on=true|false` (toggle, idempotent)
+  - `DELETE /api/articles/{id}/pin` (explicit unpin)
+  - `GET /api/articles/pinned?sources=&tags=&sort=&page=&page_size=` (多选并集)
+  - `POST /api/articles/pins/bulk-unpin` (返 unpinned + not_found)
+- `moni/web/routes/articles.py`: LEFT JOIN article_pins 注入 `is_pinned` + `pinned_at` 字段
+- `moni/web/models.py`: Article 加 `is_pinned: bool` + `pinned_at: datetime | None`
+
+**前端**:
+- `moni/web/static/js/icons.js` (新): pinIcon() SVG 函数
+- `moni/web/static/css/main.css`: `.icon-pin`, `.pin-btn`, `.subtab`, `.pin-undo-toast`
+- `moni/web/static/index.html`:
+  - 文章查阅内加 [全部] [Pin (N)] subtab
+  - 批量操作栏 + checkbox 列 (仅 Pin tab)
+  - Pin undo toast (fixed bottom, 5s 倒计时)
+  - 分享 page "选择文章" 顶部加 chip 切换
+- `moni/web/static/js/app.js`:
+  - `togglePin(articleId)` action (乐观更新)
+  - `setArticlesSubTab`, `loadPinnedArticles`, `bulkUnpin` + 撤销机制
+  - `shareArticleSource` state + `shareArticles` getter (默认 'pinned')
+  - `setShareArticleSource(src)` action
+
+**测试**: +24 新增 (toggle/delete/list/bulk-unpin/CASCADE/route precedence/listing surfaces pin status)
+**全套**: 412/412 pass
+
+**关键决策落地**:
+- 1. article_pins 独立表 + CASCADE ✅
+- 2. Pin tab 在文章查阅子 tab (不放顶层 nav) ✅
+- 3. Share page chip 切换, 默认 Pin 模式 ✅
+- 4. 5s 倒计时 + 内存撤销, 刷新失效 ✅
+- 5. 无 pin 数量限制 ✅
+- 6. Pin icon nullframe 风格 SVG, 不用 emoji ✅
 
 ### v1.0.7.6.2 进展 (2026-06-23)
 

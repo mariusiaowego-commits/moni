@@ -49,6 +49,12 @@ class Article(BaseModel):
     summary: str | None = None
     is_deleted: bool = False
     is_fresh: bool = False  # v1.0.7.0: 是否是该信源最新一次抓取的文章
+    # v1.0.8: pin status.  is_pinned is true iff a row exists in
+    # article_pins for this article.  pinned_at is the ISO datetime
+    # of the pin (or null if not pinned).  Both come from a LEFT
+    # JOIN in the listing query.
+    is_pinned: bool = False
+    pinned_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

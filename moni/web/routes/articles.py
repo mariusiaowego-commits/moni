@@ -71,6 +71,17 @@ def _row_to_article(row: dict[str, Any], fresh_thresholds: dict[str, str] | None
     if fresh_thresholds and source in fresh_thresholds:
         is_fresh = fetched_at == fresh_thresholds[source]
 
+    # v1.0.8: pin status — p.pinned_at is NULL when the article isn't
+    # pinned (LEFT JOIN).  Convert to (is_pinned, pinned_at).
+    pinned_at_raw = row.get("pinned_at")
+    is_pinned = pinned_at_raw is not None
+    pinned_at_dt: datetime | None = None
+    if pinned_at_raw:
+        try:
+            pinned_at_dt = datetime.fromisoformat(pinned_at_raw)
+        except (ValueError, TypeError):
+            pinned_at_dt = None
+
     return Article(
         id=row["id"],
         source=source,
@@ -83,6 +94,8 @@ def _row_to_article(row: dict[str, Any], fresh_thresholds: dict[str, str] | None
         summary=row["summary"],
         is_deleted=False,
         is_fresh=is_fresh,
+        is_pinned=is_pinned,
+        pinned_at=pinned_at_dt,
         created_at=fetched_at,
         updated_at=fetched_at,
     )
@@ -164,8 +177,13 @@ def list_articles(
                   FROM (SELECT tag_name, GROUP_CONCAT('"' || keyword || '"') as keywords
                           FROM article_keyword_hits
                          WHERE article_id = a.id
-                         GROUP BY tag_name)) AS tag_keyword_hits
+                         GROUP BY tag_name)) AS tag_keyword_hits,
+               -- v1.0.8: pin status via LEFT JOIN.  p.pinned_at is NULL
+               -- when the article is not pinned, so we use that as the
+               -- boolean check.
+               p.pinned_at AS pinned_at
         FROM articles a
+        LEFT JOIN article_pins p ON p.article_id = a.id
         {where_sql}
         ORDER BY a.fetched_at DESC
         LIMIT ? OFFSET ?
@@ -210,8 +228,10 @@ def get_article(article_id: str) -> Article:
                   FROM (SELECT tag_name, GROUP_CONCAT('"' || keyword || '"') as keywords
                           FROM article_keyword_hits
                          WHERE article_id = a.id
-                         GROUP BY tag_name)) AS tag_keyword_hits
+                         GROUP BY tag_name)) AS tag_keyword_hits,
+               p.pinned_at AS pinned_at
         FROM articles a
+        LEFT JOIN article_pins p ON p.article_id = a.id
         WHERE a.id = ?
         """,
         (article_id,),
