@@ -129,6 +129,9 @@ body {
 .panel-header h3 {
   font-size: 1.15rem; font-weight: 600; letter-spacing: -0.01em;
 }
+.actions-group {
+  display: flex; align-items: center; gap: 8px;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    Stats Row (optional, shown on articles view)
@@ -262,6 +265,8 @@ tbody tr:hover { background: oklch(from var(--muted) l c h / 0.5); }
 tbody tr:last-child td { border-bottom: none; }
 .empty-row { text-align: center; color: var(--muted-fg); padding: 24px !important; font-size: 0.88rem; }
 .url-cell { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.th-right { text-align: right; }
+.td-actions { text-align: right; white-space: nowrap; }
 .url-cell a { color: var(--muted-fg); font-size: 0.82rem; text-decoration: none; }
 .url-cell a:hover { color: var(--foreground); text-decoration: underline; }
 .result-cell { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

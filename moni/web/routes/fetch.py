@@ -330,6 +330,34 @@ def _run_fetch_job(
 # ── v1.0.7.6: fetch_jobs query endpoints (SPA polls these) ──────────────────
 
 
+@router.get("/jobs/batch/recent")
+def get_recent_batch() -> dict[str, Any]:
+    """Return the batch_id of the most recent batch fetch (v1.0.8.9).
+
+    The frontend uses this to populate the "📋 上次结果" button — clicking
+    it re-opens the progress modal for the most recent batch, even after
+    the user has closed it.  Returns 404 if no batch has ever been run.
+    """
+    batch_id = FetchJobStore().get_recent_batch()
+    if batch_id is None:
+        raise NotFoundError(message="No batch fetch history yet")
+    return {"batch_id": batch_id}
+
+
+@router.get("/jobs/batch/{batch_id}")
+def get_batch_status(batch_id: str) -> dict[str, Any]:
+    """Return aggregate progress for a batch fetch job (v1.0.8.9).
+
+    The frontend polls this every 5s while "全部抓取" is running to
+    render a multi-source progress modal showing how many sources are
+    done, the current source being fetched, and per-feed progress.
+    """
+    batch = FetchJobStore().get_batch(batch_id)
+    if batch is None:
+        raise NotFoundError(message=f"Fetch batch {batch_id!r} not found")
+    return batch
+
+
 @router.get("/jobs/{job_id}")
 def get_fetch_job(job_id: str) -> dict[str, Any]:
     """Return the current status of a single fetch job.
@@ -417,24 +445,26 @@ def ping_source_health(name: str) -> HealthResponse:
 
 @router.post("/all/run")
 def trigger_fetch_all() -> dict[str, Any]:
-    """Fetch all enabled sources in one go.
+    """Fetch all enabled sources as an async batch job (v1.0.8.9).
 
-    Iterates every enabled source, runs the fetcher (no interval gate),
-    collects per-source results, and logs to cron_runs + fetch_log.
+    Returns immediately with ``{batch_id, status:running}`` while the
+    actual fetches run sequentially in a background thread. The
+    frontend polls ``GET /api/fetch/jobs/batch/{batch_id}`` every 5s
+    to render a multi-source progress modal.
 
-    On Monday, automatically sets date_from to Saturday for weekend catch-up.
+    On Monday, automatically sets date_from to Saturday for weekend
+    catch-up (same logic as the old sync version).
     """
-    from datetime import datetime, timedelta
+    import uuid
+
+    from datetime import timedelta
     from zoneinfo import ZoneInfo
 
-    from moni.cron.run_history import CronRunHistory
-    from moni.fetch.base import _ensure_sources_loaded, _FETCHER_REGISTRY
     from moni.fetch.scheduler import Scheduler as FetchScheduler
 
     CST = ZoneInfo("Asia/Shanghai")
     now = datetime.now(CST)
     triggered_at = now.isoformat()
-    history = CronRunHistory()
 
     # Monday weekend catch-up
     date_from: str | None = None
@@ -447,7 +477,60 @@ def trigger_fetch_all() -> dict[str, Any]:
     if not enabled:
         return {"status": "skipped", "message": "No enabled sources", "results": []}
 
+    batch_id = str(uuid.uuid4())
+
+    thread = threading.Thread(
+        target=_run_batch_job,
+        args=(batch_id, enabled, date_from, triggered_at),
+        daemon=True,
+        name=f"fetch-batch-{batch_id[:8]}",
+    )
+    thread.start()
+
+    return {
+        "batch_id": batch_id,
+        "status": "running",
+        "sources_total": len(enabled),
+        "poll_url": f"/api/fetch/jobs/batch/{batch_id}",
+    }
+
+
+def _run_batch_job(
+    batch_id: str,
+    enabled: list[dict[str, Any]],
+    date_from: str | None,
+    triggered_at: str,
+) -> None:
+    """Background worker for batch fetch — runs each source sequentially.
+
+    Creates a fetch_jobs row per source (sharing ``batch_id``), runs
+    the fetcher with progress tracking, and logs to cron_runs +
+    fetch_log.  Each source gets its own 10-min timeout.
+
+    Catches all exceptions per-source so one failure doesn't abort
+    the entire batch.
+    """
+    import time
+
+    from zoneinfo import ZoneInfo
+
+    from moni.cron.run_history import CronRunHistory
+    from moni.fetch.base import _ensure_sources_loaded, _FETCHER_REGISTRY
+
+    CST = ZoneInfo("Asia/Shanghai")
+    history = CronRunHistory()
+    jobs = FetchJobStore()
+
     _ensure_sources_loaded()
+
+    # Pre-create all job rows so total_sources is correct from the first poll.
+    # Pending jobs get current_feed='(排队中)' to distinguish from the active one.
+    job_ids: dict[str, str] = {}
+    for cfg in enabled:
+        source_name: str = cfg["source_name"]
+        jid = jobs.create(source_name, batch_id=batch_id)
+        jobs.update_progress(jid, current_feed="(排队中)")
+        job_ids[source_name] = jid
 
     # Create cron_runs row
     cron_run_rowid = history.log_run(
@@ -459,23 +542,65 @@ def trigger_fetch_all() -> dict[str, Any]:
         sources_run=0,
     )
 
-    results: list[dict[str, Any]] = []
     total_inserted = 0
     sources_failed = 0
 
     for cfg in enabled:
         source_name: str = cfg["source_name"]
+        job_id = job_ids[source_name]
 
         if source_name not in _FETCHER_REGISTRY:
-            results.append({"source": source_name, "error": "No fetcher registered"})
+            jobs.mark_failed(job_id, "No fetcher registered")
             sources_failed += 1
             continue
 
         try:
+            started = time.monotonic()
+            deadline = started + JOB_TIMEOUT_SECONDS
+
             fetcher = _FETCHER_REGISTRY[source_name]()
             if date_from:
                 fetcher.date_from = date_from
+
+            def _persist_progress(
+                *,
+                total_feeds: int | None = None,
+                done_feeds: int | None = None,
+                current_feed: str | None = None,
+                articles_so_far: int | None = None,
+            ) -> None:
+                try:
+                    jobs.update_progress(
+                        job_id,
+                        total_feeds=total_feeds,
+                        done_feeds=done_feeds,
+                        current_feed=current_feed,
+                        articles_so_far=articles_so_far,
+                    )
+                except Exception as exc:
+                    logger.debug("[%s] progress persist failed: %s", source_name, exc)
+                if time.monotonic() > deadline:
+                    raise TimeoutError(
+                        f"Fetch exceeded {JOB_TIMEOUT_SECONDS}s timeout"
+                    )
+
+            fetcher.progress_callback = _persist_progress
             result = fetcher.run()
+
+            if time.monotonic() > deadline:
+                jobs.mark_timeout(job_id)
+                sources_failed += 1
+                continue
+
+            if result is None:
+                jobs.mark_done(job_id, {
+                    "source": source_name,
+                    "status": "skipped",
+                    "message": "Source not due for fetching",
+                })
+                continue
+
+            jobs.mark_done(job_id, result)
 
             # Calculate deduped
             dropped_total = (
@@ -488,7 +613,6 @@ def trigger_fetch_all() -> dict[str, Any]:
                 result.get("parsed", 0) - result.get("inserted", 0) - dropped_total,
             )
             result["deduped"] = deduped
-            results.append(result)
 
             # Log to fetch_log
             history.log_fetch(
@@ -513,21 +637,18 @@ def trigger_fetch_all() -> dict[str, Any]:
             if result.get("error"):
                 sources_failed += 1
 
+        except TimeoutError as exc:
+            logger.warning("[%s] batch job timed out: %s", source_name, exc)
+            jobs.mark_timeout(job_id, str(exc))
+            sources_failed += 1
         except Exception as exc:
-            error_msg = f"{type(exc).__name__}: {exc}"
-            results.append({"source": source_name, "error": error_msg})
-            history.log_fetch(
-                cron_run_rowid=cron_run_rowid,
-                source=source_name,
-                fetched=0, parsed=0, inserted=0, parse_errors=0,
-                error=error_msg,
-            )
+            logger.exception("[%s] batch job failed", source_name)
+            jobs.mark_failed(job_id, f"{type(exc).__name__}: {exc}")
             sources_failed += 1
 
     # Update cron_runs with final totals
     finished_at = datetime.now(CST).isoformat()
     try:
-        from moni.db.connection import get_db
         conn = get_db()
         conn.execute(
             "UPDATE cron_runs SET finished_at=?, success=?, error=?, new_articles=?, sources_run=? WHERE id=?",
@@ -543,13 +664,3 @@ def trigger_fetch_all() -> dict[str, Any]:
         conn.commit()
     except Exception:
         pass
-
-    return {
-        "status": "done" if sources_failed == 0 else "partial",
-        "date_from": date_from,
-        "sources_total": len(enabled),
-        "sources_ok": len(enabled) - sources_failed,
-        "sources_failed": sources_failed,
-        "total_inserted": total_inserted,
-        "results": results,
-    }
