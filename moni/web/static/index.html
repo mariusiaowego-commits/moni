@@ -1,13 +1,19 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>moni</title>
+  <!-- v1.0.8.7: preload alpinejs so hard-refresh doesn't race the
+       x-cloak → x-show transition (browser sometimes hides the list
+       because Alpine hasn't finished init by the time it processes
+       the defer script).  preloading gets the bytes on the wire
+       before HTML parsing hits the <script defer> tag. -->
+  <link rel="preload" as="script" href="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css?v=1782496537">
+  <link rel="stylesheet" href="css/main.css?v=1783496537">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -2101,11 +2107,11 @@
 
   </div>
 
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
-  <script src="js/app.js?v=1782496537"></script>
-  <script src="js/theme.js?v=1782496537"></script>
-  <script src="js/icons.js?v=1782496537"></script>
-  <script src="js/pin_anim.js?v=1782496537"></script>
+  <script src="js/app.js?v=1783496537"></script>
+  <script src="js/theme.js?v=1783496537"></script>
+  <script src="js/icons.js?v=1783496537"></script>
+  <script src="js/pin_anim.js?v=1783496537"></script>
 </body>
 </html>
