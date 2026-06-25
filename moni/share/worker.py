@@ -131,6 +131,15 @@ def launch_worker() -> WorkerLaunch:
     env.setdefault("MONI_QUEUE_DIR", str(DEFAULT_QUEUE_DIR))
     env.setdefault("MONI_OUTPUT_DIR", str(DEFAULT_OUTPUT_DIR))
 
+    # v1.0.5.26: defense-in-depth PATH prepend.  default_worker.sh
+    # also does this on its own, but the worker Popen here might
+    # also run code paths that exec hermes directly.  Adding
+    # ~/.local/bin to the front works whether the launch came from
+    # the web UI button, cron, launchd, or a manual shell — all of
+    # these have different default PATHs and only some include
+    # the directory where `hermes` lives.
+    env["PATH"] = f"{Path.home()}/.local/bin:" + env.get("PATH", "")
+
     # 6. Spawn detached.  start_new_session puts the worker in its
     # own process group so SIGTERM on 8900 doesn't kill it (the
     # user explicitly wants the worker to outlive the request that

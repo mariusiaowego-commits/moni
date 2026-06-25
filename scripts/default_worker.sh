@@ -38,6 +38,14 @@ if [[ ! -d "$QUEUE_DIR" ]]; then
     exit 0
 fi
 
+# v1.0.5.26: defense-in-depth PATH prepend.  Cron / launchd subprocs
+# inherit a stripped PATH (/usr/bin:/bin) without ~/.local/bin, so
+# `hermes` (the AI CLI the worker invokes) is FileNotFoundError →
+# share task fails in 1s with empty error_msg.  Adding ~/.local/bin
+# here works across cron / launchd / web UI button / manual shell
+# without depending on the caller's PATH.  Idempotent.
+export PATH="$HOME/.local/bin:$PATH"
+
 # --- Concurrent execution guard (POSIX, works on macOS + Linux) -----------
 # Atomic creation of $QUEUE_DIR/.lock containing our PID.
 # - If the lock file doesn't exist, create it with our PID and hold it.
