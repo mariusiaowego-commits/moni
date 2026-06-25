@@ -104,6 +104,16 @@ def search_by_url(url: str, api_key: str) -> str | None:
         # of marking bb_fetched_at permanently.
         logger.warning("[bestblogs_api] search connection error (transient): %s", exc)
         return None
+    except json.JSONDecodeError as exc:
+        # v1.0.9.3: resp.json() on empty body / non-JSON 200 response.
+        # Common when BestBlogs upstream SSL EOFs or returns 200 with
+        # empty body.  Explicit catch so the log message names the cause
+        # (the generic `except Exception` below is the safety net).
+        logger.warning(
+            "[bestblogs_api] search returned non-JSON body (transient): %s",
+            exc,
+        )
+        return None
     except Exception as exc:
         # Unknown exception — treat as transient to be safe.
         logger.warning("[bestblogs_api] search error (treated transient): %s", exc)
@@ -180,8 +190,12 @@ def fetch_and_store(article_id: str) -> dict[str, Any] | None:
         logger.warning("[bestblogs_api] article %s not found", article_id)
         return None
 
-    if row["source"] != "bestblogs":
-        logger.debug("[bestblogs_api] article %s source=%s, not bestblogs", article_id, row["source"])
+    # v1.0.9.3: was `row["source"] != "bestblogs"` (string equality).
+    # This excluded the 3 bestblog-* sub-sources (bestblog-podcast /
+    # bestblog-x / bestblog-yt) introduced in v1.0.5.18, leaving 156
+    # articles unable to get BB enhancement.  Use a prefix check.
+    if not (row["source"] == "bestblogs" or row["source"].startswith("bestblog-")):
+        logger.debug("[bestblogs_api] article %s source=%s, not bestblogs*", article_id, row["source"])
         return None
 
     if row["bb_fetched_at"]:
