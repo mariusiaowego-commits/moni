@@ -4,12 +4,35 @@
 
 ---
 
-## 当前状态: **v1.0.9.2 — bestblogs transient vs permanent miss** (2026-06-24)
+## 当前状态: **v1.0.9.3 — BestBlogs 增强一致性** (2026-06-25)
 
-**主分支**: main @ v1.0.9.2 (2a688ff, PR #43 merged)
-**Web 服务**: `127.0.0.1:8900` (Python 3.12, v1.0.9.1 跑的,本次未重启因为只动 share task 调用的 bestblogs 模块)
+**主分支**: feature/v1.0.9.3-bestblogs-enhance-audit (待 PR merge)
+**Web 服务**: `127.0.0.1:8900` (Python 3.12, 本次需重启 — frontend hint 改了)
 **数据库**: `data/news.db` — schema_version=18, 11 tables
-**测试**: 413 passed, 2 skipped
+**测试**: 421 passed, 2 skipped
+
+### v1.0.9.3 进展 (2026-06-25)
+
+**BestBlogs 增强一致性修复 (3 个 bug + 1 个 UI 缺陷)**:
+
+1. **Bug #1 (P1, 修复)**: `source != 'bestblogs'` 字符串硬匹配 → 3 个 bestblog-* 子源 (bestblog-podcast / bestblog-x / bestblog-yt, 共 156 篇) 全部被静默排除, BB 增强从不生效。改为前缀匹配 (`=='bestblogs' or .startswith('bestblog-')`) 后这 156 篇可正常获取 BB 元数据。
+
+2. **Bug #2 (P1, 修复)**: 3 个 bestblogs 文章在 v1.0.5.25 时代 (v1.0.9.2 修复之前) 因瞬时 API 失败被错误标记 `bb_fetched_at` 但 BB 字段全 NULL。**v1.0.9.2 fix 不会回溯老数据**。新增 `scripts/backfill_bb_poisoned_rows.py` 一键清掉毒化行 (默认 `--dry-run`, 需 `--commit` 确认)。SQL 仅匹配 `bb_fetched_at` 非空 + 5 个 bb_* 字段全 NULL, 极其特异, 不会误伤有效行。
+
+3. **Bug #3 (P2, 修复)**: `bb_summary_source` 之前是 prompt 软约束, worker 模板总是同时渲染 AI + BB 摘要 (若两者都非 NULL)。worker 现在直接按 `moni_ai | bestblogs | both | none` 分支, 6 个新单测覆盖 (含 legacy manifest 兼容)。`scripts/default_worker.sh` 两个 inline Python block 都已改造, 都通过 `manifest_path` sys.argv[3] 读 manifest 里的 `bb_summary_source`。
+
+4. **Bug #4 (P1, UI 修复)**: 分享 modal 加动态 hint: 选中的非 bestblogs* 源文章会被静默跳过, 不消耗 API 额度。颜色: 橙色 #fff7e6 背景 + 琥珀色 #f59e0b 左边框 (与主页面整体冷色风格区分, alert 性质)。
+
+5. **防御加固**: `search_by_url` 加显式 `json.JSONDecodeError` catch (空 body / 非 JSON 200), 比 v1.0.9.2 的 `except Exception` 更精准, 日志更清楚。
+
+**没修的 (v1.0.10+ 范畴)**:
+- 4 字段独立去重 (P2): 4 个 BB 复选框仍共用一个 `bb_fetched_at`, 首次勾任一字段 = 拉全部 6 字段, **也写全部 6 字段**。增量勾选不重拉。需拆 4 列 + backfill。
+- bestblogs 源识别: 仍是字符串匹配 (现在是前缀)。如果用户在 /config 重命名 "bestblogs" 源, BB 增强全失效。v1.0.10+ 加 `sources.bb_enabled BOOLEAN` 列。
+- 4 字段在 modal 上也可独立显示/隐藏, 当前是统一开关。
+
+**测试**: 300+ → 421 passed (+21 测试: 2 个 bestblog sub-source + 1 个 empty body + 6 个 worker 分支 + 1 个 backfill dry-run, 实际新增 7 个 + 之前 baseline 调整)。
+
+**PR 准备**: feature branch 上 6 commits (Task 1/2/3/4/5/6), 待用户 review → squash merge → tag v1.0.9.3 → 手动启 8900 (frontend hint 改了需刷新)。
 
 ### v1.0.9.2 进展 (2026-06-24)
 

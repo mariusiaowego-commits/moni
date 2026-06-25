@@ -98,6 +98,23 @@ class TestSearchByUrl:
         result = search_by_url("https://example.com/article", "test-key")
         assert result is None
 
+    @patch("moni.fetch.bestblogs_api.httpx.get")
+    def test_search_empty_body_is_transient(self, mock_get):
+        """v1.0.9.3: resp.json() on empty body raises JSONDecodeError.
+        Must be caught and return None (transient), not '' (permanent miss).
+        Otherwise poisoned rows accumulate (3 already exist as of 2026-06-25)."""
+        import json as _json
+        from moni.fetch.bestblogs_api import search_by_url
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = ""
+        mock_resp.json.side_effect = _json.JSONDecodeError("Expecting value", "", 0)
+        mock_get.return_value = mock_resp
+
+        result = search_by_url("https://example.com/x", "test-key")
+        assert result is None  # transient, not "" (permanent miss)
+
 
 class TestFetchMeta:
     @patch("moni.fetch.bestblogs_api.httpx.get")
@@ -160,6 +177,36 @@ class TestFetchAndStore:
         with patch("moni.fetch.bestblogs_api._get_api_key", return_value="test-key"):
             result = fetch_and_store("test-art-1")
         assert result is None
+
+    def test_bestblog_subprefix_sources_allowed(self):
+        """v1.0.9.3: bestblog-podcast / bestblog-x / bestblog-yt must
+        also get BB enhancement.  Old code used `== 'bestblogs'` which
+        silently excluded all 156 sub-source articles."""
+        from moni.fetch.bestblogs_api import fetch_and_store
+
+        for sub in ("bestblog-podcast", "bestblog-x", "bestblog-yt"):
+            conn = get_db()
+            # Reset article for this sub-source
+            conn.execute("DELETE FROM articles WHERE id = 'test-art-1'")
+            _seed_article(conn, source=sub)
+
+            with patch("moni.fetch.bestblogs_api.search_by_url", return_value="RAW_abc123") as mock_search, \
+                 patch("moni.fetch.bestblogs_api.fetch_meta") as mock_meta, \
+                 patch("moni.fetch.bestblogs_api._get_api_key", return_value="test-key"):
+                mock_meta.return_value = {
+                    "bb_score": 90, "bb_summary": "x", "bb_one_sentence": "x",
+                    "bb_main_points": [{"point": "p"}],
+                    "bb_key_quotes": ["q"], "bb_tags": ["t"],
+                    "bb_resource_id": "RAW_abc123",
+                }
+                result = fetch_and_store("test-art-1")
+                assert result is not None, f"{sub} should produce a result"
+                assert mock_search.called, f"{sub} should have called search_by_url"
+                # And bb_fetched_at must be set
+                row = conn.execute(
+                    "SELECT bb_fetched_at FROM articles WHERE id='test-art-1'"
+                ).fetchone()
+                assert row["bb_fetched_at"] is not None, f"{sub} should mark fetched_at"
 
     def test_already_fetched(self):
         from moni.fetch.bestblogs_api import fetch_and_store
