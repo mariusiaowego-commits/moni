@@ -296,11 +296,28 @@ PYEOF
     local article_content=""
     if [[ -n "$article_ids_str" ]]; then
         # Python: parse JSON array and query with parameterized IN clause
-        article_content=$(python3 - "$article_ids_str" "$DB_PATH" <<'PYEOF'
+        # v1.0.9.3: also pass manifest_path so the inner Python can read
+        # bb_summary_source and branch on it (was prompt soft-constraint,
+        # worker template always rendered both ai_summary + bb_summary).
+        article_content=$(python3 - "$article_ids_str" "$DB_PATH" "$manifest_path" <<'PYEOF'
 import json, ast, sqlite3, sys
 ids_str = sys.argv[1]
 db_path = sys.argv[2]
+manifest_path = sys.argv[3] if len(sys.argv) > 3 else ""
 try:
+    # v1.0.9.3: read bb_summary_source from manifest payload.  Default
+    # 'moni_ai' preserves pre-v1.0.9.3 behavior (always show AI summary).
+    bb_summary_source = "moni_ai"
+    if manifest_path:
+        try:
+            with open(manifest_path) as _mf:
+                _m = json.loads(_mf.read())
+            _p = _m.get("payload", {}) if isinstance(_m.get("payload"), dict) else {}
+            _v = _p.get("bb_summary_source")
+            if _v in ("moni_ai", "bestblogs", "both", "none"):
+                bb_summary_source = _v
+        except Exception:
+            pass
     ids_str = ids_str.strip()
     if ids_str.startswith("["):
         try:
@@ -327,13 +344,21 @@ try:
         aid, title, content, ai_summary, source, bb_score, bb_summary, bb_one_sentence, bb_main_points, bb_key_quotes, bb_tags = row
         if content and content.strip():
             block = f"### 文章: {title}\nID: {aid}\n\n{content}"
-            if ai_summary and ai_summary.strip():
+            # v1.0.9.3: branch on bb_summary_source.  Was a prompt
+            # soft-constraint, worker always rendered both.  Now:
+            #   moni_ai   → AI summary only
+            #   bestblogs → BB summary only
+            #   both      → AI + BB, AI first
+            #   none      → neither
+            show_ai = bb_summary_source in ("moni_ai", "both") and ai_summary and ai_summary.strip()
+            show_bb = bb_summary_source in ("bestblogs", "both") and bb_summary and bb_summary.strip()
+            if show_ai:
                 block += f"\n\n**AI 摘要**: {ai_summary}"
+            if show_bb:
+                block += f"\n\n**BestBlogs 摘要**: {bb_summary}"
             # BestBlogs 增强数据（如果已拉取）
             if bb_score is not None:
                 block += f"\n\n**BestBlogs 评分**: {bb_score}/100"
-            if bb_summary and bb_summary.strip():
-                block += f"\n\n**BestBlogs 摘要**: {bb_summary}"
             if bb_one_sentence and bb_one_sentence.strip():
                 block += f"\n\n**一句话洞察**: {bb_one_sentence}"
             if bb_main_points:
@@ -423,12 +448,26 @@ except Exception as e:
 BBEOF
 
         # Re-read article content to pick up newly stored BB data
+        # v1.0.9.3: also pass manifest_path for bb_summary_source branching.
         if [[ -n "$article_ids_str" ]]; then
-            article_content=$(python3 - "$article_ids_str" "$DB_PATH" <<'PYEOF'
+            article_content=$(python3 - "$article_ids_str" "$DB_PATH" "$manifest_path" <<'PYEOF'
 import json, ast, sqlite3, sys
 ids_str = sys.argv[1]
 db_path = sys.argv[2]
+manifest_path = sys.argv[3] if len(sys.argv) > 3 else ""
 try:
+    # v1.0.9.3: read bb_summary_source from manifest payload
+    bb_summary_source = "moni_ai"
+    if manifest_path:
+        try:
+            with open(manifest_path) as _mf:
+                _m = json.loads(_mf.read())
+            _p = _m.get("payload", {}) if isinstance(_m.get("payload"), dict) else {}
+            _v = _p.get("bb_summary_source")
+            if _v in ("moni_ai", "bestblogs", "both", "none"):
+                bb_summary_source = _v
+        except Exception:
+            pass
     ids_str = ids_str.strip()
     if ids_str.startswith("["):
         try:
@@ -455,12 +494,15 @@ try:
         aid, title, content, ai_summary, source, bb_score, bb_summary, bb_one_sentence, bb_main_points, bb_key_quotes, bb_tags = row
         if content and content.strip():
             block = f"### 文章: {title}\nID: {aid}\n\n{content}"
-            if ai_summary and ai_summary.strip():
+            # v1.0.9.3: branch on bb_summary_source
+            show_ai = bb_summary_source in ("moni_ai", "both") and ai_summary and ai_summary.strip()
+            show_bb = bb_summary_source in ("bestblogs", "both") and bb_summary and bb_summary.strip()
+            if show_ai:
                 block += f"\n\n**AI 摘要**: {ai_summary}"
+            if show_bb:
+                block += f"\n\n**BestBlogs 摘要**: {bb_summary}"
             if bb_score is not None:
                 block += f"\n\n**BestBlogs 评分**: {bb_score}/100"
-            if bb_summary and bb_summary.strip():
-                block += f"\n\n**BestBlogs 摘要**: {bb_summary}"
             if bb_one_sentence and bb_one_sentence.strip():
                 block += f"\n\n**一句话洞察**: {bb_one_sentence}"
             if bb_main_points:
