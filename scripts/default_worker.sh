@@ -24,7 +24,16 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 QUEUE_DIR="${MONI_QUEUE_DIR:-${HOME:-~}/.moni/queue}"
 LOCK_FILE="${QUEUE_DIR}/.lock"
-DB_PATH="${MONI_DB:-${HOME:-~}/.moni/data/moni.db}"
+# v1.0.9.3 fix: handle MONI_DB='' (empty) explicitly.  bash's ${VAR:-default}
+# only triggers on unset, not empty.  A caller that explicitly exports
+# MONI_DB='' (e.g. a wrapper that wanted to disable the override) would
+# silently fall through to the wrong default.  Use ${VAR-default}
+# (or an explicit empty-check) so empty means "use project default".
+if [[ -n "${MONI_DB:-}" ]]; then
+    DB_PATH="${MONI_DB}"
+else
+    DB_PATH="${REPO_ROOT}/data/news.db"
+fi
 TIMEOUT_SECONDS=300          # 5 minutes per task
 
 # v1.0.5.18: prompt directory.  Relative to the project root so

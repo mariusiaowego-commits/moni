@@ -105,8 +105,15 @@ def launch_worker() -> WorkerLaunch:
             error=f"worker script not found: {WORKER_SCRIPT}",
         )
 
-    # 3. Pre-flight: DB path parent must exist
-    db_path = Path(os.environ.get("MONI_DB", str(DEFAULT_DB)))
+    # 3. Pre-flight: DB path.  v1.0.9.3 fix: also handle the case
+    # where env has MONI_DB='' (empty string) — Python's setdefault
+    # only checks key-presence, not falsy, so an empty MONI_DB in
+    # the web's env would silently leave the worker reading the
+    # WRONG default ~/.moni/data/moni.db.  We always set the
+    # project-relative path explicitly; if the caller wants a
+    # different DB they can pass it via the env var to override
+    # by setting a non-empty value at 8900 launch time.
+    db_path = Path(os.environ.get("MONI_DB") or str(DEFAULT_DB))
     if not db_path.parent.exists():
         return WorkerLaunch(
             started=False, already_running=False, pid=None,
@@ -121,15 +128,13 @@ def launch_worker() -> WorkerLaunch:
     LOG_FILE.touch(exist_ok=True)
 
     # 5. Build env.  We forward PATH (hermes CLI is on PATH) and
-    # the same MONI_DB / MONI_QUEUE_DIR the web layer uses.  The
-    # worker has its own defaults that fall back to project-root
-    # / HOME, so omitting these would still work in 99% of cases
-    # — but we set them explicitly so a future env-tweak to the
-    # web layer doesn't silently break the worker.
+    # the same MONI_DB / MONI_QUEUE_DIR the web layer uses.  We
+    # use direct assignment (not setdefault) for MONI_DB so an
+    # empty-string value in the caller's env doesn't leak through.
     env = os.environ.copy()
-    env.setdefault("MONI_DB", str(db_path))
-    env.setdefault("MONI_QUEUE_DIR", str(DEFAULT_QUEUE_DIR))
-    env.setdefault("MONI_OUTPUT_DIR", str(DEFAULT_OUTPUT_DIR))
+    env["MONI_DB"] = str(db_path)
+    env["MONI_QUEUE_DIR"] = str(DEFAULT_QUEUE_DIR)
+    env["MONI_OUTPUT_DIR"] = str(DEFAULT_OUTPUT_DIR)
 
     # v1.0.5.26: defense-in-depth PATH prepend.  default_worker.sh
     # also does this on its own, but the worker Popen here might
@@ -138,7 +143,17 @@ def launch_worker() -> WorkerLaunch:
     # the web UI button, cron, launchd, or a manual shell — all of
     # these have different default PATHs and only some include
     # the directory where `hermes` lives.
-    env["PATH"] = f"{Path.home()}/.local/bin:" + env.get("PATH", "")
+    #
+    # v1.0.9.3: ALSO prepend /usr/local/bin so the worker's
+    # `python3` (3.12) has the project deps (yaml, etc.).  macOS
+    # system python3 (3.14) is missing yaml and breaks
+    # `moni.fetch.bestblogs_api` import — the worker silently dies
+    # with ModuleNotFoundError and the share task gets stuck
+    # forever.  /usr/local/bin/python3 is the same interpreter
+    # the v1.0.8 web.sh fix pinned, matching the web process.
+    env["PATH"] = (
+        f"{Path.home()}/.local/bin:/usr/local/bin:" + env.get("PATH", "")
+    )
 
     # 6. Spawn detached.  start_new_session puts the worker in its
     # own process group so SIGTERM on 8900 doesn't kill it (the

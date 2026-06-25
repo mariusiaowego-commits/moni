@@ -39,14 +39,27 @@ case "${1:-start}" in
     fi
     ;;
   stop)
-    pid=$(lsof -ti :"$PORT" 2>/dev/null || true)
-    if [[ -n "$pid" ]]; then
-      kill "$pid" && echo "8900 stopped (pid $pid)" || echo "kill failed"
-      rm -f "$PID_FILE"
-    else
-      echo "8900 not running"
-      rm -f "$PID_FILE"
-    fi
+    for pid in $(lsof -ti :"$PORT" 2>/dev/null); do
+      # v1.0.9.3: only kill the actual Python uvicorn process, not
+      # any transient Chrome processes that may briefly share the
+      # port during browser navigation.  ps comm may be the full
+      # path on macOS, so compare against the basename.
+      comm=$(ps -o comm= -p "$pid" 2>/dev/null | xargs -I{} basename {} || echo "")
+      case "$comm" in
+        Python|python3|python3.1|python)
+          kill "$pid" && echo "8900 stopped (pid $pid)" || echo "kill $pid failed"
+          ;;
+        *)
+          echo "skip non-Python pid $pid (comm=$comm) on port $PORT"
+          ;;
+      esac
+    done
+    rm -f "$PID_FILE"
+    ;;
+  restart)
+    "$0" stop
+    sleep 1
+    "$0" start
     ;;
   status)
     pid=$(lsof -ti :"$PORT" 2>/dev/null || true)
