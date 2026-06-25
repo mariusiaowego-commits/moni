@@ -4,14 +4,21 @@
 
 ---
 
-## 当前状态: **v1.0.8.3 — solid pin icon (img-gen 选 B)** (2026-06-24)
+## 当前状态: **v1.0.9.1 — share worker PATH prepend (cron 修复)** (2026-06-24)
 
-**主分支**: main @ v1.0.8.3 (1599b45)
-**Web 服务**: `127.0.0.1:8900` (代码已是 v1.0.8.3, 待用户 uni restart moni)
+**主分支**: main @ v1.0.9.1 (72bd206, PR #42 merged)
+**Web 服务**: `127.0.0.1:8900` (Python 3.12, restarted on v1.0.9.1)
 **数据库**: `data/news.db` — schema_version=17, 11 tables
 **测试**: 412 passed, 2 skipped
 
-### v1.0.8.3 进展 (2026-06-24)
+### v1.0.9.1 进展 (2026-06-24)
+
+**Share worker PATH prepend (cron FileNotFoundError 修复)**:
+- `scripts/default_worker.sh` + `moni/share/worker.py` 启动子进程前 `export PATH="$HOME/.local/bin:$PATH"`
+- 根因: cron / launchd 子进程 PATH 精简 (/usr/bin:/bin),hermes CLI 装在 ~/.local/bin 找不到 → share task 1 秒死 + error_msg 永远空
+- Defense-in-depth: 任何调用方式 (cron / launchd / web UI / 手动 shell) 都能找到 hermes
+- 验证: `env -i PATH=/usr/bin:/bin` 模拟 cron 不再爆 FileNotFoundError;失败任务 `t5TRTdiMfE52cEOUtik-fA` 重跑成功,产物 PDF 15KB 1 页
+- 详见 `concepts/moni-ai-architecture.md` (v1.0.5.26 那条踩坑)
 
 **Pin icon 改版**:
 - Pinned: SOLID silhouette (梯形头 + 粗针 + 底点), 17px 紫藤萝 — 来自 image gen (Fal gpt-image-2), 用户选候选 B
