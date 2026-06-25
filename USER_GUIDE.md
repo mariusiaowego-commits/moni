@@ -388,6 +388,7 @@ v1.0.5.18 重构后, 分享菜单在"选择格式"下方多 3 块可选项 (所�
   - moni AI: 用 LLM 生成摘要 (默认, 保留原有能力)
   - BestBlogs: 用 BestBlogs API 的专业摘要 (消耗 API 额度)
   - 两者: 同时展示, 分别标注来源
+  - 不展示: artifact 不渲染任何摘要 (其他 BB 字段仍展示)
 - **质量评分**: BestBlogs 0-100 综合质量分
 - **要点列表**: 文章核心要点
 - **金句**: 文章关键引述
@@ -395,6 +396,18 @@ v1.0.5.18 重构后, 分享菜单在"选择格式"下方多 3 块可选项 (所�
 
 **额度**: Free 用户每天 50 次 API 调用。已拉取的文章不重复调用。
 **生效条件**: 勾选任一增强选项 → 分享时自动调 API → 数据入库 → 后续分享复用。
+
+**适用源 (v1.0.9.3)**:
+- `bestblogs` (OPML 聚合, 177 篇)
+- `bestblog-podcast` (BestBlogs 播客, 99 篇)
+- `bestblog-x` (BestBlogs X.com, 40 篇)
+- `bestblog-yt` (BestBlogs YouTube, 17 篇)
+
+**其他源 (36kr_rss / mpaypass / qbitai / wechat_rss_* / huxiu) 即使勾选 BB 增强, artifact 也不会有 BB 块**。分享 modal 现在会在选中混合源时显示橙色提示 (如 "已选 2 篇非 bestblogs 源文章, BB 增强仅对 bestblogs* 源生效")。
+
+**故障排除**:
+- artifact 没出现 BB 块 + modal 没提示: 该文章已被 v1.0.5.25 时代错误标记 `bb_fetched_at` (毒化行)。运行 `python3 scripts/backfill_bb_poisoned_rows.py --dry-run` 查看, `--commit` 清理后重分享即可。
+- artifact 出现 BB 块但字段为空: API 临时挂了。worker 不会标记 `bb_fetched_at`, 下次分享自动重试。
 #### 5.5.2 高级选项 (provider / model 覆盖)
 
 ```
