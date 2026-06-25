@@ -1764,6 +1764,21 @@ function app() {
           || this.shareFormat === 'ppt_slides';
     },
 
+    // v1.0.9.3: count of selected articles that CANNOT get BB
+    // enhancement (not bestblogs or any bestblog-* sub-source).
+    // The share modal shows an inline warning when this is > 0,
+    // so users know why some articles won't get BB blocks in the
+    // artifact.  Read the source field from each article in
+    // allArticles (the source list is loaded by loadAllArticles).
+    get shareBBIneligibleCount() {
+      if (!this.selectedArticleIds || !this.selectedArticleIds.length) return 0;
+      const selectedSet = new Set(this.selectedArticleIds);
+      return this.allArticles.filter(a =>
+        selectedSet.has(a.id) &&
+        !(a.source === 'bestblogs' || (typeof a.source === 'string' && a.source.startsWith('bestblog-')))
+      ).length;
+    },
+
     loadShareQueue() {
       // v1.0.5.11: list endpoint is /api/share/tasks (not /api/share/queue).
       // v1.0.5.14: response is paginated as {items, total, page, page_size};

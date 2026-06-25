@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css?v=1784496537">
+  <link rel="stylesheet" href="css/main.css?v=1785000000">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -788,6 +788,17 @@
               专业标签 (bbTags)
             </label>
           </div>
+          <!-- v1.0.9.3: dynamic hint when selected articles include
+               non-bestblogs* sources.  These are silently skipped
+               (no API call, no BB block in artifact).  Show the
+               count so the user knows which articles won't be
+               enhanced.  Moni UX rule: tell user "why nothing
+               happened" instead of swallowing the configuration. -->
+          <p x-show="selectedArticleIds.length > 0 && shareBBIneligibleCount > 0"
+             data-testid="bb-ineligible-hint"
+             style="font-size: 0.85em; margin-top: 8px; padding: 6px 10px; background: #fff7e6; border-left: 3px solid #f59e0b; border-radius: 3px; color: #92400e;">
+            ⚠️ 已选 <strong x-text="shareBBIneligibleCount"></strong> 篇非 bestblogs 源文章，BB 增强仅对 bestblogs / bestblog-podcast / bestblog-x / bestblog-yt 源生效（其他文章会被静默跳过，不消耗 API 额度）。
+          </p>
           <p class="muted" style="font-size: 0.85em; margin-top: 4px;">
             注: 勾选任一增强选项会调用 BestBlogs API（每天 50 次免费额度）。已拉取的文章不会重复调用。
           </p>
@@ -2164,9 +2175,9 @@
 
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
-  <script src="js/app.js?v=1784496537"></script>
-  <script src="js/theme.js?v=1784496537"></script>
-  <script src="js/icons.js?v=1784496537"></script>
-  <script src="js/pin_anim.js?v=1784496537"></script>
+  <script src="js/app.js?v=1785000000"></script>
+  <script src="js/theme.js?v=1785000000"></script>
+  <script src="js/icons.js?v=1785000000"></script>
+  <script src="js/pin_anim.js?v=1785000000"></script>
 </body>
 </html>
