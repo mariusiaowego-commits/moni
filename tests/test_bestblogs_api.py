@@ -72,8 +72,11 @@ class TestSearchByUrl:
         }
         mock_get.return_value = mock_resp
 
+        # v1.0.9.2: empty dataList = permanent miss → "" (not None)
+        # so caller can mark bb_fetched_at.  None is reserved for
+        # transient errors (timeout / SSL EOF / 5xx / 429).
         result = search_by_url("https://example.com/notfound", "test-key")
-        assert result is None
+        assert result == ""
 
     @patch("moni.fetch.bestblogs_api.httpx.get")
     def test_search_rate_limit(self, mock_get):
@@ -204,9 +207,12 @@ class TestFetchAndStore:
         assert row["bb_summary"] == "Great article"
         assert row["bb_fetched_at"] is not None
 
-    @patch("moni.fetch.bestblogs_api.search_by_url", return_value=None)
+    @patch("moni.fetch.bestblogs_api.search_by_url", return_value="")
     @patch("moni.fetch.bestblogs_api._get_api_key", return_value="test-key")
-    def test_search_miss_marks_fetched(self, mock_key, mock_search):
+    def test_search_permanent_miss_marks_fetched(self, mock_key, mock_search):
+        """v1.0.9.2: search_by_url returning '' means permanent miss
+        (URL not in BestBlogs index).  fetch_and_store marks
+        bb_fetched_at so we don't keep retrying."""
         from moni.fetch.bestblogs_api import fetch_and_store
 
         conn = get_db()
@@ -220,6 +226,26 @@ class TestFetchAndStore:
             "SELECT bb_fetched_at FROM articles WHERE id = 'test-art-1'"
         ).fetchone()
         assert row["bb_fetched_at"] is not None
+
+    @patch("moni.fetch.bestblogs_api.search_by_url", return_value=None)
+    @patch("moni.fetch.bestblogs_api._get_api_key", return_value="test-key")
+    def test_search_transient_error_does_not_mark_fetched(self, mock_key, mock_search):
+        """v1.0.9.2: search_by_url returning None means transient error
+        (SSL EOF, timeout, 5xx, 429).  fetch_and_store must NOT mark
+        bb_fetched_at so the next run retries."""
+        from moni.fetch.bestblogs_api import fetch_and_store
+
+        conn = get_db()
+        _seed_article(conn)
+
+        result = fetch_and_store("test-art-1")
+        assert result is None
+
+        # Should NOT mark bb_fetched_at — we want to retry next run.
+        row = conn.execute(
+            "SELECT bb_fetched_at FROM articles WHERE id = 'test-art-1'"
+        ).fetchone()
+        assert row["bb_fetched_at"] is None
 
     @patch("moni.fetch.bestblogs_api.fetch_meta", return_value=None)
     @patch("moni.fetch.bestblogs_api.search_by_url", return_value="RAW_abc123")
