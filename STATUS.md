@@ -4,12 +4,21 @@
 
 ---
 
-## 当前状态: **v1.0.9.1 — share worker PATH prepend (cron 修复)** (2026-06-24)
+## 当前状态: **v1.0.9.2 — bestblogs transient vs permanent miss** (2026-06-24)
 
-**主分支**: main @ v1.0.9.1 (72bd206, PR #42 merged)
-**Web 服务**: `127.0.0.1:8900` (Python 3.12, restarted on v1.0.9.1)
-**数据库**: `data/news.db` — schema_version=17, 11 tables
-**测试**: 412 passed, 2 skipped
+**主分支**: main @ v1.0.9.2 (2a688ff, PR #43 merged)
+**Web 服务**: `127.0.0.1:8900` (Python 3.12, v1.0.9.1 跑的,本次未重启因为只动 share task 调用的 bestblogs 模块)
+**数据库**: `data/news.db` — schema_version=18, 11 tables
+**测试**: 413 passed, 2 skipped
+
+### v1.0.9.2 进展 (2026-06-24)
+
+**BestBlogs transient vs permanent miss 修复**:
+- 之前 `search_by_url` 返 `None` 涵盖两种情况: URL 真不在 bestblogs 索引 (永久) + SSL EOF/timeout/5xx/429 (瞬时)。两种都 `mark bb_fetched_at` → 瞬时错误被永久污染
+- 三态返回: `str` (找到) / `""` (永久 miss, mark) / `None` (瞬时, **不** mark, 下次重试)
+- 显式 catch `httpx.ConnectError` / `RemoteProtocolError` (SSL EOF 标准错误)
+- 数据清理: SQL 把 3 篇被 SSL EOF 误标的 bestblogs 文章 `bb_fetched_at` 清 NULL, 让它们能重试
+- 测试: `test_search_miss_marks_fetched` 拆成 permanent-miss + transient-error 两个 case
 
 ### v1.0.9.1 进展 (2026-06-24)
 
