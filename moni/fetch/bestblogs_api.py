@@ -46,6 +46,15 @@ def search_by_url(url: str, api_key: str) -> str | None:
 
     Uses the /search endpoint with the URL as query.
     Returns the first match's resourceId, or None if no match.
+
+    Return value semantics:
+    - resourceId str  → found, proceed to fetch_meta
+    - "" (empty str) → permanent miss (HTTP 200 but success=false) or
+      HTTP 4xx (404 not indexed, 401/403 auth issue) — caller should
+      mark bb_fetched_at to avoid retrying
+    - None            → transient error (timeout, SSL EOF, HTTP 5xx,
+      HTTP 429 rate-limit) — caller should NOT mark bb_fetched_at so
+      we can retry on the next share/run
     """
     encoded = urllib.parse.quote(url, safe="")
     search_url = f"{_BASE_URL}/search?q={encoded}&pageSize=1"
@@ -56,28 +65,48 @@ def search_by_url(url: str, api_key: str) -> str | None:
             timeout=_TIMEOUT_SEARCH,
         )
         if resp.status_code == 429:
+            # v1.0.9.2: rate-limit is transient.  Return None so caller
+            # doesn't mark fetched_at; we'll retry on next run.
             logger.warning("[bestblogs_api] rate limited on search")
             return None
+        if resp.status_code in (401, 403, 404):
+            # Permanent: bad key / forbidden / URL not in index.
+            # Mark fetched_at so we don't keep retrying with the same
+            # bad input.
+            logger.warning("[bestblogs_api] search HTTP %d (permanent)", resp.status_code)
+            return ""
         if resp.status_code != 200:
-            logger.warning("[bestblogs_api] search returned %d", resp.status_code)
+            # Transient (5xx, etc.) — return None so we retry next time.
+            logger.warning("[bestblogs_api] search HTTP %d (transient)", resp.status_code)
             return None
         data = resp.json()
         if not data.get("success"):
+            # API-level failure message — likely permanent for this URL.
             logger.warning("[bestblogs_api] search failed: %s", data.get("message"))
-            return None
+            return ""
         items = data.get("data", {}).get("dataList", [])
         if not items:
+            # 200 OK but empty list — URL genuinely not in their index.
             logger.info("[bestblogs_api] search no results for URL: %s", url[:80])
-            return None
+            return ""
         resource_id = items[0].get("resourceId")
-        if resource_id:
-            logger.info("[bestblogs_api] found %s for URL", resource_id)
+        if not resource_id:
+            logger.info("[bestblogs_api] search hit but no resourceId for URL: %s", url[:80])
+            return ""
+        logger.info("[bestblogs_api] found %s for URL", resource_id)
         return resource_id
     except httpx.TimeoutException:
         logger.warning("[bestblogs_api] search timeout for URL: %s", url[:80])
+        return None  # transient
+    except (httpx.ConnectError, httpx.RemoteProtocolError) as exc:
+        # v1.0.9.2: SSL EOF / connection reset / TLS handshake failures
+        # are transient — return None so caller retries next run instead
+        # of marking bb_fetched_at permanently.
+        logger.warning("[bestblogs_api] search connection error (transient): %s", exc)
         return None
     except Exception as exc:
-        logger.warning("[bestblogs_api] search error: %s", exc)
+        # Unknown exception — treat as transient to be safe.
+        logger.warning("[bestblogs_api] search error (treated transient): %s", exc)
         return None
 
 
@@ -167,10 +196,20 @@ def fetch_and_store(article_id: str) -> dict[str, Any] | None:
             return dict(existing)
         return None
 
-    # Step 1: Search by URL
+    # Step 1: Search by URL.  Returns:
+    #   str        → resourceId found, proceed
+    #   ""         → permanent miss (URL not in BestBlogs index), mark fetched
+    #   None       → transient error (SSL EOF, timeout, 5xx, 429), leave for retry
     resource_id = search_by_url(row["url"], api_key)
-    if not resource_id:
-        # Mark as fetched to avoid retrying (search miss = permanent)
+    if resource_id is None:
+        # Transient: do NOT mark bb_fetched_at so the next share will
+        # retry.  The caller (worker / CLI) treats None from
+        # fetch_and_store as "skip this round, will try again".
+        logger.info("[bestblogs_api] transient error for %s, will retry next run", article_id)
+        return None
+    if resource_id == "":
+        # Permanent: URL not in BestBlogs index.  Mark so we don't
+        # keep searching for the same URL forever.
         now = datetime.now(timezone.utc).isoformat()
         conn.execute(
             "UPDATE articles SET bb_fetched_at = ? WHERE id = ?",
