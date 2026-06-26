@@ -66,8 +66,8 @@ class ArticleRepository:
                     """
                     INSERT OR IGNORE INTO articles
                         (id, title, url, source, publisher, published_at,
-                         fetched_at, raw_content)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                         fetched_at, raw_content, bb_resource_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         aid,
@@ -78,6 +78,7 @@ class ArticleRepository:
                         art.get("published_at"),
                         now,
                         art.get("content") or art.get("raw_content"),
+                        art.get("bb_resource_id"),
                     ),
                 )
                 # rowcount is 0 for IGNORE'd rows, 1 for inserted rows
