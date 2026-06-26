@@ -403,7 +403,9 @@ try:
         import sys as _sys
         print(f"[warn] {len(skipped)} article(s) with empty content skipped: {skipped}", file=_sys.stderr)
     print("\n\n---\n\n".join(parts))
-except Exception:
+except Exception as e:
+    import traceback
+    print(f"[article_content] error: {e}\n{traceback.format_exc()}", file=sys.stderr)
     print("")
 PYEOF
 )
@@ -453,7 +455,8 @@ try:
     if fetched > 0:
         print(f"[bb_fetch] fetched meta for {fetched} article(s)", file=sys.stderr)
 except Exception as e:
-    print(f"[bb_fetch] error: {e}", file=sys.stderr)
+    import traceback
+    print(f"[bb_fetch] error: {e}\n{traceback.format_exc()}", file=sys.stderr)
 BBEOF
 
         # Re-read article content to pick up newly stored BB data
@@ -547,7 +550,9 @@ try:
         import sys as _sys
         print(f"[warn] {len(skipped)} article(s) with empty content skipped: {skipped}", file=_sys.stderr)
     print("\n\n---\n\n".join(parts))
-except Exception:
+except Exception as e:
+    import traceback
+    print(f"[article_content] error: {e}\n{traceback.format_exc()}", file=sys.stderr)
     print("")
 PYEOF
 )
