@@ -442,6 +442,11 @@ class FetcherBestBlogs(BaseFetcher):
                             pass
 
                 if link:
+                    # Extract BestBlogs resourceId from <guid> if present
+                    # (BestBlogs RSS feeds include <guid>RAW_xxxxx</guid>)
+                    guid = (item.findtext("guid") or "").strip()
+                    bb_resource_id = guid if guid.startswith("RAW_") else None
+
                     articles.append({
                         "title": title,
                         "url": link,
@@ -449,6 +454,7 @@ class FetcherBestBlogs(BaseFetcher):
                         "published_at": published_at,
                         "content": description,
                         "publisher": author,
+                        "bb_resource_id": bb_resource_id,
                     })
             except Exception:
                 continue
