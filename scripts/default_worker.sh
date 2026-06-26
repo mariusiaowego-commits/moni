@@ -34,7 +34,7 @@ if [[ -n "${MONI_DB:-}" ]]; then
 else
     DB_PATH="${REPO_ROOT}/data/news.db"
 fi
-TIMEOUT_SECONDS=300          # 5 minutes per task
+TIMEOUT_SECONDS="${MONI_WORKER_TIMEOUT:-600}"  # 10 minutes default, override via env
 
 # v1.0.5.18: prompt directory.  Relative to the project root so
 # the worker finds the per-format prompt files regardless of the
