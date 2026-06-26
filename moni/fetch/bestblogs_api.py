@@ -13,6 +13,8 @@ Free 用户每天 50 次调用额度。
 
 v1.0.9.4: 改用 GET /resources/{id} 端点（文档化端点），
   从 RSS <guid> 提取 resourceId，不再依赖不存在的 /search 端点。
+
+v1.0.9.7: 支持独立字段去重，每个 BB 字段有独立的 fetched_at 时间戳。
 """
 from __future__ import annotations
 
@@ -28,6 +30,26 @@ logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://api.bestblogs.dev/openapi/v2"
 _TIMEOUT_RESOURCE = 15.0
+
+# BB field to DB column mapping
+BB_FIELD_MAP = {
+    "score": "bb_score",
+    "summary": "bb_summary",
+    "one_sentence": "bb_one_sentence",
+    "main_points": "bb_main_points",
+    "key_quotes": "bb_key_quotes",
+    "tags": "bb_tags",
+}
+
+# BB field to fetched_at column mapping
+BB_FETCHED_AT_MAP = {
+    "score": "bb_score_fetched_at",
+    "summary": "bb_fetched_at",  # summary uses the main bb_fetched_at
+    "one_sentence": "bb_fetched_at",  # one_sentence uses the main bb_fetched_at
+    "main_points": "bb_main_points_fetched_at",
+    "key_quotes": "bb_key_quotes_fetched_at",
+    "tags": "bb_tags_fetched_at",
+}
 
 
 def _get_api_key() -> str | None:
@@ -92,18 +114,54 @@ def fetch_resource(resource_id: str, api_key: str) -> dict[str, Any] | None:
         return None
 
 
-def fetch_and_store(article_id: str) -> dict[str, Any] | None:
+def _needs_fetch(conn, article_id: str, fields: list[str]) -> bool:
+    """Check if any of the requested fields need fetching.
+
+    Returns True if at least one field has NULL fetched_at.
+    """
+    if not fields:
+        return False
+    
+    # Get the fetched_at columns for the requested fields
+    fetched_at_cols = []
+    for field in fields:
+        col = BB_FETCHED_AT_MAP.get(field)
+        if col:
+            fetched_at_cols.append(col)
+    
+    if not fetched_at_cols:
+        return False
+    
+    # Check if any of the fetched_at columns are NULL
+    # Also check the main bb_fetched_at as a fallback
+    placeholders = ", ".join(fetched_at_cols)
+    row = conn.execute(
+        f"SELECT {placeholders} FROM articles WHERE id = ?",
+        (article_id,),
+    ).fetchone()
+    
+    if not row:
+        return False
+    
+    # Return True if any fetched_at is NULL
+    return any(v is None for v in row)
+
+
+def fetch_and_store(article_id: str, fields: list[str] | None = None) -> dict[str, Any] | None:
     """Fetch BestBlogs metadata for an article and write to DB.
 
     v1.0.9.4: 使用 RSS <guid> 提取的 bb_resource_id 直接调用
     GET /resources/{id}，不再依赖不存在的 /search 端点。
 
-    1. Look up article from DB (source, bb_resource_id, bb_fetched_at)
+    v1.0.9.7: 支持独立字段去重，每个 BB 字段有独立的 fetched_at 时间戳。
+    如果 fields 参数指定，只更新指定的字段。
+
+    1. Look up article from DB (source, bb_resource_id, fetched_at)
     2. Skip if source != 'bestblogs*'
-    3. Skip if bb_fetched_at already set (already fetched)
-    4. Skip if bb_resource_id is NULL (no resourceId from RSS)
-    5. Fetch resource metadata → write bb_* fields to DB
-    6. Mark bb_fetched_at
+    3. Skip if bb_resource_id is NULL (no resourceId from RSS)
+    4. Check if any requested fields need fetching
+    5. Fetch resource metadata → write requested bb_* fields to DB
+    6. Mark fetched_at for updated fields
 
     Returns the fetched metadata dict, or None if skipped/failed.
     """
@@ -116,7 +174,7 @@ def fetch_and_store(article_id: str) -> dict[str, Any] | None:
 
     conn = get_db()
     row = conn.execute(
-        "SELECT id, url, source, bb_resource_id, bb_fetched_at FROM articles WHERE id = ?",
+        "SELECT id, url, source, bb_resource_id FROM articles WHERE id = ?",
         (article_id,),
     ).fetchone()
     if row is None:
@@ -131,29 +189,40 @@ def fetch_and_store(article_id: str) -> dict[str, Any] | None:
         logger.debug("[bestblogs_api] article %s source=%s, not bestblogs*", article_id, row["source"])
         return None
 
-    if row["bb_fetched_at"]:
-        logger.info("[bestblogs_api] article %s already fetched at %s", article_id, row["bb_fetched_at"])
+    # v1.0.9.4: 使用 RSS <guid> 提取的 bb_resource_id
+    resource_id = row["bb_resource_id"]
+    if not resource_id:
+        logger.info("[bestblogs_api] article %s has no bb_resource_id (RSS <guid> missing), skipping", article_id)
+        # Mark all fetched_at so we don't keep retrying
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            """UPDATE articles SET 
+                bb_fetched_at = ?,
+                bb_score_fetched_at = ?,
+                bb_main_points_fetched_at = ?,
+                bb_key_quotes_fetched_at = ?,
+                bb_tags_fetched_at = ?
+            WHERE id = ?""",
+            (now, now, now, now, now, article_id),
+        )
+        conn.commit()
+        return None
+
+    # Default: fetch all fields
+    if fields is None:
+        fields = list(BB_FIELD_MAP.keys())
+
+    # Check if any requested fields need fetching
+    if not _needs_fetch(conn, article_id, fields):
+        logger.info("[bestblogs_api] article %s already has all requested fields", article_id)
         # Return existing data
         existing = conn.execute(
             "SELECT bb_score, bb_summary, bb_one_sentence, bb_main_points, "
             "bb_key_quotes, bb_tags, bb_resource_id FROM articles WHERE id = ?",
             (article_id,),
         ).fetchone()
-        if existing and existing["bb_score"] is not None:
+        if existing:
             return dict(existing)
-        return None
-
-    # v1.0.9.4: 使用 RSS <guid> 提取的 bb_resource_id
-    resource_id = row["bb_resource_id"]
-    if not resource_id:
-        logger.info("[bestblogs_api] article %s has no bb_resource_id (RSS <guid> missing), skipping", article_id)
-        # Mark fetched_at so we don't keep retrying
-        now = datetime.now(timezone.utc).isoformat()
-        conn.execute(
-            "UPDATE articles SET bb_fetched_at = ? WHERE id = ?",
-            (now, article_id),
-        )
-        conn.commit()
         return None
 
     # Fetch resource metadata
@@ -162,36 +231,49 @@ def fetch_and_store(article_id: str) -> dict[str, Any] | None:
         # Don't mark fetched_at on API error (allow retry)
         return None
 
-    # Write to DB
+    # Build UPDATE statement for requested fields only
     now = datetime.now(timezone.utc).isoformat()
-    conn.execute(
-        """
-        UPDATE articles SET
-            bb_score = ?,
-            bb_summary = ?,
-            bb_one_sentence = ?,
-            bb_main_points = ?,
-            bb_key_quotes = ?,
-            bb_tags = ?,
-            bb_resource_id = ?,
-            bb_fetched_at = ?
-        WHERE id = ?
-        """,
-        (
-            meta.get("bb_score"),
-            meta.get("bb_summary"),
-            meta.get("bb_one_sentence"),
-            json.dumps(meta.get("bb_main_points"), ensure_ascii=False) if meta.get("bb_main_points") else None,
-            json.dumps(meta.get("bb_key_quotes"), ensure_ascii=False) if meta.get("bb_key_quotes") else None,
-            json.dumps(meta.get("bb_tags"), ensure_ascii=False) if meta.get("bb_tags") else None,
-            meta.get("bb_resource_id"),
-            now,
-            article_id,
-        ),
-    )
+    update_parts = []
+    update_values = []
+    
+    for field in fields:
+        db_col = BB_FIELD_MAP.get(field)
+        fetched_at_col = BB_FETCHED_AT_MAP.get(field)
+        
+        if not db_col or not fetched_at_col:
+            continue
+        
+        # Get the value from meta
+        meta_key = f"bb_{field}"
+        value = meta.get(meta_key)
+        
+        # Special handling for JSON fields
+        if field in ("main_points", "key_quotes", "tags") and value:
+            value = json.dumps(value, ensure_ascii=False)
+        
+        update_parts.append(f"{db_col} = ?")
+        update_values.append(value)
+        
+        update_parts.append(f"{fetched_at_col} = ?")
+        update_values.append(now)
+    
+    # Always update bb_resource_id
+    update_parts.append("bb_resource_id = ?")
+    update_values.append(meta.get("bb_resource_id"))
+    
+    # Update bb_fetched_at if summary or one_sentence was fetched
+    if "summary" in fields or "one_sentence" in fields:
+        update_parts.append("bb_fetched_at = ?")
+        update_values.append(now)
+    
+    update_values.append(article_id)
+    
+    sql = f"UPDATE articles SET {', '.join(update_parts)} WHERE id = ?"
+    conn.execute(sql, update_values)
     conn.commit()
+    
     logger.info(
-        "[bestblogs_api] stored meta for article %s: score=%s, resource=%s",
-        article_id, meta.get("bb_score"), meta.get("bb_resource_id"),
+        "[bestblogs_api] stored meta for article %s: fields=%s, resource=%s",
+        article_id, fields, meta.get("bb_resource_id"),
     )
     return meta
