@@ -1,6 +1,7 @@
 """tests/test_bestblogs_api.py — unit tests for BestBlogs API client.
 
 v1.0.9.4: 更新测试以匹配新的 GET /resources/{id} 端点。
+v1.0.9.7: 更新测试以支持独立字段去重。
 """
 from __future__ import annotations
 
@@ -31,15 +32,23 @@ def fresh_db(tmp_path):
     conn_mod._DB_PATH = None
     mig_mod._CON = None
 
-def _seed_article(conn, source="bestblogs", bb_fetched_at=None, bb_resource_id=None):
+def _seed_article(conn, source="bestblogs", bb_fetched_at=None, bb_resource_id=None,
+                  bb_score_fetched_at=None, bb_main_points_fetched_at=None,
+                  bb_key_quotes_fetched_at=None, bb_tags_fetched_at=None):
     """Insert a test article."""
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         """
-        INSERT INTO articles (id, title, url, source, raw_content, fetched_at, bb_fetched_at, bb_resource_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO articles (id, title, url, source, raw_content, fetched_at, 
+                              bb_fetched_at, bb_resource_id,
+                              bb_score_fetched_at, bb_main_points_fetched_at,
+                              bb_key_quotes_fetched_at, bb_tags_fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        ("test-art-1", "Test Article", "https://mp.weixin.qq.com/s/test", source, "content here", now, bb_fetched_at, bb_resource_id),
+        ("test-art-1", "Test Article", "https://mp.weixin.qq.com/s/test", source, "content here", now, 
+         bb_fetched_at, bb_resource_id,
+         bb_score_fetched_at, bb_main_points_fetched_at,
+         bb_key_quotes_fetched_at, bb_tags_fetched_at),
     )
     conn.commit()
 
@@ -150,7 +159,10 @@ class TestFetchAndStore:
         from moni.fetch.bestblogs_api import fetch_and_store
 
         conn = get_db()
-        _seed_article(conn, bb_fetched_at="2026-01-01T00:00:00+00:00", bb_resource_id="RAW_abc123")
+        now = "2026-01-01T00:00:00+00:00"
+        _seed_article(conn, bb_fetched_at=now, bb_resource_id="RAW_abc123",
+                      bb_score_fetched_at=now, bb_main_points_fetched_at=now,
+                      bb_key_quotes_fetched_at=now, bb_tags_fetched_at=now)
         # Set bb_score so existing data is returned
         conn.execute("UPDATE articles SET bb_score = 85 WHERE id = 'test-art-1'")
         conn.commit()
@@ -225,3 +237,189 @@ class TestFetchAndStore:
             "SELECT bb_fetched_at FROM articles WHERE id = 'test-art-1'"
         ).fetchone()
         assert row["bb_fetched_at"] is None
+
+
+class TestFetchAndStoreIndependentFields:
+    """v1.0.9.7: 测试独立字段去重功能。"""
+
+    @patch("moni.fetch.bestblogs_api.fetch_resource")
+    @patch("moni.fetch.bestblogs_api._get_api_key", return_value="test-key")
+    def test_fetch_only_score(self, mock_key, mock_fetch):
+        """只获取 score 字段，其他字段不更新。"""
+        from moni.fetch.bestblogs_api import fetch_and_store
+
+        conn = get_db()
+        _seed_article(conn, bb_resource_id="RAW_abc123")
+
+        mock_fetch.return_value = {
+            "bb_score": 95,
+            "bb_summary": "Great article",
+            "bb_one_sentence": "One line insight",
+            "bb_main_points": [{"point": "P1", "explanation": "E1"}],
+            "bb_key_quotes": ["Quote 1"],
+            "bb_tags": ["AI"],
+            "bb_resource_id": "RAW_abc123",
+        }
+
+        result = fetch_and_store("test-art-1", fields=["score"])
+        assert result is not None
+        assert result["bb_score"] == 95
+
+        # Verify only score was updated
+        row = conn.execute(
+            """SELECT bb_score, bb_summary, bb_main_points, bb_key_quotes, bb_tags,
+                      bb_score_fetched_at, bb_main_points_fetched_at, bb_key_quotes_fetched_at, bb_tags_fetched_at
+               FROM articles WHERE id = 'test-art-1'"""
+        ).fetchone()
+        assert row["bb_score"] == 95
+        assert row["bb_score_fetched_at"] is not None
+        # Other fields should not be updated
+        assert row["bb_summary"] is None
+        assert row["bb_main_points"] is None
+        assert row["bb_key_quotes"] is None
+        assert row["bb_tags"] is None
+        assert row["bb_main_points_fetched_at"] is None
+        assert row["bb_key_quotes_fetched_at"] is None
+        assert row["bb_tags_fetched_at"] is None
+
+    @patch("moni.fetch.bestblogs_api.fetch_resource")
+    @patch("moni.fetch.bestblogs_api._get_api_key", return_value="test-key")
+    def test_fetch_only_main_points(self, mock_key, mock_fetch):
+        """只获取 main_points 字段，其他字段不更新。"""
+        from moni.fetch.bestblogs_api import fetch_and_store
+
+        conn = get_db()
+        _seed_article(conn, bb_resource_id="RAW_abc123")
+
+        mock_fetch.return_value = {
+            "bb_score": 95,
+            "bb_summary": "Great article",
+            "bb_one_sentence": "One line insight",
+            "bb_main_points": [{"point": "P1", "explanation": "E1"}],
+            "bb_key_quotes": ["Quote 1"],
+            "bb_tags": ["AI"],
+            "bb_resource_id": "RAW_abc123",
+        }
+
+        result = fetch_and_store("test-art-1", fields=["main_points"])
+        assert result is not None
+        assert result["bb_main_points"] == [{"point": "P1", "explanation": "E1"}]
+
+        # Verify only main_points was updated
+        row = conn.execute(
+            """SELECT bb_score, bb_summary, bb_main_points, bb_key_quotes, bb_tags,
+                      bb_score_fetched_at, bb_main_points_fetched_at, bb_key_quotes_fetched_at, bb_tags_fetched_at
+               FROM articles WHERE id = 'test-art-1'"""
+        ).fetchone()
+        assert row["bb_main_points"] is not None
+        assert row["bb_main_points_fetched_at"] is not None
+        # Other fields should not be updated
+        assert row["bb_score"] is None
+        assert row["bb_summary"] is None
+        assert row["bb_key_quotes"] is None
+        assert row["bb_tags"] is None
+        assert row["bb_score_fetched_at"] is None
+        assert row["bb_key_quotes_fetched_at"] is None
+        assert row["bb_tags_fetched_at"] is None
+
+    @patch("moni.fetch.bestblogs_api.fetch_resource")
+    @patch("moni.fetch.bestblogs_api._get_api_key", return_value="test-key")
+    def test_fetch_multiple_fields(self, mock_key, mock_fetch):
+        """获取多个字段。"""
+        from moni.fetch.bestblogs_api import fetch_and_store
+
+        conn = get_db()
+        _seed_article(conn, bb_resource_id="RAW_abc123")
+
+        mock_fetch.return_value = {
+            "bb_score": 95,
+            "bb_summary": "Great article",
+            "bb_one_sentence": "One line insight",
+            "bb_main_points": [{"point": "P1", "explanation": "E1"}],
+            "bb_key_quotes": ["Quote 1"],
+            "bb_tags": ["AI"],
+            "bb_resource_id": "RAW_abc123",
+        }
+
+        result = fetch_and_store("test-art-1", fields=["score", "tags"])
+        assert result is not None
+        assert result["bb_score"] == 95
+        assert result["bb_tags"] == ["AI"]
+
+        # Verify only score and tags were updated
+        row = conn.execute(
+            """SELECT bb_score, bb_summary, bb_main_points, bb_key_quotes, bb_tags,
+                      bb_score_fetched_at, bb_main_points_fetched_at, bb_key_quotes_fetched_at, bb_tags_fetched_at
+               FROM articles WHERE id = 'test-art-1'"""
+        ).fetchone()
+        assert row["bb_score"] == 95
+        assert row["bb_score_fetched_at"] is not None
+        assert row["bb_tags"] is not None
+        assert row["bb_tags_fetched_at"] is not None
+        # Other fields should not be updated
+        assert row["bb_summary"] is None
+        assert row["bb_main_points"] is None
+        assert row["bb_key_quotes"] is None
+        assert row["bb_main_points_fetched_at"] is None
+        assert row["bb_key_quotes_fetched_at"] is None
+
+    @patch("moni.fetch.bestblogs_api.fetch_resource")
+    @patch("moni.fetch.bestblogs_api._get_api_key", return_value="test-key")
+    def test_fetch_already_fetched_field(self, mock_key, mock_fetch):
+        """字段已获取时跳过。"""
+        from moni.fetch.bestblogs_api import fetch_and_store
+
+        conn = get_db()
+        _seed_article(conn, bb_resource_id="RAW_abc123")
+        # Mark score as already fetched
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "UPDATE articles SET bb_score = 85, bb_score_fetched_at = ? WHERE id = 'test-art-1'",
+            (now,)
+        )
+        conn.commit()
+
+        result = fetch_and_store("test-art-1", fields=["score"])
+        assert result is not None
+        assert result["bb_score"] == 85  # Should return existing value
+        assert not mock_fetch.called  # Should not call API
+
+    @patch("moni.fetch.bestblogs_api.fetch_resource")
+    @patch("moni.fetch.bestblogs_api._get_api_key", return_value="test-key")
+    def test_fetch_default_all_fields(self, mock_key, mock_fetch):
+        """不指定 fields 时获取所有字段。"""
+        from moni.fetch.bestblogs_api import fetch_and_store
+
+        conn = get_db()
+        _seed_article(conn, bb_resource_id="RAW_abc123")
+
+        mock_fetch.return_value = {
+            "bb_score": 95,
+            "bb_summary": "Great article",
+            "bb_one_sentence": "One line insight",
+            "bb_main_points": [{"point": "P1", "explanation": "E1"}],
+            "bb_key_quotes": ["Quote 1"],
+            "bb_tags": ["AI"],
+            "bb_resource_id": "RAW_abc123",
+        }
+
+        result = fetch_and_store("test-art-1")
+        assert result is not None
+        assert result["bb_score"] == 95
+        assert result["bb_summary"] == "Great article"
+
+        # Verify all fields were updated
+        row = conn.execute(
+            """SELECT bb_score, bb_summary, bb_main_points, bb_key_quotes, bb_tags,
+                      bb_score_fetched_at, bb_main_points_fetched_at, bb_key_quotes_fetched_at, bb_tags_fetched_at
+               FROM articles WHERE id = 'test-art-1'"""
+        ).fetchone()
+        assert row["bb_score"] == 95
+        assert row["bb_summary"] == "Great article"
+        assert row["bb_main_points"] is not None
+        assert row["bb_key_quotes"] is not None
+        assert row["bb_tags"] is not None
+        assert row["bb_score_fetched_at"] is not None
+        assert row["bb_main_points_fetched_at"] is not None
+        assert row["bb_key_quotes_fetched_at"] is not None
+        assert row["bb_tags_fetched_at"] is not None
