@@ -397,11 +397,16 @@ v1.0.5.18 重构后, 分享菜单在"选择格式"下方多 3 块可选项 (所�
 **额度**: Free 用户每天 50 次 API 调用。已拉取的文章不重复调用。
 **生效条件**: 勾选任一增强选项 → 分享时自动调 API → 数据入库 → 后续分享复用。
 
-**适用源 (v1.0.9.3)**:
-- `bestblogs` (OPML 聚合, 177 篇)
+**适用源 (v1.0.9.4)**:
+- `bestblogs` (OPML 聚合, 183 篇)
 - `bestblog-podcast` (BestBlogs 播客, 99 篇)
-- `bestblog-x` (BestBlogs X.com, 40 篇)
-- `bestblog-yt` (BestBlogs YouTube, 17 篇)
+- `bestblog-x` (BestBlogs X.com, 43 篇)
+- `bestblog-yt` (BestBlogs YouTube, 18 篇)
+
+**v1.0.9.4 改进**:
+- 新抓取文章自动从 RSS `<guid>` 获取 BestBlogs resourceId
+- 分享时直接调用 `GET /resources/{id}` 获取元数据 (不再依赖不存在的 /search 端点)
+- 历史文章 (343 篇) 需补填 resourceId (待网络稳定后运行 `scripts/backfill_bb_resource_id.py`)
 
 **其他源 (36kr_rss / mpaypass / qbitai / wechat_rss_* / huxiu) 即使勾选 BB 增强, artifact 也不会有 BB 块**。分享 modal 现在会在选中混合源时显示橙色提示 (如 "已选 2 篇非 bestblogs 源文章, BB 增强仅对 bestblogs* 源生效")。
 

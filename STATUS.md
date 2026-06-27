@@ -4,12 +4,75 @@
 
 ---
 
-## 当前状态: **v1.0.9.3 — BestBlogs 增强一致性** (2026-06-25)
+## 当前状态: **v1.0.9.7 — BestBlogs 独立字段去重** (2026-06-26)
 
-**主分支**: feature/v1.0.9.3-bestblogs-enhance-audit (待 PR merge)
-**Web 服务**: `127.0.0.1:8900` (Python 3.12, 本次需重启 — frontend hint 改了)
-**数据库**: `data/news.db` — schema_version=18, 11 tables
-**测试**: 421 passed, 2 skipped
+**主分支**: main @ v1.0.9.7 (PR #48 merged)
+**Web 服务**: `127.0.0.1:8900` (Python 3.12, 需重启)
+**数据库**: `data/news.db` — schema_version=19, 11 tables
+**测试**: 425 passed, 2 skipped
+
+### v1.0.9.7 进展 (2026-06-26)
+
+**BestBlogs 独立字段去重 (P2 任务)**:
+
+1. **问题**: BB 字段共用一个 bb_fetched_at，获取任意字段会拉取全部 6 个字段。
+
+2. **修复**: 
+   - 新增 4 个独立 fetched_at 列
+   - Migration 019 回填现有数据
+   - fetch_and_store() 支持 fields 参数
+   - 5 个新测试覆盖
+
+3. **测试**: 425 passed, 2 skipped (15 BestBlogs API tests)
+
+**PR**: #48 squash merged, tag v1.0.9.7
+
+### v1.0.9.6 进展 (2026-06-26)
+
+**Worker traceback 优化 (调试改进)**:
+
+1. **问题**: Worker 错误只显示简单错误信息，没有 traceback，调试困难。
+
+2. **修复**: 
+   - BB_FETCH 错误现在显示完整 traceback
+   - 文章内容处理错误现在显示完整 traceback
+   - 更容易调试 share task 失败问题
+
+3. **测试**: 420 passed, 2 skipped
+
+**PR**: #47 squash merged, tag v1.0.9.6
+
+### v1.0.9.5 进展 (2026-06-26)
+
+**Worker 超时时间增加 (html_landing 格式超时修复)**:
+
+1. **问题**: html_landing 格式文章多时超时（300s），SUMMARY_GEN 步骤需要 4+ 分钟生成 AI 摘要。
+
+2. **修复**: 
+   - 默认超时从 300s 增加到 600s（10 分钟）
+   - 支持通过 `MONI_WORKER_TIMEOUT` 环境变量配置
+
+3. **测试**: 420 passed, 2 skipped
+
+**PR**: #46 squash merged, tag v1.0.9.5
+
+### v1.0.9.4 进展 (2026-06-26)
+
+**BestBlogs API 端点修复 (根因: 使用不存在的 /search 端点)**:
+
+1. **根因**: `bestblogs_api.py` 调用 `/search?q=URL` 端点，但 BestBlogs API 文档中没有此端点。文章 URL 是 `mp.weixin.qq.com` 链接，无法匹配。343 篇 bestblogs 文章全部 BB 元数据为空。
+
+2. **修复**: 
+   - `bestblogs.py` — RSS 解析时提取 `<guid>RAW_xxxxx</guid>` 存入 `bb_resource_id`
+   - `repository.py` — INSERT 时写入 `bb_resource_id`
+   - `bestblogs_api.py` — 改用文档化端点 `GET /resources/{id}`，直接从 DB 读取 `bb_resource_id`
+   - 删除 `search_by_url` 函数
+
+3. **测试**: 10 个 BestBlogs API 测试全部通过
+
+4. **遗留**: 343 篇历史文章 `bb_resource_id` 为 NULL（需网络稳定后运行 `scripts/backfill_bb_resource_id.py`）。新抓取文章自动从 RSS `<guid>` 获取。
+
+**PR**: #45 squash merged, tag v1.0.9.4
 
 ### v1.0.9.3 进展 (2026-06-25)
 
