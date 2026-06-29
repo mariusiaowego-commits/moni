@@ -43,10 +43,11 @@ config/36kr_cookies.json
 # per-format subdirs.  They're run artifacts, not source — gitignore
 # them so they don't accidentally end up in PRs.
 infographic/
-*.html
-*.svg
-*.png
 share_output/
+# Root-level share outputs (historical pattern: scripts dump to cwd)
+/*_infographic.png
+/*-infographic.png
+/tmp/*.png
 
 # Local dev helper — bypasses sandbox -c block (sandbox BLOCKS
 # `python3 -c "..."` even with approval, so this file is the

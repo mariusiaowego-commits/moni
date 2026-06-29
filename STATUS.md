@@ -4,14 +4,35 @@
 
 ---
 
-## 当前状态: **v1.0.9.7 — BestBlogs 独立字段去重** (2026-06-26)
+## 当前状态: **v1.0.9.8 — 抓取管理 Modal 动效优化** (2026-06-29)
 
-**主分支**: main @ v1.0.9.7 (PR #48 merged)
+**主分支**: main @ v1.0.9.8 (PR #50 merged)
 **Web 服务**: `127.0.0.1:8900` (Python 3.12, 需重启)
 **数据库**: `data/news.db` — schema_version=19, 11 tables
 **测试**: 425 passed, 2 skipped
 
-### v1.0.9.7 进展 (2026-06-26)
+### v1.0.9.8 进展 (2026-06-29)
+
+**抓取管理 Modal 动效优化:**
+
+1. **新 fetch progress modal**：替换 inline-style，使用 GSAP + Canvas 粒子系统
+   - 左侧信源链条（flex-column，label 在 icon 上方）
+   - 右侧 moni icon（96×96，带 label）
+   - 粒子从当前 focus 源流向 moni
+   - 单源完成时"吸入"动画（加速缩小 + 位移）
+   - 批量模式 10 源链条依次切换（GSAP 过渡）
+
+2. **Logo**：7 个信源 + moni 的黑底白图圆角矩形 app icon
+
+3. **实时文章计数**：GSAP 数字弹跳动效，同时更新 top feedInfoBar + 底部 counter
+
+4. **链条排序**：自定义顺序（wechatrss-A/B → bb公众号 → 量子位 → 移动支付网 → ...）
+
+5. **测试**: 425 passed, 2 skipped
+
+**PR**: #50 squash merged, tag v1.0.9.8
+
+---
 
 **BestBlogs 独立字段去重 (P2 任务)**:
 

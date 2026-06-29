@@ -1,4 +1,56 @@
 // Root Alpine component — single source of truth for all state and methods
+
+// v1.0.9.8: particle class for fetch modal
+class FetchParticle {
+  constructor(sx, sy, tx, ty, rgb) {
+    this.sx = sx; this.sy = sy;
+    this.tx = tx; this.ty = ty;
+    this.x = sx; this.y = sy;
+    this.rgb = rgb;
+    this.size = 1.8 + Math.random() * 2.2;
+    this.progress = 0;
+    this.speed = 0.012 + Math.random() * 0.015;
+    const dx = tx - sx, dy = ty - sy;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const px = -dy / dist, py = dx / dist;
+    const bulge = (Math.random() - 0.5) * dist * 0.3;
+    this.cp1x = sx + dx * 0.3 + px * bulge;
+    this.cp1y = sy + dy * 0.3 + py * bulge;
+    this.cp2x = sx + dx * 0.7 + px * bulge * 0.5;
+    this.cp2y = sy + dy * 0.7 + py * bulge * 0.5;
+    this.alive = true;
+    this.trail = [];
+  }
+  update() {
+    this.progress += this.speed;
+    if (this.progress >= 1) { this.alive = false; return; }
+    const t = this.progress, mt = 1 - t;
+    this.x = mt*mt*mt*this.sx + 3*mt*mt*t*this.cp1x + 3*mt*t*t*this.cp2x + t*t*t*this.tx;
+    this.y = mt*mt*mt*this.sy + 3*mt*mt*t*this.cp1y + 3*mt*t*t*this.cp2y + t*t*t*this.ty;
+    this.trail.push({ x: this.x, y: this.y });
+    if (this.trail.length > 5) this.trail.shift();
+  }
+  draw(ctx) {
+    const [r, g, b] = this.rgb;
+    for (let i = 0; i < this.trail.length; i++) {
+      const a = (i / this.trail.length) * 0.22 * (1 - this.progress * 0.3);
+      ctx.beginPath();
+      ctx.arc(this.trail[i].x, this.trail[i].y, this.size * 0.4, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${r},${g},${b},${a.toFixed(3)})`;
+      ctx.fill();
+    }
+    const a = 0.9 - this.progress * 0.3;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${r},${g},${b},${a.toFixed(3)})`;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size * 3, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${r},${g},${b},${(a * 0.08).toFixed(3)})`;
+    ctx.fill();
+  }
+}
+
 function app() {
   return {
     // ── Theme engine (from theme.js) ──
@@ -1131,19 +1183,49 @@ function app() {
       if (this._fetchPollTimer) {
         clearInterval(this._fetchPollTimer);
       }
+      // v1.0.9.8: ensure sources are loaded before init particle stage
+      if (!this.sources || this.sources.length === 0) {
+        this.loadSources();
+      }
+      // v1.0.9.8: ensure particle stage is initialized (retry until sources loaded)
+      const initStageWithSources = () => {
+        if (this.sources && this.sources.length > 0) {
+          this._initParticleStage();
+          // v1.0.9.8: initial layout — show all rows below center (chain visible immediately)
+          this._layoutChain(0, false);
+          // Initial burst from each source so particles are visible immediately
+          this._chainRows.forEach((_, i) => this._spawnBurst(i, 2));
+        } else {
+          setTimeout(initStageWithSources, 100);
+        }
+      };
+      initStageWithSources();
       const tick = async () => {
         try {
           const r = await fetch(`/api/fetch/jobs/${jobId}`, { credentials: 'same-origin' });
           if (!r.ok) return; // transient — try again next tick
           const data = await r.json();
           this.fetchProgress = data;
+          // v1.0.9.8: update feed info + article count
+          if (this.fetchBatchMode === false) {
+            const srcName = data.source || this.fetchProgress?.source || '';
+            this._updateFeedInfo(srcName, data.current_feed || '');
+            this._animateArticleCount(data.articles_so_far || 0);
+            this._spawnBurst(0, 3);
+          }
           if (['done', 'failed', 'timeout', 'stale'].includes(data.status)) {
             if (this._fetchPollTimer) {
               clearInterval(this._fetchPollTimer);
               this._fetchPollTimer = null;
             }
-            // When done, refresh the source list so the UI reflects new state
+            // v1.0.9.8: status flip + completion overlay
+            const labelMap = { done: '完成', failed: '失败', timeout: '超时', stale: '已中止' };
+            this._flipStatus(labelMap[data.status] || data.status);
             if (data.status === 'done') {
+              const r2 = data.result || {};
+              const summary = `${r2.inserted || 0} 篇 · 用时 ${data.elapsed_seconds || 0}s`;
+              this._suckIntoMoni();
+              this._showCompletion(summary);
               this.loadSources();
             }
           }
@@ -1190,6 +1272,24 @@ function app() {
       if (this._fetchPollTimer) {
         clearInterval(this._fetchPollTimer);
       }
+      // v1.0.9.8: ensure sources are loaded before init particle stage
+      if (!this.sources || this.sources.length === 0) {
+        this.loadSources();
+      }
+      // v1.0.9.8: ensure particle stage is initialized (retry until sources loaded)
+      const initStageWithSources = () => {
+        if (this.sources && this.sources.length > 0) {
+          this._initParticleStage();
+          // v1.0.9.8: initial layout — show all rows below center (chain visible immediately)
+          this._layoutChain(0, false);
+          // Initial burst from each source so particles are visible immediately
+          this._chainRows.forEach((_, i) => this._spawnBurst(i, 2));
+        } else {
+          setTimeout(initStageWithSources, 100);
+        }
+      };
+      initStageWithSources();
+      let lastActiveSource = '';
       const tick = async () => {
         try {
           const r = await fetch(`/api/fetch/jobs/batch/${batchId}`, { credentials: 'same-origin' });
@@ -1197,6 +1297,24 @@ function app() {
           const data = await r.json();
           // Preserve batchMode flag through the merge
           this.fetchProgress = { ...data, batchMode: true };
+
+          // v1.0.9.8: update chain focus + spawn particles from current source
+          if (this._chainRows.length > 0) {
+            const currentSrc = data.current_source || '';
+            let idx = this._chainRows.findIndex(r => r.dbName === currentSrc);
+            if (idx >= 0) {
+              if (idx !== lastActiveSource) {
+                this._layoutChain(idx);
+                this._flipStatus(`抓取中: ${this._chainRows[idx].name}`);
+                lastActiveSource = idx;
+              }
+              this._spawnBurst(idx, 8);
+            }
+          }
+          // v1.0.9.8: feed info + article count (batch)
+          this._updateFeedInfo(data.current_source || '', data.current_feed || '');
+          this._animateArticleCount(data.articles_so_far || 0);
+
           if (['done', 'partial', 'failed'].includes(data.status)) {
             if (this._fetchPollTimer) {
               clearInterval(this._fetchPollTimer);
@@ -1208,14 +1326,19 @@ function app() {
               ...(data.results || []),
               ...(data.errors || []).map(e => ({ source: e.source, error: e.error })),
             ];
+            const totalInserted = (data.results || []).reduce((s, r) => s + (r.inserted || 0), 0);
             this.fetchAllResult = {
               status: data.status === 'failed' ? 'partial' : data.status,
               sources_total: data.total_sources,
               sources_ok: data.total_sources - (data.failed_sources || 0),
               sources_failed: data.failed_sources || 0,
-              total_inserted: (data.results || []).reduce((s, r) => s + (r.inserted || 0), 0),
+              total_inserted: totalInserted,
               results: allResults,
             };
+            // v1.0.9.8: status flip + completion overlay
+            const labelMap = { done: '完成', partial: '部分完成', failed: '失败' };
+            this._flipStatus(labelMap[data.status] || data.status);
+            this._showCompletion(`${data.total_sources || 0} 个源 · 新增 ${totalInserted} 篇 · 用时 ${data.elapsed_seconds || 0}s`);
             if (data.status === 'done' || data.status === 'partial') {
               this.loadSources();
             }
@@ -1235,6 +1358,384 @@ function app() {
         clearInterval(this._fetchPollTimer);
         this._fetchPollTimer = null;
       }
+      this._stopParticleAnimation();
+    },
+
+    // v1.0.9.8: particle animation + source chain for fetch modal
+    _particles: [],
+    _animFrame: null,
+    _chainRows: [],          // [{el, idx, name, icon, color}]
+    _moniLeft: 0,
+    _moniY: 0,
+
+    _initParticleStage() {
+      const stage = document.getElementById('particleStage');
+      const chain = document.getElementById('sourceChain');
+      const moniIcon = document.getElementById('moniIcon');
+      const canvas = document.getElementById('particleCanvas');
+      if (!stage || !chain || !moniIcon || !canvas) return;
+
+      // Stop any prior animation
+      this._stopParticleAnimation();
+
+      // Resize canvas (DPR-aware)
+      const rect = stage.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      canvas.style.width = rect.width + 'px';
+      canvas.style.height = rect.height + 'px';
+      canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // Position moni (right side, vertically centered at 40% of stage height)
+      const stageW = rect.width;
+      const stageH = rect.height;
+      // Source icon center is determined by chain layout: chainW=45%, row right=16px
+      // Increase gap: shift source left by 40px, moni right by 40px (still centered)
+      const gapShift = 40;
+      const actualSrcCx = stageW * 0.45 - (16 + gapShift) - 48;
+      const moniCx = stageW - actualSrcCx;
+      this._moniLeft = moniCx - 48;            // 48 = moni half-width (96/2)
+      this._moniY = stageH * 0.4 - 48;         // 48 = moni half-height; 0.4 = above-center
+      // Use a container div with flex-column to match source row layout
+      let moniContainer = document.getElementById('moniContainer');
+      if (!moniContainer) {
+        moniContainer = document.createElement('div');
+        moniContainer.id = 'moniContainer';
+        moniContainer.className = 'source-row';
+        moniContainer.style.position = 'absolute';
+        moniContainer.style.right = 'auto';
+        // Copy children from existing moni elements
+        const stageEl = document.getElementById('particleStage');
+        if (stageEl) {
+          // Move moniIcon + moniLabel inside container
+          const mi = document.getElementById('moniIcon');
+          const ml = document.getElementById('moniLabel');
+          if (mi && ml) {
+            mi.removeAttribute('style');
+            mi.style.position = 'relative';
+            mi.style.top = 'auto';
+            mi.style.left = 'auto';
+            ml.removeAttribute('style');
+            ml.style.position = 'relative';
+            ml.style.top = 'auto';
+            ml.style.left = 'auto';
+            moniContainer.appendChild(ml);
+            moniContainer.appendChild(mi);
+          }
+          stageEl.appendChild(moniContainer);
+        }
+      }
+      // Position container so its center aligns with pairCenterY
+      const containerCenterY = stageH * 0.4;
+      const containerTop = containerCenterY - 60; // 60 ≈ (23+4+96)/2
+      moniContainer.style.transform = `translate(${this._moniLeft}px, ${containerTop}px)`;
+      moniIcon.classList.add('receiving');
+
+      // Build chain from active sources
+      const sources = this._activeSourcesForModal();
+      chain.innerHTML = '';
+      this._chainRows = [];
+      sources.forEach((src, i) => {
+        const row = document.createElement('div');
+        row.className = 'source-row';
+        row.dataset.idx = i;
+        row.innerHTML = `
+          <span class="source-label">${this._escapeHtml(src.label)}</span>
+          <div class="source-icon"><img src="${src.icon}" alt="${this._escapeHtml(src.label)}"></div>
+        `;
+        chain.appendChild(row);
+        // Override CSS right to shift sources left (maintains center alignment with moni)
+        row.style.right = (16 + gapShift) + 'px';
+        this._chainRows.push({ el: row, idx: i, name: src.label, dbName: src.dbName, color: src.color });
+      });
+
+      // Initial layout: all below center, transparent
+      const centerY = stageH * 0.4;
+      this._chainRows.forEach((row, i) => {
+        const startCenterY = centerY + 60 + i * 50;
+        const rowH = 96;
+        const startY = startCenterY - rowH / 2;
+        gsap.set(row.el, { y: startY, opacity: 0, scale: 0.7, transformOrigin: 'right center' });
+      });
+
+      // Start rAF + continuous burst loop for sustained particles
+      this._particles = [];
+      this._animFrame = requestAnimationFrame(() => this._animateParticles());
+      // Burst from current focus every 200ms; if no focus, burst all
+      if (this._burstTimer) clearInterval(this._burstTimer);
+      this._burstTimer = setInterval(() => {
+        if (!this.fetchProgressModal) return;
+        // Find focused row
+        const focusIdx = this._chainRows.findIndex(r => r.el.classList.contains('focus'));
+        if (focusIdx >= 0) {
+          this._spawnBurst(focusIdx, 6);
+        } else {
+          this._chainRows.forEach((_, i) => this._spawnBurst(i, 2));
+        }
+      }, 200);
+    },
+
+    _stopParticleAnimation() {
+      if (this._animFrame) {
+        cancelAnimationFrame(this._animFrame);
+        this._animFrame = null;
+      }
+      if (this._burstTimer) {
+        clearInterval(this._burstTimer);
+        this._burstTimer = null;
+      }
+      this._particles = [];
+      const moniIcon = document.getElementById('moniIcon');
+      if (moniIcon) moniIcon.classList.remove('receiving');
+      const overlay = document.getElementById('completionOverlay');
+      if (overlay) overlay.classList.remove('show');
+      const stage = document.getElementById('particleStage');
+      const canvas = stage ? stage.querySelector('canvas') : null;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+    },
+
+    _activeSourcesForModal() {
+      const iconMap = {
+        '36kr_rss': '/static/icons/sources/36kr.png',
+        'bestblogs': '/static/icons/sources/bestblogs.png',
+        'bestblog-podcast': '/static/icons/sources/bestblogs.png',
+        'bestblog-x': '/static/icons/sources/bestblogs.png',
+        'bestblog-yt': '/static/icons/sources/bestblogs.png',
+        'huxiu': '/static/icons/sources/huxiu.png',
+        'mpaypass': '/static/icons/sources/mpaypass_v2.png',
+        'qbitai': '/static/icons/sources/qbitai.png',
+        'wechat_rss_a': '/static/icons/sources/wechat_rss.png',
+        'wechat_rss_b': '/static/icons/sources/wechat_rss.png',
+      };
+      const labelMap = {
+        '36kr_rss': '36氪', 'bestblogs': 'bb公众号', 'bestblog-podcast': 'bb博客',
+        'bestblog-x': 'bb X', 'bestblog-yt': 'bb YT',
+        'huxiu': '虎嗅', 'mpaypass': '移动支付网', 'qbitai': '量子位',
+        'wechat_rss_a': 'wechatrss-A', 'wechat_rss_b': 'wechatrss-B',
+      };
+      const colorMap = {
+        '36kr_rss': [90,140,220], 'bestblogs': [60,180,170], 'bestblog-podcast': [60,180,170],
+        'bestblog-x': [60,180,170], 'bestblog-yt': [60,180,170],
+        'huxiu': [210,140,60], 'mpaypass': [180,150,60], 'qbitai': [140,80,200],
+        'wechat_rss_a': [70,170,100], 'wechat_rss_b': [70,170,100],
+      };
+
+      if (this.fetchBatchMode) {
+        // Custom sort order for batch fetch chain
+        const sortOrder = [
+          'wechat_rss_a', 'wechat_rss_b', 'bestblogs', 'qbitai', 'mpaypass',
+          '36kr_rss', 'bestblog-podcast', 'bestblog-x', 'bestblog-yt', 'huxiu',
+        ];
+        return (this.sources || []).filter(s => s.is_active)
+          .sort((a, b) => {
+            const ia = sortOrder.indexOf(a.name);
+            const ib = sortOrder.indexOf(b.name);
+            return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+          })
+          .map(s => ({
+          label: labelMap[s.name] || s.display_name || s.name,
+          dbName: s.name,
+          icon: iconMap[s.name] || '/static/icons/sources/36kr.png',
+          color: colorMap[s.name] || [140,120,200],
+        }));
+      }
+      // Single-source: resolve the source reference to its actual name
+      const srcRef = this.fetchProgress?.source || '';
+      // Try multiple ways to find the source object
+      let srcObj = (this.sources || []).find(s => s.name === srcRef);
+      if (!srcObj) srcObj = (this.sources || []).find(s => s.id === srcRef);
+      if (!srcObj) srcObj = (this.sources || []).find(s => s.display_name === srcRef);
+      const srcName = srcObj ? srcObj.name : srcRef;
+      const label = labelMap[srcName] || (srcObj ? (srcObj.display_name || srcObj.name) : srcRef);
+      return [{
+        label: label || srcRef || '...',
+        dbName: srcName,
+        icon: iconMap[srcName] || '/static/icons/sources/36kr.png',
+        color: colorMap[srcName] || [140,120,200],
+      }];
+    },
+
+    _escapeHtml(s) {
+      return String(s || '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    },
+
+    _layoutChain(activeIdx, animate = true) {
+      const stage = document.getElementById('particleStage');
+      if (!stage) return;
+      const stageH = stage.getBoundingClientRect().height;
+      const pairCenterY = stageH * 0.4;
+      const duration = animate ? 0.5 : 0;
+      const ease = 'power2.inOut';
+      this._chainRows.forEach((row, i) => {
+        const rowH = i === activeIdx ? 120 : 96;
+        let targetCenterY, targetOpacity, targetScale;
+        if (i < activeIdx) {
+          const dist = activeIdx - i;
+          targetCenterY = pairCenterY - 50 - dist * 55;
+          targetOpacity = 0;
+          targetScale = 0.7;
+        } else if (i === activeIdx) {
+          targetCenterY = pairCenterY;
+          targetOpacity = 1;
+          targetScale = 1;
+        } else {
+          const dist = i - activeIdx;
+          targetCenterY = pairCenterY + 120 + (dist - 1) * 90;
+          targetOpacity = dist === 1 ? 0.75 : Math.max(0.08, 0.6 - dist * 0.16);
+          targetScale = dist === 1 ? 0.85 : Math.max(0.65, 0.82 - dist * 0.06);
+        }
+        const targetTop = targetCenterY - rowH / 2;
+        gsap.to(row.el, {
+          y: targetTop,
+          opacity: targetOpacity,
+          scale: targetScale,
+          duration: duration,
+          ease: ease,
+          overwrite: 'auto',
+        });
+        row.el.classList.toggle('focus', i === activeIdx);
+      });
+    },
+
+    _animateParticles() {
+      const stage = document.getElementById('particleStage');
+      const canvas = document.getElementById('particleCanvas');
+      if (!stage || !canvas) {
+        this._animFrame = null;
+        return;
+      }
+      const ctx = canvas.getContext('2d');
+      const rect = stage.getBoundingClientRect();
+      ctx.clearRect(0, 0, rect.width, rect.height);
+
+      // Update + draw particles
+      this._particles = this._particles.filter(p => p.alive);
+      this._particles.forEach(p => {
+        p.update();
+        p.draw(ctx);
+      });
+
+      this._animFrame = requestAnimationFrame(() => this._animateParticles());
+    },
+
+    _spawnBurst(idx, count = 4) {
+      const row = this._chainRows[idx];
+      const stage = document.getElementById('particleStage');
+      const moniIcon = document.getElementById('moniIcon');
+      if (!row || !stage || !moniIcon) return;
+      const sr = stage.getBoundingClientRect();
+      const ir = row.el.querySelector('.source-icon').getBoundingClientRect();
+      const mr = moniIcon.getBoundingClientRect();
+      const sx = ir.left - sr.left + ir.width / 2;
+      const sy = ir.top - sr.top + ir.height / 2;
+      const tx = mr.left - sr.left + mr.width / 2;
+      const ty = mr.top - sr.top + mr.height / 2;
+      const color = row.color;
+
+      for (let i = 0; i < count; i++) {
+        setTimeout(() => {
+          const p = new FetchParticle(sx, sy, tx, ty, color);
+          this._particles.push(p);
+        }, i * 60);
+      }
+    },
+
+    _flipStatus(newText) {
+      const el = document.getElementById('fetchStatusText');
+      if (!el || !window.gsap) {
+        if (el) el.textContent = newText;
+        return;
+      }
+      gsap.to(el, {
+        rotateX: 90, opacity: 0, duration: 0.2, ease: 'power2.in',
+        onComplete: () => {
+          el.textContent = newText;
+          gsap.fromTo(el,
+            { rotateX: -90, opacity: 0 },
+            { rotateX: 0, opacity: 1, duration: 0.3, ease: 'back.out(1.5)' }
+          );
+        }
+      });
+    },
+
+    _suckIntoMoni() {
+      // v1.0.9.8: single-source done - source icon+label shrink into moni with acceleration
+      if (this._chainRows.length !== 1) return;
+      const row = this._chainRows[0];
+      const moniIcon = document.getElementById('moniIcon');
+      const stage = document.getElementById('particleStage');
+      if (!row || !moniIcon || !stage || !window.gsap) return;
+
+      const sr = stage.getBoundingClientRect();
+      const rr = row.el.getBoundingClientRect();
+      const mr = moniIcon.getBoundingClientRect();
+      const rowCx = rr.left - sr.left + rr.width / 2;
+      const rowCy = rr.top - sr.top + rr.height / 2;
+      const moniCx = mr.left - sr.left + mr.width / 2;
+      const moniCy = mr.top - sr.top + mr.height / 2;
+
+      // Get row's natural position (where it would be without transform)
+      const origTransform = row.el.style.transform;
+      row.el.style.transform = '';
+      const naturalRect = row.el.getBoundingClientRect();
+      row.el.style.transform = origTransform;
+      const naturalCx = naturalRect.left - sr.left + naturalRect.width / 2;
+      const naturalCy = naturalRect.top - sr.top + naturalRect.height / 2;
+
+      gsap.set(row.el, { x: rowCx - naturalCx, y: rowCy - naturalCy });
+      gsap.to(row.el, {
+        x: moniCx - naturalCx,
+        y: moniCy - naturalCy,
+        scale: 0.15,
+        opacity: 0,
+        duration: 0.7,
+        ease: 'power4.in',
+        onComplete: () => {
+          row.el.style.transform = 'scale(0)';
+          row.el.style.opacity = '0';
+        }
+      });
+      gsap.to(moniIcon, {
+        scale: 1.2, duration: 0.15, yoyo: true, repeat: 1,
+        ease: 'power2.out', delay: 0.65
+      });
+    },
+
+    _showCompletion(summary) {
+      const overlay = document.getElementById('completionOverlay');
+      const sub = document.getElementById('completionSub');
+      if (!overlay) return;
+      if (sub && summary) sub.textContent = summary;
+      overlay.classList.add('show');
+    },
+
+    _updateFeedInfo(currentSourceName, feedName = '') {
+      const fn = document.getElementById('feedName');
+      if (fn) fn.textContent = feedName || (currentSourceName ? `当前: ${currentSourceName}` : '');
+    },
+
+    _animateArticleCount(count) {
+      const els = ['modalArticleCount', 'bottomArticleCount'];
+      els.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const current = parseInt(el.textContent) || 0;
+        if (current === count) return;
+        gsap.to({ val: current }, {
+          val: count,
+          duration: 0.5,
+          ease: 'power2.out',
+          onUpdate() {
+            el.textContent = Math.round(this.targets()[0].val);
+          }
+        });
+      });
     },
 
     get fetchProgressPercent() {
@@ -1247,6 +1748,17 @@ function app() {
       const p = this.fetchProgress;
       if (!p || !p.total_sources) return 0;
       return Math.min(100, Math.round((p.done_sources / p.total_sources) * 100));
+    },
+
+    getSourceIcon(name) {
+      const map = {
+        '36kr_rss': '/static/icons/sources/36kr.png', 'bestblogs': '/static/icons/sources/bestblogs.png',
+        'bestblog-podcast': '/static/icons/sources/bestblogs.png', 'bestblog-x': '/static/icons/sources/bestblogs.png',
+        'bestblog-yt': '/static/icons/sources/bestblogs.png', 'huxiu': '/static/icons/sources/huxiu.png',
+        'mpaypass': '/static/icons/sources/mpaypass_v2.png', 'qbitai': '/static/icons/sources/qbitai.png',
+        'wechat_rss_a': '/static/icons/sources/wechat_rss.png', 'wechat_rss_b': '/static/icons/sources/wechat_rss.png',
+      };
+      return map[name] || '/static/icons/sources/36kr.png';
     },
 
     // v1.0.5.24: copy article URL to clipboard
