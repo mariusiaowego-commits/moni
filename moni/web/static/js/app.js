@@ -1,52 +1,62 @@
 // Root Alpine component — single source of truth for all state and methods
 
-// v1.0.9.8: particle class for fetch modal
+// v1.0.9.8: particle class for fetch modal — smooth curve, no wobble
+const PARTICLE_PALETTE = [
+  [122, 115, 116],  // 锌灰 #7A7374
+  [128, 118, 110],  // 雁灰 #80766E
+  [194, 124, 136],  // 山黎豆红 #C27C88
+  [181, 152, 161],  // 隐红灰 #B598A1
+  [189, 174, 173],  // 芦穗灰 #BDAEAD
+];
+
 class FetchParticle {
-  constructor(sx, sy, tx, ty, rgb) {
+  constructor(sx, sy, tx, ty) {
     this.sx = sx; this.sy = sy;
     this.tx = tx; this.ty = ty;
     this.x = sx; this.y = sy;
-    this.rgb = rgb;
-    this.size = 1.8 + Math.random() * 2.2;
+    const base = PARTICLE_PALETTE[Math.floor(Math.random() * PARTICLE_PALETTE.length)];
+    this.rgb = base;
+    this.alpha = 1.0;  // opaque
+    this.size = 1.5 + Math.random() * 2.5;
+    if (this.size > 3.5) this.size *= 1.5;  // top 3 largest -> 1.5x radius
     this.progress = 0;
-    this.speed = 0.012 + Math.random() * 0.015;
-    const dx = tx - sx, dy = ty - sy;
-    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-    const px = -dy / dist, py = dx / dist;
-    const bulge = (Math.random() - 0.5) * dist * 0.3;
-    this.cp1x = sx + dx * 0.3 + px * bulge;
-    this.cp1y = sy + dy * 0.3 + py * bulge;
-    this.cp2x = sx + dx * 0.7 + px * bulge * 0.5;
-    this.cp2y = sy + dy * 0.7 + py * bulge * 0.5;
+    this.duration = 70 + Math.random() * 40; // ~1-2s (2x speed)
+    this.cpx = (sx + tx) / 2 + (Math.random() - 0.5) * 140;
+    this.cpy = (sy + ty) / 2 + (Math.random() - 0.5) * 160;
     this.alive = true;
     this.trail = [];
   }
   update() {
-    this.progress += this.speed;
-    if (this.progress >= 1) { this.alive = false; return; }
-    const t = this.progress, mt = 1 - t;
-    this.x = mt*mt*mt*this.sx + 3*mt*mt*t*this.cp1x + 3*mt*t*t*this.cp2x + t*t*t*this.tx;
-    this.y = mt*mt*mt*this.sy + 3*mt*mt*t*this.cp1y + 3*mt*t*t*this.cp2y + t*t*t*this.ty;
+    this.progress += 1;
+    if (this.progress >= this.duration) { this.alive = false; return; }
+    const t = this.progress / this.duration, mt = 1 - t;
+    this.x = mt*mt*this.sx + 2*mt*t*this.cpx + t*t*this.tx;
+    this.y = mt*mt*this.sy + 2*mt*t*this.cpy + t*t*this.ty;
     this.trail.push({ x: this.x, y: this.y });
-    if (this.trail.length > 5) this.trail.shift();
+    if (this.trail.length > 6) this.trail.shift();
   }
   draw(ctx) {
     const [r, g, b] = this.rgb;
+    const t = this.progress / this.duration;
+    let fade = 1;
+    if (t < 0.03) fade = t / 0.03;
+    if (t > 0.94) fade = (1 - t) / 0.06;
+    const a = (this.alpha * fade * 0.8).toFixed(3);
     for (let i = 0; i < this.trail.length; i++) {
-      const a = (i / this.trail.length) * 0.22 * (1 - this.progress * 0.3);
+      const a2 = (i / this.trail.length) * 0.25 * fade * this.alpha;
+      const sz = this.size * (0.3 + 0.7 * (i / this.trail.length));
       ctx.beginPath();
-      ctx.arc(this.trail[i].x, this.trail[i].y, this.size * 0.4, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${r},${g},${b},${a.toFixed(3)})`;
+      ctx.arc(this.trail[i].x, this.trail[i].y, sz * 0.35, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${r},${g},${b},${a2.toFixed(3)})`;
       ctx.fill();
     }
-    const a = 0.9 - this.progress * 0.3;
     ctx.beginPath();
-    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(${r},${g},${b},${a.toFixed(3)})`;
+    ctx.arc(this.x, this.y, this.size * 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${r},${g},${b},${(fade * this.alpha * 0.04).toFixed(3)})`;
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(this.x, this.y, this.size * 3, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(${r},${g},${b},${(a * 0.08).toFixed(3)})`;
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
     ctx.fill();
   }
 }
@@ -1632,15 +1642,20 @@ function app() {
       const sr = stage.getBoundingClientRect();
       const ir = row.el.querySelector('.source-icon').getBoundingClientRect();
       const mr = moniIcon.getBoundingClientRect();
-      const sx = ir.left - sr.left + ir.width / 2;
+      const sx = ir.left - sr.left + ir.width;
       const sy = ir.top - sr.top + ir.height / 2;
-      const tx = mr.left - sr.left + mr.width / 2;
+      const tx = mr.left - sr.left;
       const ty = mr.top - sr.top + mr.height / 2;
-      const color = row.color;
-
-      for (let i = 0; i < count; i++) {
+      // Multiply count by 1.3 (overall particle density increase)
+      const c = Math.ceil(count * 2.6);
+      for (let i = 0; i < c; i++) {
         setTimeout(() => {
-          const p = new FetchParticle(sx, sy, tx, ty, color);
+          const p = new FetchParticle(
+            sx + (Math.random() - 0.5) * 4,
+            sy + (Math.random() - 0.5) * ir.height * 0.6,
+            tx + (Math.random() - 0.5) * 4,
+            ty + (Math.random() - 0.5) * mr.height * 0.6
+          );
           this._particles.push(p);
         }, i * 60);
       }
