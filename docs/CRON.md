@@ -1,6 +1,7 @@
 # moni Cron + Default Worker — Setup & Manual Testing
 
 > v1.0.3-cron — `scripts/default_worker.sh` + `scripts/install_cron.sh`
+> **v1.0.9.1 更新**: worker 启动子进程前 `export PATH="$HOME/.local/bin:$PATH"`, 防止 cron / launchd 子进程 PATH 精简 (只有 /usr/bin:/bin) 找不到 hermes CLI 导致 FileNotFoundError。Defense-in-depth: 任何调用方式 (cron / launchd / web UI / 手动 shell) 都能找到 hermes。详见 `vibe-coding-log.md` 2026-06-24 v1.0.9.1 段。
 
 ## 1. What it does
 
