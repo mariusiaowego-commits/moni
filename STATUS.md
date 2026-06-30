@@ -34,13 +34,21 @@
 - `.gitignore` 加 21 条规则屏蔽 6/12-6/29 期间散落的临时废料 (demo html / report png / foshan-landing / 中文文件名 / 审计 md)
 - 36kr_backup.png 删除 (新版替换后无需保留)
 
-**测试**: 425 passed, 2 skipped | **8900**: 需手动重启 (静态资源 ?v= 戳记会变, 前端缓存需刷)
+**测试**: 425 passed, 2 skipped | **8900**: 已 restart @ pid 32157, HTTP 200, 119KB 首页
 
-**PR**: #52 squash merged, tag v1.0.9.10
+**PR**: #52 squash merged → main @ 130de78, tag v1.0.9.10
 
 ---
 
-## 历史版本: v1.0.9.9 — 粒子动效精调 (2026-06-29)
+## 历史版本: v1.0.5 - v1.0.9.9 (438 行, 折叠看)
+
+> 这一节是 v1.0.5 → v1.0.9.9 期间的所有版本阶段记录 (含 bestblog 系列、抓取管理 modal 动效、worker 优化、BB 增强一致性等)。
+> v1.0.9.10 之后的 current 段见顶部。Git 完整 history 也有, 这里只留一份方便快速回看。
+
+<details>
+<summary>点击展开历史时间线 (v1.0.9.0 - v1.0.9.9)</summary>
+
+## v1.0.9.9 — 粒子动效精调 (2026-06-29)
 
 **粒子动效精调:**
 - 速度 2x（duration 70-110 帧）
@@ -476,6 +484,8 @@
 - v1.0.5.2: LLM 异步化 + 进度面板
 - v1.0.5.1: 3 个 UX bug 修复
 - v1.0.5: P0 + P1 全做完
+
+</details>
 
 ---
 
