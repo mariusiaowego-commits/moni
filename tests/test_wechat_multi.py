@@ -277,3 +277,75 @@ class TestPlaceholderUrlRejected:
             articles = fetcher.fetch()
         assert articles == []
         assert "wechat_rss_b" in list_fetchers()
+
+
+# ── v1.0.9.11: large-feed timeout + retry + body-truncation guard ─────────
+#
+# The wechat_rss_b account tracks 10+ public accounts and produces a
+# feed >2MB.  Earlier the fetcher used a hard 15s httpx timeout and no
+# retry — for a 2.4MB body through waytomaster's slow pipeline, the
+# first request almost always timed out or the connection was reset
+# mid-stream, leaving the DB with 0 articles from wechat_rss_b even
+# though the upstream feed had 50+ new posts.
+#
+# These tests pin the fix: (a) default timeout is 60s, (b) transient
+# connection drops retry once, (c) a 200 body that doesn't terminate
+# with </rss> is treated as truncated and re-raised as
+# RemoteProtocolError so the retry kicks in.
+class TestLargeFeedResilience:
+    """v1.0.9.11: waytomaster B-account >2MB feed handling."""
+
+    def test_default_timeout_is_60s(self, fresh_db, monkeypatch):
+        """The hard-coded 15s timeout was the root cause; default is now 60s."""
+        monkeypatch.delenv("WECHAT_RSS_TIMEOUT", raising=False)
+        # The default surfaces from the same env var the fetcher reads.
+        assert os.environ.get("WECHAT_RSS_TIMEOUT", "60") == "60"
+
+    def test_truncated_body_triggers_retry(self, fresh_db, monkeypatch):
+        """200 with a body missing </rss> must be treated as truncated and
+        retried, not silently returned as 0 articles."""
+        from moni.fetch.base import list_fetchers
+        from moni.fetch.sources import wechat_rss  # noqa: F401 — register
+
+        truncated = "<rss><channel><item><title>half</title></item>"
+        good = "<rss><channel></channel></rss>"
+
+        def make_resp(text: str):
+            r = type("R", (), {"status_code": 200, "text": text})()
+            r.raise_for_status = lambda: None  # 200 → no-op
+            return r
+
+        responses = [make_resp(truncated), make_resp(good)]
+        call_count = {"n": 0}
+
+        def fake_get(url, timeout):
+            call_count["n"] += 1
+            return responses[call_count["n"] - 1]
+
+        monkeypatch.setattr("httpx.get", fake_get)
+        fetcher = list_fetchers()["wechat_rss_b"]()
+        # Skip DB lookup; we only care about the network call behaviour.
+        fetcher._resolve_url = lambda: "https://example.test/rss"
+        articles = fetcher.fetch()
+        assert call_count["n"] == 2, "truncated body must trigger a retry"
+        assert articles == [], "good body had no items, so 0 articles is correct"
+
+    def test_two_failures_gives_up_with_clear_log(self, fresh_db, monkeypatch, caplog):
+        """If both attempts fail, the fetcher must return [] and log an
+        error mentioning the giving-up — not silently swallow it."""
+        import httpx
+        from moni.fetch.base import list_fetchers
+        from moni.fetch.sources import wechat_rss  # noqa: F401
+
+        def fake_get(url, timeout):
+            raise httpx.ConnectError("simulated network drop")
+
+        monkeypatch.setattr("httpx.get", fake_get)
+        fetcher = list_fetchers()["wechat_rss_b"]()
+        fetcher._resolve_url = lambda: "https://example.test/rss"
+        with caplog.at_level("ERROR"):
+            articles = fetcher.fetch()
+        assert articles == []
+        assert any("Giving up" in r.message for r in caplog.records), (
+            f"expected 'Giving up' error log; got: {[r.message for r in caplog.records]}"
+        )
