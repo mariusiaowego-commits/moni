@@ -53,3 +53,22 @@ share_output/
 # `python3 -c "..."` even with approval, so this file is the
 # workaround).  Committed scripts should use web.sh / web-8901.sh.
 scripts/dev_*.py
+
+# 散落临时废料 (v1.0.9.10 收尾清理, 6/12-6/29 期间积累)
+/tmp/
+/output/
+/infographic.*
+/info_graphic.*
+/infographic.html
+/tmp_report.*
+/moni_report_*.png
+/report_2026-06-14.html
+/report_2026-06-16.png
+/foshan-digital-rmb-landing.html
+/一个入口点*.html
+/报告合一-跳转转码-landing.html
+/docs/demo-fetch-modal.html
+/docs/demo-frontend-refactor.html
+/docs/full-audit-2026-06-26.md
+/moni/web/static/demo.html
+/moni/web/static/demo-v2.html

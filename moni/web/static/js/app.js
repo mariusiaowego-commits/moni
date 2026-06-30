@@ -1405,7 +1405,7 @@ function app() {
       const gapShift = 40;
       const actualSrcCx = stageW * 0.45 - (16 + gapShift) - 48;
       const moniCx = stageW - actualSrcCx;
-      this._moniLeft = moniCx - 48;            // 48 = moni half-width (96/2)
+      this._moniLeft = moniCx - 48 + 2;            // 48 = moni half-width, +2 right shift
       this._moniY = stageH * 0.4 - 48;         // 48 = moni half-height; 0.4 = above-center
       // Use a container div with flex-column to match source row layout
       let moniContainer = document.getElementById('moniContainer');
@@ -1511,15 +1511,15 @@ function app() {
     _activeSourcesForModal() {
       const iconMap = {
         '36kr_rss': '/static/icons/sources/36kr.png',
-        'bestblogs': '/static/icons/sources/bestblogs.png',
+        'bestblogs': '/static/icons/sources/bestblog-gzh.png',
         'bestblog-podcast': '/static/icons/sources/bestblogs.png',
-        'bestblog-x': '/static/icons/sources/bestblogs.png',
-        'bestblog-yt': '/static/icons/sources/bestblogs.png',
+        'bestblog-x': '/static/icons/sources/bestblog-x.png',
+        'bestblog-yt': '/static/icons/sources/bestblog-yt.png',
         'huxiu': '/static/icons/sources/huxiu.png',
-        'mpaypass': '/static/icons/sources/mpaypass_v2.png',
+        'mpaypass': '/static/icons/sources/mpaypass.png',
         'qbitai': '/static/icons/sources/qbitai.png',
         'wechat_rss_a': '/static/icons/sources/wechat_rss.png',
-        'wechat_rss_b': '/static/icons/sources/wechat_rss.png',
+        'wechat_rss_b': '/static/icons/sources/wechat_rss_b.png',
       };
       const labelMap = {
         '36kr_rss': '36氪', 'bestblogs': 'bb公众号', 'bestblog-podcast': 'bb博客',
@@ -1767,11 +1767,16 @@ function app() {
 
     getSourceIcon(name) {
       const map = {
-        '36kr_rss': '/static/icons/sources/36kr.png', 'bestblogs': '/static/icons/sources/bestblogs.png',
-        'bestblog-podcast': '/static/icons/sources/bestblogs.png', 'bestblog-x': '/static/icons/sources/bestblogs.png',
-        'bestblog-yt': '/static/icons/sources/bestblogs.png', 'huxiu': '/static/icons/sources/huxiu.png',
-        'mpaypass': '/static/icons/sources/mpaypass_v2.png', 'qbitai': '/static/icons/sources/qbitai.png',
-        'wechat_rss_a': '/static/icons/sources/wechat_rss.png', 'wechat_rss_b': '/static/icons/sources/wechat_rss.png',
+        '36kr_rss': '/static/icons/sources/36kr.png',
+        'bestblogs': '/static/icons/sources/bestblog-gzh.png',
+        'bestblog-podcast': '/static/icons/sources/bestblogs.png',
+        'bestblog-x': '/static/icons/sources/bestblog-x.png',
+        'bestblog-yt': '/static/icons/sources/bestblog-yt.png',
+        'huxiu': '/static/icons/sources/huxiu.png',
+        'mpaypass': '/static/icons/sources/mpaypass.png',
+        'qbitai': '/static/icons/sources/qbitai.png',
+        'wechat_rss_a': '/static/icons/sources/wechat_rss.png',
+        'wechat_rss_b': '/static/icons/sources/wechat_rss_b.png',
       };
       return map[name] || '/static/icons/sources/36kr.png';
     },
