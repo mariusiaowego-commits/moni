@@ -156,29 +156,64 @@ class FetcherWechatRSS(BaseFetcher):
             )
             return []
 
-        try:
-            resp = httpx.get(feed_url, timeout=15.0)
-            if resp.status_code == 404:
-                logger.warning(
-                    "[%s] Feed not found (404) — check token in url",
-                    self.source_name,
+        # v1.0.9.11: a wechat_rss_b account that tracks 10+ public accounts
+        # produces a feed >2MB; the previous 15s timeout was far too tight
+        # for that body to land.  We default to 60s (configurable via env)
+        # and retry once on transient connection drops.  We also verify
+        # the body actually terminates with </rss> — waytomaster sometimes
+        # resets the connection mid-stream and httpx happily returns a
+        # 200 with a truncated body, which then bombs out inside
+        # ET.fromstring with a confusing "no element found" error.
+        timeout_sec = float(os.environ.get("WECHAT_RSS_TIMEOUT", "60"))
+        last_exc: Exception | None = None
+        resp = None
+        for attempt in (1, 2):
+            try:
+                resp = httpx.get(feed_url, timeout=timeout_sec)
+                if resp.status_code == 404:
+                    logger.warning(
+                        "[%s] Feed not found (404) — check token in url",
+                        self.source_name,
+                    )
+                    return []
+                resp.raise_for_status()
+                # Sanity-check that we got the full XML, not a truncated
+                # chunk from a half-broken connection.  Use .rstrip()
+                # because waytomaster occasionally appends trailing
+                # whitespace after </rss>.
+                if "</rss>" not in resp.text.rstrip():
+                    raise httpx.RemoteProtocolError(
+                        f"response body missing </rss> close tag "
+                        f"(len={len(resp.text)}); connection likely truncated"
+                    )
+                break
+            except httpx.HTTPStatusError as exc:
+                logger.error(
+                    "[%s] HTTP %s fetching %s",
+                    self.source_name, exc.response.status_code, exc.request.url,
                 )
                 return []
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            logger.error(
-                "[%s] HTTP %s fetching %s",
-                self.source_name, exc.response.status_code, exc.request.url,
-            )
-            return []
-        except httpx.TimeoutException:
-            logger.error("[%s] Timeout fetching %s", self.source_name, feed_url)
-            return []
-        except Exception as exc:
-            logger.error(
-                "[%s] Unexpected error fetching %s: %s",
-                self.source_name, feed_url, exc,
-            )
+            except (httpx.TimeoutException, httpx.RemoteProtocolError,
+                    httpx.ConnectError) as exc:
+                last_exc = exc
+                logger.warning(
+                    "[%s] Fetch attempt %d/2 failed (%s: %s); %s",
+                    self.source_name, attempt, type(exc).__name__, exc,
+                    "retrying" if attempt == 1 else "giving up",
+                )
+                if attempt == 2:
+                    logger.error(
+                        "[%s] Giving up after 2 failed attempts; last error: %s",
+                        self.source_name, exc,
+                    )
+                    return []
+            except Exception as exc:
+                logger.error(
+                    "[%s] Unexpected error fetching %s: %s",
+                    self.source_name, feed_url, exc,
+                )
+                return []
+        if resp is None:
             return []
 
         try:
