@@ -588,11 +588,11 @@ label { font-size: 0.85rem; }
   border: 3px solid var(--border);
   overflow: hidden;
   flex-shrink: 0;
-  background: var(--card);
+  background: #1a1a1a;
 }
 .source-row .source-icon img {
   width: 100%; height: 100%;
-  object-fit: cover; display: block;
+  object-fit: cover; display: block; background: #1a1a1a;
 }
 .source-row.focus .source-icon {
   width: 96px; height: 96px;
@@ -614,12 +614,12 @@ label { font-size: 0.85rem; }
   z-index: 3;
   box-shadow: 0 0 24px oklch(0.819 0.109 302.2 / 0.2);
   transition: box-shadow 0.3s;
-  background: var(--card);
+  background: #1a1a1a;
 }
 .moni-icon.receiving {
   box-shadow: 0 0 32px oklch(0.819 0.109 302.2 / 0.45);
 }
-.moni-icon img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.moni-icon img { width: 100%; height: 100%; object-fit: cover; display: block; background: #1a1a1a; }
 .moni-label {
   position: absolute;
   font-size: 0.9rem;

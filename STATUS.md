@@ -4,14 +4,54 @@
 
 ---
 
-## 当前状态: **v1.0.9.8 — 抓取管理 Modal 动效优化** (2026-06-29)
+## 当前状态: **v1.0.9.10 — 信源 icon 精细化 (icon 拆子源 + 防白边)** (2026-06-30)
 
-**主分支**: main @ v1.0.9.8 (PR #50 merged)
-**Web 服务**: `127.0.0.1:8900` (Python 3.12, 需重启)
+**主分支**: main @ v1.0.9.10 (PR #52 merged)
+**Web 服务**: `127.0.0.1:8900` (Python 3.12)
 **数据库**: `data/news.db` — schema_version=19, 11 tables
 **测试**: 425 passed, 2 skipped
 
-### v1.0.9.8 进展 (2026-06-29)
+### v1.0.9.10 进展 (2026-06-30)
+
+**信源 icon 精细化:**
+1. **bestblog 子源 icon 拆分** — `bestblogs` / `bestblog-podcast` / `bestblog-x` / `bestblog-yt` 之前共用一张 bestblogs.png, 全部子源在 modal/表格里看起来一样。拆成 4 个独立 icon:
+   - `bestblog-gzh.png` (公众号, bestblogs 主源)
+   - `bestblog-x.png` (bestblog-x 子源)
+   - `bestblog-yt.png` (bestblog-yt 子源)
+   - `bestblogs.png` 保留给 bestblog-podcast
+2. **mpaypass icon 升级** — 删除 `mpaypass_v2.png`, 新 `mpaypass.png` 黑底白图 (PRD 附录 B 风格, 与其他信源一致)
+3. **wechat_rss_b 独立 icon** — `wechat_rss_b` 之前共用 `wechat_rss.png`, 现在有独立 `wechat_rss_b.png`
+4. **icon 防白边** — 7 个信源 + moni 的 icon 容器背景从 `var(--card)` 改为 `#1a1a1a`, PNG 透明像素不再透出卡片底色
+5. **feedInfoBar 居中修正** — `left:0; right:0` 改为 `left:50%; transform:translateX(-50%)`, 数字弹跳时不再被左偏
+6. **moni 坐标微调** — `_moniLeft` 加 2px 右移, 与左侧信源链条视觉对称
+7. **36kr 旧版吉祥物下线** — 删除 256x256 翠绿色卡通版, 统一用新版黑底白图
+
+**新增资源**:
+- `pin_a.png` / `pin_b.png` / `pin_c.png` / `pin_d.png` (4 个信源徽章/书签位图, 备用)
+- `scripts/backfill_bb_resource_id.sh` (历史 343 篇 bestblogs 文章的 bb_resource_id 回填脚本, 跑完即清空遗留项)
+
+**杂项清理**:
+- `.gitignore` 加 21 条规则屏蔽 6/12-6/29 期间散落的临时废料 (demo html / report png / foshan-landing / 中文文件名 / 审计 md)
+- 36kr_backup.png 删除 (新版替换后无需保留)
+
+**测试**: 425 passed, 2 skipped | **8900**: 需手动重启 (静态资源 ?v= 戳记会变, 前端缓存需刷)
+
+**PR**: #52 squash merged, tag v1.0.9.10
+
+---
+
+## 历史版本: v1.0.9.9 — 粒子动效精调 (2026-06-29)
+
+**粒子动效精调:**
+- 速度 2x（duration 70-110 帧）
+- 粒子密度 2.6x（整体翻倍）
+- 取消透明度（全不透明）
+- top3 大粒子 1.5x（而非 2x）
+- 平滑贝塞尔曲线 + 5 色调色板（锌灰/雁灰/山黎豆红/隐红灰/芦穗灰）
+
+**PR**: #51 squash merged, tag v1.0.9.9
+
+---
 
 **抓取管理 Modal 动效优化:**
 
