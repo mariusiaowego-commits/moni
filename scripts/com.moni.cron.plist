@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.moni.cron</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/python3</string>
+        <string>-m</string>
+        <string>moni.cli.main</string>
+        <string>cron</string>
+        <string>start</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/mt16/dev/moni</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <key>HOME</key>
+        <string>/Users/mt16</string>
+        <key>MONI_DB_PATH</key>
+        <string>/Users/mt16/dev/moni/data/news.db</string>
+    </dict>
+
+    <!-- Keep alive: restart on crash, but not on successful exit (stop command) -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Run at load even without a launchd trigger -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Throttle restarts: wait 10s after crash before relaunching -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Log stdout/stderr for debugging -->
+    <key>StandardOutPath</key>
+    <string>/Users/mt16/.moni/cron-launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/mt16/.moni/cron-launchd.err</string>
+
+    <!-- Only one instance -->
+    <key>AbandonProcessGroup</key>
+    <false/>
+</dict>
+</plist>

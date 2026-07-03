@@ -310,14 +310,14 @@
         <div x-show="fetchAllResult" x-cloak style="margin-top: 16px;">
           <div class="fetch-all-summary">
             <div class="fa-header">
-              <span x-show="fetchAllResult.status === 'done'" class="fa-status-ok">✅ 全部完成</span>
-              <span x-show="fetchAllResult.status === 'partial'" class="fa-status-warn">⚠️ 部分失败</span>
-              <span class="fa-stat" x-text="fetchAllResult.sources_ok + '/' + fetchAllResult.sources_total + ' 源成功'"></span>
-              <span class="fa-stat" x-text="'新增 ' + fetchAllResult.total_inserted + ' 篇'"></span>
-              <span x-show="fetchAllResult.date_from" class="fa-stat fa-catchup" x-text="'周末补抓: ' + fetchAllResult.date_from + ' 起'"></span>
+              <span x-show="fetchAllResult?.status === 'done'" class="fa-status-ok">✅ 全部完成</span>
+              <span x-show="fetchAllResult?.status === 'partial'" class="fa-status-warn">⚠️ 部分失败</span>
+              <span class="fa-stat" x-text="(fetchAllResult?.sources_ok ?? '') + '/' + (fetchAllResult?.sources_total ?? '') + ' 源成功'"></span>
+              <span class="fa-stat" x-text="'新增 ' + (fetchAllResult?.total_inserted ?? 0) + ' 篇'"></span>
+              <span x-show="fetchAllResult?.date_from" class="fa-stat fa-catchup" x-text="'周末补抓: ' + (fetchAllResult?.date_from ?? '') + ' 起'"></span>
             </div>
             <div class="fa-grid">
-              <template x-for="r in fetchAllResult.results" :key="r.source">
+              <template x-for="r in (fetchAllResult?.results || [])" :key="r.source">
                 <div class="fa-row" :class="r.error ? 'fa-row-err' : 'fa-row-ok'">
                   <span class="fa-src" x-text="r.source"></span>
                   <span x-show="!r.error" class="fa-metrics">
@@ -368,10 +368,10 @@
             </summary>
             <div class="drop-detail-body">
               <div class="drop-article-list">
-                <template x-for="(d, idx) in fetchResultObj.dropped_articles" :key="idx">
+                <template x-for="(d, idx) in (fetchResultObj?.dropped_articles || [])" :key="idx">
                   <div class="drop-article-item" x-text="d.title"></div>
                 </template>
-                <div class="drop-article-more" x-show="fetchResultObj.dropped_tag_filter > 20" x-text="'(共 ' + fetchResultObj.dropped_tag_filter + ' 条，显示前 20)'"></div>
+                <div class="drop-article-more" x-show="(fetchResultObj?.dropped_tag_filter ?? 0) > 20" x-text="'(共 ' + (fetchResultObj?.dropped_tag_filter ?? 0) + ' 条，显示前 20)'"></div>
               </div>
             </div>
           </details>

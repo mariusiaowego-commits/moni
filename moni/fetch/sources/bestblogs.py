@@ -444,8 +444,11 @@ class FetcherBestBlogs(BaseFetcher):
                 if link:
                     # Extract BestBlogs resourceId from <guid> if present
                     # (BestBlogs RSS feeds include <guid>RAW_xxxxx</guid>)
+                    # v1.0.9.12: store raw GUID even without RAW_ prefix so
+                    # fetch_and_store() can try it; the API returns 404 for
+                    # non-BestBlogs GUIDs, which is safe.
                     guid = (item.findtext("guid") or "").strip()
-                    bb_resource_id = guid if guid.startswith("RAW_") else None
+                    bb_resource_id = guid if guid else None
 
                     articles.append({
                         "title": title,

@@ -192,20 +192,16 @@ def fetch_and_store(article_id: str, fields: list[str] | None = None) -> dict[st
     # v1.0.9.4: 使用 RSS <guid> 提取的 bb_resource_id
     resource_id = row["bb_resource_id"]
     if not resource_id:
-        logger.info("[bestblogs_api] article %s has no bb_resource_id (RSS <guid> missing), skipping", article_id)
-        # Mark all fetched_at so we don't keep retrying
-        now = datetime.now(timezone.utc).isoformat()
-        conn.execute(
-            """UPDATE articles SET 
-                bb_fetched_at = ?,
-                bb_score_fetched_at = ?,
-                bb_main_points_fetched_at = ?,
-                bb_key_quotes_fetched_at = ?,
-                bb_tags_fetched_at = ?
-            WHERE id = ?""",
-            (now, now, now, now, now, article_id),
+        logger.info(
+            "[bestblogs_api] article %s has no bb_resource_id (RSS <guid> missing), "
+            "skipping — fetch resource after backfill or add URL-based lookup",
+            article_id,
         )
-        conn.commit()
+        # v1.0.9.12: DO NOT mark fetched_at here — the article may get a
+        # bb_resource_id later (backfill, improved fetcher).  Marking
+        # fetched_at poisons the record permanently: _needs_fetch() sees
+        # non-NULL and never retries.  Leave all NULL so the next
+        # share-triggered fetch retries.
         return None
 
     # Default: fetch all fields
