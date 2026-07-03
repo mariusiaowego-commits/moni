@@ -74,7 +74,7 @@ def call_llm(
         "-q", prompt,
         "--provider", provider,
         "-m", model,
-        "--profile", os.environ.get("MONI_HERMES_PROFILE", "moni"),
+        "--profile", os.environ.get("MONI_HERMES_PROFILE", "default"),
         "-Q",
     ]
     if extra_args:

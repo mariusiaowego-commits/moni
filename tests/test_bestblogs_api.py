@@ -203,9 +203,9 @@ class TestFetchAndStore:
         assert row["bb_fetched_at"] is not None
 
     @patch("moni.fetch.bestblogs_api._get_api_key", return_value="test-key")
-    def test_no_bb_resource_id_marks_fetched(self, mock_key):
-        """v1.0.9.4: 文章没有 bb_resource_id (RSS <guid> 缺失) 时，
-        标记 bb_fetched_at 避免重试。"""
+    def test_no_bb_resource_id_skips_clean(self, mock_key):
+        """v1.0.9.12: 没有 bb_resource_id 时跳过但不标记 fetched_at，
+        留 NULL 等 backfill 后重试。"""
         from moni.fetch.bestblogs_api import fetch_and_store
 
         conn = get_db()
@@ -214,11 +214,16 @@ class TestFetchAndStore:
         result = fetch_and_store("test-art-1")
         assert result is None
 
-        # Should mark bb_fetched_at
+        # Should NOT mark any bb_fetched_at (allow retry after backfill)
         row = conn.execute(
-            "SELECT bb_fetched_at FROM articles WHERE id = 'test-art-1'"
+            "SELECT bb_fetched_at, bb_score_fetched_at, bb_main_points_fetched_at, "
+            "bb_key_quotes_fetched_at, bb_tags_fetched_at FROM articles WHERE id = 'test-art-1'"
         ).fetchone()
-        assert row["bb_fetched_at"] is not None
+        assert row["bb_fetched_at"] is None
+        assert row["bb_score_fetched_at"] is None
+        assert row["bb_main_points_fetched_at"] is None
+        assert row["bb_key_quotes_fetched_at"] is None
+        assert row["bb_tags_fetched_at"] is None
 
     @patch("moni.fetch.bestblogs_api.fetch_resource", return_value=None)
     @patch("moni.fetch.bestblogs_api._get_api_key", return_value="test-key")

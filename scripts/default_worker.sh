@@ -142,6 +142,16 @@ elif status == "failed":
         "WHERE id=? AND status IN ('pending','running')",
         (status, error_msg, now, task_id)
     )
+    # v1.0.9.12: notify on share task failure
+    try:
+        from moni.utils.notify import send_notification
+        send_notification(
+            subject=f"moni share task failed: {task_id[:12]}...",
+            body=f"Format: {output_path or '?'}\nError: {error_msg or '?'}\nTask: {task_id}",
+            level="error",
+        )
+    except Exception:
+        pass  # notification failure never blocks status update
 elif status == "running":
     cur.execute(
         "UPDATE share_tasks SET status=?, started_at=? "

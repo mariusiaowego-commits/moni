@@ -110,7 +110,7 @@ def _invoke_hermes(
     extra_args: list[str] | None = None,
 ) -> tuple[str, int]:
     """Invoke hermes CLI and return (stdout, exit_code)."""
-    argv = ["hermes", "-z", prompt, "--profile", os.environ.get("MONI_HERMES_PROFILE", "moni")]
+    argv = ["hermes", "-z", prompt, "--profile", os.environ.get("MONI_HERMES_PROFILE", "default")]
     if extra_args:
         argv.extend(extra_args)
     proc: subprocess.Popen | None = None

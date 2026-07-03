@@ -36,6 +36,12 @@ HANDOFF.md
 # 36kr persisted session cookies (含 userId 敏感信息, 不入库)
 config/36kr_cookies.json
 
+# 临时 / demo HTML 文件（不入库）
+*demo*.html
+demo-v2.html
+一个*.html
+报行合一*.html
+
 # v1.0.5.14: share worker output files — LLM-generated content
 # (markdown / html / svg / png infographics).  When the manifest
 # specifies a custom output_path (or the default $HOME/.moni/output
