@@ -62,6 +62,68 @@ def _pin(aid: str) -> None:
     conn.commit()
 
 
+class TestBriefSummaryCompact:
+    def test_is_long_summary(self):
+        from moni.share.enrichment import is_long_summary
+
+        assert not is_long_summary("一句短摘要。")
+        assert not is_long_summary("第一句。第二句。")
+        assert is_long_summary("第一句。第二句。第三句还很长。")
+        assert is_long_summary("x" * 120)
+
+    def test_compact_only_when_long(self, fresh_db: Path):
+        from moni.share.enrichment import _ensure_brief_summary, pick_source_summary
+        import sqlite3
+
+        conn = get_db()
+        now = datetime.now(timezone.utc).isoformat()
+        long_sum = "甲。" * 5 + "这是超长摘要需要压缩处理的内容。"
+        conn.execute(
+            """
+            INSERT INTO articles (id, title, url, source, publisher, published_at, fetched_at, raw_content, ai_summary)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("bs1", "标题", "https://e.com/1", "t", "P", now, now, "正文" * 50, long_sum),
+        )
+        conn.execute(
+            """
+            INSERT INTO articles (id, title, url, source, publisher, published_at, fetched_at, raw_content, ai_summary)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("bs2", "短", "https://e.com/2", "t", "P", now, now, "正文" * 50, "就一句够短。"),
+        )
+        conn.commit()
+
+        def fake_hermes(prompt: str, timeout_sec: int = 120, extra_args=None):
+            return (
+                '{"id": "bs1", "summary": "压短后的摘要一句。第二句保留要点。"}',
+                0,
+            )
+
+        import moni.share.enrichment as en
+
+        orig = en._invoke_hermes
+        en._invoke_hermes = fake_hermes
+        try:
+            budget = [120.0]
+            c = sqlite3.connect(fresh_db)
+            c.row_factory = sqlite3.Row
+            r1 = c.execute("SELECT * FROM articles WHERE id='bs1'").fetchone()
+            r2 = c.execute("SELECT * FROM articles WHERE id='bs2'").fetchone()
+            assert _ensure_brief_summary(c, r1, [], budget)
+            assert _ensure_brief_summary(c, r2, [], budget)
+            b1 = c.execute("SELECT brief_summary FROM articles WHERE id='bs1'").fetchone()[0]
+            b2 = c.execute("SELECT brief_summary FROM articles WHERE id='bs2'").fetchone()[0]
+            c.close()
+            assert "压短" in b1
+            assert b2 == "就一句够短。"
+            # full ai_summary untouched
+            full = get_db().execute("SELECT ai_summary FROM articles WHERE id='bs1'").fetchone()[0]
+            assert full == long_sum
+        finally:
+            en._invoke_hermes = orig
+
+
 class TestFormatsBriefFlags:
     def test_brief_flags_accepted(self):
         fmt, payload = validate_manifest(

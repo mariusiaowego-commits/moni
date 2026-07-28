@@ -81,6 +81,30 @@ QUALITY_PROMPT = """你是 moni 内容质量评估助手。给文章打 0-100 �
 {content}
 """
 
+# Long summary → brief: max 2 sentences, style-guarded rewrite only when needed.
+BRIEF_SUMMARY_MAX_SENTS = 2
+BRIEF_SUMMARY_MAX_CHARS = 100
+
+COMPACT_SUMMARY_PROMPT = """你是 moni 摘要压缩助手。下面是一篇已有摘要（可能偏长）。请压成简报用短摘要。
+
+硬要求：
+- 最多 2 句中文，合计 ≤100 字
+- 保留关键主体、动作、数字；删空评与重复
+- 禁止：值得关注、赋能、闭环、不是X而是Y、凸显了、深刻洞察、灵魂叩问
+- 写得像 2022 年前人类短讯，不要 AI 腔
+- 不要发明原文没有的事实
+
+严格 JSON：
+```json
+{{"id": "{article_id}", "summary": "…"}}
+```
+
+文章标题: {title}
+ID: {article_id}
+原摘要:
+{summary}
+"""
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -171,6 +195,47 @@ def _format_date(raw: str | None) -> str:
     return s[:10] if len(s) >= 10 else s
 
 
+def _sentence_count(text: str) -> int:
+    parts = re.split(r"[。！？.!?]+", (text or "").strip())
+    return len([p for p in parts if p.strip()])
+
+
+def is_long_summary(
+    text: str | None,
+    *,
+    max_sents: int = BRIEF_SUMMARY_MAX_SENTS,
+    max_chars: int = BRIEF_SUMMARY_MAX_CHARS,
+) -> bool:
+    """True when summary should be AI-compressed for brief (option 2)."""
+    if not text or not str(text).strip():
+        return False
+    t = str(text).strip()
+    return _sentence_count(t) > max_sents or len(t) > max_chars
+
+
+def pick_source_summary(row: sqlite3.Row | dict) -> tuple[str, str]:
+    """Pick best full summary text for brief. Returns (text, origin_label)."""
+
+    def g(key: str) -> str:
+        try:
+            v = row[key]
+        except (KeyError, IndexError, TypeError):
+            return ""
+        return (v or "").strip() if v is not None else ""
+
+    # Prefer editorial BB, then moni AI, then legacy summary
+    for key, label in (
+        ("bb_summary", "bestblogs"),
+        ("ai_summary", "ai"),
+        ("summary", "original"),
+        ("bb_one_sentence", "bb_one"),
+    ):
+        t = g(key)
+        if t:
+            return t, label
+    return "", "none"
+
+
 def compute_heuristic_quality(row: sqlite3.Row | dict) -> int:
     """Local quality/attention score 0-100 when bb_score / LLM score missing.
 
@@ -234,34 +299,42 @@ def _article_rows(conn: sqlite3.Connection, article_ids: list[str]) -> list[sqli
     # Preserve pin/caller order via CASE
     order_cases = " ".join(f"WHEN ? THEN {i}" for i in range(len(article_ids)))
     sql = f"""
-        SELECT id, title, raw_content, ai_summary,
+        SELECT id, title, raw_content, ai_summary, summary,
                fact_check_conclusion, fact_check_note, has_fact_check,
                business_value_score, business_value_note,
-               quality_score, bb_score, bb_summary, source, url, publisher, published_at
+               quality_score, bb_score, bb_summary, bb_one_sentence,
+               brief_summary, source, url, publisher, published_at
         FROM articles WHERE id IN ({ph})
         ORDER BY CASE id {order_cases} END
     """
     try:
         return list(conn.execute(sql, (*article_ids, *article_ids)).fetchall())
     except sqlite3.OperationalError:
-        # Pre-migration 020 DB: no BV columns
+        # Pre-migration 021 / 020 fallbacks
         sql_fallback = f"""
-            SELECT id, title, raw_content, ai_summary,
+            SELECT id, title, raw_content, ai_summary, summary,
                    fact_check_conclusion, fact_check_note, has_fact_check,
-                   NULL as business_value_score, NULL as business_value_note,
-                   NULL as quality_score, bb_score, bb_summary, source, url, publisher, published_at
+                   business_value_score, business_value_note,
+                   quality_score, bb_score, bb_summary, NULL as bb_one_sentence,
+                   NULL as brief_summary, source, url, publisher, published_at
             FROM articles WHERE id IN ({ph})
         """
         try:
-            return list(conn.execute(sql_fallback, article_ids).fetchall())
+            return list(conn.execute(sql_fallback, (*article_ids, *article_ids)).fetchall())
         except sqlite3.OperationalError:
             sql_min = f"""
-                SELECT id, title, raw_content, ai_summary,
+                SELECT id, title, raw_content, ai_summary, NULL as summary,
                        fact_check_conclusion, fact_check_note, has_fact_check,
-                       NULL, NULL, NULL, NULL, NULL, source, url, publisher, published_at
+                       NULL as business_value_score, NULL as business_value_note,
+                       NULL as quality_score, NULL as bb_score, NULL as bb_summary,
+                       NULL as bb_one_sentence, NULL as brief_summary,
+                       source, url, publisher, published_at
                 FROM articles WHERE id IN ({ph})
             """
-            return list(conn.execute(sql_min, article_ids).fetchall())
+            try:
+                return list(conn.execute(sql_min, article_ids).fetchall())
+            except sqlite3.OperationalError:
+                return []
 
 
 def _ensure_fact_check(
@@ -422,6 +495,80 @@ def _ensure_quality(
     return True
 
 
+def _ensure_brief_summary(
+    conn: sqlite3.Connection,
+    row: sqlite3.Row,
+    extra_args: list[str],
+    budget_left: list[float],
+) -> bool:
+    """If source summary is long, AI-compress into brief_summary (keep full fields).
+
+    Short summaries are stored as-is into brief_summary so rebuild is uniform.
+    """
+    existing = None
+    try:
+        existing = row["brief_summary"]
+    except (KeyError, IndexError, TypeError):
+        existing = None
+    if existing and str(existing).strip():
+        # Already compacted; skip unless source grew? keep cache.
+        return True
+
+    full, _origin = pick_source_summary(row)
+    if not full:
+        return True  # nothing to do
+
+    if not is_long_summary(full):
+        # Short enough: cache verbatim as brief_summary
+        now = _now()
+        try:
+            conn.execute(
+                "UPDATE articles SET brief_summary=?, brief_summary_at=? WHERE id=?",
+                (full, now, row["id"]),
+            )
+            conn.commit()
+        except sqlite3.OperationalError as exc:
+            log.warning("enrichment: brief_summary write failed (mig 021?): %s", exc)
+            return False
+        return True
+
+    if budget_left[0] <= 0:
+        return False
+
+    prompt = COMPACT_SUMMARY_PROMPT.format(
+        article_id=row["id"],
+        title=row["title"] or "",
+        summary=full[:2000],
+    )
+    timeout = min(STEP_TIMEOUT_SEC, max(15, int(budget_left[0])))
+    out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
+    budget_left[0] -= timeout
+    if code != 0:
+        log.warning("enrichment: compact summary hermes exit %s for %s", code, row["id"])
+        return False
+    data = _parse_json_obj(out) or {}
+    compact = (data.get("summary") or "").strip()
+    if not compact:
+        return False
+    # Soft enforce length
+    if is_long_summary(compact):
+        # take first 2 sentences
+        parts = re.split(r"(?<=[。！？.!?])", compact)
+        parts = [p for p in parts if p.strip()]
+        compact = "".join(parts[:2]).strip() or compact[:BRIEF_SUMMARY_MAX_CHARS]
+    now = _now()
+    try:
+        conn.execute(
+            "UPDATE articles SET brief_summary=?, brief_summary_at=? WHERE id=?",
+            (compact, now, row["id"]),
+        )
+        conn.commit()
+    except sqlite3.OperationalError as exc:
+        log.warning("enrichment: brief_summary write failed: %s", exc)
+        return False
+    return True
+
+
 def run_enrichment(
     db_path: str,
     article_ids: list[str],
@@ -455,6 +602,7 @@ def run_enrichment(
         "fact_check": 0,
         "business_value": 0,
         "quality": 0,
+        "brief_summary": 0,
         "failed": [],
         "flags": flags,
     }
@@ -533,6 +681,23 @@ def run_enrichment(
                 if _ensure_quality(conn, row, extra_args, budget_left, use_llm=False):
                     stats["quality"] += 1
 
+        # 5) brief summary compact — only long ones AI-rewrite (option 2)
+        if flags.get("brief") or flags.get("include_abstract"):
+            rows = _article_rows(conn, article_ids)
+            n = max(len(rows), 1)
+            for i, row in enumerate(rows):
+                _update_progress(
+                    conn,
+                    task_id,
+                    "enrich_summary",
+                    62,
+                    f"压缩超长摘要 ({i + 1}/{n}) ...",
+                )
+                if _ensure_brief_summary(conn, row, extra_args, budget_left):
+                    stats["brief_summary"] += 1
+                else:
+                    stats["failed"].append(f"brief_summary:{row['id']}")
+
         _update_progress(conn, task_id, "building_prompt", 65, "富化完成，准备拼装简报 ...")
     finally:
         conn.close()
@@ -610,12 +775,24 @@ def rebuild_article_content(
         if row["business_value_note"] and str(row["business_value_note"]).strip():
             block += f"\n\n**业务价值评判**: {row['business_value_note']}"
 
-        show_ai = bb_summary_source in ("moni_ai", "both") and row["ai_summary"]
-        show_bb = bb_summary_source in ("bestblogs", "both") and row["bb_summary"]
-        if show_ai and str(row["ai_summary"]).strip():
-            block += f"\n\n**AI 摘要**: {row['ai_summary']}"
-        if show_bb and str(row["bb_summary"]).strip():
-            block += f"\n\n**BestBlogs 摘要**: {row['bb_summary']}"
+        # Brief prefers brief_summary (short or AI-compressed); keep origin for audit
+        brief_sum = ""
+        try:
+            brief_sum = (row["brief_summary"] or "").strip()
+        except (KeyError, IndexError, TypeError):
+            brief_sum = ""
+        full_sum, origin = pick_source_summary(row)
+        if brief_sum:
+            block += f"\n\n**简报摘要** *(压短或原文够短，供正文使用)*: {brief_sum}"
+            if full_sum and full_sum != brief_sum:
+                block += f"\n\n**原摘要备查** *({origin}，勿扩写进正文)*: {full_sum[:200]}{'…' if len(full_sum) > 200 else ''}"
+        else:
+            show_ai = bb_summary_source in ("moni_ai", "both") and row["ai_summary"]
+            show_bb = bb_summary_source in ("bestblogs", "both") and row["bb_summary"]
+            if show_ai and str(row["ai_summary"]).strip():
+                block += f"\n\n**AI 摘要**: {row['ai_summary']}"
+            if show_bb and str(row["bb_summary"]).strip():
+                block += f"\n\n**BestBlogs 摘要**: {row['bb_summary']}"
 
         if row["fact_check_conclusion"] and str(row["fact_check_conclusion"]).strip():
             block += f"\n\n**事实核查结论**: {row['fact_check_conclusion']}"
