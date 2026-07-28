@@ -75,6 +75,10 @@ def body_to_html(raw: str | None) -> str:
     text = _strip_frontmatter(str(raw)).replace("\r\n", "\n").replace("\r", "\n")
     # Some sources glue headings mid-line: "…坚守。 ## 1. 标题"
     text = re.sub(r"([。！？；;])\s*(#{1,3}\s+)", r"\1\n\n\2", text)
+    # Wall-of-text plain articles (no blank lines): break on sentence end
+    # so reading isn't one giant <p>.
+    if "\n\n" not in text and len(text) > 280:
+        text = re.sub(r"([。！？])(?=[^\n]{12,})", r"\1\n\n", text)
 
     lines = text.split("\n")
     out: list[str] = []
