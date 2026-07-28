@@ -684,6 +684,44 @@ print('true' if p.get('include_business_value') else 'false')
         fi
     fi
 
+    # v1.0.10: brief + html_landing → deterministic HTML (full body, collapsible
+    # 原文, GSAP). Skip hermes — layout/UX must be stable for Windows offline.
+    brief_val="${brief_val:-false}"
+    if [[ "$brief_val" == "true" && "$format" == "html_landing" ]]; then
+        update_progress "$task_id" "writing_artifact" 90 \
+            "正在生成离线 HTML 简报（含全文折叠）..."
+        local artifacts_dir="${ARTIFACTS_DIR:-$REPO_ROOT/data/artifacts}"
+        mkdir -p "$artifacts_dir"
+        output_path="$artifacts_dir/${task_id}-html_landing.html"
+        local brief_title
+        brief_title=$(python3 -c "
+import json, sys
+from datetime import date
+d=json.load(open(sys.argv[1]))
+p=d.get('payload',{}) if isinstance(d.get('payload'),dict) else {}
+print(p.get('title') or ('同业简报 — ' + date.today().isoformat()))
+" "$manifest_path" 2>/dev/null || echo "同业简报")
+        if python3 -m moni.share.brief_html \
+            --db "$DB_PATH" \
+            --article-ids "$article_ids_str" \
+            --output "$output_path" \
+            --title "$brief_title" 2>>"$LOG_FILE"; then
+            log "BRIEF_HTML $task_id -> $output_path"
+            update_progress "$task_id" "writing_artifact" 95 "HTML 已写入 $output_path"
+            task_status_update "$task_id" "done" "$output_path"
+            sqlite3 "$DB_PATH" \
+                "UPDATE share_tasks SET progress_pct=100 WHERE id='$task_id'" \
+                >/dev/null 2>&1 || true
+            log "DONE $task_id -> $output_path"
+            return 0
+        else
+            error_msg="brief_html render failed"
+            log "FAIL $task_id — $error_msg"
+            task_status_update "$task_id" "failed" "" "$error_msg"
+            return 0
+        fi
+    fi
+
     # Build skill flag
     skill_name=$(skill_for_format "$format")
 

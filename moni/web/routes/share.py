@@ -368,7 +368,8 @@ def create_brief(body: BriefCreateRequest) -> BriefCreateResponse:
             details={"hint": "先去文章页 Pin 至少 1 篇，再生成简报"},
         )
 
-    format_name = (body.format or "markdown").strip()
+    # Default format: offline HTML brief (full body + collapsible 原文)
+    format_name = (body.format or "html_landing").strip()
     opts = body.options or {}
     title = (body.title or "").strip() or _default_brief_title()
 

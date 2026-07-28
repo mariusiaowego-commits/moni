@@ -1903,7 +1903,7 @@ function app() {
     shareIncludeAbstract: true,
     shareIncludeFactCheck: false,
     // v1.0.10: one-click brief
-    briefFormat: 'markdown',
+    briefFormat: 'html_landing',  // v1.0.10: offline HTML (full body + fold)
     briefSubmitting: false,
     activeBriefId: null,
     briefError: null,
