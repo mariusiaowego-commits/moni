@@ -641,6 +641,64 @@
       <section x-show="currentView === 'share'" x-cloak>
         <div class="panel-header"><h3>分享</h3></div>
 
+        <!-- v1.0.10: one-click brief primary path -->
+        <div class="share-section brief-panel" style="border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 16px 18px; margin-bottom: 20px; background: var(--card, #fff);">
+          <h4 style="margin-top:0;">一键简报</h4>
+          <p class="muted" style="margin: 0 0 12px; font-size: 0.9em;">
+            用当前全部 Pin 生成简报 · 默认含 AI 摘要、事实核查、业务价值评判 · 不调用 BestBlogs
+          </p>
+          <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
+            <label style="display:flex; align-items:center; gap:6px;">
+              格式
+              <select x-model="briefFormat" style="padding: 4px 8px;">
+                <template x-for="fmt in shareFormats" :key="'brief-'+fmt.value">
+                  <option :value="fmt.value" x-text="fmt.label"></option>
+                </template>
+              </select>
+            </label>
+            <button class="btn-primary"
+                    @click="createBrief()"
+                    :disabled="briefSubmitting || (pinnedTotal || 0) === 0">
+              <span x-show="!briefSubmitting" x-text="'用当前 Pin 生成简报 (' + (pinnedTotal || 0) + ')'"></span>
+              <span x-show="briefSubmitting">提交中…</span>
+            </button>
+            <span class="muted" style="font-size:0.85em;"
+                  x-show="(pinnedTotal || 0) === 0">先去文章流 Pin 至少 1 篇</span>
+          </div>
+          <p x-show="briefError" style="color:#b91c1c; margin:10px 0 0; font-size:0.9em;" x-text="briefError"></p>
+
+          <!-- sticky current brief status -->
+          <div x-show="activeBriefTask" style="margin-top:14px; padding:12px; border-radius:8px; background:#0f172a0a; border-left:3px solid #2563eb;">
+            <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+              <strong>当前简报</strong>
+              <span class="status-badge" :class="'status-' + (activeBriefTask?.status || '')"
+                    x-text="activeBriefTask?.status || ''"></span>
+            </div>
+            <div style="font-size:0.85em; margin-top:6px;" class="muted"
+                 x-text="briefStageLabel(activeBriefTask?.progress_stage) + ' · ' + (activeBriefTask?.progress_pct ?? 0) + '%' + (activeBriefTask?.progress_message ? ' — ' + activeBriefTask.progress_message : '')"></div>
+            <div style="background:#e5e7eb; border-radius:3px; height:8px; overflow:hidden; margin-top:8px;"
+                 x-show="activeBriefTask && (activeBriefTask.status === 'running' || activeBriefTask.status === 'pending')">
+              <div :style="'background:#2563eb; height:100%; width:' + (activeBriefTask?.progress_pct || 0) + '%; transition:width 0.4s;'"></div>
+            </div>
+            <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
+              <template x-if="activeBriefTask?.output_url && activeBriefTask?.status === 'done'">
+                <a class="btn-primary" :href="activeBriefTask.output_url" target="_blank">打开产物</a>
+              </template>
+              <template x-if="activeBriefTask?.status === 'failed'">
+                <button class="btn-secondary" @click="retryBrief()">重试</button>
+              </template>
+              <span class="muted" style="font-size:0.8em;" x-text="'任务 ' + (activeBriefTask?.id || '')"></span>
+            </div>
+            <p x-show="activeBriefTask?.error" style="color:#b91c1c; font-size:0.85em; margin:8px 0 0;"
+               x-text="activeBriefTask?.error"></p>
+          </div>
+        </div>
+
+        <details class="share-section" style="margin-bottom: 16px;">
+          <summary style="cursor:pointer; font-weight:600; color:#64748b;">
+            自定义分享（勾选子集、BB 增强、provider…）
+          </summary>
+          <div style="margin-top: 12px;">
         <div class="share-section">
           <h4>选择文章</h4>
           <!-- v1.0.8: chip 切换 [全部] / [仅 Pin]. 默认 Pin 模式
@@ -865,7 +923,10 @@
 
         <div class="share-section">
           <button class="btn-primary" @click="addToQueue()" :disabled="selectedArticleIds.length === 0">加入队列</button>
+          <small class="muted" style="margin-left:8px;">入队后需点下方「立即处理队列」（自定义路径不自动启动）</small>
         </div>
+          </div><!-- end custom share inner -->
+        </details>
 
         <div class="share-section">
           <h4>队列状态</h4>

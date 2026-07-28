@@ -283,6 +283,29 @@ class ShareTaskResponseV1(BaseModel):
     status: str = "pending"
 
 
+class BriefCreateRequest(BaseModel):
+    """POST /api/share/brief — one-click brief from all current pins."""
+
+    format: str = Field(default="markdown", description="Output format")
+    title: str | None = Field(
+        default=None,
+        description="Optional title; auto-filled for formats that require it",
+    )
+    options: dict[str, Any] | None = Field(
+        default=None,
+        description="Override defaults: include_abstract/fact_check/business_value/...",
+    )
+
+
+class BriefCreateResponse(BaseModel):
+    """Response for one-click brief create."""
+
+    share_id: str
+    status: str = "pending"
+    article_count: int = 0
+    worker: dict[str, Any] = Field(default_factory=dict)
+
+
 class ShareTaskEstimateResponse(BaseModel):
     """Response body for POST /api/share/estimate.
 
@@ -544,6 +567,8 @@ __all__ = [
     "ShareTaskCreate",
     "ShareTaskCreateV1",
     "ShareTaskResponseV1",
+    "BriefCreateRequest",
+    "BriefCreateResponse",
     "ShareTaskListResponse",
     "ErrorResponse",
     # v1.0.2 config

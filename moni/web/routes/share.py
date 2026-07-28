@@ -33,6 +33,8 @@ from moni.share.manifest import write_manifest
 from moni.share.worker import LOG_FILE, launch_worker, tail_log
 from moni.web.exceptions import BadRequestError, NotFoundError
 from moni.web.models import (
+    BriefCreateRequest,
+    BriefCreateResponse,
     ShareTask,
     ShareTaskCreateV1,
     ShareTaskEstimateResponse,
@@ -335,6 +337,100 @@ def create_share_task(body: ShareTaskCreateV1) -> ShareTaskResponseV1:
 
     # 3. Return 201
     return ShareTaskResponseV1(share_id=share_id, status="pending")
+
+
+# ---------------------------------------------------------------------------
+# v1.0.10: one-click brief from all current pins
+# ---------------------------------------------------------------------------
+
+
+def _default_brief_title() -> str:
+    # Local calendar date for the auto title (user is CN-based).
+    return f"同业简报 {datetime.now().strftime('%Y-%m-%d')}"
+
+
+@router.post("/brief", response_model=BriefCreateResponse, status_code=201)
+def create_brief(body: BriefCreateRequest) -> BriefCreateResponse:
+    """Create a brief share task from **all** current pins and auto-start worker.
+
+    Opinionated defaults: abstract + fact_check + business_value ON, BB OFF.
+    article_ids are never taken from the client (brief = full pin set).
+    """
+    conn = get_db()
+    pin_rows = conn.execute(
+        "SELECT article_id FROM article_pins ORDER BY pinned_at ASC"
+    ).fetchall()
+    article_ids = [str(r[0]) for r in pin_rows]
+
+    if not article_ids:
+        raise BadRequestError(
+            message="no_pins",
+            details={"hint": "先去文章页 Pin 至少 1 篇，再生成简报"},
+        )
+
+    # Default format: offline HTML brief (full body + collapsible 原文)
+    format_name = (body.format or "html_landing").strip()
+    opts = body.options or {}
+    title = (body.title or "").strip() or _default_brief_title()
+
+    payload: dict[str, Any] = {
+        "article_ids": article_ids,
+        "include_abstract": bool(opts.get("include_abstract", True)),
+        "include_fact_check": bool(opts.get("include_fact_check", True)),
+        "include_business_value": bool(opts.get("include_business_value", True)),
+        "include_quality_score": bool(opts.get("include_quality_score", True)),
+        "brief": True,
+        "bb_enhance": bool(opts.get("bb_enhance", False)),
+    }
+    # Formats that need/accept title
+    if format_name in ("html_landing", "info_graphic_png", "pdf"):
+        payload["title"] = title
+    if format_name == "html_landing":
+        payload.setdefault("description", title)
+
+    # Optional provider/model passthrough
+    if opts.get("provider"):
+        payload["provider"] = opts["provider"]
+    if opts.get("model"):
+        payload["model"] = opts["model"]
+    if format_name in ("report_png", "info_graphic_png") and opts.get("generation_approach"):
+        payload["generation_approach"] = opts["generation_approach"]
+
+    manifest_body = {
+        "format": format_name,
+        "version": "1.0",
+        "payload": payload,
+    }
+    format_name, validated_payload = validate_manifest(manifest_body)
+    share_id = write_manifest(
+        share_id=None,
+        validated_payload=validated_payload,
+        format_name=format_name,
+    )
+
+    worker = launch_worker()
+    worker_info = {
+        "started": worker.started,
+        "already_running": worker.already_running,
+        "pid": worker.pid,
+        "error": worker.error,
+        "needs_manual_start": bool(
+            (not worker.started and not worker.already_running) or worker.error
+        ),
+    }
+    logger.info(
+        "brief created: share_id=%s format=%s pins=%d worker=%s",
+        share_id,
+        format_name,
+        len(article_ids),
+        worker_info,
+    )
+    return BriefCreateResponse(
+        share_id=share_id,
+        status="pending",
+        article_count=len(article_ids),
+        worker=worker_info,
+    )
 
 
 @router.get("/tasks", response_model=ShareTaskListResponse)

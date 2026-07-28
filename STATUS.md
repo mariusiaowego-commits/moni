@@ -4,12 +4,35 @@
 
 ---
 
-## 当前状态: **v1.0.9.12 — P0 紧急修复** (2026-07-03)
+## 当前状态: **v1.0.10 — 一键简报** (2026-07-28)
 
-**主分支**: main @ v1.0.9.12 (PR #56 merged)
+**主分支 tag**: v1.0.10
 **Web 服务**: `127.0.0.1:8900` (Python 3.12)
-**数据库**: `data/news.db` — schema_version=19, 11 tables
-**测试**: 428 passed, 2 skipped
+**数据库**: `data/news.db` — schema_version=22, 11 tables
+**测试**: 见 PR / 全量 pytest
+
+### v1.0.10 (2026-07-28) — 一键简报
+
+**目标**: Pin N 篇 → 选格式 → 一点生成含摘要/事实核查/业务价值的简报，进度可见。
+
+**已交付:**
+1. `POST /api/share/brief` — 全部 pin + opinionated payload + auto `launch_worker`
+2. migration 020–022 — `business_value_*` / `quality_score_*` / `brief_summary` / `brief_body_md`
+3. `moni/share/enrichment.py` — 摘要/事实核查/业务价值落库；长摘要 AI 压缩
+4. worker — hermes profile 默认 `default` (MiniMax)；brief 走 brief prompt + 富化后重建 content
+5. **offline HTML** (`brief_html.py`) — 全文嵌入、中文事实标签+icon、业务价值排序、可折叠原文（浅灰 pill、**仅 click** 滑动）、GSAP 动效
+6. 入库时本地 layout 写 `brief_body_md`（`layout-articles` CLI 可补历史）
+7. 分享页主 CTA + sticky 任务进度；旧路径收入「自定义分享」
+
+**默认格式**: HTML 网页（`html_landing`）offline 简报；默认不做 BestBlogs 增强。
+
+**文档**: `docs/plans|prd|specs/2026-07-28_v1.0.10-one-click-brief*`
+
+---
+
+### v1.0.9.12 进展 (2026-07-03) — P0 紧急修复
+
+**主分支 tag**: v1.0.9.12 (PR #56)
 
 ### v1.0.9.10 进展 (2026-06-30)
 

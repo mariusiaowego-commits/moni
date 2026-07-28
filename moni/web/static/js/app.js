@@ -1902,6 +1902,11 @@ function app() {
     // default profile's provider / model — no override).
     shareIncludeAbstract: true,
     shareIncludeFactCheck: false,
+    // v1.0.10: one-click brief
+    briefFormat: 'html_landing',  // v1.0.10: offline HTML (full body + fold)
+    briefSubmitting: false,
+    activeBriefId: null,
+    briefError: null,
     shareProvider: '',
     shareModel: '',
     // v1.0.5.18: report_png generation approach (only used when
@@ -1983,6 +1988,85 @@ function app() {
       this.selectedArticleIds = event.target.checked
         ? this.allArticles.map(a => a.id)
         : [];
+    },
+
+    // ── v1.0.10 one-click brief ─────────────────────────────────
+    get activeBriefTask() {
+      if (!this.activeBriefId || !this.shareQueue) return null;
+      return this.shareQueue.find(q => q.id === this.activeBriefId) || null;
+    },
+    briefStageLabel(stage) {
+      const map = {
+        queued: '排队中',
+        loading_articles: '读取正文',
+        fetching: '读取正文',
+        fetching_bb_meta: 'BestBlogs 增强',
+        generating_summaries: '生成摘要',
+        enrich_summary: '生成摘要',
+        enrich_fact_check: '事实核查',
+        enrich_business_value: '业务价值评估',
+        building_prompt: '拼装简报',
+        invoking_llm: '渲染产出',
+        writing_artifact: '写入文件',
+        done: '完成',
+        failed: '失败',
+      };
+      return map[stage] || stage || '…';
+    },
+    createBrief() {
+      if (this.briefSubmitting) return;
+      const n = this.pinnedTotal || this.pinnedArticles.length || 0;
+      if (n <= 0) {
+        alert('还没有 Pin 文章。\n\n请先在「文章查阅」最左列 Pin 至少 1 篇，再生成简报。');
+        return;
+      }
+      this.briefSubmitting = true;
+      this.briefError = null;
+      this.workerRunning = true;
+      fetch('/api/share/brief', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          format: this.briefFormat || 'markdown',
+        }),
+      })
+        .then(async r => {
+          const text = await r.text().catch(() => '');
+          let data = null;
+          try { data = text ? JSON.parse(text) : null; } catch (_) { /* not json */ }
+          if (!r.ok) {
+            const detail = (data && (data.detail || data.message || data.error)) || text || r.status;
+            throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+          }
+          return data;
+        })
+        .then(data => {
+          this.activeBriefId = data.share_id;
+          if (data.worker && data.worker.needs_manual_start) {
+            this.briefError = '任务已入队，但 worker 未能自动启动，请点下方「立即处理队列」。';
+          }
+          // Refresh queue + poll more aggressively while brief runs
+          this.loadShareQueue && this.loadShareQueue();
+          this._startSharePoll && this._startSharePoll();
+        })
+        .catch(err => {
+          console.error('createBrief failed:', err);
+          this.briefError = err.message || String(err);
+        })
+        .finally(() => {
+          this.briefSubmitting = false;
+          // workerRunning stays true until queue shows no running for this id
+          setTimeout(() => {
+            const t = this.activeBriefTask;
+            if (!t || t.status === 'done' || t.status === 'failed') {
+              this.workerRunning = false;
+            }
+          }, 2000);
+        });
+    },
+    retryBrief() {
+      this.createBrief();
     },
 
     addToQueue() {
@@ -2333,7 +2417,16 @@ function app() {
     _startSharePoll() {
       if (this._sharePollInterval) return;
       this.loadShareQueue();
-      this._sharePollInterval = setInterval(() => this.loadShareQueue(), 30000);
+      // v1.0.10: poll every 5s so brief progress is visible (was 30s)
+      this._sharePollInterval = setInterval(() => {
+        this.loadShareQueue();
+        const t = this.activeBriefTask;
+        if (t && (t.status === 'running' || t.status === 'pending')) {
+          this.workerRunning = true;
+        } else if (t && (t.status === 'done' || t.status === 'failed')) {
+          this.workerRunning = false;
+        }
+      }, 5000);
     },
 
     // ── Init ────────────────────────────────────────────────
