@@ -33,12 +33,13 @@ FACT_CHECK_PROMPT = """你是 moni 新闻聚合系统的事实核查助手。仅
 
 要求：
 - 列出 0-5 条 claim；纯观点/广告可写 conclusion="无需核查"
-- 每条 claim 分类：supported | unverified | disputed
+- 每条 claim 分类必须用中文标签之一：【已核实】|【待核实】|【存疑】
+- 禁止英文 supported/unverified/disputed
 - 中文输出
 
 严格 JSON（不要其它文字）：
 ```json
-{{"id": "{article_id}", "conclusion": "一句话总结", "method": "llm_inference", "note": "claim1 [supported]: ...; claim2 ..."}}
+{{"id": "{article_id}", "conclusion": "一句话总结", "method": "llm_inference", "note": "claim1 【已核实】: ...; claim2 【待核实】: ..."}}
 ```
 
 标题: {title}
@@ -150,9 +151,79 @@ def _load_flags(manifest_path: str | None) -> dict[str, Any]:
                 defaults["include_fact_check"] = True
             if "include_business_value" not in p:
                 defaults["include_business_value"] = True
+            if "include_quality_score" not in p:
+                defaults["include_quality_score"] = True
     except Exception as exc:
         log.warning("enrichment: bad manifest %s: %s", manifest_path, exc)
     return defaults
+
+
+def _format_date(raw: str | None) -> str:
+    """Normalize ISO/datetime-ish strings to YYYY-MM-DD for brief display."""
+    if not raw or not str(raw).strip():
+        return ""
+    s = str(raw).strip()
+    # 2026-06-23T12:14:00+08:00 / 2026-06-23 12:14:00
+    m = re.match(r"(\d{4}-\d{2}-\d{2})", s)
+    if m:
+        return m.group(1)
+    return s[:10] if len(s) >= 10 else s
+
+
+def compute_heuristic_quality(row: sqlite3.Row | dict) -> int:
+    """Local quality/attention score 0-100 when bb_score / LLM score missing.
+
+    Prefer ``bb_score`` if present. Heuristic uses content richness + metadata.
+    """
+    def g(key: str, default=None):
+        try:
+            return row[key]
+        except (KeyError, IndexError, TypeError):
+            return default
+
+    bb = g("bb_score")
+    if bb is not None:
+        try:
+            return max(0, min(100, int(bb)))
+        except (TypeError, ValueError):
+            pass
+    qs = g("quality_score")
+    if qs is not None:
+        try:
+            return max(0, min(100, int(qs)))
+        except (TypeError, ValueError):
+            pass
+
+    score = 45
+    raw = (g("raw_content") or "") or ""
+    n = len(raw.strip())
+    if n >= 5000:
+        score += 25
+    elif n >= 2000:
+        score += 18
+    elif n >= 800:
+        score += 10
+    elif n >= THIN_CONTENT_CHARS:
+        score += 4
+    else:
+        score -= 20  # thin / empty
+
+    if g("ai_summary") and str(g("ai_summary")).strip():
+        score += 8
+    if g("fact_check_conclusion") and str(g("fact_check_conclusion")).strip():
+        score += 7
+    if g("publisher") and str(g("publisher")).strip():
+        score += 5
+    if g("published_at") and str(g("published_at")).strip():
+        score += 3
+    # Channel prior (not the display publisher)
+    src = (g("source") or "") or ""
+    if src.startswith("bestblog"):
+        score += 2
+    elif src in ("mpaypass", "wechat_rss_a", "wechat_rss_b"):
+        score += 1
+
+    return max(0, min(100, score))
 
 
 def _article_rows(conn: sqlite3.Connection, article_ids: list[str]) -> list[sqlite3.Row]:
@@ -298,27 +369,46 @@ def _ensure_quality(
     row: sqlite3.Row,
     extra_args: list[str],
     budget_left: list[float],
+    *,
+    use_llm: bool = False,
 ) -> bool:
-    if row["bb_score"] is not None:
-        return True  # display uses bb_score
+    """Ensure quality_score is set. Default: free heuristic (no LLM).
+
+    bb_score is display-preferred but we still store a quality_score when
+    missing so brief templates never show empty 「—」.
+    """
     if row["quality_score"] is not None:
         return True
-    content = (row["raw_content"] or "")[:2000]
-    if not content.strip() or budget_left[0] <= 0:
-        return False
-    prompt = QUALITY_PROMPT.format(
-        article_id=row["id"], title=row["title"] or "", content=content
-    )
-    timeout = min(STEP_TIMEOUT_SEC, max(15, int(budget_left[0])))
-    out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
-    budget_left[0] -= timeout
-    if code != 0:
-        return False
-    data = _parse_json_obj(out) or {}
-    try:
-        sc = max(0, min(100, int(data.get("score", 0))))
-    except (TypeError, ValueError):
-        sc = 0
+    if row["bb_score"] is not None:
+        # Mirror BB score into quality_score for uniform column
+        now = _now()
+        try:
+            conn.execute(
+                "UPDATE articles SET quality_score=?, quality_score_at=? WHERE id=?",
+                (int(row["bb_score"]), now, row["id"]),
+            )
+            conn.commit()
+            return True
+        except (sqlite3.OperationalError, TypeError, ValueError):
+            pass
+
+    # Fast path: heuristic (always works, no budget)
+    sc = compute_heuristic_quality(row)
+    if use_llm and budget_left[0] > 30:
+        content = (row["raw_content"] or "")[:2000]
+        if content.strip():
+            prompt = QUALITY_PROMPT.format(
+                article_id=row["id"], title=row["title"] or "", content=content
+            )
+            timeout = min(STEP_TIMEOUT_SEC, max(15, int(budget_left[0])))
+            out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
+            budget_left[0] -= timeout
+            if code == 0:
+                data = _parse_json_obj(out) or {}
+                try:
+                    sc = max(0, min(100, int(data.get("score", sc))))
+                except (TypeError, ValueError):
+                    pass
     now = _now()
     try:
         conn.execute(
@@ -435,10 +525,11 @@ def run_enrichment(
 
         rows = _article_rows(conn, article_ids)
 
-        # 4) quality score (optional)
-        if flags.get("include_quality_score"):
+        # 4) quality score — brief always on; heuristic by default (no LLM cost)
+        if flags.get("include_quality_score") or flags.get("brief"):
+            _update_progress(conn, task_id, "enrich_summary", 58, "计算质量/注意力分 ...")
             for row in rows:
-                if _ensure_quality(conn, row, extra_args, budget_left):
+                if _ensure_quality(conn, row, extra_args, budget_left, use_llm=False):
                     stats["quality"] += 1
 
         _update_progress(conn, task_id, "building_prompt", 65, "富化完成，准备拼装简报 ...")
@@ -482,16 +573,35 @@ def rebuild_article_content(
         content = (row["raw_content"] or "").strip()
         if not content:
             content = "（无正文）"
-        block = f"### 文章: {row['title']}\nID: {row['id']}\n来源: {row['source'] or ''}\n"
+        publisher = (row["publisher"] or "").strip()
+        channel = (row["source"] or "").strip()
+        # Display: 发布方 first (e.g. 极客公园), channel secondary (bestblogs)
+        if publisher and channel:
+            source_display = f"{publisher}（采集通道: {channel}）"
+        elif publisher:
+            source_display = publisher
+        else:
+            source_display = channel or "未知来源"
+        pub_date = _format_date(row["published_at"]) or "日期不详"
+
+        block = (
+            f"### 文章: {row['title']}\n"
+            f"ID: {row['id']}\n"
+            f"发布方: {publisher or '（无）'}\n"
+            f"采集通道: {channel or '（无）'}\n"
+            f"来源展示: {source_display}\n"
+            f"发布日期: {pub_date}\n"
+        )
         if row["url"]:
             block += f"链接: {row['url']}\n"
         block += f"\n{content}"
 
-        # quality display: bb_score preferred
+        # quality: bb preferred, else quality_score, else heuristic on the fly
         q = row["bb_score"] if row["bb_score"] is not None else row["quality_score"]
-        if q is not None:
-            label = "BestBlogs 评分" if row["bb_score"] is not None else "质量分"
-            block += f"\n\n**{label}**: {q}/100"
+        if q is None:
+            q = compute_heuristic_quality(row)
+        q_label = "BestBlogs 评分" if row["bb_score"] is not None else "质量/注意力分"
+        block += f"\n\n**{q_label}**: {q}/100"
 
         bv = row["business_value_score"]
         if bv is not None:
@@ -509,7 +619,17 @@ def rebuild_article_content(
         if row["fact_check_conclusion"] and str(row["fact_check_conclusion"]).strip():
             block += f"\n\n**事实核查结论**: {row['fact_check_conclusion']}"
             if row["fact_check_note"] and str(row["fact_check_note"]).strip():
-                block += f"\n**事实核查明细**: {row['fact_check_note']}"
+                # normalize english tags if any slipped through
+                note = str(row["fact_check_note"])
+                note = (
+                    note.replace("[supported]", "【已核实】")
+                    .replace("[Supported]", "【已核实】")
+                    .replace("[unverified]", "【待核实】")
+                    .replace("[Unverified]", "【待核实】")
+                    .replace("[disputed]", "【存疑】")
+                    .replace("[Disputed]", "【存疑】")
+                )
+                block += f"\n**事实核查明细**: {note}"
 
         parts.append(block)
 

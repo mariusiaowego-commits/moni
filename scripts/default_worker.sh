@@ -206,12 +206,24 @@ prompt_file_for_format() {
                 echo "format-markdown.md"
             fi
             ;;
-        html_landing)     echo "format-html.md" ;;
+        html_landing)
+            if [[ "$brief" == "true" ]]; then
+                echo "format-brief-html.md"
+            else
+                echo "format-html.md"
+            fi
+            ;;
         rich_text)        echo "format-rich-text.md" ;;
         report_png)       echo "format-report-png.md" ;;
         plain_text)       echo "" ;;  # no LLM pass
         info_graphic_png) echo "format-info-graphic-png.md" ;;
-        pdf)              echo "format-pdf.md" ;;
+        pdf)
+            if [[ "$brief" == "true" ]]; then
+                echo "format-brief-pdf.md"
+            else
+                echo "format-pdf.md"
+            fi
+            ;;
         *)                echo "" ;;
     esac
 }
