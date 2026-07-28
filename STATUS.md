@@ -4,12 +4,12 @@
 
 ---
 
-## 当前状态: **v1.0.9.10 — 信源 icon 精细化 (icon 拆子源 + 防白边)** (2026-06-30)
+## 当前状态: **v1.0.9.12 — P0 紧急修复** (2026-07-03)
 
-**主分支**: main @ v1.0.9.10 (PR #52 merged)
+**主分支**: main @ v1.0.9.12 (PR #56 merged)
 **Web 服务**: `127.0.0.1:8900` (Python 3.12)
 **数据库**: `data/news.db` — schema_version=19, 11 tables
-**测试**: 425 passed, 2 skipped
+**测试**: 428 passed, 2 skipped
 
 ### v1.0.9.10 进展 (2026-06-30)
 
@@ -37,6 +37,22 @@
 **测试**: 425 passed, 2 skipped | **8900**: 已 restart @ pid 32157, HTTP 200, 119KB 首页
 
 **PR**: #52 squash merged → main @ 130de78, tag v1.0.9.10
+
+---
+
+### v1.0.9.12 进展 (2026-07-03)
+
+**P0 紧急修复 (6 项):**
+1. **Alpine console error** — 10 处 `fetchAllResult` 无保护访问 (`?.` 可选链), 生产页面零 error
+2. **Share task 连败** — `moni` profile (xiaomi) API key 过期 → 默认切 `default` (MiniMax-M3), 重置 3 个 failed task 重试
+3. **bb_resource_id 毒化修复** — fetcher 不再挑 `RAW_` 前缀 (存原始 GUID), `fetch_and_store()` 不再标记 fetched_at 留 NULL 等 backfill
+4. **失败告警** — 新建 `moni/utils/notify.py` (Bark/Telegram/log), worker 失败路径自动通知
+5. **launchd 托管** — 新建 `scripts/com.moni.cron.plist` + `install-launchd.sh` (当前未启用, 用户手动触发)
+6. **依赖补全** — pyproject.toml 2→8 依赖 (补 fastapi/uvicorn/pydantic/httpx/bs4/psutil)
+
+**代码变更**: 13 files, +302/−73 lines
+**测试**: 428 passed, 2 skipped | **8900**: restarted @ v1.0.9.12
+**PR**: #56 squash merged → main, tag v1.0.9.12
 
 ---
 
