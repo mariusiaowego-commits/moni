@@ -438,7 +438,7 @@ def render_brief_html(
           </g>
         </svg>
       </span>
-      <span class="bd-label">查看全文 · 离线可读</span>
+      <span class="bd-label" data-label="查看全文">查看全文</span>
     </button>
     <div class="orig-panel" aria-hidden="true">
       <div class="orig-scroll">
@@ -596,38 +596,53 @@ def render_brief_html(
     color: #1c1917;
   }}
 
-  /* —— 折叠按钮：BookDemo-inspired dark shell + sky pill —— */
+  /* —— 折叠按钮：暖石壳 + 珊瑚橙 pill（非黑底 / 非蓝） —— */
   .orig-wrap {{
     margin-top: 18px; border-top: 1px dashed var(--border); padding-top: 14px;
   }}
   .bd-root {{
+    --coral-from: #ffb088;
+    --coral-to: #f56b42;
+    --coral-deep: #9a3412;
+    --shell-from: #f7efe6;
+    --shell-to: #ebe0d4;
     position: relative;
     display: inline-flex;
     align-items: center;
     height: 44px;
-    min-width: 200px;
-    padding: 0 18px 0 4px;
-    border: 0;
+    min-width: 148px;
+    padding: 0 16px 0 4px;
+    border: 1px solid #e0d2c4;
     border-radius: 12px;
     cursor: pointer;
     overflow: hidden;
     font-family: var(--sans);
-    color: #fff;
-    background: linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 100%);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 4px 12px rgba(0,0,0,0.18);
-    transition: transform 0.15s ease;
+    color: var(--coral-deep);
+    background: linear-gradient(180deg, var(--shell-from) 0%, var(--shell-to) 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.75),
+      0 3px 10px rgba(154, 52, 18, 0.08);
+    transition: transform 0.15s ease, box-shadow 0.2s ease;
   }}
-  .bd-root:hover {{ transform: translateY(-1px); }}
+  .bd-root:hover {{
+    transform: translateY(-1px);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.85),
+      0 6px 16px rgba(245, 107, 66, 0.18);
+  }}
   .bd-root:active {{ transform: scale(0.97); }}
-  .bd-root:focus-visible {{ outline: 2px solid #6bc8f5; outline-offset: 2px; }}
+  .bd-root:focus-visible {{ outline: 2px solid #f56b42; outline-offset: 2px; }}
   .bd-pill {{
     position: absolute;
     top: 4px; left: 4px; bottom: 4px;
     width: 36px;
     display: flex; align-items: center; justify-content: center;
     border-radius: 8px;
-    background: linear-gradient(180deg, #a5e0ff 0%, #6bc8f5 100%);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), inset 0 -2px 4px rgba(0,0,0,0.12);
+    background: linear-gradient(180deg, var(--coral-from) 0%, var(--coral-to) 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.45),
+      inset 0 -2px 4px rgba(0,0,0,0.10),
+      0 2px 4px rgba(245, 107, 66, 0.2);
     transition: width 0.26s cubic-bezier(0.22,1,0.36,1);
     z-index: 1;
   }}
@@ -641,18 +656,22 @@ def render_brief_html(
     z-index: 2;
     margin-left: 44px;
     font-size: 14px;
-    font-weight: 550;
+    font-weight: 600;
     letter-spacing: -0.01em;
-    transition: transform 0.2s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease;
+    color: var(--coral-deep);
+    /* hover fade driven by GSAP; CSS baseline */
+    opacity: 1;
   }}
-  .bd-root:hover .bd-label,
-  .bd-root:focus-visible .bd-label {{
-    transform: translateX(6px);
-    opacity: 0.92;
+  .bd-label .bd-ch {{
+    display: inline-block;
+    will-change: contents, opacity, text-shadow;
   }}
+  /* expanded: cream on coral, never pure black */
   .bd-root[aria-expanded="true"] .bd-label {{
-    color: #0a1f3a;
+    color: #fff7ed;
+    text-shadow: 0 1px 0 rgba(120, 40, 10, 0.15);
   }}
+  .bd-chevs .bd-dots {{ fill: #5c2410; }}
   @keyframes bd-dot-wave {{
     0%, 65%, 100% {{ opacity: 0.3; transform: scale(0.8); }}
     32% {{ opacity: 1; transform: scale(1.08); }}
@@ -663,14 +682,14 @@ def render_brief_html(
     animation: bd-dot-wave 1.8s cubic-bezier(0.45,0.05,0.55,0.95) infinite;
   }}
   .bd-root:hover .bd-dot,
-  .bd-root:focus-visible .bd-dot {{
+  .bd-root:focus-visible .bd-dot,
+  .bd-root[aria-expanded="true"] .bd-dot {{
     animation-duration: 0.95s;
   }}
   @media (prefers-reduced-motion: reduce) {{
     .bd-dot {{ animation: none; opacity: 1; }}
-    .bd-pill, .bd-label {{ transition: none; }}
+    .bd-pill {{ transition: none; }}
   }}
-
   .orig-panel {{
     height: 0; overflow: hidden; will-change: height;
   }}
@@ -743,16 +762,14 @@ def render_brief_html(
 </div>
 <script>
 (function () {{
-  // Lightweight GSAP height tween. Prefer gsap if loaded; CSS fallback otherwise.
+  var MATRIX = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789";
+  var ACCENT = "#f56b42";
+
   function panelInnerHeight(panel) {{
-    // Measure content height of the scroll box + foot (capped by max-height CSS).
     var scroll = panel.querySelector('.orig-scroll');
     var foot = panel.querySelector('.orig-foot');
     var h = 0;
-    if (scroll) {{
-      // offsetHeight respects max-height when content overflows
-      h += scroll.offsetHeight;
-    }}
+    if (scroll) h += scroll.offsetHeight;
     if (foot) h += foot.offsetHeight + 8;
     return h;
   }}
@@ -780,7 +797,6 @@ def render_brief_html(
     panel.setAttribute('aria-hidden', 'true');
     var start = panel.scrollHeight;
     panel.style.height = start + 'px';
-    // force reflow
     void panel.offsetHeight;
     if (window.gsap) {{
       window.gsap.killTweensOf(panel);
@@ -788,6 +804,104 @@ def render_brief_html(
     }} else {{
       panel.style.transition = 'height 0.22s ease';
       panel.style.height = '0px';
+    }}
+  }}
+
+  /* —— label: matrix scramble → fade out on hover; fade back on leave —— */
+  function clearLabelTimers(label) {{
+    if (label._bdIntervals) {{
+      label._bdIntervals.forEach(clearInterval);
+      label._bdIntervals = [];
+    }}
+    if (label._bdTimeouts) {{
+      label._bdTimeouts.forEach(clearTimeout);
+      label._bdTimeouts = [];
+    }}
+    if (window.gsap) window.gsap.killTweensOf(label.querySelectorAll('.bd-ch'));
+  }}
+
+  function setPlainLabel(label, text, color) {{
+    clearLabelTimers(label);
+    label.textContent = text;
+    label.style.opacity = '1';
+    if (color) label.style.color = color;
+    else label.style.color = '';
+  }}
+
+  function matrixFadeOut(label) {{
+    var finalText = label.getAttribute('data-label') || '查看全文';
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce || !window.gsap) {{
+      if (window.gsap) {{
+        window.gsap.to(label, {{ opacity: 0, duration: 0.22, ease: 'power2.out' }});
+      }} else {{
+        label.style.transition = 'opacity 0.22s ease';
+        label.style.opacity = '0';
+      }}
+      return;
+    }}
+    clearLabelTimers(label);
+    label._bdIntervals = [];
+    label._bdTimeouts = [];
+    label.innerHTML = '';
+    label.style.opacity = '1';
+    var chars = finalText.split('');
+    var spans = [];
+    chars.forEach(function (ch) {{
+      var span = document.createElement('span');
+      span.className = 'bd-ch';
+      span.style.display = 'inline-block';
+      span.style.color = ACCENT;
+      span.style.textShadow = '0 0 8px ' + ACCENT;
+      span.textContent = ch === ' ' ? '\\u00A0' : MATRIX[Math.floor(Math.random() * MATRIX.length)];
+      label.appendChild(span);
+      spans.push(span);
+    }});
+    var locked = 0;
+    spans.forEach(function (span, i) {{
+      if (chars[i] === ' ') {{
+        span.textContent = '\\u00A0';
+        locked++;
+        return;
+      }}
+      var scramble = setInterval(function () {{
+        if (!span._locked) {{
+          span.textContent = MATRIX[Math.floor(Math.random() * MATRIX.length)];
+        }}
+      }}, 45);
+      label._bdIntervals.push(scramble);
+      var lockDelay = i * 35 + Math.random() * 80;
+      var t = setTimeout(function () {{
+        clearInterval(scramble);
+        span._locked = true;
+        span.textContent = chars[i];
+        locked++;
+        window.gsap.fromTo(span,
+          {{ textShadow: '0 0 12px ' + ACCENT }},
+          {{ duration: 0.28, textShadow: '0 0 0px transparent', ease: 'power2.out',
+             onComplete: function () {{
+               if (locked >= spans.length) {{
+                 window.gsap.to(label, {{ opacity: 0, duration: 0.2, ease: 'power2.out' }});
+               }}
+             }} }}
+        );
+      }}, lockDelay);
+      label._bdTimeouts.push(t);
+    }});
+  }}
+
+  function matrixFadeIn(label) {{
+    var finalText = label.getAttribute('data-label') || '查看全文';
+    clearLabelTimers(label);
+    var expanded = label.closest('.bd-root') &&
+      label.closest('.bd-root').getAttribute('aria-expanded') === 'true';
+    if (window.gsap) {{
+      setPlainLabel(label, finalText, expanded ? '#fff7ed' : '');
+      window.gsap.fromTo(label, {{ opacity: 0 }}, {{ opacity: 1, duration: 0.28, ease: 'power2.out' }});
+    }} else {{
+      setPlainLabel(label, finalText, expanded ? '#fff7ed' : '');
+      label.style.transition = 'opacity 0.28s ease';
+      label.style.opacity = '1';
     }}
   }}
 
@@ -801,6 +915,28 @@ def render_brief_html(
     var open = btn.getAttribute('aria-expanded') === 'true';
     if (open) closePanel(btn, panel);
     else openPanel(btn, panel);
+    // restore readable label after click (expanded uses cream on coral)
+    var label = btn.querySelector('.bd-label');
+    if (label) {{
+      var expanded = btn.getAttribute('aria-expanded') === 'true';
+      setPlainLabel(label, label.getAttribute('data-label') || '查看全文', expanded ? '#fff7ed' : '');
+    }}
+  }});
+
+  document.querySelectorAll('.bd-root').forEach(function (btn) {{
+    var label = btn.querySelector('.bd-label');
+    if (!label) return;
+    btn.addEventListener('mouseenter', function () {{
+      if (btn.getAttribute('aria-expanded') === 'true') return;
+      matrixFadeOut(label);
+    }});
+    btn.addEventListener('mouseleave', function () {{
+      if (btn.getAttribute('aria-expanded') === 'true') {{
+        setPlainLabel(label, label.getAttribute('data-label') || '查看全文', '#fff7ed');
+        return;
+      }}
+      matrixFadeIn(label);
+    }});
   }});
 }})();
 </script>
