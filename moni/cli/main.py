@@ -102,6 +102,42 @@ def cmd_clean_articles() -> None:
     )
 
 
+# ── layout-articles (v1.0.10 offline body layout) ────────────────────────────
+
+layout_parser = SUB.add_parser(
+    "layout-articles",
+    help=(
+        "Fill articles.brief_body_md for offline HTML reading "
+        "(local layout by default; --agent for hermes upgrade)"
+    ),
+)
+layout_parser.add_argument(
+    "--limit", type=int, default=100, help="Max articles missing layout (default 100)"
+)
+layout_parser.add_argument(
+    "--agent",
+    action="store_true",
+    help="Use hermes agent layout (slower); falls back to local on timeout",
+)
+
+
+def cmd_layout_articles(limit: int = 100, use_agent: bool = False) -> None:
+    """Backfill brief_body_md for articles that lack offline layout.
+
+    New inserts already get local layout in ArticleRepository.dedupe_insert.
+    This CLI covers history + optional agent quality upgrade.
+    """
+    from ..share.enrichment import layout_pending_bodies
+
+    stats = layout_pending_bodies(limit=limit, use_agent=use_agent)
+    mode = "agent" if use_agent else "local"
+    print(
+        f"layout-articles ({mode}): scanned={stats.get('scanned', 0)}, "
+        f"updated={stats.get('updated', 0)}, skipped={stats.get('skipped', 0)}, "
+        f"failed={stats.get('failed', 0)}"
+    )
+
+
 # ── backfill-publisher subcommand (v1.0.5.7) ─────────────────────────────────
 
 backfill_publisher_parser = SUB.add_parser(
@@ -420,6 +456,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.subcmd == "clean-articles":
         cmd_clean_articles()
+        return
+
+    if args.subcmd == "layout-articles":
+        cmd_layout_articles(limit=args.limit, use_agent=args.agent)
+        return
         close_db()
         return 0
 

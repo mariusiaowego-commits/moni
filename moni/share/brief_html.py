@@ -388,15 +388,20 @@ def render_brief_html(
             else ""
         )
         fc_lis = []
+        _fc_lab = {"ok": "已核实", "warn": "待核实", "bad": "存疑"}
         for kind, text in _fc_items(r):
             if kind == "none":
-                fc_lis.append(f"<li class='fc-plain'>{_esc(text)}</li>")
+                fc_lis.append(f"<li class='fc-line fc-plain'>{_esc(text)}</li>")
             else:
-                # icon only + claim text (no second 已核实 label)
+                # icon + 文字 同一容器，claim 紧随其后同一行（不换行断开）
+                lab = _fc_lab.get(kind, "")
                 fc_lis.append(
-                    f"<li><span class='badge {kind}' title='{_esc({'ok':'已核实','warn':'待核实','bad':'存疑'}.get(kind,''))}'>"
-                    f"{_badge_svg(kind)}</span> "
-                    f"<span class='fc-text'>{_esc(text)}</span></li>"
+                    f"<li class='fc-line'>"
+                    f"<span class='badge {kind}'>"
+                    f"{_badge_svg(kind)}<span class='badge-lab'>{_esc(lab)}</span>"
+                    f"</span>"
+                    f"<span class='fc-text'>{_esc(text)}</span>"
+                    f"</li>"
                 )
 
         cards.append(
@@ -464,19 +469,38 @@ def render_brief_html(
     background: var(--panel); border-radius: 0 8px 8px 0; color: #334155;
   }}
   .fc {{ list-style: none; padding: 0; margin: 0; }}
-  .fc li {{
-    margin: 8px 0; display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap;
+  /* 整行：badge(图标+文字) + claim 同一行，claim 可折行但接在 badge 后 */
+  .fc-line {{
+    margin: 8px 0;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    gap: 8px;
   }}
   .fc-plain {{ color: var(--muted); }}
   .badge {{
-    display: inline-flex; align-items: center; gap: 4px;
-    font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 8px 2px 4px;
+    border-radius: 999px;
     white-space: nowrap;
+    line-height: 1.4;
   }}
   .badge.ok {{ background: #dcfce7; color: #166534; }}
   .badge.warn {{ background: #fef3c7; color: #92400e; }}
   .badge.bad {{ background: #fee2e2; color: #991b1b; }}
-  .badge svg {{ flex-shrink: 0; }}
+  .badge svg {{ flex-shrink: 0; display: block; }}
+  .badge-lab {{ letter-spacing: 0.02em; }}
+  .fc-text {{
+    flex: 1 1 auto;
+    min-width: 0;          /* allow wrap inside flex */
+    line-height: 1.55;
+    color: #1e293b;
+  }}
 
   /* 原文折叠：默认关；展开后内部固定高度滚动 */
   .orig-wrap {{ margin-top: 14px; border-top: 1px dashed var(--border); padding-top: 10px; }}

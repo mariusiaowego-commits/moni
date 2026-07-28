@@ -97,8 +97,8 @@ def test_body_to_html_plain_paragraphs():
     assert "第一段" in h and "第二段" in h
 
 
-def test_fc_items_icon_only_no_duplicate_label():
-    from moni.share.brief_html import _fc_items, render_brief_html
+def test_fc_items_strip_duplicate_status_from_claim_text():
+    from moni.share.brief_html import _fc_items
 
     class R(dict):
         def __getitem__(self, k):
@@ -110,6 +110,32 @@ def test_fc_items_icon_only_no_duplicate_label():
     )
     items = _fc_items(row)
     assert items[0][0] == "ok"
+    # claim text must not repeat status words (badge has icon+label)
     assert "已核实" not in items[0][1]
     assert "claim1" not in items[0][1].lower()
     assert "监管文件" in items[0][1]
+
+
+def test_fc_badge_has_label_and_inline_claim(fresh_db: Path):
+    """badge shows icon+文字; claim sits on same line after badge."""
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """
+        INSERT INTO articles
+        (id, title, url, source, publisher, published_at, fetched_at, raw_content,
+         brief_summary, fact_check_note, quality_score, business_value_score)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            "fc1", "t", "https://e.com/1", "s", "pub", now, now, "正文段落。",
+            "短摘要。", "【已核实】: 监管已发文", 70, 60,
+        ),
+    )
+    conn.commit()
+    html_doc = render_brief_html(str(fresh_db), ["fc1"])
+    assert "badge-lab" in html_doc
+    assert "已核实" in html_doc
+    assert "fc-line" in html_doc
+    assert "【已核实】" not in html_doc  # stripped from claim
+    assert "监管已发文" in html_doc

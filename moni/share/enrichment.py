@@ -563,7 +563,7 @@ def _parse_body_md(output: str) -> str:
     return body
 
 
-def _local_body_layout(raw: str, title: str = "") -> str:
+def local_body_layout(raw: str, title: str = "") -> str:
     """Offline heuristic layout when hermes times out or body is huge.
 
     Only structure: strip frontmatter/noise, paragraphize, promote 1. 2. headings.
@@ -652,7 +652,7 @@ def _ensure_brief_body(
 
     # Super-long bodies: local layout first (hermes often times out at 15k+)
     if len(raw) > 9000 or budget_left[0] <= 30:
-        return _write(_local_body_layout(raw, row["title"] or ""))
+        return _write(local_body_layout(raw, row["title"] or ""))
 
     content = raw[:7000]
     prompt = BODY_LAYOUT_PROMPT.format(
@@ -669,12 +669,110 @@ def _ensure_brief_body(
             code,
             row["id"],
         )
-        return _write(_local_body_layout(raw, row["title"] or ""))
+        return _write(local_body_layout(raw, row["title"] or ""))
     md = _parse_body_md(out)
     if len(md) < 40:
         log.warning("enrichment: body layout too short for %s — local fallback", row["id"])
-        return _write(_local_body_layout(raw, row["title"] or ""))
+        return _write(local_body_layout(raw, row["title"] or ""))
     return _write(md)
+
+
+def apply_local_body_layout_for_ids(article_ids: list[str]) -> dict[str, int]:
+    """Fast path: fill brief_body_md with local layout for newly ingested articles.
+
+    No hermes. Safe to call from fetch hot path after insert.
+    Returns {scanned, updated, skipped, failed}.
+    """
+    stats = {"scanned": 0, "updated": 0, "skipped": 0, "failed": 0}
+    if not article_ids:
+        return stats
+    from moni.db.connection import get_db
+
+    conn = get_db()
+    conn.row_factory = sqlite3.Row
+    for aid in article_ids:
+        stats["scanned"] += 1
+        try:
+            row = conn.execute(
+                "SELECT id, title, raw_content, brief_body_md FROM articles WHERE id=?",
+                (aid,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            stats["failed"] += 1
+            continue
+        if row is None:
+            stats["skipped"] += 1
+            continue
+        existing = row["brief_body_md"]
+        if existing and str(existing).strip():
+            stats["skipped"] += 1
+            continue
+        raw = row["raw_content"] or ""
+        title = row["title"] or ""
+        if not str(raw).strip():
+            stats["skipped"] += 1
+            continue
+        md = local_body_layout(str(raw), title)
+        try:
+            conn.execute(
+                "UPDATE articles SET brief_body_md=?, brief_body_at=? WHERE id=?",
+                (md, _now(), aid),
+            )
+            stats["updated"] += 1
+        except sqlite3.OperationalError:
+            stats["failed"] += 1
+    try:
+        conn.commit()
+    except Exception:
+        stats["failed"] += 1
+    return stats
+
+
+def layout_pending_bodies(
+    *,
+    limit: int = 50,
+    use_agent: bool = False,
+) -> dict[str, int]:
+    """Backfill / upgrade bodies missing brief_body_md.
+
+    - use_agent=False: local layout only (default for cron/CLI)
+    - use_agent=True: hermes layout with local fallback (slower)
+    """
+    from moni.db.connection import get_db
+
+    conn = get_db()
+    stats = {"scanned": 0, "updated": 0, "skipped": 0, "failed": 0}
+    try:
+        rows = conn.execute(
+            """
+            SELECT id FROM articles
+            WHERE (brief_body_md IS NULL OR TRIM(brief_body_md) = '')
+              AND raw_content IS NOT NULL AND TRIM(raw_content) != ''
+            ORDER BY fetched_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return stats
+    ids = [r[0] for r in rows]
+    if not use_agent:
+        return apply_local_body_layout_for_ids(ids)
+
+    budget = [float(ENRICH_BUDGET_SEC)]
+    conn.row_factory = sqlite3.Row
+    for aid in ids:
+        stats["scanned"] += 1
+        row = conn.execute("SELECT * FROM articles WHERE id=?", (aid,)).fetchone()
+        if row is None:
+            stats["skipped"] += 1
+            continue
+        ok = _ensure_brief_body(conn, row, [], budget)
+        if ok:
+            stats["updated"] += 1
+        else:
+            stats["failed"] += 1
+    return stats
 
 
 def _ensure_brief_summary(

@@ -46,6 +46,8 @@ class ArticleRepository:
 
         conn = get_db()
         inserted = 0
+        # v1.0.10: newly inserted ids → local body layout for offline HTML
+        new_ids: list[str] = []
 
         # v1.0.5.20: 建立 url -> article_id 的映射，用于记录 keyword_hits
         url_to_id: dict[str, str] = {}
@@ -87,7 +89,7 @@ class ArticleRepository:
                 if n:
                     # v1.0.5.20: 不再复制 source 的所有 tag
                     # 改为在 keyword_hits 写入后只插入命中的 tag
-                    pass
+                    new_ids.append(aid)
                 # v1.0.5.20: 记录 url -> article_id 映射（不管是否新插入）
                 url_to_id[url] = aid
             except Exception as exc:
@@ -99,6 +101,21 @@ class ArticleRepository:
         if keyword_hits:
             self._insert_keyword_hits(conn, keyword_hits, url_to_id)
             self._insert_hit_tags(conn, keyword_hits, url_to_id)
+
+        # v1.0.10: every new article gets offline-readable body layout (local, no LLM)
+        if new_ids:
+            try:
+                from moni.share.enrichment import apply_local_body_layout_for_ids
+
+                layout_stats = apply_local_body_layout_for_ids(new_ids)
+                logger.info(
+                    "body layout (local) after insert: updated=%s skipped=%s failed=%s",
+                    layout_stats.get("updated"),
+                    layout_stats.get("skipped"),
+                    layout_stats.get("failed"),
+                )
+            except Exception as exc:
+                logger.warning("body layout after insert failed: %s", exc)
 
         return inserted
 
