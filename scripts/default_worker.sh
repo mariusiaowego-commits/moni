@@ -759,14 +759,18 @@ PYEOF
         local format_prompt_file="$PROMPT_DIR/$pf"
         [[ -f "$format_prompt_file" ]] && format_prompt=$(<"$format_prompt_file")
     fi
-    # brief mode: prepend business-value persona prompt
+    # brief mode: persona + compressed writing style (AI 自写部分)
     if [[ "$brief_val" == "true" ]]; then
+        local style_file="$PROMPT_DIR/writing-style-compact.md"
         local bv_prompt_file="$PROMPT_DIR/business-value.md"
-        if [[ -f "$bv_prompt_file" ]]; then
-            content_prompt="$(<"$bv_prompt_file")
+        local prepend=""
+        [[ -f "$style_file" ]] && prepend+="$(<"$style_file")
 
-${content_prompt}"
-        fi
+"
+        [[ -f "$bv_prompt_file" ]] && prepend+="$(<"$bv_prompt_file")
+
+"
+        [[ -n "$prepend" ]] && content_prompt="${prepend}${content_prompt}"
     fi
 
     # Skill clause — for non-png formats, we use the format's

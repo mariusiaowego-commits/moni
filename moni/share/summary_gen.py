@@ -45,16 +45,17 @@ SUMMARY_PROMPT = """你是 moni 新闻聚合系统的分析助手。请为以下
 
 
 # Single-article prompt — more reliable than batch (LLM won't skip articles)
-SINGLE_SUMMARY_PROMPT = """你是 moni 新闻聚合系统的分析助手。请为以下文章生成简洁的 AI 摘要。
+SINGLE_SUMMARY_PROMPT = """你是 moni 摘要助手。为下面文章写极短摘要。
 
-要求：
-- 3-5 句话
-- 捕捉：核心论点、关键发现、为什么重要
-- 保持事实性，不要"这篇文章值得关注"之类的填充语
+硬要求：
+- 最多 2 句中文，合计 ≤80 字
+- 只写事实：谁、做了什么、关键数字/结论；不写「为什么重要」空评
+- 禁止：值得关注、赋能、闭环、不是X而是Y、凸显了、深刻洞察
+- 写得像 2022 年前人类短讯，不要 AI 腔
 
-请严格以 JSON 格式返回，不要添加任何其他文字：
+严格 JSON：
 ```json
-{{"id": "{article_id}", "summary": "摘要内容"}}
+{{"id": "{article_id}", "summary": "…"}}
 ```
 
 文章标题: {title}

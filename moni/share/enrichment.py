@@ -29,17 +29,17 @@ ENRICH_BUDGET_SEC = int(os.environ.get("MONI_ENRICH_BUDGET_SEC", "480"))
 STEP_TIMEOUT_SEC = int(os.environ.get("MONI_ENRICH_STEP_TIMEOUT", "90"))
 THIN_CONTENT_CHARS = 200
 
-FACT_CHECK_PROMPT = """你是 moni 新闻聚合系统的事实核查助手。仅基于文内可核验声明做判断，不要编造外部事实。
+FACT_CHECK_PROMPT = """你是 moni 事实核查助手。只基于文内声明，不编造。
 
-要求：
-- 列出 0-5 条 claim；纯观点/广告可写 conclusion="无需核查"
-- 每条 claim 分类必须用中文标签之一：【已核实】|【待核实】|【存疑】
-- 禁止英文 supported/unverified/disputed
-- 中文输出
+要求（短）：
+- 最多 2 条 claim；纯观点 → conclusion="无需核查"，note 空
+- 标签只用：【已核实】|【待核实】|【存疑】（禁英文）
+- conclusion ≤20 字；每条 claim 半句，直说
+- 禁「不是X而是Y」、禁赋能/凸显了/值得注意
 
-严格 JSON（不要其它文字）：
+严格 JSON：
 ```json
-{{"id": "{article_id}", "conclusion": "一句话总结", "method": "llm_inference", "note": "claim1 【已核实】: ...; claim2 【待核实】: ..."}}
+{{"id": "{article_id}", "conclusion": "…", "method": "llm_inference", "note": "claim1 【已核实】: …; claim2 【待核实】: …"}}
 ```
 
 标题: {title}
@@ -48,18 +48,19 @@ ID: {article_id}
 {content}
 """
 
-BUSINESS_VALUE_PROMPT = """你是 moni 的同业情报分析助手。读者：国内银行/支付机构的数字化与同业产品从业者。
+BUSINESS_VALUE_PROMPT = """你是 moni 同业情报助手。读者：银行/支付数字化从业者。
 
-为下面文章评估「对自身业务的价值」：
-维度：监管影响、产品对标、技术可借鉴、客户经营、风险合规、优先级（本周/本月/关注即可）。
-要求：
-- score: 0-100 整数，同批文章必须拉开档次，禁止全挤在 70-85
-- note: 2-4 句中文，必须点名「对己方可能意味着什么」
-- 正文过短/信息不足时 score≤40，note 写明「素材不足」，禁止编造数字
+只评「对己方业务」：监管、对标、可借鉴、合规、优先级。
+
+硬要求：
+- score: 0-100，同批拉开档次，禁止全挤 70-85
+- note: **恰好 1 句中文**，≤50 字，点名「对我方意味什么」
+- 正文过短：score≤40，note 仅写「素材不足」
+- 禁止：值得关注、赋能、闭环、不是X而是Y、凸显了、深刻
 
 严格 JSON：
 ```json
-{{"id": "{article_id}", "score": 0, "note": "..."}}
+{{"id": "{article_id}", "score": 0, "note": "一句…"}}
 ```
 
 标题: {title}
