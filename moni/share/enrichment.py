@@ -550,12 +550,19 @@ def _ensure_brief_summary(
     compact = (data.get("summary") or "").strip()
     if not compact:
         return False
-    # Soft enforce length
+    # Soft enforce length + avoid mid-sentence cutoffs ("相当于5.")
     if is_long_summary(compact):
-        # take first 2 sentences
         parts = re.split(r"(?<=[。！？.!?])", compact)
         parts = [p for p in parts if p.strip()]
         compact = "".join(parts[:2]).strip() or compact[:BRIEF_SUMMARY_MAX_CHARS]
+    compact = compact.strip()
+    if compact and compact[-1] not in "。！？.!?…」』\"'）)":
+        # drop trailing incomplete clause after last full stop
+        m = re.search(r"^(.*[。！？.!?])", compact, re.DOTALL)
+        if m and m.group(1).strip():
+            compact = m.group(1).strip()
+        elif len(compact) > BRIEF_SUMMARY_MAX_CHARS:
+            compact = compact[: BRIEF_SUMMARY_MAX_CHARS - 1].rstrip("，,、；;：:") + "…"
     now = _now()
     try:
         conn.execute(
