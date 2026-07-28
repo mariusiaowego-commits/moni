@@ -31,6 +31,149 @@ def _esc(s: Any) -> str:
     return html.escape("" if s is None else str(s), quote=True)
 
 
+def _strip_frontmatter(text: str) -> str:
+    """Drop YAML frontmatter between leading --- fences (common in moni raw_content)."""
+    t = text.lstrip("\ufeff")
+    if not t.startswith("---"):
+        return text
+    # second --- ends frontmatter
+    m = re.match(r"^---\s*\n.*?\n---\s*\n(.*)$", t, re.DOTALL)
+    if m:
+        return m.group(1).lstrip("\n")
+    return text
+
+
+def _inline_md(text: str) -> str:
+    """Escape then apply a tiny inline markdown subset."""
+    s = _esc(text)
+    # links [label](url)
+    s = re.sub(
+        r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
+        r'<a href="\2" target="_blank" rel="noopener">\1</a>',
+        s,
+    )
+    # bold **x** or __x__
+    s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
+    s = re.sub(r"__(.+?)__", r"<strong>\1</strong>", s)
+    # italic *x* (avoid **)
+    s = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<em>\1</em>", s)
+    # inline code `x`
+    s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
+    return s
+
+
+def body_to_html(raw: str | None) -> str:
+    """Render article body as simple HTML (markdown-ish, zero extra deps).
+
+    Supports: YAML frontmatter strip, AT## headings, lists, hr, blockquotes,
+    paragraphs, **bold**, *italic*, [links](url), `code`.
+    Plain text (no markdown) still gets readable paragraphs.
+    """
+    if not raw or not str(raw).strip():
+        return "<p class='empty'>（无正文）</p>"
+
+    text = _strip_frontmatter(str(raw)).replace("\r\n", "\n").replace("\r", "\n")
+    # Some sources glue headings mid-line: "…坚守。 ## 1. 标题"
+    text = re.sub(r"([。！？；;])\s*(#{1,3}\s+)", r"\1\n\n\2", text)
+
+    lines = text.split("\n")
+    out: list[str] = []
+    i = 0
+    para: list[str] = []
+    list_buf: list[str] = []
+    list_ordered = False
+
+    def flush_para() -> None:
+        nonlocal para
+        if not para:
+            return
+        chunk = " ".join(p.strip() for p in para if p.strip())
+        if chunk:
+            out.append(f"<p>{_inline_md(chunk)}</p>")
+        para = []
+
+    def flush_list() -> None:
+        nonlocal list_buf, list_ordered
+        if not list_buf:
+            return
+        tag = "ol" if list_ordered else "ul"
+        items = "".join(f"<li>{_inline_md(x)}</li>" for x in list_buf)
+        out.append(f"<{tag}>{items}</{tag}>")
+        list_buf = []
+        list_ordered = False
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        # blank → break block
+        if not stripped:
+            flush_list()
+            flush_para()
+            i += 1
+            continue
+
+        # horizontal rule
+        if re.match(r"^-{3,}$", stripped) or re.match(r"^\*{3,}$", stripped):
+            flush_list()
+            flush_para()
+            out.append("<hr/>")
+            i += 1
+            continue
+
+        # headings
+        hm = re.match(r"^(#{1,3})\s+(.+)$", stripped)
+        if hm:
+            flush_list()
+            flush_para()
+            level = min(len(hm.group(1)) + 1, 4)  # # → h2 in body (h1 is page title)
+            out.append(f"<h{level}>{_inline_md(hm.group(2).strip())}</h{level}>")
+            i += 1
+            continue
+
+        # blockquote
+        if stripped.startswith(">"):
+            flush_list()
+            flush_para()
+            q_lines = []
+            while i < len(lines) and lines[i].strip().startswith(">"):
+                q_lines.append(re.sub(r"^>\s?", "", lines[i].strip()))
+                i += 1
+            out.append(f"<blockquote>{_inline_md(' '.join(q_lines))}</blockquote>")
+            continue
+
+        # unordered list
+        um = re.match(r"^[-*+]\s+(.+)$", stripped)
+        if um:
+            flush_para()
+            if list_buf and list_ordered:
+                flush_list()
+            list_ordered = False
+            list_buf.append(um.group(1).strip())
+            i += 1
+            continue
+
+        # ordered list
+        om = re.match(r"^(\d+)[.)、]\s+(.+)$", stripped)
+        if om:
+            flush_para()
+            if list_buf and not list_ordered:
+                flush_list()
+            list_ordered = True
+            list_buf.append(om.group(2).strip())
+            i += 1
+            continue
+
+        # normal text line
+        flush_list()
+        para.append(stripped)
+        i += 1
+
+    flush_list()
+    flush_para()
+    return "\n".join(out) if out else f"<p>{_inline_md(text)}</p>"
+
+
 def _load_rows(db_path: str, article_ids: list[str]) -> list[sqlite3.Row]:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -208,8 +351,8 @@ def render_brief_html(
     for i, r in enumerate(rows, 1):
         t = (r["title"] or "").replace("\n", " ").strip()
         body = (r["raw_content"] or "").strip() or "（无正文）"
-        # plain text body for offline reading
-        body_html = _esc(body).replace("\n", "<br>\n")
+        # markdown-ish body for readable offline reading
+        body_html = body_to_html(body)
         summ = _summary_text(r)
         bv = r["business_value_score"]
         bv_note = (r["business_value_note"] or "").strip()
@@ -329,17 +472,38 @@ def render_brief_html(
   }}
   .orig-scroll {{
     margin-top: 10px;
-    max-height: 280px;           /* 固定可视高度，不无限增高 */
+    max-height: 320px;           /* 固定可视高度，不无限增高 */
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 12px 14px;
-    font-size: 0.9rem;
+    padding: 14px 16px;
+    font-size: 0.92rem;
     color: #1e293b;
+    line-height: 1.7;
   }}
   .orig-body {{ white-space: normal; word-break: break-word; }}
+  .orig-body h2 {{ font-size: 1.05rem; margin: 1.1em 0 0.45em; color: var(--text); }}
+  .orig-body h3 {{ font-size: 0.98rem; margin: 1em 0 0.4em; color: #334155; }}
+  .orig-body h4 {{ font-size: 0.92rem; margin: 0.9em 0 0.35em; color: #475569; }}
+  .orig-body p {{ margin: 0 0 0.75em; }}
+  .orig-body p:last-child {{ margin-bottom: 0; }}
+  .orig-body ul, .orig-body ol {{ margin: 0 0 0.75em; padding-left: 1.35em; }}
+  .orig-body li {{ margin: 0.25em 0; }}
+  .orig-body blockquote {{
+    margin: 0.6em 0; padding: 8px 12px; border-left: 3px solid #94a3b8;
+    background: #e2e8f0; border-radius: 0 6px 6px 0; color: #475569;
+  }}
+  .orig-body hr {{ border: 0; border-top: 1px solid #cbd5e1; margin: 1em 0; }}
+  .orig-body code {{
+    font-family: ui-monospace, Consolas, monospace; font-size: 0.88em;
+    background: #e2e8f0; padding: 0.1em 0.35em; border-radius: 4px;
+  }}
+  .orig-body a {{ color: var(--accent); text-decoration: none; }}
+  .orig-body a:hover {{ text-decoration: underline; }}
+  .orig-body strong {{ font-weight: 600; color: #0f172a; }}
+  .orig-body .empty {{ color: var(--muted); }}
   .orig-foot {{ margin-top: 8px; font-size: 0.82rem; }}
   .orig-foot .ext {{ color: var(--muted); }}
 
