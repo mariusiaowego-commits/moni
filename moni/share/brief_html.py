@@ -355,14 +355,19 @@ def render_brief_html(
     for r in rows[:3]:
         t = (r["title"] or "").replace("\n", " ").strip()
         bv = r["business_value_score"]
+        # Full note — no ellipsis truncation. Prefer BV note; else short summary.
         note = (r["business_value_note"] or "").strip()
-        if len(note) > 40:
-            note = note[:37] + "…"
+        if not note:
+            note = _summary_text(r).strip()
         if not note:
             note = "见正文"
         bv_s = str(bv) if bv is not None else "—"
         focus_items.append(
-            f"<li><strong>{_esc(t)}</strong>（业务价值 {_esc(bv_s)}）— {_esc(note)}</li>"
+            f"""<li class="focus-item">
+  <div class="focus-title"><span class="focus-bv">BV {_esc(bv_s)}</span>
+    <strong>{_esc(t)}</strong></div>
+  <p class="focus-note">{_esc(note)}</p>
+</li>"""
         )
 
     cards: list[str] = []
@@ -416,8 +421,24 @@ def render_brief_html(
   <h3>事实核查</h3>
   <ul class="fc">{''.join(fc_lis)}</ul>
   <div class="orig-wrap">
-    <button type="button" class="orig-toggle" aria-expanded="false">
-      <span class="chev" aria-hidden="true">▸</span> 查看全文（离线可读）
+    <button type="button" class="orig-toggle bd-root" aria-expanded="false">
+      <span class="bd-pill" aria-hidden="true">
+        <svg class="bd-chevs" width="14" height="16" viewBox="0 0 14 16">
+          <g class="bd-dots" fill="#0a1f3a">
+            <circle class="bd-dot" cx="2" cy="2" r="1" style="animation-delay:0s"/>
+            <circle class="bd-dot" cx="5" cy="5" r="1" style="animation-delay:0.05s"/>
+            <circle class="bd-dot" cx="8" cy="8" r="1" style="animation-delay:0.1s"/>
+            <circle class="bd-dot" cx="5" cy="11" r="1" style="animation-delay:0.15s"/>
+            <circle class="bd-dot" cx="2" cy="14" r="1" style="animation-delay:0.2s"/>
+            <circle class="bd-dot" cx="6" cy="2" r="1" style="animation-delay:0.05s"/>
+            <circle class="bd-dot" cx="9" cy="5" r="1" style="animation-delay:0.1s"/>
+            <circle class="bd-dot" cx="12" cy="8" r="1" style="animation-delay:0.15s"/>
+            <circle class="bd-dot" cx="9" cy="11" r="1" style="animation-delay:0.2s"/>
+            <circle class="bd-dot" cx="6" cy="14" r="1" style="animation-delay:0.25s"/>
+          </g>
+        </svg>
+      </span>
+      <span class="bd-label">查看全文 · 离线可读</span>
     </button>
     <div class="orig-panel" aria-hidden="true">
       <div class="orig-scroll">
@@ -436,40 +457,112 @@ def render_brief_html(
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>{_esc(title)}</title>
-<!-- GSAP: light height tween only; no plugins, no scroll-trigger -->
+<!-- GSAP: light height tween only -->
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer></script>
 <style>
   :root {{
-    --bg: #f8fafc; --card: #ffffff; --text: #0f172a; --muted: #64748b;
-    --border: #e2e8f0; --accent: #2563eb; --panel: #f1f5f9;
+    --bg: #f5f2eb;
+    --card: #fffcf7;
+    --text: #1c1917;
+    --muted: #78716c;
+    --border: #e7e0d4;
+    --accent: #1d4ed8;
+    --panel: #f0ebe3;
+    --focus-bg: #eef4ff;
+    --focus-border: #bfd0f5;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC",
+             "Noto Serif CJK SC", "Source Han Serif SC", "STSong", Georgia, serif;
+    --sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   }}
   * {{ box-sizing: border-box; }}
   body {{
     margin: 0; background: var(--bg); color: var(--text);
-    font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
-    line-height: 1.65; font-size: 15px;
+    font-family: var(--serif);
+    line-height: 1.75; font-size: 17px;
+    -webkit-font-smoothing: antialiased;
   }}
-  .wrap {{ max-width: 720px; margin: 0 auto; padding: 28px 18px 56px; }}
-  h1 {{ font-size: 1.65rem; margin: 0 0 6px; letter-spacing: -0.02em; }}
-  .sub {{ color: var(--muted); margin: 0 0 22px; font-size: 0.92rem; }}
+  .wrap {{
+    max-width: 960px;          /* desktop reading width */
+    margin: 0 auto;
+    padding: 40px 32px 72px;
+  }}
+  h1 {{
+    font-family: var(--serif);
+    font-size: 2rem; margin: 0 0 8px; letter-spacing: -0.02em;
+    font-weight: 700; line-height: 1.25;
+  }}
+  .sub {{
+    color: var(--muted); margin: 0 0 28px; font-size: 0.95rem;
+    font-family: var(--sans);
+  }}
+
+  /* —— 优先关注：完整文案，不截断 —— */
   .focus {{
-    background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px;
-    padding: 14px 16px 14px 32px; margin: 0 0 22px;
+    background: var(--focus-bg);
+    border: 1px solid var(--focus-border);
+    border-radius: 14px;
+    padding: 20px 22px 18px;
+    margin: 0 0 28px;
   }}
-  .focus li {{ margin: 6px 0; }}
+  .focus > h2 {{
+    margin: 0 0 14px; font-size: 1.05rem; font-family: var(--sans);
+    font-weight: 650; letter-spacing: 0.02em; color: #1e3a5f;
+  }}
+  .focus-list {{ list-style: none; margin: 0; padding: 0; counter-reset: fi; }}
+  .focus-item {{
+    counter-increment: fi;
+    margin: 0 0 14px; padding: 12px 14px 12px 44px; position: relative;
+    background: rgba(255,255,255,0.72); border-radius: 10px;
+    border: 1px solid rgba(29,78,216,0.08);
+  }}
+  .focus-item:last-child {{ margin-bottom: 0; }}
+  .focus-item::before {{
+    content: counter(fi);
+    position: absolute; left: 12px; top: 12px;
+    width: 24px; height: 24px; border-radius: 999px;
+    background: #1e3a5f; color: #fff;
+    font-family: var(--sans); font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }}
+  .focus-title {{
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+    margin: 0 0 6px; line-height: 1.45;
+  }}
+  .focus-title strong {{ font-weight: 650; font-size: 1.02rem; }}
+  .focus-bv {{
+    font-family: var(--sans); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.04em; color: #1d4ed8;
+    background: #dbeafe; border-radius: 999px; padding: 2px 8px;
+  }}
+  .focus-note {{
+    margin: 0; color: #44403c; font-size: 0.98rem; line-height: 1.65;
+    /* no line-clamp, no ellipsis — full summary text */
+  }}
+
   .card {{
-    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-    padding: 18px 20px 16px; margin: 0 0 16px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 22px 26px 18px; margin: 0 0 20px;
+    box-shadow: 0 1px 0 rgba(28,25,23,0.03);
   }}
-  .card h2 {{ font-size: 1.08rem; margin: 0 0 8px; line-height: 1.4; }}
-  .meta {{ color: var(--muted); font-size: 0.88rem; margin: 3px 0; }}
-  h3 {{ font-size: 0.85rem; margin: 14px 0 6px; color: var(--muted); font-weight: 600; }}
+  .card h2 {{
+    font-size: 1.22rem; margin: 0 0 10px; line-height: 1.4;
+    font-weight: 700;
+  }}
+  .meta {{
+    color: var(--muted); font-size: 0.88rem; margin: 3px 0;
+    font-family: var(--sans);
+  }}
+  h3 {{
+    font-size: 0.82rem; margin: 16px 0 8px; color: var(--muted);
+    font-weight: 650; font-family: var(--sans); letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }}
   blockquote {{
-    margin: 0; padding: 10px 12px; border-left: 3px solid var(--accent);
-    background: var(--panel); border-radius: 0 8px 8px 0; color: #334155;
+    margin: 0; padding: 12px 14px; border-left: 3px solid var(--accent);
+    background: var(--panel); border-radius: 0 8px 8px 0; color: #292524;
+    font-size: 1.02rem;
   }}
   .fc {{ list-style: none; padding: 0; margin: 0; }}
-  /* 整行：badge(图标+文字) + claim 同一行，claim 可折行但接在 badge 后 */
   .fc-line {{
     margin: 8px 0;
     display: flex;
@@ -477,7 +570,7 @@ def render_brief_html(
     align-items: flex-start;
     gap: 8px;
   }}
-  .fc-plain {{ color: var(--muted); }}
+  .fc-plain {{ color: var(--muted); font-family: var(--sans); }}
   .badge {{
     display: inline-flex;
     align-items: center;
@@ -485,6 +578,7 @@ def render_brief_html(
     flex-shrink: 0;
     font-size: 12px;
     font-weight: 600;
+    font-family: var(--sans);
     padding: 2px 8px 2px 4px;
     border-radius: 999px;
     white-space: nowrap;
@@ -497,72 +591,139 @@ def render_brief_html(
   .badge-lab {{ letter-spacing: 0.02em; }}
   .fc-text {{
     flex: 1 1 auto;
-    min-width: 0;          /* allow wrap inside flex */
+    min-width: 0;
     line-height: 1.55;
-    color: #1e293b;
+    color: #1c1917;
   }}
 
-  /* 原文折叠：默认关；展开后内部固定高度滚动 */
-  .orig-wrap {{ margin-top: 14px; border-top: 1px dashed var(--border); padding-top: 10px; }}
-  .orig-toggle {{
-    display: inline-flex; align-items: center; gap: 6px;
-    border: 1px solid var(--border); background: #fff; color: var(--text);
-    border-radius: 8px; padding: 6px 12px; font-size: 0.88rem; cursor: pointer;
-    font-family: inherit;
+  /* —— 折叠按钮：BookDemo-inspired dark shell + sky pill —— */
+  .orig-wrap {{
+    margin-top: 18px; border-top: 1px dashed var(--border); padding-top: 14px;
   }}
-  .orig-toggle:hover {{ border-color: #94a3b8; }}
-  .orig-toggle .chev {{
-    display: inline-block; width: 1em; transition: transform 0.2s ease;
-    color: var(--muted);
+  .bd-root {{
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    height: 44px;
+    min-width: 200px;
+    padding: 0 18px 0 4px;
+    border: 0;
+    border-radius: 12px;
+    cursor: pointer;
+    overflow: hidden;
+    font-family: var(--sans);
+    color: #fff;
+    background: linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 100%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 4px 12px rgba(0,0,0,0.18);
+    transition: transform 0.15s ease;
   }}
-  .orig-toggle[aria-expanded="true"] .chev {{ transform: rotate(90deg); }}
+  .bd-root:hover {{ transform: translateY(-1px); }}
+  .bd-root:active {{ transform: scale(0.97); }}
+  .bd-root:focus-visible {{ outline: 2px solid #6bc8f5; outline-offset: 2px; }}
+  .bd-pill {{
+    position: absolute;
+    top: 4px; left: 4px; bottom: 4px;
+    width: 36px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 8px;
+    background: linear-gradient(180deg, #a5e0ff 0%, #6bc8f5 100%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), inset 0 -2px 4px rgba(0,0,0,0.12);
+    transition: width 0.26s cubic-bezier(0.22,1,0.36,1);
+    z-index: 1;
+  }}
+  .bd-root:hover .bd-pill,
+  .bd-root:focus-visible .bd-pill,
+  .bd-root[aria-expanded="true"] .bd-pill {{
+    width: calc(100% - 8px);
+  }}
+  .bd-label {{
+    position: relative;
+    z-index: 2;
+    margin-left: 44px;
+    font-size: 14px;
+    font-weight: 550;
+    letter-spacing: -0.01em;
+    transition: transform 0.2s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease;
+  }}
+  .bd-root:hover .bd-label,
+  .bd-root:focus-visible .bd-label {{
+    transform: translateX(6px);
+    opacity: 0.92;
+  }}
+  .bd-root[aria-expanded="true"] .bd-label {{
+    color: #0a1f3a;
+  }}
+  @keyframes bd-dot-wave {{
+    0%, 65%, 100% {{ opacity: 0.3; transform: scale(0.8); }}
+    32% {{ opacity: 1; transform: scale(1.08); }}
+  }}
+  .bd-dot {{
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: bd-dot-wave 1.8s cubic-bezier(0.45,0.05,0.55,0.95) infinite;
+  }}
+  .bd-root:hover .bd-dot,
+  .bd-root:focus-visible .bd-dot {{
+    animation-duration: 0.95s;
+  }}
+  @media (prefers-reduced-motion: reduce) {{
+    .bd-dot {{ animation: none; opacity: 1; }}
+    .bd-pill, .bd-label {{ transition: none; }}
+  }}
+
   .orig-panel {{
     height: 0; overflow: hidden; will-change: height;
   }}
   .orig-scroll {{
-    margin-top: 10px;
-    max-height: 320px;           /* 固定可视高度，不无限增高 */
+    margin-top: 12px;
+    max-height: 420px;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 16px;
-    font-size: 0.92rem;
-    color: #1e293b;
-    line-height: 1.7;
+    border-radius: 10px;
+    padding: 18px 20px;
+    font-size: 1.02rem;
+    color: #1c1917;
+    line-height: 1.8;
   }}
-  .orig-body {{ white-space: normal; word-break: break-word; }}
-  .orig-body h2 {{ font-size: 1.05rem; margin: 1.1em 0 0.45em; color: var(--text); }}
-  .orig-body h3 {{ font-size: 0.98rem; margin: 1em 0 0.4em; color: #334155; }}
-  .orig-body h4 {{ font-size: 0.92rem; margin: 0.9em 0 0.35em; color: #475569; }}
-  .orig-body p {{ margin: 0 0 0.75em; }}
+  .orig-body {{ white-space: normal; word-break: break-word; font-family: var(--serif); }}
+  .orig-body h2 {{ font-size: 1.12rem; margin: 1.15em 0 0.5em; color: var(--text); }}
+  .orig-body h3 {{ font-size: 1.04rem; margin: 1.05em 0 0.45em; color: #44403c; }}
+  .orig-body h4 {{ font-size: 0.98rem; margin: 0.95em 0 0.4em; color: #57534e; }}
+  .orig-body p {{ margin: 0 0 0.85em; }}
   .orig-body p:last-child {{ margin-bottom: 0; }}
-  .orig-body ul, .orig-body ol {{ margin: 0 0 0.75em; padding-left: 1.35em; }}
-  .orig-body li {{ margin: 0.25em 0; }}
+  .orig-body ul, .orig-body ol {{ margin: 0 0 0.85em; padding-left: 1.4em; }}
+  .orig-body li {{ margin: 0.3em 0; }}
   .orig-body blockquote {{
-    margin: 0.6em 0; padding: 8px 12px; border-left: 3px solid #94a3b8;
-    background: #e2e8f0; border-radius: 0 6px 6px 0; color: #475569;
+    margin: 0.7em 0; padding: 10px 14px; border-left: 3px solid #a8a29e;
+    background: #e7e5e4; border-radius: 0 6px 6px 0; color: #44403c;
   }}
-  .orig-body hr {{ border: 0; border-top: 1px solid #cbd5e1; margin: 1em 0; }}
+  .orig-body hr {{ border: 0; border-top: 1px solid #d6d3d1; margin: 1.1em 0; }}
   .orig-body code {{
     font-family: ui-monospace, Consolas, monospace; font-size: 0.88em;
-    background: #e2e8f0; padding: 0.1em 0.35em; border-radius: 4px;
+    background: #e7e5e4; padding: 0.1em 0.35em; border-radius: 4px;
   }}
   .orig-body a {{ color: var(--accent); text-decoration: none; }}
   .orig-body a:hover {{ text-decoration: underline; }}
-  .orig-body strong {{ font-weight: 600; color: #0f172a; }}
+  .orig-body strong {{ font-weight: 700; color: #0c0a09; }}
   .orig-body .empty {{ color: var(--muted); }}
-  .orig-foot {{ margin-top: 8px; font-size: 0.82rem; }}
+  .orig-foot {{ margin-top: 10px; font-size: 0.85rem; font-family: var(--sans); }}
   .orig-foot .ext {{ color: var(--muted); }}
 
   .foot {{
-    text-align: center; color: var(--muted); font-size: 0.85rem; margin-top: 28px;
+    text-align: center; color: var(--muted); font-size: 0.88rem;
+    margin-top: 36px; font-family: var(--sans);
   }}
   @media print {{
     .orig-panel {{ height: auto !important; overflow: visible !important; }}
     .orig-scroll {{ max-height: none; overflow: visible; }}
-    .orig-toggle {{ display: none; }}
+    .bd-root {{ display: none; }}
+    .wrap {{ max-width: none; }}
+  }}
+  @media (max-width: 720px) {{
+    .wrap {{ padding: 24px 16px 48px; }}
+    body {{ font-size: 16px; }}
   }}
 </style>
 </head>
@@ -572,8 +733,8 @@ def render_brief_html(
   <p class="sub">from moni by TQ · {n} 篇文章 · 按业务价值排序 · 全文已内嵌（离线可读）</p>
 
   <section class="focus">
-    <h2 style="margin:0 0 8px;font-size:1rem;">优先关注</h2>
-    <ol>{''.join(focus_items) if focus_items else '<li>暂无</li>'}</ol>
+    <h2>优先关注</h2>
+    <ol class="focus-list">{''.join(focus_items) if focus_items else '<li class="focus-item"><p class="focus-note">暂无</p></li>'}</ol>
   </section>
 
   {''.join(cards)}

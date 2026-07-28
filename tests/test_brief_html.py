@@ -66,10 +66,12 @@ def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):
     conn.commit()
 
     html_doc = render_brief_html(str(fresh_db), ["h1"], title="同业简报 — test")
-    assert "查看全文（离线可读）" in html_doc
-    assert "orig-toggle" in html_doc
+    assert "查看全文" in html_doc
+    assert "orig-toggle" in html_doc or "bd-root" in html_doc
     assert "orig-scroll" in html_doc
-    assert "max-height: 320px" in html_doc
+    assert "max-height: 420px" in html_doc
+    assert "var(--serif)" in html_doc or "serif" in html_doc
+    assert "max-width: 960px" in html_doc
     assert "这是完整正文段落一" in html_doc
     assert "<h3>" in html_doc or "<h2>" in html_doc  # ## → h3 in body
     assert "<strong>加粗</strong>" in html_doc
