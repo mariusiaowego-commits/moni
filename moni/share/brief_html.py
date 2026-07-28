@@ -424,17 +424,17 @@ def render_brief_html(
     <button type="button" class="orig-toggle bd-root" aria-expanded="false">
       <span class="bd-pill" aria-hidden="true">
         <svg class="bd-chevs" width="14" height="16" viewBox="0 0 14 16">
-          <g class="bd-dots" fill="#5c2410">
+          <g class="bd-dots" fill="#78716c">
             <circle class="bd-dot" cx="2" cy="2" r="1" style="animation-delay:0s"/>
-            <circle class="bd-dot" cx="5" cy="5" r="1" style="animation-delay:0.08s"/>
-            <circle class="bd-dot" cx="8" cy="8" r="1" style="animation-delay:0.16s"/>
-            <circle class="bd-dot" cx="5" cy="11" r="1" style="animation-delay:0.24s"/>
-            <circle class="bd-dot" cx="2" cy="14" r="1" style="animation-delay:0.32s"/>
-            <circle class="bd-dot" cx="6" cy="2" r="1" style="animation-delay:0.08s"/>
-            <circle class="bd-dot" cx="9" cy="5" r="1" style="animation-delay:0.16s"/>
-            <circle class="bd-dot" cx="12" cy="8" r="1" style="animation-delay:0.24s"/>
-            <circle class="bd-dot" cx="9" cy="11" r="1" style="animation-delay:0.32s"/>
-            <circle class="bd-dot" cx="6" cy="14" r="1" style="animation-delay:0.4s"/>
+            <circle class="bd-dot" cx="5" cy="5" r="1" style="animation-delay:0.1s"/>
+            <circle class="bd-dot" cx="8" cy="8" r="1" style="animation-delay:0.2s"/>
+            <circle class="bd-dot" cx="5" cy="11" r="1" style="animation-delay:0.3s"/>
+            <circle class="bd-dot" cx="2" cy="14" r="1" style="animation-delay:0.4s"/>
+            <circle class="bd-dot" cx="6" cy="2" r="1" style="animation-delay:0.1s"/>
+            <circle class="bd-dot" cx="9" cy="5" r="1" style="animation-delay:0.2s"/>
+            <circle class="bd-dot" cx="12" cy="8" r="1" style="animation-delay:0.3s"/>
+            <circle class="bd-dot" cx="9" cy="11" r="1" style="animation-delay:0.4s"/>
+            <circle class="bd-dot" cx="6" cy="14" r="1" style="animation-delay:0.5s"/>
           </g>
         </svg>
       </span>
@@ -596,7 +596,7 @@ def render_brief_html(
     color: #1c1917;
   }}
 
-  /* —— 折叠按钮：全宽 + 珊瑚 pill + 点阵箭头（减速） —— */
+  /* —— 折叠按钮：浅灰克制；仅 click 才滑 pill / 渐隐文案 —— */
   .orig-wrap {{
     margin-top: 18px;
     border-top: 1px dashed var(--border);
@@ -605,11 +605,12 @@ def render_brief_html(
     padding-right: 4px;
   }}
   .bd-root {{
-    --coral-from: #ffb088;
-    --coral-to: #f56b42;
-    --coral-deep: #9a3412;
-    --shell-from: #f7efe6;
-    --shell-to: #ebe0d4;
+    --shell-from: #f7f6f4;
+    --shell-to: #efeeeb;
+    --pill-from: #e8e6e2;
+    --pill-to: #d8d5cf;
+    --ink: #57534e;
+    --ink-soft: #78716c;
     position: relative;
     display: flex;
     align-items: center;
@@ -617,42 +618,35 @@ def render_brief_html(
     width: 100%;
     height: 48px;
     padding: 0 12px 0 4px;
-    border: 1px solid #e0d2c4;
+    border: 1px solid #e4e2dc;
     border-radius: 12px;
     cursor: pointer;
     overflow: hidden;
     font-family: var(--sans);
-    color: var(--coral-deep);
+    color: var(--ink);
     background: linear-gradient(180deg, var(--shell-from) 0%, var(--shell-to) 100%);
-    box-shadow:
-      inset 0 1px 0 rgba(255,255,255,0.75),
-      0 3px 10px rgba(154, 52, 18, 0.08);
-    transition: transform 0.15s ease, box-shadow 0.2s ease;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 3px rgba(28,25,23,0.04);
+    transition: transform 0.15s ease, border-color 0.2s ease;
   }}
   .bd-root:hover {{
-    transform: translateY(-1px);
-    box-shadow:
-      inset 0 1px 0 rgba(255,255,255,0.85),
-      0 6px 16px rgba(245, 107, 66, 0.18);
+    border-color: #d4d1c9;
   }}
-  .bd-root:active {{ transform: scale(0.985); }}
-  .bd-root:focus-visible {{ outline: 2px solid #f56b42; outline-offset: 2px; }}
+  .bd-root:active {{ transform: scale(0.992); }}
+  .bd-root:focus-visible {{ outline: 2px solid #a8a29e; outline-offset: 2px; }}
   .bd-pill {{
     position: absolute;
     top: 4px; left: 4px; bottom: 4px;
     width: 40px;
     display: flex; align-items: center; justify-content: center;
     border-radius: 8px;
-    background: linear-gradient(180deg, var(--coral-from) 0%, var(--coral-to) 100%);
+    background: linear-gradient(180deg, var(--pill-from) 0%, var(--pill-to) 100%);
     box-shadow:
-      inset 0 1px 0 rgba(255,255,255,0.45),
-      inset 0 -2px 4px rgba(0,0,0,0.10),
-      0 2px 4px rgba(245, 107, 66, 0.2);
-    transition: width 0.26s cubic-bezier(0.22,1,0.36,1);
+      inset 0 1px 0 rgba(255,255,255,0.7),
+      inset 0 -1px 2px rgba(0,0,0,0.04);
+    /* 仅 aria-expanded 驱动宽度，不用 hover */
+    transition: width 0.42s cubic-bezier(0.22,1,0.36,1);
     z-index: 1;
   }}
-  .bd-root:hover .bd-pill,
-  .bd-root:focus-visible .bd-pill,
   .bd-root[aria-expanded="true"] .bd-pill {{
     width: calc(100% - 8px);
   }}
@@ -667,7 +661,7 @@ def render_brief_html(
     font-size: 15px;
     font-weight: 600;
     letter-spacing: 0.04em;
-    color: var(--coral-deep);
+    color: var(--ink);
     pointer-events: none;
     opacity: 1;
   }}
@@ -675,31 +669,27 @@ def render_brief_html(
     display: inline-block;
     will-change: contents, opacity, text-shadow;
   }}
-  /* 展开态：文案保持消失，直到再点折叠 */
   .bd-root[aria-expanded="true"] .bd-label {{
     opacity: 0 !important;
     visibility: hidden;
     pointer-events: none;
   }}
+  .bd-chevs .bd-dots {{ fill: #78716c; }}
   @keyframes bd-dot-wave {{
-    0%, 70%, 100% {{ opacity: 0.28; transform: scale(0.78); }}
-    35% {{ opacity: 1; transform: scale(1.06); }}
+    0%, 72%, 100% {{ opacity: 0.25; transform: scale(0.78); }}
+    36% {{ opacity: 0.9; transform: scale(1.04); }}
   }}
   .bd-dot {{
     transform-box: fill-box;
     transform-origin: center;
-    /* 更慢的呼吸节奏 */
-    animation: bd-dot-wave 2.8s cubic-bezier(0.45,0.05,0.55,0.95) infinite;
+    animation: bd-dot-wave 3.2s cubic-bezier(0.45,0.05,0.55,0.95) infinite;
   }}
-  .bd-root:hover .bd-dot,
-  .bd-root:focus-visible .bd-dot {{
-    animation-duration: 1.6s;
-  }}
+  /* 展开后箭头略加快，hover 不再改进度 */
   .bd-root[aria-expanded="true"] .bd-dot {{
-    animation-duration: 2.2s;
+    animation-duration: 2.4s;
   }}
   @media (prefers-reduced-motion: reduce) {{
-    .bd-dot {{ animation: none; opacity: 1; }}
+    .bd-dot {{ animation: none; opacity: 0.7; }}
     .bd-pill {{ transition: none; }}
   }}
   .orig-panel {{
@@ -775,7 +765,7 @@ def render_brief_html(
 <script>
 (function () {{
   var MATRIX = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789";
-  var ACCENT = "#f56b42";
+  var ACCENT = "#a8a29e";
 
   function panelInnerHeight(panel) {{
     var scroll = panel.querySelector('.orig-scroll');
@@ -786,46 +776,6 @@ def render_brief_html(
     return h;
   }}
 
-  function openPanel(btn, panel) {{
-    btn.setAttribute('aria-expanded', 'true');
-    panel.setAttribute('aria-hidden', 'false');
-    var target = panelInnerHeight(panel);
-    if (window.gsap) {{
-      window.gsap.killTweensOf(panel);
-      window.gsap.fromTo(panel,
-        {{ height: 0 }},
-        {{ height: target, duration: 0.28, ease: 'power2.out',
-           onComplete: function () {{ panel.style.height = 'auto'; }} }}
-      );
-    }} else {{
-      panel.style.height = target + 'px';
-      panel.style.transition = 'height 0.28s ease';
-      setTimeout(function () {{ panel.style.height = 'auto'; }}, 300);
-    }}
-    // 展开后文案渐隐并保持消失
-    var label = btn.querySelector('.bd-label');
-    if (label) hideLabelStay(label);
-  }}
-
-  function closePanel(btn, panel) {{
-    btn.setAttribute('aria-expanded', 'false');
-    panel.setAttribute('aria-hidden', 'true');
-    var start = panel.scrollHeight;
-    panel.style.height = start + 'px';
-    void panel.offsetHeight;
-    if (window.gsap) {{
-      window.gsap.killTweensOf(panel);
-      window.gsap.to(panel, {{ height: 0, duration: 0.22, ease: 'power2.in' }});
-    }} else {{
-      panel.style.transition = 'height 0.22s ease';
-      panel.style.height = '0px';
-    }}
-    // 折叠后文案渐回
-    var label = btn.querySelector('.bd-label');
-    if (label) matrixFadeIn(label);
-  }}
-
-  /* —— label: matrix scramble → fade out on hover; fade back on leave —— */
   function clearLabelTimers(label) {{
     if (label._bdIntervals) {{
       label._bdIntervals.forEach(clearInterval);
@@ -838,18 +788,16 @@ def render_brief_html(
     if (window.gsap) window.gsap.killTweensOf(label.querySelectorAll('.bd-ch'));
   }}
 
-  function setPlainLabel(label, text, color) {{
+  function setPlainLabel(label, text) {{
     clearLabelTimers(label);
     label.style.visibility = 'visible';
     label.textContent = text;
     label.style.opacity = '1';
-    if (color) label.style.color = color;
-    else label.style.color = '';
+    label.style.color = '';
   }}
 
-  /** 渐隐并保持消失（展开态用） */
+  /** 仅 click 展开：matrix 后渐隐并保持消失 */
   function hideLabelStay(label) {{
-    clearLabelTimers(label);
     var finalText = label.getAttribute('data-label') || '查看全文';
     var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     function done() {{
@@ -859,42 +807,11 @@ def render_brief_html(
     }}
     if (reduce || !window.gsap) {{
       if (window.gsap) {{
-        window.gsap.to(label, {{ opacity: 0, duration: 0.28, ease: 'power2.out', onComplete: done }});
+        window.gsap.to(label, {{ opacity: 0, duration: 0.35, ease: 'power2.out', onComplete: done }});
       }} else {{
-        label.style.transition = 'opacity 0.28s ease';
+        label.style.transition = 'opacity 0.35s ease';
         label.style.opacity = '0';
-        setTimeout(done, 300);
-      }}
-      return;
-    }}
-    // 轻量 matrix 后渐隐，并保持消失
-    matrixFadeOut(label, true);
-  }}
-
-  /**
-   * @param stayHidden  true = 渐隐后保持隐藏（选中/展开）
-   */
-  function matrixFadeOut(label, stayHidden) {{
-    var finalText = label.getAttribute('data-label') || '查看全文';
-    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduce || !window.gsap) {{
-      if (window.gsap) {{
-        window.gsap.to(label, {{
-          opacity: 0, duration: 0.28, ease: 'power2.out',
-          onComplete: function () {{
-            if (stayHidden) {{
-              label.style.visibility = 'hidden';
-              label.textContent = finalText;
-            }}
-          }}
-        }});
-      }} else {{
-        label.style.transition = 'opacity 0.28s ease';
-        label.style.opacity = '0';
-        if (stayHidden) setTimeout(function () {{
-          label.style.visibility = 'hidden';
-          label.textContent = finalText;
-        }}, 300);
+        setTimeout(done, 360);
       }}
       return;
     }}
@@ -911,66 +828,82 @@ def render_brief_html(
       span.className = 'bd-ch';
       span.style.display = 'inline-block';
       span.style.color = ACCENT;
-      span.style.textShadow = '0 0 8px ' + ACCENT;
       span.textContent = ch === ' ' ? '\\u00A0' : MATRIX[Math.floor(Math.random() * MATRIX.length)];
       label.appendChild(span);
       spans.push(span);
     }});
     var locked = 0;
     spans.forEach(function (span, i) {{
-      if (chars[i] === ' ') {{
-        span.textContent = '\\u00A0';
-        locked++;
-        return;
-      }}
+      if (chars[i] === ' ') {{ locked++; return; }}
       var scramble = setInterval(function () {{
-        if (!span._locked) {{
-          span.textContent = MATRIX[Math.floor(Math.random() * MATRIX.length)];
-        }}
-      }}, 55);
+        if (!span._locked) span.textContent = MATRIX[Math.floor(Math.random() * MATRIX.length)];
+      }}, 60);
       label._bdIntervals.push(scramble);
-      var lockDelay = i * 45 + Math.random() * 100;
       var t = setTimeout(function () {{
         clearInterval(scramble);
         span._locked = true;
         span.textContent = chars[i];
         locked++;
-        window.gsap.fromTo(span,
-          {{ textShadow: '0 0 12px ' + ACCENT }},
-          {{ duration: 0.32, textShadow: '0 0 0px transparent', ease: 'power2.out',
-             onComplete: function () {{
-               if (locked >= spans.length) {{
-                 window.gsap.to(label, {{
-                   opacity: 0, duration: 0.28, ease: 'power2.out',
-                   onComplete: function () {{
-                     if (stayHidden) {{
-                       label.style.visibility = 'hidden';
-                       label.textContent = finalText;
-                     }}
-                   }}
-                 }});
-               }}
-             }} }}
-        );
-      }}, lockDelay);
+        if (locked >= spans.length) {{
+          window.gsap.to(label, {{ opacity: 0, duration: 0.35, ease: 'power2.out', onComplete: done }});
+        }}
+      }}, i * 50 + Math.random() * 90);
       label._bdTimeouts.push(t);
     }});
   }}
 
-  function matrixFadeIn(label) {{
+  function showLabelBack(label) {{
     var finalText = label.getAttribute('data-label') || '查看全文';
     clearLabelTimers(label);
     label.style.visibility = 'visible';
     if (window.gsap) {{
-      setPlainLabel(label, finalText, '');
-      window.gsap.fromTo(label, {{ opacity: 0 }}, {{ opacity: 1, duration: 0.32, ease: 'power2.out' }});
+      setPlainLabel(label, finalText);
+      window.gsap.fromTo(label, {{ opacity: 0 }}, {{ opacity: 1, duration: 0.35, ease: 'power2.out' }});
     }} else {{
-      setPlainLabel(label, finalText, '');
-      label.style.transition = 'opacity 0.32s ease';
+      setPlainLabel(label, finalText);
+      label.style.transition = 'opacity 0.35s ease';
       label.style.opacity = '1';
     }}
   }}
 
+  function openPanel(btn, panel) {{
+    btn.setAttribute('aria-expanded', 'true');
+    panel.setAttribute('aria-hidden', 'false');
+    var target = panelInnerHeight(panel);
+    if (window.gsap) {{
+      window.gsap.killTweensOf(panel);
+      window.gsap.fromTo(panel,
+        {{ height: 0 }},
+        {{ height: target, duration: 0.36, ease: 'power2.out',
+           onComplete: function () {{ panel.style.height = 'auto'; }} }}
+      );
+    }} else {{
+      panel.style.height = target + 'px';
+      panel.style.transition = 'height 0.36s ease';
+      setTimeout(function () {{ panel.style.height = 'auto'; }}, 380);
+    }}
+    var label = btn.querySelector('.bd-label');
+    if (label) hideLabelStay(label);
+  }}
+
+  function closePanel(btn, panel) {{
+    btn.setAttribute('aria-expanded', 'false');
+    panel.setAttribute('aria-hidden', 'true');
+    var start = panel.scrollHeight;
+    panel.style.height = start + 'px';
+    void panel.offsetHeight;
+    if (window.gsap) {{
+      window.gsap.killTweensOf(panel);
+      window.gsap.to(panel, {{ height: 0, duration: 0.3, ease: 'power2.in' }});
+    }} else {{
+      panel.style.transition = 'height 0.3s ease';
+      panel.style.height = '0px';
+    }}
+    var label = btn.querySelector('.bd-label');
+    if (label) showLabelBack(label);
+  }}
+
+  /* 仅 click 切换 pill 滑动与文案动效；hover 不启动 */
   document.addEventListener('click', function (e) {{
     var btn = e.target.closest('.orig-toggle');
     if (!btn) return;
@@ -981,20 +914,6 @@ def render_brief_html(
     var open = btn.getAttribute('aria-expanded') === 'true';
     if (open) closePanel(btn, panel);
     else openPanel(btn, panel);
-  }});
-
-  document.querySelectorAll('.bd-root').forEach(function (btn) {{
-    var label = btn.querySelector('.bd-label');
-    if (!label) return;
-    btn.addEventListener('mouseenter', function () {{
-      if (btn.getAttribute('aria-expanded') === 'true') return;
-      matrixFadeOut(label, false);
-    }});
-    btn.addEventListener('mouseleave', function () {{
-      // 展开态：文案保持消失，不恢复
-      if (btn.getAttribute('aria-expanded') === 'true') return;
-      matrixFadeIn(label);
-    }});
   }});
 }})();
 </script>
