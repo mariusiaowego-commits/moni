@@ -423,18 +423,16 @@ def render_brief_html(
   <div class="orig-wrap">
     <button type="button" class="orig-toggle bd-root" aria-expanded="false">
       <span class="bd-pill" aria-hidden="true">
-        <svg class="bd-chevs" width="14" height="16" viewBox="0 0 14 16">
-          <g class="bd-dots" fill="#0a1f3a">
-            <circle class="bd-dot" cx="2" cy="2" r="1" style="animation-delay:0s"/>
-            <circle class="bd-dot" cx="5" cy="5" r="1" style="animation-delay:0.05s"/>
-            <circle class="bd-dot" cx="8" cy="8" r="1" style="animation-delay:0.1s"/>
-            <circle class="bd-dot" cx="5" cy="11" r="1" style="animation-delay:0.15s"/>
-            <circle class="bd-dot" cx="2" cy="14" r="1" style="animation-delay:0.2s"/>
-            <circle class="bd-dot" cx="6" cy="2" r="1" style="animation-delay:0.05s"/>
-            <circle class="bd-dot" cx="9" cy="5" r="1" style="animation-delay:0.1s"/>
-            <circle class="bd-dot" cx="12" cy="8" r="1" style="animation-delay:0.15s"/>
-            <circle class="bd-dot" cx="9" cy="11" r="1" style="animation-delay:0.2s"/>
-            <circle class="bd-dot" cx="6" cy="14" r="1" style="animation-delay:0.25s"/>
+        <!-- 闪烁小龙：头 + 身 + 须 -->
+        <svg class="bd-dragon" width="28" height="22" viewBox="0 0 28 22" fill="none">
+          <g class="bd-dragon-body">
+            <path d="M4 12c0-3 2.2-5.5 5.5-5.5 1.2 0 2.3.3 3.2.9C14 5.5 16.2 4 19 4c3.3 0 5.5 2.2 5.5 5 0 .6-.1 1.2-.3 1.7 1.5.9 2.3 2.3 2.3 4 0 2.8-2.6 4.8-6 4.8-1.6 0-3-.5-4-1.3-.9.5-2 .8-3.2.8-3.6 0-6.3-2.4-6.3-5.5 0-.5.1-1 .2-1.5z" fill="#5c2410" opacity="0.92"/>
+            <path d="M19.2 7.2c1.4 0 2.5 1 2.5 2.3 0 .4-.1.7-.3 1" stroke="#ffd8c4" stroke-width="0.7" fill="none"/>
+            <circle cx="20.4" cy="8.6" r="0.7" fill="#ffd8c4"/>
+            <path d="M22.5 6.2c1.2-1.3 2.8-1.8 4-1.6" stroke="#5c2410" stroke-width="1" stroke-linecap="round" class="bd-dragon-whisker"/>
+            <path d="M22.2 7.8c1.5-.4 2.8-.2 3.8.4" stroke="#5c2410" stroke-width="1" stroke-linecap="round" class="bd-dragon-whisker bd-dragon-whisker-2"/>
+            <path d="M6 11.5c1.5-1 3.2-1.2 4.8-.6" stroke="#ffb088" stroke-width="1.2" stroke-linecap="round" opacity="0.85"/>
+            <path d="M8 14c2 .2 3.8-.2 5.2-1.2" stroke="#f56b42" stroke-width="1" stroke-linecap="round" opacity="0.7"/>
           </g>
         </svg>
       </span>
@@ -596,9 +594,14 @@ def render_brief_html(
     color: #1c1917;
   }}
 
-  /* —— 折叠按钮：暖石壳 + 珊瑚橙 pill（非黑底 / 非蓝） —— */
+  /* —— 折叠按钮：全宽(左右安全距) + 珊瑚 pill + 闪烁龙 —— */
   .orig-wrap {{
-    margin-top: 18px; border-top: 1px dashed var(--border); padding-top: 14px;
+    margin-top: 18px;
+    border-top: 1px dashed var(--border);
+    padding-top: 14px;
+    /* 相对卡片内边距再收左右安全距 */
+    padding-left: 4px;
+    padding-right: 4px;
   }}
   .bd-root {{
     --coral-from: #ffb088;
@@ -607,11 +610,12 @@ def render_brief_html(
     --shell-from: #f7efe6;
     --shell-to: #ebe0d4;
     position: relative;
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    height: 44px;
-    min-width: 148px;
-    padding: 0 16px 0 4px;
+    justify-content: center;
+    width: 100%;                 /* 与卡片内容区同宽 */
+    height: 48px;
+    padding: 0 12px 0 4px;
     border: 1px solid #e0d2c4;
     border-radius: 12px;
     cursor: pointer;
@@ -630,12 +634,12 @@ def render_brief_html(
       inset 0 1px 0 rgba(255,255,255,0.85),
       0 6px 16px rgba(245, 107, 66, 0.18);
   }}
-  .bd-root:active {{ transform: scale(0.97); }}
+  .bd-root:active {{ transform: scale(0.985); }}
   .bd-root:focus-visible {{ outline: 2px solid #f56b42; outline-offset: 2px; }}
   .bd-pill {{
     position: absolute;
     top: 4px; left: 4px; bottom: 4px;
-    width: 36px;
+    width: 44px;
     display: flex; align-items: center; justify-content: center;
     border-radius: 8px;
     background: linear-gradient(180deg, var(--coral-from) 0%, var(--coral-to) 100%);
@@ -651,43 +655,70 @@ def render_brief_html(
   .bd-root[aria-expanded="true"] .bd-pill {{
     width: calc(100% - 8px);
   }}
+  /* 文案绝对居中 */
   .bd-label {{
-    position: relative;
+    position: absolute;
+    left: 0; right: 0;
+    top: 50%;
+    transform: translateY(-50%);
     z-index: 2;
-    margin-left: 44px;
-    font-size: 14px;
+    margin: 0;
+    text-align: center;
+    font-size: 15px;
     font-weight: 600;
-    letter-spacing: -0.01em;
+    letter-spacing: 0.04em;
     color: var(--coral-deep);
-    /* hover fade driven by GSAP; CSS baseline */
+    pointer-events: none;
     opacity: 1;
   }}
   .bd-label .bd-ch {{
     display: inline-block;
     will-change: contents, opacity, text-shadow;
   }}
-  /* expanded: cream on coral, never pure black */
   .bd-root[aria-expanded="true"] .bd-label {{
     color: #fff7ed;
     text-shadow: 0 1px 0 rgba(120, 40, 10, 0.15);
   }}
-  .bd-chevs .bd-dots {{ fill: #5c2410; }}
-  @keyframes bd-dot-wave {{
-    0%, 65%, 100% {{ opacity: 0.3; transform: scale(0.8); }}
-    32% {{ opacity: 1; transform: scale(1.08); }}
+  /* 龙闪烁 */
+  .bd-dragon {{
+    display: block;
+    overflow: visible;
   }}
-  .bd-dot {{
-    transform-box: fill-box;
-    transform-origin: center;
-    animation: bd-dot-wave 1.8s cubic-bezier(0.45,0.05,0.55,0.95) infinite;
+  .bd-dragon-body {{
+    transform-origin: 50% 55%;
+    animation: bd-dragon-pulse 1.7s cubic-bezier(0.45,0.05,0.55,0.95) infinite;
   }}
-  .bd-root:hover .bd-dot,
-  .bd-root:focus-visible .bd-dot,
-  .bd-root[aria-expanded="true"] .bd-dot {{
-    animation-duration: 0.95s;
+  .bd-dragon-whisker {{
+    animation: bd-dragon-whisk 1.7s ease-in-out infinite;
+    transform-origin: 22px 7px;
+  }}
+  .bd-dragon-whisker-2 {{
+    animation-delay: 0.12s;
+    transform-origin: 22px 8px;
+  }}
+  @keyframes bd-dragon-pulse {{
+    0%, 100% {{
+      opacity: 0.72;
+      transform: scale(0.94) translateY(0.4px);
+      filter: drop-shadow(0 0 0 transparent);
+    }}
+    40% {{
+      opacity: 1;
+      transform: scale(1.06) translateY(-0.6px);
+      filter: drop-shadow(0 0 4px rgba(255, 210, 180, 0.85));
+    }}
+  }}
+  @keyframes bd-dragon-whisk {{
+    0%, 100% {{ transform: rotate(-4deg); opacity: 0.75; }}
+    50% {{ transform: rotate(6deg); opacity: 1; }}
+  }}
+  .bd-root:hover .bd-dragon-body,
+  .bd-root:focus-visible .bd-dragon-body,
+  .bd-root[aria-expanded="true"] .bd-dragon-body {{
+    animation-duration: 0.9s;
   }}
   @media (prefers-reduced-motion: reduce) {{
-    .bd-dot {{ animation: none; opacity: 1; }}
+    .bd-dragon-body, .bd-dragon-whisker {{ animation: none; opacity: 1; }}
     .bd-pill {{ transition: none; }}
   }}
   .orig-panel {{
