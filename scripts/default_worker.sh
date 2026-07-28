@@ -850,8 +850,10 @@ prompt_text = sys.argv[2]
 extra_args_str = sys.argv[3] if len(sys.argv) > 3 else ""
 skill_name = sys.argv[4] if len(sys.argv) > 4 else ""
 
-# Base argv: hermes -z <prompt> --profile <MONI_HERMES_PROFILE or moni>
-profile = os.environ.get("MONI_HERMES_PROFILE", "moni")
+# Base argv: hermes -z <prompt> --profile <MONI_HERMES_PROFILE or default>
+# v1.0.10: default was "moni" (xiaomi MiMo) → 401 after key retired;
+# align with summary_gen / llm.client (default profile = MiniMax etc.)
+profile = os.environ.get("MONI_HERMES_PROFILE", "default")
 argv = ["hermes", "-z", prompt_text, "--profile", profile]
 # Append skill if specified
 if skill_name.strip():
