@@ -95,3 +95,21 @@ def test_body_to_html_plain_paragraphs():
     h = body_to_html("第一段。\n\n第二段内容。")
     assert "<p>" in h
     assert "第一段" in h and "第二段" in h
+
+
+def test_fc_items_icon_only_no_duplicate_label():
+    from moni.share.brief_html import _fc_items, render_brief_html
+
+    class R(dict):
+        def __getitem__(self, k):
+            return dict.get(self, k)
+
+    row = R(
+        fact_check_note="claim1 【已核实】: 监管文件已发布; claim2 【待核实】: 年报数据",
+        fact_check_conclusion="",
+    )
+    items = _fc_items(row)
+    assert items[0][0] == "ok"
+    assert "已核实" not in items[0][1]
+    assert "claim1" not in items[0][1].lower()
+    assert "监管文件" in items[0][1]

@@ -15,7 +15,7 @@ from pathlib import Path
 from .connection import get_db, get_db_path
 
 
-_CURRENT_VERSION = 21  # v1.0.10: brief_summary cache (021); 020 business_value
+_CURRENT_VERSION = 22  # v1.0.10: brief_body_md layout cache (022)
 
 
 def current_version(conn: sqlite3.Connection) -> int:

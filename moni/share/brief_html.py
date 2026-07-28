@@ -192,6 +192,7 @@ def _load_rows(db_path: str, article_ids: list[str]) -> list[sqlite3.Row]:
                 f"""
                 SELECT id, title, url, source, publisher, published_at, raw_content,
                        ai_summary, summary, bb_summary, bb_one_sentence, brief_summary,
+                       brief_body_md,
                        fact_check_conclusion, fact_check_note,
                        business_value_score, business_value_note,
                        quality_score, bb_score
@@ -207,7 +208,7 @@ def _load_rows(db_path: str, article_ids: list[str]) -> list[sqlite3.Row]:
                 f"""
                 SELECT id, title, url, source, publisher, published_at, raw_content,
                        ai_summary, summary, bb_summary, NULL as bb_one_sentence,
-                       NULL as brief_summary,
+                       NULL as brief_summary, NULL as brief_body_md,
                        fact_check_conclusion, fact_check_note,
                        business_value_score, business_value_note,
                        quality_score, bb_score
@@ -262,7 +263,10 @@ def _summary_text(row: sqlite3.Row) -> str:
 
 
 def _fc_items(row: sqlite3.Row) -> list[tuple[str, str]]:
-    """Return list of (badge_kind, text) for fact-check lines."""
+    """Return list of (badge_kind, text) for fact-check lines.
+
+    Badge is icon-only (status color); strip redundant status words from text.
+    """
     note = (row["fact_check_note"] or "").strip()
     conc = (row["fact_check_conclusion"] or "").strip()
     raw = note or conc
@@ -278,52 +282,62 @@ def _fc_items(row: sqlite3.Row) -> list[tuple[str, str]]:
     )
     parts = re.split(r"[;；]\s*", raw)
     out: list[tuple[str, str]] = []
-    for p in parts[:2]:
+    for p in parts[:3]:
         p = p.strip()
         if not p:
             continue
-        if "【已核实】" in p or "已核实" in p:
+        if "【已核实】" in p or re.search(r"(?<![不待])已核实", p):
             kind = "ok"
         elif "【存疑】" in p or "存疑" in p:
             kind = "bad"
-        elif "【待核实】" in p or "待核实" in p:
+        elif "【待核实】" in p or "待核实" in p or "unverified" in p.lower():
             kind = "warn"
         elif "无需" in p:
             kind = "none"
         else:
             kind = "warn"
-        out.append((kind, p))
+        # strip status labels + claimN prefixes — icon already conveys status
+        p = re.sub(
+            r"【已核实】|【待核实】|【存疑】|\[supported\]|\[unverified\]|\[disputed\]",
+            "",
+            p,
+            flags=re.I,
+        )
+        p = re.sub(r"\b(supported|unverified|disputed)\b", "", p, flags=re.I)
+        p = re.sub(r"^claim\s*\d+\s*[:：.\s-]*", "", p, flags=re.I)
+        p = re.sub(r"^(已核实|待核实|存疑)\s*[:：.\s-]*", "", p)
+        p = p.strip(" :：-—|")
+        if not p and kind == "none":
+            p = "无需核查"
+        if p or kind == "none":
+            out.append((kind, p or "（无说明）"))
     return out or [("none", "无需核查")]
 
 
 def _badge_svg(kind: str) -> str:
+    """Icon-only status badge (no text label — avoids 已核实 + 【已核实】 duplicate)."""
     if kind == "ok":
         return (
-            '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
+            '<svg viewBox="0 0 16 16" width="16" height="16" aria-label="已核实" role="img">'
             '<circle cx="8" cy="8" r="8" fill="#16a34a"/>'
             '<path d="M4.5 8.2l2.2 2.2 4.8-4.8" stroke="#fff" stroke-width="1.6" '
             'fill="none" stroke-linecap="round"/></svg>'
         )
     if kind == "bad":
         return (
-            '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
+            '<svg viewBox="0 0 16 16" width="16" height="16" aria-label="存疑" role="img">'
             '<circle cx="8" cy="8" r="8" fill="#dc2626"/>'
             '<path d="M8 4.2v5.2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>'
             '<circle cx="8" cy="12" r="1" fill="#fff"/></svg>'
         )
     if kind == "warn":
         return (
-            '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">'
+            '<svg viewBox="0 0 16 16" width="16" height="16" aria-label="待核实" role="img">'
             '<circle cx="8" cy="8" r="8" fill="#d97706"/>'
             '<path d="M8 4.2v5.2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>'
             '<circle cx="8" cy="12" r="1" fill="#fff"/></svg>'
         )
     return ""
-
-
-def _badge_label(kind: str) -> str:
-    return {"ok": "已核实", "warn": "待核实", "bad": "存疑", "none": ""}.get(kind, "")
-
 
 def render_brief_html(
     db_path: str,
@@ -354,8 +368,13 @@ def render_brief_html(
     cards: list[str] = []
     for i, r in enumerate(rows, 1):
         t = (r["title"] or "").replace("\n", " ").strip()
-        body = (r["raw_content"] or "").strip() or "（无正文）"
-        # markdown-ish body for readable offline reading
+        # Prefer agent-laid-out markdown; fall back to raw + light MD render
+        laid = ""
+        try:
+            laid = (r["brief_body_md"] or "").strip()
+        except (KeyError, IndexError, TypeError):
+            laid = ""
+        body = laid or (r["raw_content"] or "").strip() or "（无正文）"
         body_html = body_to_html(body)
         summ = _summary_text(r)
         bv = r["business_value_score"]
@@ -373,9 +392,11 @@ def render_brief_html(
             if kind == "none":
                 fc_lis.append(f"<li class='fc-plain'>{_esc(text)}</li>")
             else:
+                # icon only + claim text (no second 已核实 label)
                 fc_lis.append(
-                    f"<li><span class='badge {kind}'>{_badge_svg(kind)} {_esc(_badge_label(kind))}</span> "
-                    f"<span>{_esc(text)}</span></li>"
+                    f"<li><span class='badge {kind}' title='{_esc({'ok':'已核实','warn':'待核实','bad':'存疑'}.get(kind,''))}'>"
+                    f"{_badge_svg(kind)}</span> "
+                    f"<span class='fc-text'>{_esc(text)}</span></li>"
                 )
 
         cards.append(

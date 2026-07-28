@@ -25,7 +25,8 @@ from moni.share.summary_gen import _invoke_hermes, generate_and_writeback
 log = logging.getLogger(__name__)
 
 # Wall-clock budget for all enrichment hermes calls on one task (seconds).
-ENRICH_BUDGET_SEC = int(os.environ.get("MONI_ENRICH_BUDGET_SEC", "480"))
+# Body layout adds hermes calls; default budget covers ~10 articles offline HTML.
+ENRICH_BUDGET_SEC = int(os.environ.get("MONI_ENRICH_BUDGET_SEC", "900"))
 STEP_TIMEOUT_SEC = int(os.environ.get("MONI_ENRICH_STEP_TIMEOUT", "90"))
 THIN_CONTENT_CHARS = 200
 
@@ -103,6 +104,25 @@ COMPACT_SUMMARY_PROMPT = """你是 moni 摘要压缩助手。下面是一篇已�
 ID: {article_id}
 原摘要:
 {summary}
+"""
+
+BODY_LAYOUT_PROMPT = """你是 moni 离线阅读排版助手。任务：把抓取到的正文整理成**结构清晰的 Markdown**，方便人阅读。
+
+硬规则（违反即失败）：
+1. **只排版，不改写事实**：专有名词、数字、引语、机构名必须与原文一致；禁止扩写、禁止加评论、禁止「总结陈词」。
+2. **删抓取噪音**：导航（日报/专栏/热点）、分享按钮文案、「在看」「推荐阅读」、纯广告链接行、重复的来源页脚。
+3. **结构**：
+   - 用 `##` / `###` 标出明显小节（若原文有「1. 2. 3.」或主题转折）
+   - 段落之间空一行；列表用 `- ` 或 `1. `
+   - 金句/引语用 `>` 引用
+4. **输出纯 Markdown 正文**，不要用 ``` 代码围栏包住全文，不要 YAML frontmatter。
+5. 中文输出；若原文极短（不足 80 字），原样返回并补自然分段即可。
+
+标题: {title}
+ID: {article_id}
+
+—— 原始正文 ——
+{content}
 """
 
 
@@ -303,20 +323,21 @@ def _article_rows(conn: sqlite3.Connection, article_ids: list[str]) -> list[sqli
                fact_check_conclusion, fact_check_note, has_fact_check,
                business_value_score, business_value_note,
                quality_score, bb_score, bb_summary, bb_one_sentence,
-               brief_summary, source, url, publisher, published_at
+               brief_summary, brief_body_md, source, url, publisher, published_at
         FROM articles WHERE id IN ({ph})
         ORDER BY CASE id {order_cases} END
     """
     try:
         return list(conn.execute(sql, (*article_ids, *article_ids)).fetchall())
     except sqlite3.OperationalError:
-        # Pre-migration 021 / 020 fallbacks
+        # Pre-migration 022 / 021 / 020 fallbacks
         sql_fallback = f"""
             SELECT id, title, raw_content, ai_summary, summary,
                    fact_check_conclusion, fact_check_note, has_fact_check,
                    business_value_score, business_value_note,
                    quality_score, bb_score, bb_summary, NULL as bb_one_sentence,
-                   NULL as brief_summary, source, url, publisher, published_at
+                   NULL as brief_summary, NULL as brief_body_md,
+                   source, url, publisher, published_at
             FROM articles WHERE id IN ({ph})
         """
         try:
@@ -327,7 +348,7 @@ def _article_rows(conn: sqlite3.Connection, article_ids: list[str]) -> list[sqli
                        fact_check_conclusion, fact_check_note, has_fact_check,
                        NULL as business_value_score, NULL as business_value_note,
                        NULL as quality_score, NULL as bb_score, NULL as bb_summary,
-                       NULL as bb_one_sentence, NULL as brief_summary,
+                       NULL as bb_one_sentence, NULL as brief_summary, NULL as brief_body_md,
                        source, url, publisher, published_at
                 FROM articles WHERE id IN ({ph})
             """
@@ -495,6 +516,167 @@ def _ensure_quality(
     return True
 
 
+def _needs_body_layout(raw: str | None) -> bool:
+    """Heuristic: plain/noisy fetch bodies benefit from agent layout."""
+    if not raw or not str(raw).strip():
+        return False
+    t = str(raw).strip()
+    if len(t) < 120:
+        return False
+    # already well-structured markdown
+    if t.count("\n\n") >= 4 and (t.count("## ") + t.count("# ") >= 1):
+        return False
+    # wall of text or mid-line ## or frontmatter dump
+    if "\n\n" not in t and len(t) > 400:
+        return True
+    if re.search(r"。\s*##\s", t):
+        return True
+    if t.lstrip().startswith("---") and "title:" in t[:200]:
+        return True
+    # few line breaks relative to length
+    if len(t) > 600 and t.count("\n") < max(3, len(t) // 400):
+        return True
+    return True  # default: layout once for brief offline reading
+
+
+def _parse_body_md(output: str) -> str:
+    """Extract markdown body from hermes output (strip fences / chatter)."""
+    if not output:
+        return ""
+    text = output.strip()
+    # fenced block
+    m = re.search(r"```(?:markdown|md)?\s*\n(.*?)```", text, re.DOTALL | re.I)
+    if m:
+        return m.group(1).strip()
+    # drop leading hermes chrome lines
+    lines = text.splitlines()
+    start = 0
+    for i, ln in enumerate(lines[:12]):
+        if re.match(r"^#+\s+", ln) or (ln.strip() and not ln.startswith("╭") and "Hermes" not in ln):
+            if "Session:" in ln or "Duration:" in ln or "Resume this" in ln:
+                continue
+            start = i
+            break
+    body = "\n".join(lines[start:]).strip()
+    # cut trailing session footer
+    body = re.split(r"\nSession:\s|\nResume this session", body)[0].strip()
+    return body
+
+
+def _local_body_layout(raw: str, title: str = "") -> str:
+    """Offline heuristic layout when hermes times out or body is huge.
+
+    Only structure: strip frontmatter/noise, paragraphize, promote 1. 2. headings.
+    """
+    t = raw.strip()
+    if t.lstrip().startswith("---"):
+        m = re.match(r"^---\s*\n.*?\n---\s*\n(.*)$", t, re.DOTALL)
+        if m:
+            t = m.group(1).strip()
+    # drop common chrome tokens on their own lines
+    noise = re.compile(
+        r"^(日报|专栏|热点|国际|活动|在看|推荐阅读|REVIEW|◆|点这里|分享到|返回顶部)\s*$"
+    )
+    lines = []
+    for ln in t.replace("\r\n", "\n").split("\n"):
+        s = ln.strip()
+        if not s or noise.match(s):
+            continue
+        lines.append(s)
+    t = "\n".join(lines)
+    # mid-line headings
+    t = re.sub(r"([。！？；;])\s*(#{1,3}\s+)", r"\1\n\n\2", t)
+    t = re.sub(r"([。！？])\s*((?:\d+)[.、．]\s*)", r"\1\n\n## \2", t)
+    # wall of text → paragraphs
+    if "\n\n" not in t and len(t) > 280:
+        t = re.sub(r"([。！？])(?=[^\n]{12,})", r"\1\n\n", t)
+    # numbered list lines as headings if look like section titles
+    out_lines = []
+    for ln in t.split("\n"):
+        s = ln.strip()
+        if not s:
+            out_lines.append("")
+            continue
+        m = re.match(r"^(\d+)[.、．]\s*(.+)$", s)
+        if m and len(m.group(2)) < 40 and not s.endswith("。"):
+            out_lines.append(f"## {m.group(1)}. {m.group(2)}")
+        else:
+            out_lines.append(s)
+    body = "\n".join(out_lines).strip()
+    # collapse 3+ blank lines
+    body = re.sub(r"\n{3,}", "\n\n", body)
+    if title and not body.startswith("#"):
+        body = f"## {title.strip()}\n\n{body}"
+    return body
+
+
+def _ensure_brief_body(
+    conn: sqlite3.Connection,
+    row: sqlite3.Row,
+    extra_args: list[str],
+    budget_left: list[float],
+) -> bool:
+    """Agent layout: raw_content → brief_body_md (structure only, no rewrite)."""
+    try:
+        existing = row["brief_body_md"]
+    except (KeyError, IndexError, TypeError):
+        existing = None
+    if existing and str(existing).strip():
+        return True
+
+    raw = (row["raw_content"] or "").strip()
+    if not raw:
+        return True
+
+    now = _now()
+
+    def _write(md: str) -> bool:
+        try:
+            conn.execute(
+                "UPDATE articles SET brief_body_md=?, brief_body_at=? WHERE id=?",
+                (md, now, row["id"]),
+            )
+            conn.commit()
+            return True
+        except sqlite3.OperationalError as exc:
+            log.warning("enrichment: brief_body_md write failed (mig 022?): %s", exc)
+            return False
+
+    if not _needs_body_layout(raw):
+        cleaned = raw
+        if cleaned.lstrip().startswith("---"):
+            m = re.match(r"^---\s*\n.*?\n---\s*\n(.*)$", cleaned, re.DOTALL)
+            if m:
+                cleaned = m.group(1).strip()
+        return _write(cleaned)
+
+    # Super-long bodies: local layout first (hermes often times out at 15k+)
+    if len(raw) > 9000 or budget_left[0] <= 30:
+        return _write(_local_body_layout(raw, row["title"] or ""))
+
+    content = raw[:7000]
+    prompt = BODY_LAYOUT_PROMPT.format(
+        article_id=row["id"],
+        title=row["title"] or "",
+        content=content,
+    )
+    timeout = min(150, max(40, int(min(STEP_TIMEOUT_SEC + 30, budget_left[0]))))
+    out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
+    budget_left[0] -= timeout
+    if code != 0:
+        log.warning(
+            "enrichment: body layout hermes exit %s for %s — local fallback",
+            code,
+            row["id"],
+        )
+        return _write(_local_body_layout(raw, row["title"] or ""))
+    md = _parse_body_md(out)
+    if len(md) < 40:
+        log.warning("enrichment: body layout too short for %s — local fallback", row["id"])
+        return _write(_local_body_layout(raw, row["title"] or ""))
+    return _write(md)
+
+
 def _ensure_brief_summary(
     conn: sqlite3.Connection,
     row: sqlite3.Row,
@@ -610,6 +792,7 @@ def run_enrichment(
         "business_value": 0,
         "quality": 0,
         "brief_summary": 0,
+        "brief_body": 0,
         "failed": [],
         "flags": flags,
     }
@@ -704,6 +887,23 @@ def run_enrichment(
                     stats["brief_summary"] += 1
                 else:
                     stats["failed"].append(f"brief_summary:{row['id']}")
+
+        # 6) agent body layout for offline HTML (structure only)
+        if flags.get("brief"):
+            rows = _article_rows(conn, article_ids)
+            n = max(len(rows), 1)
+            for i, row in enumerate(rows):
+                _update_progress(
+                    conn,
+                    task_id,
+                    "enrich_summary",
+                    64,
+                    f"正文排版 ({i + 1}/{n}) ...",
+                )
+                if _ensure_brief_body(conn, row, extra_args, budget_left):
+                    stats["brief_body"] += 1
+                else:
+                    stats["failed"].append(f"brief_body:{row['id']}")
 
         _update_progress(conn, task_id, "building_prompt", 65, "富化完成，准备拼装简报 ...")
     finally:
