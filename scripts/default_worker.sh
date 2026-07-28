@@ -196,8 +196,16 @@ skill_for_report_png() {
 # each have a file under moni/share/prompts/.
 prompt_file_for_format() {
     local format="$1"
+    local brief="${2:-false}"
     case "$format" in
-        markdown)         echo "format-markdown.md" ;;
+        markdown)
+            # v1.0.10: brief mode uses rollup + BV-sorted layout prompt
+            if [[ "$brief" == "true" ]]; then
+                echo "format-brief-markdown.md"
+            else
+                echo "format-markdown.md"
+            fi
+            ;;
         html_landing)     echo "format-html.md" ;;
         rich_text)        echo "format-rich-text.md" ;;
         report_png)       echo "format-report-png.md" ;;
@@ -618,6 +626,52 @@ ${new_summaries}"
         fi
     fi
 
+    # v1.0.10: enrichment (fact_check / business_value / brief re-read).
+    # Runs when brief mode or either enrichment flag is on. Rebuilds
+    # article_content from DB so format prompt sees writebacks.
+    local brief_val include_fc_val include_bv_val
+    brief_val=$(python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+p = d.get('payload', {}) if isinstance(d.get('payload'), dict) else {}
+print('true' if p.get('brief') else 'false')
+" "$manifest_path" 2>/dev/null || echo "false")
+    include_fc_val=$(python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+p = d.get('payload', {}) if isinstance(d.get('payload'), dict) else {}
+print('true' if p.get('include_fact_check') else 'false')
+" "$manifest_path" 2>/dev/null || echo "false")
+    include_bv_val=$(python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+p = d.get('payload', {}) if isinstance(d.get('payload'), dict) else {}
+print('true' if p.get('include_business_value') else 'false')
+" "$manifest_path" 2>/dev/null || echo "false")
+
+    if [[ -n "$article_ids_str" ]] && \
+       { [[ "$brief_val" == "true" ]] || [[ "$include_fc_val" == "true" ]] || [[ "$include_bv_val" == "true" ]]; }; then
+        update_progress "$task_id" "enrich_business_value" 50 \
+            "正在富化（事实核查/业务价值）..."
+        log "ENRICH $task_id — running moni.share.enrichment (brief=$brief_val fc=$include_fc_val bv=$include_bv_val)"
+
+        # Prefer python -m so editable install resolves moni package
+        local enrich_out
+        enrich_out=$(python3 -m moni.share.enrichment \
+            --db "$DB_PATH" \
+            --task-id "$task_id" \
+            --manifest "$manifest_path" \
+            --article-ids "$article_ids_str" \
+            --print-content 2>/tmp/moni_enrich_${task_id}.err || true)
+
+        if [[ -n "$enrich_out" ]]; then
+            article_content="$enrich_out"
+            log "ENRICH $task_id — article_content rebuilt ($(printf '%d' "${#article_content}") bytes)"
+        else
+            log "ENRICH $task_id — rebuild empty; keeping prior article_content (see /tmp/moni_enrich_${task_id}.err)"
+        fi
+    fi
+
     # Build skill flag
     skill_name=$(skill_for_format "$format")
 
@@ -686,10 +740,21 @@ PYEOF
 
     local format_prompt=""
     local pf
-    pf=$(prompt_file_for_format "$format")
+    # brief_val may already be set above (v1.0.10); default false for old path
+    brief_val="${brief_val:-false}"
+    pf=$(prompt_file_for_format "$format" "$brief_val")
     if [[ -n "$pf" ]]; then
         local format_prompt_file="$PROMPT_DIR/$pf"
         [[ -f "$format_prompt_file" ]] && format_prompt=$(<"$format_prompt_file")
+    fi
+    # brief mode: prepend business-value persona prompt
+    if [[ "$brief_val" == "true" ]]; then
+        local bv_prompt_file="$PROMPT_DIR/business-value.md"
+        if [[ -f "$bv_prompt_file" ]]; then
+            content_prompt="$(<"$bv_prompt_file")
+
+${content_prompt}"
+        fi
     fi
 
     # Skill clause — for non-png formats, we use the format's
@@ -922,10 +987,35 @@ if [[ ! -f "$DB_PATH" ]]; then
     mkdir -p "$(dirname "$DB_PATH")"
 fi
 
-# Process each JSON file in the queue directory
-for manifest in "$QUEUE_DIR"/*.json; do
-    [[ -e "$manifest" ]] || break  # no glob match
-    process_manifest "$manifest"
-done
+# v1.0.10: process pending tasks from DB first (queue dir has 1000s of
+# historical json; scanning all of them makes new briefs wait minutes).
+# Fall back to full dir scan only if DB query fails.
+pending_ids=$(python3 - "$DB_PATH" <<'PYEOF'
+import sqlite3, sys
+try:
+    conn = sqlite3.connect(sys.argv[1])
+    rows = conn.execute(
+        "SELECT id FROM share_tasks WHERE status='pending' ORDER BY created_at ASC"
+    ).fetchall()
+    for r in rows:
+        print(r[0])
+except Exception as e:
+    print(f"[pending query failed] {e}", file=sys.stderr)
+PYEOF
+)
+
+if [[ -n "$pending_ids" ]]; then
+    while IFS= read -r tid; do
+        [[ -z "$tid" ]] && continue
+        manifest="$QUEUE_DIR/${tid}.json"
+        if [[ -f "$manifest" ]]; then
+            process_manifest "$manifest"
+        else
+            log "SKIP $tid — pending in DB but no queue file $manifest"
+        fi
+    done <<< "$pending_ids"
+else
+    log "no pending share_tasks in DB — nothing to process"
+fi
 
 log "worker finished"

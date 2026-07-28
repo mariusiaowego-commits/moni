@@ -4,7 +4,7 @@ There are 6 supported share/export formats in v1.0.5.18 (down from
 10 in v1.0.5.17 and 11 originally).  Each format has its own
 Pydantic model with a shared validation entry point.  All 6 payloads
 share 4 common "user options" fields — include_abstract /
-include_fact_check / provider / model — so the worker can honour
+include_fact_check / include_business_value / brief / provider / model — so the worker can honour
 the user's choices consistently across formats.
 """
 
@@ -113,6 +113,9 @@ class PlainTextPayload(BaseModel):
     page_width: int = Field(default=80, ge=40, le=200, description="Characters per line")
     include_abstract: bool = Field(default=True)
     include_fact_check: bool = Field(default=False)
+    include_business_value: bool = Field(default=False, description="Per-article business value score+note")
+    include_quality_score: bool = Field(default=False, description="Quality score when bb_score missing")
+    brief: bool = Field(default=False, description="One-click brief mode (sort by BV, rollup layout)")
     bb_enhance: bool = Field(default=False)
     bb_summary_source: str | None = Field(default=None)
     bb_score: bool = Field(default=False)
@@ -134,6 +137,9 @@ class MarkdownPayload(BaseModel):
     code_theme: str = Field(default="github-dark", description="Highlight.js theme name")
     include_abstract: bool = Field(default=True)
     include_fact_check: bool = Field(default=False)
+    include_business_value: bool = Field(default=False, description="Per-article business value score+note")
+    include_quality_score: bool = Field(default=False, description="Quality score when bb_score missing")
+    brief: bool = Field(default=False, description="One-click brief mode (sort by BV, rollup layout)")
     bb_enhance: bool = Field(default=False)
     bb_summary_source: str | None = Field(default=None)
     bb_score: bool = Field(default=False)
@@ -157,6 +163,9 @@ class HtmlLandingPayload(BaseModel):
     logo_url: str | None = Field(default=None)
     include_abstract: bool = Field(default=True)
     include_fact_check: bool = Field(default=False)
+    include_business_value: bool = Field(default=False, description="Per-article business value score+note")
+    include_quality_score: bool = Field(default=False, description="Quality score when bb_score missing")
+    brief: bool = Field(default=False, description="One-click brief mode (sort by BV, rollup layout)")
     bb_enhance: bool = Field(default=False)
     bb_summary_source: str | None = Field(default=None)
     bb_score: bool = Field(default=False)
@@ -179,6 +188,9 @@ class InfoGraphicPngPayload(BaseModel):
     color_scheme: str = Field(default="vibrant", description="Colour palette name")
     include_abstract: bool = Field(default=True)
     include_fact_check: bool = Field(default=False)
+    include_business_value: bool = Field(default=False, description="Per-article business value score+note")
+    include_quality_score: bool = Field(default=False, description="Quality score when bb_score missing")
+    brief: bool = Field(default=False, description="One-click brief mode (sort by BV, rollup layout)")
     bb_enhance: bool = Field(default=False)
     bb_summary_source: str | None = Field(default=None)
     bb_score: bool = Field(default=False)
@@ -204,6 +216,9 @@ class RichTextPayload(BaseModel):
     article_ids: list[str] = Field(..., description="Articles to include")
     include_abstract: bool = Field(default=True)
     include_fact_check: bool = Field(default=False)
+    include_business_value: bool = Field(default=False, description="Per-article business value score+note")
+    include_quality_score: bool = Field(default=False, description="Quality score when bb_score missing")
+    brief: bool = Field(default=False, description="One-click brief mode (sort by BV, rollup layout)")
     bb_enhance: bool = Field(default=False)
     bb_summary_source: str | None = Field(default=None)
     bb_score: bool = Field(default=False)
@@ -227,6 +242,9 @@ class PdfPayload(BaseModel):
     title: str = Field(default="同业追踪日报", description="报告总标题")
     include_abstract: bool = Field(default=True)
     include_fact_check: bool = Field(default=False)
+    include_business_value: bool = Field(default=False, description="Per-article business value score+note")
+    include_quality_score: bool = Field(default=False, description="Quality score when bb_score missing")
+    brief: bool = Field(default=False, description="One-click brief mode (sort by BV, rollup layout)")
     bb_enhance: bool = Field(default=False)
     bb_summary_source: str | None = Field(default=None)
     bb_score: bool = Field(default=False)
@@ -250,6 +268,9 @@ class ReportPngPayload(BaseModel):
     article_ids: list[str] = Field(..., description="Articles to include")
     include_abstract: bool = Field(default=True)
     include_fact_check: bool = Field(default=False)
+    include_business_value: bool = Field(default=False, description="Per-article business value score+note")
+    include_quality_score: bool = Field(default=False, description="Quality score when bb_score missing")
+    brief: bool = Field(default=False, description="One-click brief mode (sort by BV, rollup layout)")
     bb_enhance: bool = Field(default=False)
     bb_summary_source: str | None = Field(default=None)
     bb_score: bool = Field(default=False)

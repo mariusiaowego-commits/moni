@@ -4,12 +4,31 @@
 
 ---
 
-## 当前状态: **v1.0.9.12 — P0 紧急修复** (2026-07-03)
+## 当前状态: **v1.0.10 — 一键简报 (开发中)** (2026-07-28)
 
-**主分支**: main @ v1.0.9.12 (PR #56 merged)
+**分支**: `feature/v1.0.10-one-click-brief`
 **Web 服务**: `127.0.0.1:8900` (Python 3.12)
-**数据库**: `data/news.db` — schema_version=19, 11 tables
-**测试**: 428 passed, 2 skipped
+**数据库**: `data/news.db` — schema_version=20, 11 tables
+**测试**: brief 5 passed + share 45; 全量见 PR
+
+### v1.0.10 进展 (2026-07-28) — 一键简报
+
+**目标**: Pin N 篇 → 选格式 → 一点生成含摘要/事实核查/业务价值的简报，进度可见。
+
+**已实现:**
+1. `POST /api/share/brief` — 全部 pin + opinionated payload + auto `launch_worker`
+2. migration 020 — `business_value_*` / `quality_score_*`
+3. `moni/share/enrichment.py` — 摘要/事实核查/业务价值落库 + re-read 拼装
+4. worker hook — brief 模式用 `format-brief-markdown.md`，富化后重建 article_content
+5. 分享页主 CTA + sticky 当前任务卡片；旧路径收入「自定义分享」
+
+**文档**: `docs/plans|prd|specs/2026-07-28_v1.0.10-one-click-brief*`
+
+---
+
+### v1.0.9.12 进展 (2026-07-03) — P0 紧急修复
+
+**主分支 tag**: v1.0.9.12 (PR #56)
 
 ### v1.0.9.10 进展 (2026-06-30)
 
