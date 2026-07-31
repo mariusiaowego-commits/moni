@@ -694,11 +694,12 @@
           </div>
         </div>
 
-        <details class="share-section" style="margin-bottom: 16px;">
-          <summary style="cursor:pointer; font-weight:600; color:#64748b;">
+        <details class="share-section share-collapsible">
+          <summary class="share-collapsible-summary">
             自定义分享（勾选子集、BB 增强、provider…）
           </summary>
-          <div style="margin-top: 12px;">
+          <div class="share-collapsible-content">
+
         <div class="share-section">
           <h4>选择文章</h4>
           <!-- v1.0.8: chip 切换 [全部] / [仅 Pin]. 默认 Pin 模式
@@ -925,8 +926,8 @@
           <button class="btn-primary" @click="addToQueue()" :disabled="selectedArticleIds.length === 0">加入队列</button>
           <small class="muted" style="margin-left:8px;">入队后需点下方「立即处理队列」（自定义路径不自动启动）</small>
         </div>
-          </div><!-- end custom share inner -->
-        </details>
+          </div><!-- end share-collapsible-content -->
+        </details><!-- end custom share outer -->
 
         <div class="share-section">
           <h4>队列状态</h4>
