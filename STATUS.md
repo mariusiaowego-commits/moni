@@ -6,10 +6,10 @@
 
 ## 当前状态: **v1.0.11 — X 关键词监控** (2026-08-02)
 
-**分支**: feature/v1.0.11-x-keyword-watch (待 PR)
-**Web 服务**: `127.0.0.1:8901` (Python 3.12)
+**主分支 tag**: **v1.0.11** @ `e1478d2` (squash merge of PR #60)
+**Web 服务**: `127.0.0.1:8900` (Python 3.12) — 已重启, 5+1 端点 200
 **数据库**: `data/news.db` — schema_version=22, 11 tables
-**测试**: 见 PR / 全量 pytest
+**测试**: pytest tests/ = 483 passed, 2 skipped, 0 failed
 
 ### v1.0.11 (2026-08-02) — X 关键词监控
 
@@ -35,7 +35,7 @@
 
 **已知 / 后续**:
 - DDG 公开接口是 IP 敏感的免费服务；同一 IP 多次查询会触发 anomaly challenge。本 sprint 一次性 dry-run 抓 12 条，但稍后批量 fetch 触发 anomaly。当前降级路径保证 system 稳定 + 不抛异常，但**bulk fetch 入库波动较大**。manual `moni xwatch ingest` 始终可用（绕过 DDG，直接走 syndication）
-- 8900 prod 重启等用户 review 后手动
+- PR #60 已 squash merge + force push tag v1.0.11。8900 已用绝对路径命令重启，PID 53118
 
 ---
 
