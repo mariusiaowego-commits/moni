@@ -190,6 +190,107 @@ def cmd_backfill_publisher() -> None:
     )
 
 
+# ── xwatch subcommand (v1.0.11) ────────────────────────────────────────────
+
+xwatch_parser = SUB.add_parser("xwatch", help="X 关键词监控工具 (v1.0.11)")
+xwatch_sub = xwatch_parser.add_subparsers(dest="xwatch_subcmd", required=True)
+ingest_parser = xwatch_sub.add_parser(
+    "ingest",
+    help="按 URL 或 tweet id 收录单条推文（无 DDG、立即去重写入）。",
+)
+ingest_parser.add_argument(
+    "url_or_id",
+    help="https://x.com/.../status/<id> 或纯数字 tweet id",
+)
+ingest_parser.add_argument(
+    "--dry-run",
+    action="store_true",
+    help="只解析推文并按 tag 命中检查，不写库。",
+)
+
+
+def cmd_xwatch_ingest(url_or_id: str, dry_run: bool = False) -> int:
+    """Ingest one tweet by URL or id; dedupe_insert if it passes tag filter.
+
+    Exit codes
+    ----------
+    * 0  —  ingested OK, OR skipped (tag filter rejected with SKIP notice)
+    * 1  —  bad input / syndication failed
+
+    The tag filter mirrors ``apply_tag_keyword_filter`` semantics: only
+    articles whose title+content hits a keyword for one of xwatch's
+    bound tags (wechat / miniprogram) get persisted.  This keeps the
+    ``moni xwatch ingest <whatever>`` UX aligned with the bulk fetcher
+    — a tweet that wouldn't have made it through batch scraping won't
+    slip in via the manual path either.
+    """
+    from ..fetch.xwatch_syndication import fetch_tweet, tweet_id_from_url, tweet_to_article
+
+    tid = tweet_id_from_url(url_or_id)
+    if not tid:
+        print("ERROR: 无法解析推文 id — 期待 https://x.com/.../status/<id> 或纯数字 id")
+        return 1
+
+    data = fetch_tweet(tid)
+    if not data:
+        print(f"ERROR: syndication 抓取失败 (tweet id={tid}) — 可能已删除/受保护/限流")
+        return 1
+
+    art = tweet_to_article(data, fallback_url=url_or_id)
+    if not art:
+        print("ERROR: tweet 内容解析失败 (缺少 text/id_str)")
+        return 1
+
+    # Tag-keyword gate (mirrors apply_tag_keyword_filter for xwatch)
+    from ..fetch.tag_filter import _load_tag_keywords_for_source
+    tag_keywords = _load_tag_keywords_for_source("xwatch")
+    title = (art.get("title") or "").strip()
+    content = (art.get("content") or "").strip()
+    haystack = title + "\n" + content
+
+    matched_tags: list[str] = []
+    keyword_hits: list[dict] = []
+    for tag_name, kws in tag_keywords.items():
+        for kw in kws:
+            if kw in haystack:
+                matched_tags.append(tag_name)
+                keyword_hits.append({
+                    "article_url": art["url"],
+                    "keyword": kw,
+                    "tag_name": tag_name,
+                    "filter_id": None,
+                    "hit_field": "title+content",
+                })
+
+    if not matched_tags:
+        unique_tags = sorted(set(tag_keywords.keys()))
+        print(
+            f"SKIP: 未命中 wechat/miniprogram 关键词 "
+            f"(tweet id={tid}, url={art['url']!r}, "
+            f"expected one of {[w for ws in tag_keywords.values() for w in ws][:5]}...)"
+        )
+        # Tally hint to the user — still no DB write.
+        if not unique_tags:
+            print("        (xwatch has no bound tags with keywords — check seed-config)")
+        return 0
+
+    if dry_run:
+        print(
+            f"[dry-run]  would insert: title={art['title']!r}\n"
+            f"            url={art['url']}\n"
+            f"            publisher={art['publisher']!r}\n"
+            f"            published_at={art['published_at']!r}\n"
+            f"            matched_tags={sorted(set(matched_tags))}"
+        )
+        return 0
+
+    from ..db.repository import ArticleRepository
+    inserted = ArticleRepository().dedupe_insert([art], keyword_hits)
+    print(f"inserted={inserted} url={art['url']}")
+    close_db()
+    return 0
+
+
 def _table_counts(conn) -> dict[str, int]:
     tables = [
         "articles", "tag_definitions", "article_tags", "share_tasks",
@@ -468,6 +569,17 @@ def main(argv: list[str] | None = None) -> int:
         cmd_backfill_publisher()
         close_db()
         return 0
+
+    if args.subcmd == "xwatch":
+        if args.xwatch_subcmd == "ingest":
+            code = cmd_xwatch_ingest(
+                url_or_id=args.url_or_id,
+                dry_run=getattr(args, "dry_run", False),
+            )
+            close_db()
+            return code
+        xwatch_parser.print_help()
+        return 1
 
     PARSER.print_help()
     return 1

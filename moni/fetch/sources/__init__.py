@@ -10,3 +10,4 @@ from . import qbitai       # noqa: F401 — registers FetcherQbitai
 from . import wechat_rss   # noqa: F401 — registers FetcherWechatRSS
 from . import bestblogs    # noqa: F401 — registers FetcherBestBlogs
 from . import huxiu        # noqa: F401 — registers FetcherHuxiu
+from . import xwatch       # noqa: F401 — registers FetcherXWatch (v1.0.11 X keyword monitor)

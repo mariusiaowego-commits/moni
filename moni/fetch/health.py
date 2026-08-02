@@ -67,26 +67,25 @@ def async_check(source: str, url: str, timeout: float = 8.0) -> HealthResult:
 
 
 def check_all_sequential(sources: list[dict] | None = None) -> list[HealthResult]:
-    """Run health checks for all enabled sources sequentially."""
+    """Run health checks for all enabled sources sequentially.
+
+    v1.0.11: skip sources with no real ``feed_url`` entirely (return empty
+    result list) instead of emitting a "no URL configured" stub.  xwatch
+    intentionally has an empty feed_url — its health is better measured
+    by the cron run log than by an HTTP probe of a URL that doesn't exist.
+    """
     if sources is None:
         sources = _load_sources()
 
     results: list[HealthResult] = []
     for cfg in sources:
-        name = cfg.get("source_name", "?")
-        url = cfg.get("feed_url") or cfg.get("api_url") or cfg.get("base_url", "")
-        if not url:
-            results.append(HealthResult(
-                source=name,
-                url="",
-                ok=False,
-                status_code=None,
-                latency_ms=None,
-                error="no URL configured",
-            ))
+        feed_url = (cfg.get("feed_url") or "").strip()
+        if not feed_url:
+            # Silent skip — no health check for sources without a real
+            # feed URL (wechat_rss_a/b tokens live in url, xwatch has none).
             continue
-
-        results.append(async_check(name, url))
+        name = cfg.get("source_name", "?")
+        results.append(async_check(name, feed_url))
 
     return results
 

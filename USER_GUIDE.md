@@ -621,7 +621,49 @@ python3 -m moni db init
 
 ---
 
-## 12. 贡献
+## 12. X 关键词监控 (`xwatch`, v1.0.11)
+
+按关键词从 X (Twitter) 自动发现并收录推文。免费路径（无 API key），走 **DuckDuckGo Lite 发现 → twitter syndication 抓全文 → 既有 keyword filter + dedupe_insert 链路**。
+
+### 12.1 手动收录单条 (推荐入口)
+
+```bash
+# 收录一条已知推文
+/usr/local/bin/python3 -m moni xwatch ingest https://x.com/xiaoyangX026/status/2083475663496044761
+# 退出后插入，输出: inserted=1 url=https://x.com/.../status/<id>
+
+# 重跑同一 URL → inserted=0 (INSERT OR IGNORE 自动 dedupe)
+
+# 试运行 — 解析但不写库
+/usr/local/bin/python3 -m moni xwatch ingest <url|id> --dry-run
+
+# 也支持纯数字 tweet id
+/usr/local/bin/python3 -m moni xwatch ingest 2083475663496044761
+```
+
+**Tag 门控**: 推文内容必须命中 xwatch 绑定的 wechat / miniprogram tag 关键词（"微信小程序"、"服务通知"、"订阅消息" 等）才会入库；不命中输出 `SKIP: ...`，不写库、退出码 0。
+
+### 12.2 批量抓取
+
+```bash
+/usr/local/bin/python3 -m moni fetch --source xwatch --dry-run   # 不写库
+/usr/local/bin/python3 -m moni fetch --source xwatch             # 真实抓取入库
+```
+
+**已知波动**: DDG 公开接口 IP 敏感，频繁批量查询会触发 anomaly 挑战。`xwatch` 默认 `request_delay=5s`、`fetch_interval_min=30` 已在配置中调到能稳定运行的节奏，但偶尔批次仍可能返 anomaly → 自动 sleep 5s + 重试一次 → 仍失败降级 [] + 写日志（不抛异常、不换源、不停功能）。需要稳定入库时优先用手动 `ingest` 路径。
+
+### 12.3 配置 (改关键词)
+
+通过 web UI "配置管理 > 抓取源 > xwatch > fetch_config" 改 JSON。可改字段:
+
+- `queries` (list[str]): 搜索关键词（当前默认 `["微信小程序 触达", "微信小程序 服务通知", "微信小程序 提醒"]`）
+- `max_results_per_query` (int): 每 query 最多收 N 条 (默认 20)
+- `request_delay` (float): 每个 query 间 sleep 秒数 (默认 5.0)
+- `search_timeout` / `syndication_timeout` (int): DDG / twitter HTTP 超时秒数 (默认 20)
+
+---
+
+## 13. 贡献
 
 - Issue / PR → github.com/mariusiaowego-commits/moni (私)
 - 接手 agent 看 `HANDOFF.md`

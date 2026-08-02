@@ -73,7 +73,13 @@ _DEFAULT_TAGS = [
     ("regulation",   "监管",        "监管 (政策/法规/合规)",              "#EA580C"),  # orange
     ("general-tech", "通用科技",    "通用科技 (不属于以上 4 类)",          "#6B7280"),  # gray
     ("wechat",       "微信生态",    "微信公众号/小程序/企业微信",         "#7C3AED"),  # purple
-]
+    # v1.0.11: miniprogram tag (TECH-SPEC §0.2 references its keywords for
+    # xwatch's tag-keyword filter as "已有").  The spec author expected
+    # this row to already exist in tag_definitions; adding it here closes
+    # the gap so xwatch's source_tags binding (src-xwatch → miniprogram)
+    # doesn't violate the FK.
+    ("miniprogram",  "小程序",      "微信小程序 (订阅消息 / 服务通知 / 搜一搜)", "#10B981"),  # emerald
+]  # noqa: E501
 
 
 # ── Source 定义 (5 个) ──────────────────────────────────────────────────────
@@ -169,6 +175,33 @@ _DEFAULT_SOURCES = [
         "fetch_interval_min": 5,
         "notes": "BestBlogs X (Twitter) 聚合 (160 feeds)。本地 OPML → 逐 feed 拉取。",
     },
+    # v1.0.11: X 关键词监控 — DDG 发现 + syndication 抓全文（无 API key）。
+    # 关键词在 fetch_config.queries。feed_url 故意留空：health.py 会跳过；
+    # 抓取由 moni fetch --source xwatch / moni xwatch ingest 触发。
+    {
+        "id": "src-xwatch",
+        "name": "xwatch",
+        "display_name": "X 关键词监控",
+        "source_type": "x",
+        "url": "",
+        "fetch_interval_min": 30,
+        "notes": (
+            "按关键词发现 X 推文（DDG HTML 发现 + twitter syndication 抓全文）。"
+            "v1.0.11 新增。关键词在 fetch_config.queries。无 feed_url — 健康检查跳过。"
+        ),
+        "fetch_config": json.dumps({
+            "queries": [
+                "微信小程序 触达",
+                "微信小程序 服务通知",
+                "微信小程序 提醒",
+            ],
+            "max_results_per_query": 20,
+            # v1.0.11.A: 2.5s → 5s to stay under DDG free endpoint rate cap.
+            "request_delay": 5.0,
+            "search_timeout": 20,
+            "syndication_timeout": 20,
+        }, ensure_ascii=False),
+    },
 ]
 
 
@@ -205,10 +238,23 @@ _DEFAULT_SOURCE_TAGS = [
     ("src-bestblog-yt",     "ai-fintech"),
     ("src-bestblog-x",      "wechat"),
     ("src-bestblog-x",      "ai-fintech"),
+    # v1.0.11: xwatch 只绑定带关键词的 2 个 tag — wechat (微信小程序 / 服务通知) +
+    # miniprogram (小程序 / 订阅消息)。DDG 搜索已经把 query 限定为微信小程序 / 服务通知
+    # / 提醒这类关键词, tag 层再做一次 OR 命中门控保证内容相关性; xwatch 不入黑名单
+    # (源目标域就是腾讯生态, 任何关键词黑名单都可能误伤).
+    ("src-xwatch", "wechat"),
+    ("src-xwatch", "miniprogram"),
 ]
 
 
 # ── Keyword Filters (黑名单为主) ──────────────────────────────────────────
+# v1.0.11: xwatch 故意不入 _DEFAULT_FILTERS.  原因:
+#   1) sources.fetch_config.queries 已经把搜索范围限定到「微信小程序 触达/服务通知/
+#      提醒」这种场景, 大多数内容自然是腾讯相关;
+#   2) 关键词黑名单 (例如「腾讯控股」/「波士顿动力」) 在 bestblog-* 上用来拦截无关品类,
+#      但对 xwatch 是反向 — 腾讯词恰好是 xwatch 想关注的内容;
+#   3) xwatch 触发频率低 (30 min / 默认 3 query), 即使个别 query 命中边界内容, 也由
+#      tag_keyword_filter (wechat/miniprogram) 兜底过滤, 无需另加黑名单.
 _DEFAULT_FILTERS = [
     {
         "source_id": "src-36kr-rss",
@@ -290,13 +336,19 @@ def seed() -> None:
         )
 
     # ── sources ────────────────────────────────────────────────────────
+    # v1.0.11: add `fetch_config` to the INSERT so xwatch (and any future
+    # source we seed with fetch_config) gets persisted.  Falls back to
+    # NULL when the source dict doesn't carry fetch_config — existing
+    # sources (36kr_rss, mpaypass, ...) stay NULL so no behaviour
+    # change for them.
     for src in _DEFAULT_SOURCES:
         conn.execute(
             """
             INSERT INTO sources
                 (id, name, display_name, source_type, url,
-                 fetch_interval_min, is_active, notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+                 fetch_interval_min, is_active, notes,
+                 fetch_config, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name               = excluded.name,
                 display_name       = excluded.display_name,
@@ -304,10 +356,12 @@ def seed() -> None:
                 url                = excluded.url,
                 fetch_interval_min = excluded.fetch_interval_min,
                 notes              = excluded.notes,
+                fetch_config       = excluded.fetch_config,
                 updated_at         = excluded.updated_at
             """,
             (src["id"], src["name"], src["display_name"], src["source_type"],
-             src["url"], src["fetch_interval_min"], src["notes"], now, now),
+             src["url"], src["fetch_interval_min"], src["notes"],
+             src.get("fetch_config"), now, now),
         )
 
     # ── source_tags ────────────────────────────────────────────────────
