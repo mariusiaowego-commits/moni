@@ -4,6 +4,67 @@
 
 ---
 
+## 当前状态: **v1.0.11 — X 关键词监控** (2026-08-02)
+
+**分支**: feature/v1.0.11-x-keyword-watch (待 PR)
+**Web 服务**: `127.0.0.1:8901` (Python 3.12)
+**数据库**: `data/news.db` — schema_version=22, 11 tables
+**测试**: 见 PR / 全量 pytest
+
+### v1.0.11 (2026-08-02) — X 关键词监控
+
+**目标**: 按关键词从 X (Twitter) 发现 + 收录推文，免 API key，可手动收录单条。
+
+**已交付:**
+1. **新源 `xwatch`** (sources 表 10→11)：DDG Lite 发现推文 URL → twitter syndication 抓全文 → 走既有 keyword filter + dedupe_insert 链路
+2. **CLI `moni xwatch ingest <url|id>`**：手动收录单条推文，按 wechat/miniprogram tag 关键词门控；支持 `--dry-run`；重跑自动 dedupe
+3. **`tag_definitions` 新增 `miniprogram` row**（TECH-SPEC §0.2 假设已存在，实际空缺；closes FK gap 让 xwatch source_tags 不报错）
+4. **`moni/fetch/__init__.py` 加 `run_fetcher = run` 别名**：submodule shadow 修复——`moni.fetch.run` 是 CLI 模块，会覆盖同名 function 的 attribute 绑定，导致任何先于 routes 加载 cli_main 的场景下 routes 拿到 module 而非 function（潜在 latent bug，由本次 CLI 测试首次暴露）
+5. **`moni/fetch/health.py` empty-feed_url 静默跳过**：之前对 `wechat_rss_a/b`/`xwatch`（feed_url 为空）返 "no URL configured" stub；现在直接跳过，更干净
+6. **seed-config 适配**：INSERT INTO sources 新增 `fetch_config` 列写入；幂等
+7. **DDG 端点 html/ → lite/**（v1.0.11.A）：html/ 在本 IP 几乎必返 anomaly 页；切 lite 体积更小、风控更宽松。lite shape `<a class="result-link" href="//duckduckgo.com/l/?uddg=...">` 解析：提 `uddg` query 参数 → URL-decode → 走原 TWEET_URL_RE。正则 fallback 兜底保留
+8. **`request_delay` 默认 2.5s → 5s**：降低 DDG 风控触发概率
+9. **4 fixtures + 4 测试文件 +43 单测**：discovery 10 + syndication 15 + fetch 13 + cli 6（含 1 new lite-shape uddg unwrap 测试）
+
+**验证**:
+- pytest 全量 **483 passed, 2 skipped, 0 failed**（baseline 439 → +44）
+- `moni xwatch ingest https://x.com/xiaoyangX026/status/2083475663496044761` → inserted=1，raw_content 前 60 字 = "UX很流畅的感觉。但是我觉得最核心需求是要高触达，及时提醒还方便"（与 TEST-PLAN §5 #3 期望字符级一致）；再跑 inserted=0 (dedupe OK)
+- tag 自动命中：`miniprogram,wechat`（keyword_hits 机制）
+- DDG lite 端点从本 IP 偶尔返回 anomaly 页 → 走降级路径 (1 retry + 5s sleep → [] + log warn)，不抛异常、不换付费方案、不停止 feature（per spec §15 + 拍板 A）
+- 8901 dev port `/api/articles?source=xwatch` 等 6 端点 HTTP 200
+
+**已知 / 后续**:
+- DDG 公开接口是 IP 敏感的免费服务；同一 IP 多次查询会触发 anomaly challenge。本 sprint 一次性 dry-run 抓 12 条，但稍后批量 fetch 触发 anomaly。当前降级路径保证 system 稳定 + 不抛异常，但**bulk fetch 入库波动较大**。manual `moni xwatch ingest` 始终可用（绕过 DDG，直接走 syndication）
+- 8900 prod 重启等用户 review 后手动
+
+---
+
+## 历史状态: v1.0.10.1 — waza-ui 布局精修 (2026-07-28)
+
+**主分支 tag**: v1.0.10.1
+**Web 服务**: `127.0.0.1:8900` (Python 3.12)
+**数据库**: `data/news.db` — schema_version=22, 11 tables
+**测试**: 见 PR / 全量 pytest
+
+### v1.0.10.1 (2026-07-28) — waza-ui 布局精修
+
+**目标**: 遵循 waza-ui skill "Group with Space, Not Lines" 原则，系统性优化全站布局呼吸感。
+
+**已交付:**
+1. **页面间距统一**：content padding 24/32/48 → 32/40/64px
+2. **Panel Header**：margin-bottom 16 → 24px，action gap 8 → 12px
+3. **Stats Row**：gap 12 → 16px，margin-bottom 24 → 32px，card padding 16/18 → 20/22px
+4. **表格间距**：thead/tbody padding 10/14 → 14/18px，empty-row padding 24 → 32px
+5. **折叠面板**：外层 share-collapsible content 20/20/4 → 24/24/12px，内层高级选项 16 → 20px
+6. **Form Row**：margin-bottom 12 → 16px，label margin 4 → 6px
+7. **分页栏**：margin-top 12 → 20px，padding 8 → 12px，gap 统一加宽
+8. **Share Section**：margin-bottom 20 → 28px，h4 margin-bottom 8 → 12px
+9. 优化按钮点击缩放：cubic-bezier(0.22, 1, 0.36, 1) 弹性曲线
+
+**设计原则**: waza-ui 分层阴影 + 同心圆角化 + 中断式动效 = 视觉层级清晰，阅读呼吸感更强，符合 moni Sophon.at utilitarian aesthetic。
+
+---
+
 ## 当前状态: **v1.0.10 — 一键简报** (2026-07-28)
 
 **主分支 tag**: v1.0.10

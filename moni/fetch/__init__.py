@@ -74,6 +74,16 @@ def run(
     return result
 
 
+# v1.0.11: alias the function under a name the submodule ``moni.fetch.run``
+# cannot shadow.  When ``moni.cli.main`` does
+# ``from ..fetch.run import main as run_fetch``, Python registers the
+# submodule on ``moni.fetch.run`` in this package's namespace, which
+# overwrites the function reference above.  Routes that need the function
+# can import it as ``from moni.fetch import run_fetcher`` (always the
+# function, never the submodule).
+run_fetcher = run
+
+
 def fetch_all() -> list[dict[str, Any]]:
     """Fetch all enabled sources that are due for fetching.
 

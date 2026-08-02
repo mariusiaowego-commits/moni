@@ -1,0 +1,18 @@
+{
+  "id_str": "1111111111111111111",
+  "text": "微信小程序 触达率最近有明显提升。我们做了一次 A/B 测试，新模板比老模板转化高 23%。\n继续观察触达-点击漏斗。",
+  "created_at": "Wed Oct 22 21:30:00 +0000 2026",
+  "user": {
+    "id_str": "1111111",
+    "screen_name": "wxapp_dev",
+    "name": "小程序开发者"
+  },
+  "favorite_count": 12,
+  "retweet_count": 3,
+  "reply_count": 1,
+  "quote_count": 0,
+  "in_reply_to_screen_name": null,
+  "in_reply_to_status_id_str": null,
+  "in_reply_to_user_id_str": null,
+  "lang": "zh"
+}

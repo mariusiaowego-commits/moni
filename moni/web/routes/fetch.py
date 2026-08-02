@@ -28,7 +28,13 @@ import yaml
 from fastapi import APIRouter, HTTPException
 
 from moni.db.connection import get_db
-from moni.fetch import run as run_fetcher
+# v1.0.11: ``moni.fetch.run_fetcher`` is an alias set in
+# ``moni/fetch/__init__.py`` that cannot be shadowed by the
+# ``moni.fetch.run`` submodule (the CLI's `from ..fetch.run import main`
+# import path overwrites the original ``run`` attribute with the
+# submodule).  Binding to ``run_fetcher`` ensures we always get the
+# function.
+from moni.fetch import run_fetcher
 from moni.fetch.jobs import FetchJobStore
 from moni.fetch.base import _FETCHER_REGISTRY, _ensure_sources_loaded
 from moni.web.exceptions import NotFoundError

@@ -59,3 +59,9 @@ sources:
   fetch_interval_min: 5
   enabled: true
   crawler_type: rss
+- source_name: xwatch
+  type: x
+  feed_url: ''
+  fetch_interval_min: 30
+  enabled: true
+  crawler_type: rss
