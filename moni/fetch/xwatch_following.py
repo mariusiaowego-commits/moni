@@ -16,12 +16,13 @@ Config knobs (fetch_config)
 * ``following_max_posts`` (int, default 100) — stop after N unique tweets
 * ``following_max_scrolls`` (int, default 40) — hard cap on scroll loops
 * ``following_scroll_pause`` (float, default 1.8) — seconds between scrolls
-* ``following_stop_chrome`` (bool, default False) — **never** stop by default
-  so X login session survives between runs
+* ``following_stop_chrome`` (bool, default **True**) — quit Profile 6 after
+  scrape.  Login cookies stay on disk; leaving the process running breaks
+  macOS Dock (second Chrome instance fights the daily Chrome).
 
 Usage::
 
-    from moni.fetch.xwatch_following import scrape_following
+    from moni.fetch.xwatch_following import scrape_following, stop_x_chrome
     tweets = scrape_following(max_posts=100, max_scrolls=40)
     # each: {account, time, text, url, id_str}
 """
@@ -30,6 +31,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import signal
 import subprocess
 import time
 import urllib.request
@@ -114,10 +116,64 @@ def _port_alive(port: int = X_CHROME_PORT) -> bool:
         return False
 
 
+def _pids_on_port(port: int = X_CHROME_PORT) -> list[int]:
+    """PIDs listening on ``port`` (listen only).  Never use pkill -f."""
+    try:
+        out = subprocess.check_output(
+            ["lsof", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return []
+    pids: list[int] = []
+    for line in out.splitlines():
+        line = line.strip()
+        if line.isdigit():
+            pids.append(int(line))
+    return pids
+
+
+def stop_x_chrome(*, port: int = X_CHROME_PORT, grace_s: float = 2.0) -> int:
+    """Gracefully stop only the Chrome that owns the X debug port (9222).
+
+    Does **not** touch daily Chrome or moni Profile 7 (9223).
+    Login cookies remain in Profile 6 user-data-dir on disk.
+
+    Returns number of PIDs signalled.
+    """
+    pids = _pids_on_port(port)
+    if not pids:
+        logger.debug("[xwatch.following] stop_x_chrome: nothing on %d", port)
+        return 0
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+            logger.info("[xwatch.following] SIGTERM Chrome pid=%d (port %d)", pid, port)
+        except ProcessLookupError:
+            pass
+        except Exception as exc:
+            logger.warning("[xwatch.following] kill %d failed: %s", pid, exc)
+    time.sleep(grace_s)
+    # Force leftovers on that port only
+    left = _pids_on_port(port)
+    for pid in left:
+        try:
+            os.kill(pid, signal.SIGKILL)
+            logger.info("[xwatch.following] SIGKILL Chrome pid=%d", pid)
+        except ProcessLookupError:
+            pass
+        except Exception as exc:
+            logger.warning("[xwatch.following] SIGKILL %d failed: %s", pid, exc)
+    return len(pids)
+
+
 def ensure_x_chrome(*, headed: bool = True) -> bool:
     """Ensure Profile 6 Chrome is listening on 9222.  Never headless for X.
 
-    Idempotent.  Does not kill an existing daemon (preserves login).
+    Idempotent if already up.  Spawns a **separate** Chrome process from the
+    daily browser — always call :func:`stop_x_chrome` after scrape so macOS
+    Dock is not stuck with two Chrome masters.
     """
     if _port_alive():
         return True
@@ -133,6 +189,8 @@ def ensure_x_chrome(*, headed: bool = True) -> bool:
         "--disable-gpu",
         "--remote-allow-origins=*",
         "--window-size=1280,800",
+        # Avoid fighting the primary Chrome profile singleton when possible
+        "--disable-features=ChromeWhatsNewUI",
     ]
     # X degrades headless → 0-2 posts; always headed for following.
     if not headed:
@@ -157,7 +215,9 @@ def ensure_x_chrome(*, headed: bool = True) -> bool:
     for _ in range(30):
         if _port_alive():
             logger.info(
-                "[xwatch.following] Chrome up on %d (Profile 6)", X_CHROME_PORT,
+                "[xwatch.following] Chrome up on %d (Profile 6) — "
+                "will stop after scrape to protect Dock",
+                X_CHROME_PORT,
             )
             return True
         time.sleep(0.5)
@@ -226,12 +286,15 @@ def scrape_following(
     max_scrolls: int = DEFAULT_MAX_SCROLLS,
     scroll_pause: float = DEFAULT_SCROLL_PAUSE,
     ensure: bool = True,
-    stop_chrome: bool = False,
+    stop_chrome: bool = True,
 ) -> list[dict[str, Any]]:
     """Scroll Following timeline and return up to ``max_posts`` unique tweets.
 
-    Never raises — returns ``[]`` on failure (logged).  Does **not** stop
-    Chrome unless ``stop_chrome=True`` (login must survive).
+    Never raises — returns ``[]`` on failure (logged).
+
+    By default **stops Profile 6 Chrome after scrape** (``stop_chrome=True``)
+    so macOS Dock is not left with a second Chrome master.  Cookies stay
+    on disk; next run reuses login without keeping a zombie process.
     """
     max_posts = max(1, int(max_posts))
     max_scrolls = max(1, int(max_scrolls))
@@ -254,118 +317,133 @@ def scrape_following(
         )
         return []
 
-    try:
-        pages = _list_pages()
-    except Exception as exc:
-        logger.warning("[xwatch.following] list pages failed: %s", exc)
-        return []
-
-    page = _pick_page(pages)
-    if not page or not page.get("webSocketDebuggerUrl"):
-        logger.warning("[xwatch.following] no CDP page target")
-        return []
-
-    ws_url = page["webSocketDebuggerUrl"]
+    tweets: list[dict[str, Any]] = []
     try:
         try:
-            ws = websocket.create_connection(
-                ws_url, timeout=15, suppress_origin=True,
-            )
-        except TypeError:
-            ws = websocket.create_connection(ws_url, timeout=15)
-    except Exception as exc:
-        logger.warning(
-            "[xwatch.following] websocket connect failed: %s "
-            "(restart Chrome with --remote-allow-origins=*)",
-            exc,
-        )
-        return []
+            pages = _list_pages()
+        except Exception as exc:
+            logger.warning("[xwatch.following] list pages failed: %s", exc)
+            return []
 
-    msg_id = 0
+        page = _pick_page(pages)
+        if not page or not page.get("webSocketDebuggerUrl"):
+            logger.warning("[xwatch.following] no CDP page target")
+            return []
 
-    def cdp(method: str, params: dict | None = None) -> dict:
-        nonlocal msg_id
-        msg_id += 1
-        mid = msg_id
-        ws.send(json.dumps({"id": mid, "method": method, "params": params or {}}))
-        deadline = time.time() + 30
-        while time.time() < deadline:
-            raw = ws.recv()
-            data = json.loads(raw)
-            if data.get("id") == mid:
-                return data
-        raise TimeoutError(method)
-
-    accum: dict[str, dict[str, Any]] = {}
-    try:
-        cdp("Page.enable")
-        cdp("Runtime.enable")
-        cdp("Page.navigate", {"url": FOLLOWING_URL})
-        time.sleep(6)
-
-        # Login probe
-        probe = cdp(
-            "Runtime.evaluate",
-            {
-                "expression": "({url: location.href, n: document.querySelectorAll('article').length})",
-                "returnByValue": True,
-            },
-        )
-        val = (((probe.get("result") or {}).get("result") or {}).get("value")) or {}
-        url_now = val.get("url") or ""
-        if "login" in url_now or "logout" in url_now:
+        ws_url = page["webSocketDebuggerUrl"]
+        try:
+            try:
+                ws = websocket.create_connection(
+                    ws_url, timeout=15, suppress_origin=True,
+                )
+            except TypeError:
+                ws = websocket.create_connection(ws_url, timeout=15)
+        except Exception as exc:
             logger.warning(
-                "[xwatch.following] not logged in on Profile 6 (url=%s)",
-                url_now[:80],
+                "[xwatch.following] websocket connect failed: %s "
+                "(restart Chrome with --remote-allow-origins=*)",
+                exc,
             )
             return []
 
-        for i in range(max_scrolls):
-            cdp(
-                "Runtime.evaluate",
-                {"expression": "window.scrollBy(0, 2000)", "returnByValue": True},
-            )
-            time.sleep(scroll_pause)
-            r = cdp(
-                "Runtime.evaluate",
-                {"expression": _EXTRACT_JS, "returnByValue": True},
-            )
-            batch = (((r.get("result") or {}).get("result") or {}).get("value")) or []
-            added = 0
-            for t in batch:
-                if not isinstance(t, dict):
-                    continue
-                u = t.get("url") or ""
-                if not u or u in accum:
-                    continue
-                tid = _tweet_id_from_url(u)
-                t = dict(t)
-                t["id_str"] = tid
-                accum[u] = t
-                added += 1
-            logger.debug(
-                "[xwatch.following] scroll %d batch=%d added=%d total=%d",
-                i + 1, len(batch), added, len(accum),
-            )
-            if len(accum) >= max_posts:
-                break
-    except Exception as exc:
-        logger.warning("[xwatch.following] scrape error: %s", exc)
-    finally:
-        try:
-            ws.close()
-        except Exception:
-            pass
-        # Intentionally do NOT stop Chrome — login must persist.
-        if stop_chrome:
-            logger.warning(
-                "[xwatch.following] stop_chrome=True ignored for safety "
-                "(use moni xwatch chrome-stop manually)",
-            )
+        msg_id = 0
 
-    tweets = list(accum.values())[:max_posts]
-    logger.info(
-        "[xwatch.following] done — %d tweets (max_posts=%d max_scrolls=%d)",
-        len(tweets), max_posts, max_scrolls,
-    )
-    return tweets
+        def cdp(method: str, params: dict | None = None) -> dict:
+            nonlocal msg_id
+            msg_id += 1
+            mid = msg_id
+            ws.send(json.dumps({"id": mid, "method": method, "params": params or {}}))
+            deadline = time.time() + 30
+            while time.time() < deadline:
+                raw = ws.recv()
+                data = json.loads(raw)
+                if data.get("id") == mid:
+                    return data
+            raise TimeoutError(method)
+
+        accum: dict[str, dict[str, Any]] = {}
+        try:
+            cdp("Page.enable")
+            cdp("Runtime.enable")
+            cdp("Page.navigate", {"url": FOLLOWING_URL})
+            time.sleep(6)
+
+            # Login probe
+            probe = cdp(
+                "Runtime.evaluate",
+                {
+                    "expression": (
+                        "({url: location.href, "
+                        "n: document.querySelectorAll('article').length})"
+                    ),
+                    "returnByValue": True,
+                },
+            )
+            val = (((probe.get("result") or {}).get("result") or {}).get("value")) or {}
+            url_now = val.get("url") or ""
+            if "login" in url_now or "logout" in url_now:
+                logger.warning(
+                    "[xwatch.following] not logged in on Profile 6 (url=%s)",
+                    url_now[:80],
+                )
+                return []
+
+            for i in range(max_scrolls):
+                cdp(
+                    "Runtime.evaluate",
+                    {
+                        "expression": "window.scrollBy(0, 2000)",
+                        "returnByValue": True,
+                    },
+                )
+                time.sleep(scroll_pause)
+                r = cdp(
+                    "Runtime.evaluate",
+                    {"expression": _EXTRACT_JS, "returnByValue": True},
+                )
+                batch = (
+                    ((r.get("result") or {}).get("result") or {}).get("value")
+                ) or []
+                for t in batch:
+                    if not isinstance(t, dict):
+                        continue
+                    u = t.get("url") or ""
+                    if not u or u in accum:
+                        continue
+                    tid = _tweet_id_from_url(u)
+                    t = dict(t)
+                    t["id_str"] = tid
+                    accum[u] = t
+                logger.debug(
+                    "[xwatch.following] scroll %d batch=%d total=%d",
+                    i + 1, len(batch), len(accum),
+                )
+                if len(accum) >= max_posts:
+                    break
+        except Exception as exc:
+            logger.warning("[xwatch.following] scrape error: %s", exc)
+        finally:
+            try:
+                ws.close()
+            except Exception:
+                pass
+
+        tweets = list(accum.values())[:max_posts]
+        logger.info(
+            "[xwatch.following] done — %d tweets (max_posts=%d max_scrolls=%d)",
+            len(tweets), max_posts, max_scrolls,
+        )
+        return tweets
+    finally:
+        # Always try to release Dock: Profile 6 process must not linger.
+        if stop_chrome:
+            try:
+                n = stop_x_chrome()
+                if n:
+                    logger.info(
+                        "[xwatch.following] stopped %d Chrome pid(s) on %d "
+                        "(Dock-safe; cookies kept on disk)",
+                        n, X_CHROME_PORT,
+                    )
+            except Exception as exc:
+                logger.warning("[xwatch.following] stop_x_chrome failed: %s", exc)

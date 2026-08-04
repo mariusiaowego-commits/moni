@@ -41,6 +41,8 @@ _DEFAULTS: dict[str, Any] = {
     "following_max_posts": 100,
     "following_max_scrolls": 40,
     "following_scroll_pause": 1.8,
+    # Quit Profile 6 after scrape (Dock-safe). Cookies remain on disk.
+    "following_stop_chrome": True,
     # Channel B — keyword discovery (DDG)
     "queries": [
         "微信小程序 触达",
@@ -172,12 +174,16 @@ class FetcherXWatch(BaseFetcher):
 
             if kind == "following":
                 try:
+                    # stop_chrome=True: quit Profile 6 after scrape so macOS
+                    # Dock is not stuck with a second Chrome (cookies stay).
                     tweets = scrape_following(
                         max_posts=int(cfg.get("following_max_posts") or 100),
                         max_scrolls=int(cfg.get("following_max_scrolls") or 40),
                         scroll_pause=float(cfg.get("following_scroll_pause") or 1.8),
                         ensure=True,
-                        stop_chrome=False,
+                        stop_chrome=bool(
+                            cfg.get("following_stop_chrome", True),
+                        ),
                     )
                 except Exception as exc:
                     logger.warning("[xwatch] following scrape failed: %s", exc)
