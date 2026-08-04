@@ -237,6 +237,10 @@ following_parser.add_argument(
     action="store_true",
     help="写入 articles（走 tag 门控 + dedupe）。与 --dry-run 互斥时 ingest 优先。",
 )
+chrome_stop_parser = xwatch_sub.add_parser(
+    "chrome-stop",
+    help="只停 Profile 6 / 端口 9222 的 Chrome（修复 Dock 点不开）。不影响日常 Chrome。",
+)
 
 
 def cmd_xwatch_ingest(url_or_id: str, dry_run: bool = False) -> int:
@@ -384,7 +388,7 @@ def cmd_xwatch_following(
         max_posts=max_posts,
         max_scrolls=max_scrolls,
         ensure=True,
-        stop_chrome=False,
+        stop_chrome=True,  # Dock-safe: do not leave Profile 6 Chrome running
     )
     print(f"scraped={len(tweets)}")
     for t in tweets[:15]:
@@ -737,6 +741,12 @@ def main(argv: list[str] | None = None) -> int:
             )
             close_db()
             return code
+        if args.xwatch_subcmd == "chrome-stop":
+            from ..fetch.xwatch_following import stop_x_chrome
+            n = stop_x_chrome()
+            print(f"stopped {n} process(es) on port 9222 (Profile 6)")
+            print("现在可点程序坞 Chrome 打开日常浏览器。登录 cookie 仍在 Profile 6 磁盘上。")
+            return 0
         xwatch_parser.print_help()
         return 1
 
