@@ -4,12 +4,18 @@
 
 ---
 
-## 当前状态: **v1.0.12 — xwatch 三通道** (2026-08-04)
+## 当前状态: **v1.0.12.1 — xwatch Dock 修复** (2026-08-04)
 
-**主分支 tag**: **v1.0.12** @ `7e6892b` (PR #61 squash merge)
+**主分支 tag**: **v1.0.12.1** @ `3e7e2f7` (PR #62 squash merge; 基线 v1.0.12 PR #61)
 **Web 服务**: `127.0.0.1:8900` 已重启
 **数据库**: schema_version=22
-**测试**: 504 passed, 2 skipped
+**测试**: 504+ passed (following 抓完默认停 Profile 6)
+
+### v1.0.12.1 — Following 抓完关闭 Profile 6（Dock）
+
+抓取后默认 `stop_x_chrome`（只杀 9222），cookie 保留在磁盘；CLI `moni xwatch chrome-stop`。
+
+---
 
 ### v1.0.12 — xwatch Following CDP + accounts + DDG
 
