@@ -4,16 +4,21 @@
 
 ---
 
-## 当前状态: **v1.0.12.1 — xwatch Dock 修复** (2026-08-04)
+## 当前状态: **v1.0.12.2 — 配置 UI 中文说明** (2026-08-04)
 
-**主分支 tag**: **v1.0.12.1** @ `3e7e2f7` (PR #62 squash merge; 基线 v1.0.12 PR #61)
+**主分支 tag**: **v1.0.12.2** @ `3925854` (PR #63; 基线 v1.0.12 / .1)
 **Web 服务**: `127.0.0.1:8900` 已重启
 **数据库**: schema_version=22
-**测试**: 504+ passed (following 抓完默认停 Profile 6)
+
+### v1.0.12.2 — 配置字段中文说明
+
+- 抓取配置 modal：中文名 + 英文 key + 用法说明；bool/列表/JSON 编辑
+- 抓取源 / tag / 过滤 / LLM 表头与表单补中文
+- 无 fetch_config 的源（如 36kr_rss）弹窗为空属正常
 
 ### v1.0.12.1 — Following 抓完关闭 Profile 6（Dock）
 
-抓取后默认 `stop_x_chrome`（只杀 9222），cookie 保留在磁盘；CLI `moni xwatch chrome-stop`。
+抓取后默认 `stop_x_chrome`（只杀 9222）；CLI `moni xwatch chrome-stop`。
 
 ---
 
