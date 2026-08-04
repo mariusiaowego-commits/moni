@@ -4,11 +4,12 @@
 
 ---
 
-## 当前状态: **v1.0.12-dev — xwatch 三通道** (2026-08-04)
+## 当前状态: **v1.0.12 — xwatch 三通道** (2026-08-04)
 
-**分支**: `feature/v1.0.12-xwatch-health`（未合并）
-**基线 tag**: v1.0.11 @ `e1478d2`
+**主分支 tag**: **v1.0.12** @ `7e6892b` (PR #61 squash merge)
+**Web 服务**: `127.0.0.1:8900` 已重启
 **数据库**: schema_version=22
+**测试**: 504 passed, 2 skipped
 
 ### v1.0.12 — xwatch Following CDP + accounts + DDG
 
@@ -21,9 +22,9 @@
 4. health/UI ping；seed 含 following_*；依赖 `websocket-client`
 5. Grok skill `x-watch-grok`
 
-**验证**: 实机 CDP 56 帖；单元测试 xwatch 套件通过
+**验证**: 实机 CDP 56 帖；pytest 504 pass；8900 重启后 health/articles/sources 200
 
-**配置**: 默认 max_posts=100；可设 300+scrolls 80。seed-config 会重置 fetch_config。
+**使用**: Profile 6 登录后 `moni xwatch following --max-posts 100`；可设 300。
 
 ---
 
