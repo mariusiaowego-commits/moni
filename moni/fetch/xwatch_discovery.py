@@ -53,6 +53,47 @@ USER_AGENT = (
     "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
 )
 
+# v1.0.12: process-local circuit breaker.  After a confirmed anomaly (or
+# repeated hard failures) we stop hitting DDG for ``circuit_minutes`` so
+# a single fetch run cannot hammer the free endpoint into a longer ban.
+# Not shared across processes — each moni process has its own timer.
+_circuit_open_until: float = 0.0
+_last_status: str = "unknown"  # ok | anomaly | error | circuit_open | empty
+DEFAULT_CIRCUIT_MINUTES = 60.0
+
+
+def ddg_circuit_status() -> dict:
+    """Return circuit-breaker state for health / CLI diagnostics."""
+    now = time.monotonic()
+    remaining = max(0.0, _circuit_open_until - now)
+    return {
+        "open": remaining > 0,
+        "remaining_sec": round(remaining, 1),
+        "last_status": _last_status,
+    }
+
+
+def reset_ddg_circuit() -> None:
+    """Clear the circuit (tests / manual recovery)."""
+    global _circuit_open_until, _last_status
+    _circuit_open_until = 0.0
+    _last_status = "unknown"
+
+
+def _open_circuit(minutes: float) -> None:
+    global _circuit_open_until
+    if minutes <= 0:
+        return
+    _circuit_open_until = time.monotonic() + minutes * 60.0
+    logger.warning(
+        "[xwatch] ddg circuit OPEN for %.0f min — skipping further DDG calls",
+        minutes,
+    )
+
+
+def _is_circuit_open() -> bool:
+    return time.monotonic() < _circuit_open_until
+
 # Match `x.com/<user>/status/<id>` — the same regex is used both as the
 # canonical extractor and as the fallback sweep over raw HTML.  Stays
 # identical to the v1.0.11 pre-A behaviour so tests don't break.
@@ -156,6 +197,7 @@ def search_tweet_urls(
     *,
     max_results: int = 20,
     timeout: int = DEFAULT_TIMEOUT,
+    circuit_minutes: float = DEFAULT_CIRCUIT_MINUTES,
 ) -> list[str]:
     """Return up to ``max_results`` tweet URLs from a single DDG query.
 
@@ -165,10 +207,22 @@ def search_tweet_urls(
       filters to x.com results — cheapest way to avoid polluting the
       result with mirror sites / aggregators.
     * On anomaly / 风控 response we sleep 5 seconds and retry ONCE.
-      Still failing yields ``[]`` and a warning log.  We do not switch
-      providers, do not pause the feature.
+      Still failing yields ``[]``, opens the circuit for
+      ``circuit_minutes``, and logs a warning.
+    * While the circuit is open, subsequent calls return ``[]``
+      immediately without hitting the network (v1.0.12).
     * Any other network / parse error also yields ``[]`` (never raises).
     """
+    global _last_status
+
+    if _is_circuit_open():
+        _last_status = "circuit_open"
+        logger.info(
+            "[xwatch] ddg circuit open — skip query %r (remaining %.0fs)",
+            query, ddg_circuit_status()["remaining_sec"],
+        )
+        return []
+
     headers = {
         "User-Agent": USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -193,7 +247,11 @@ def search_tweet_urls(
                 attempt, query, exc,
             )
             # Don't retry on plain network errors — they usually won't
-            # resolve with a 5-second sleep.  Fall through to [].
+            # resolve with a 5-second sleep.  Open a short circuit so a
+            # multi-query run does not pile on SSL failures.
+            _last_status = "error"
+            if attempt >= 1:
+                _open_circuit(min(circuit_minutes, 15.0))
             return []
 
         html = resp.text or ""
@@ -207,16 +265,23 @@ def search_tweet_urls(
 
         urls = _extract_tweet_urls_from_lite_html(html, max_results)
         if not urls and _is_anomaly_page(html):
-            # 2nd request, still anomaly — counts as anomaly persist.
+            # 2nd request, still anomaly — open circuit.
             logger.warning(
                 "[xwatch] ddg anomaly persists for %r, returning []", query,
             )
+            _last_status = "anomaly"
+            _open_circuit(circuit_minutes)
             return []
+        if urls:
+            _last_status = "ok"
+        else:
+            _last_status = "empty"
         return urls
 
-    # Defensive: shouldn't reach here, but if the loop exits without a
-    # return it means we retried twice (anomaly, anomaly) — degrade.
+    # Defensive: anomaly, anomaly on both attempts.
     logger.warning("[xwatch] ddg anomaly persists for %r, returning []", query)
+    _last_status = "anomaly"
+    _open_circuit(circuit_minutes)
     return []
 
 

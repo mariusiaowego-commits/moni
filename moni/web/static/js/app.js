@@ -1812,7 +1812,33 @@ function app() {
     pingSource(id) {
       this.fetchResult = '正在测试连通性...';
       fetch(`/api/fetch/sources/${id}/ping`, { method: 'POST', credentials: 'same-origin' })
-        .then(r => { this.fetchResult = r.ok ? 'OK - 连通性正常' : 'FAIL - ' + r.status; })
+        .then(async r => {
+          let body = null;
+          try { body = await r.json(); } catch (_) { /* ignore */ }
+          if (!r.ok) {
+            this.fetchResult = 'FAIL - ' + r.status;
+            return;
+          }
+          const st = (body && body.status) || 'ok';
+          const msg = (body && (body.message || '')) || '';
+          // v1.0.12: xwatch returns multi-probe detail
+          const d = body && body.detail;
+          if (d && d.syndication) {
+            const synd = d.syndication.ok ? 'synd✓' : 'synd✗';
+            const ddg = d.ddg
+              ? ` ddg=${d.ddg.status || '?'}`
+              : '';
+            const arts = d.passive
+              ? ` arts=${d.passive.article_count ?? '-'} 48h=${d.passive.articles_last_48h ?? '-'}`
+              : '';
+            this.fetchResult = `${st.toUpperCase()} ${synd}${ddg}${arts}`
+              + (msg ? ` — ${msg}` : '');
+            return;
+          }
+          this.fetchResult = st === 'ok'
+            ? 'OK - 连通性正常'
+            : `DEGRADED${msg ? ' — ' + msg : ''}`;
+        })
         .catch(err => { this.fetchResult = 'FAIL - ' + err.message; });
     },
 
