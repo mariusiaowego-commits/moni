@@ -400,6 +400,9 @@ def check_source_health(name: str) -> HealthResponse:
 
     v1.0.5: ``name`` can be either the YAML ``source_name`` or the DB
     source id (see ``_resolve_source_name``).
+
+    v1.0.12: ``xwatch`` uses dual-probe (syndication + DDG + passive)
+    instead of HEAD on empty feed_url (which always reported degraded).
     """
     resolved = _resolve_source_name(name)
     if resolved is None:
@@ -414,6 +417,21 @@ def check_source_health(name: str) -> HealthResponse:
         conn.execute("SELECT 1").fetchone()
     except Exception:
         db_connected = False
+
+    # v1.0.12: dedicated path for xwatch (no feed_url)
+    if resolved == "xwatch":
+        from moni.fetch.health import check_xwatch
+        result = check_xwatch()
+        status = "ok" if (result.ok and db_connected) else "degraded"
+        if result.ok and result.error and result.error.startswith("ok with warnings"):
+            status = "degraded"  # content path OK but DDG/staleness warnings
+        return HealthResponse(
+            status=status,
+            version="1.0.12",
+            db_connected=db_connected,
+            detail=result.detail or None,
+            message=result.error,
+        )
 
     source_ok = False
     base_url = (cfg or {}).get("base_url") or (cfg or {}).get("feed_url") or ""

@@ -192,7 +192,7 @@ def cmd_backfill_publisher() -> None:
 
 # ── xwatch subcommand (v1.0.11) ────────────────────────────────────────────
 
-xwatch_parser = SUB.add_parser("xwatch", help="X 关键词监控工具 (v1.0.11)")
+xwatch_parser = SUB.add_parser("xwatch", help="X 关键词监控工具 (v1.0.11+)")
 xwatch_sub = xwatch_parser.add_subparsers(dest="xwatch_subcmd", required=True)
 ingest_parser = xwatch_sub.add_parser(
     "ingest",
@@ -206,6 +206,36 @@ ingest_parser.add_argument(
     "--dry-run",
     action="store_true",
     help="只解析推文并按 tag 命中检查，不写库。",
+)
+health_parser = xwatch_sub.add_parser(
+    "health",
+    help="xwatch 健康检查：syndication + DDG + accounts/被动指标 (v1.0.12)。",
+)
+following_parser = xwatch_sub.add_parser(
+    "following",
+    help="Channel C：抓 Following 时间线 (CDP Profile 6)。",
+)
+following_parser.add_argument(
+    "--max-posts",
+    type=int,
+    default=100,
+    help="最多抓多少条（默认 100，可到 300）。",
+)
+following_parser.add_argument(
+    "--max-scrolls",
+    type=int,
+    default=40,
+    help="最大滚动次数（默认 40）。",
+)
+following_parser.add_argument(
+    "--dry-run",
+    action="store_true",
+    help="只打印抓到的帖，不写库。",
+)
+following_parser.add_argument(
+    "--ingest",
+    action="store_true",
+    help="写入 articles（走 tag 门控 + dedupe）。与 --dry-run 互斥时 ingest 优先。",
 )
 
 
@@ -289,6 +319,122 @@ def cmd_xwatch_ingest(url_or_id: str, dry_run: bool = False) -> int:
     print(f"inserted={inserted} url={art['url']}")
     close_db()
     return 0
+
+
+def cmd_xwatch_health() -> int:
+    """Print dual-probe xwatch health (v1.0.12). Exit 0 if synd OK else 1."""
+    from ..fetch.health import check_xwatch
+
+    r = check_xwatch()
+    icon = "✓" if r.ok else "✗"
+    print(f"{icon} xwatch  ok={r.ok}  latency={r.latency_ms}ms")
+    if r.error:
+        print(f"  note: {r.error}")
+    d = r.detail or {}
+    synd = d.get("syndication") or {}
+    ddg = d.get("ddg") or {}
+    pas = d.get("passive") or {}
+    print(
+        f"  syndication: {'OK' if synd.get('ok') else 'FAIL'}"
+        f"  ({synd.get('latency_ms')}ms, probe_id={synd.get('probe_id')})"
+    )
+    print(
+        f"  ddg: status={ddg.get('status', '?')}"
+        f"  urls={ddg.get('urls_found', '-')}"
+        f"  circuit_open={(ddg.get('circuit') or {}).get('open')}"
+    )
+    print(
+        f"  config: accounts={pas.get('accounts', '-')}"
+        f"  queries={pas.get('queries', '-')}"
+        f"  active={pas.get('is_active', '-')}"
+    )
+    print(
+        f"  inventory: total={pas.get('article_count', '-')}"
+        f"  last_48h={pas.get('articles_last_48h', '-')}"
+        f"  last_fetched={pas.get('last_fetched_at', '-')}"
+    )
+    if pas.get("last_job"):
+        j = pas["last_job"]
+        print(
+            f"  last_job: status={j.get('status')}"
+            f"  articles_so_far={j.get('articles_so_far')}"
+            f"  started={j.get('started_at')}"
+        )
+    return 0 if r.ok else 1
+
+
+def cmd_xwatch_following(
+    max_posts: int = 100,
+    max_scrolls: int = 40,
+    dry_run: bool = True,
+    ingest: bool = False,
+) -> int:
+    """Channel C: scrape Following via CDP. Default dry-run print only."""
+    from ..fetch.xwatch_following import (
+        following_tweet_to_synd_dict,
+        scrape_following,
+    )
+    from ..fetch.xwatch_syndication import tweet_to_article
+
+    print(
+        f"[xwatch following] max_posts={max_posts} max_scrolls={max_scrolls} "
+        f"ingest={ingest and not dry_run}",
+    )
+    tweets = scrape_following(
+        max_posts=max_posts,
+        max_scrolls=max_scrolls,
+        ensure=True,
+        stop_chrome=False,
+    )
+    print(f"scraped={len(tweets)}")
+    for t in tweets[:15]:
+        text = (t.get("text") or "").replace("\n", " ")[:50]
+        print(f"  @{t.get('account')} | {text}")
+        print(f"    {t.get('url')}")
+    if len(tweets) > 15:
+        print(f"  ... +{len(tweets) - 15} more")
+
+    if not ingest or dry_run:
+        if not tweets:
+            return 1
+        return 0
+
+    # Ingest with same tag gate as cmd_xwatch_ingest
+    from ..db.repository import ArticleRepository
+    from ..fetch.tag_filter import _load_tag_keywords_for_source
+
+    tag_keywords = _load_tag_keywords_for_source("xwatch")
+    arts: list[dict] = []
+    hits: list[dict] = []
+    skipped = 0
+    for tw in tweets:
+        data = following_tweet_to_synd_dict(tw)
+        if not data:
+            continue
+        art = tweet_to_article(data, fallback_url=tw.get("url"))
+        if not art:
+            continue
+        hay = (art.get("title") or "") + "\n" + (art.get("content") or "")
+        matched = False
+        for tag_name, kws in tag_keywords.items():
+            for kw in kws:
+                if kw in hay:
+                    matched = True
+                    hits.append({
+                        "article_url": art["url"],
+                        "keyword": kw,
+                        "tag_name": tag_name,
+                        "filter_id": None,
+                        "hit_field": "title+content",
+                    })
+        if not matched:
+            skipped += 1
+            continue
+        arts.append(art)
+    inserted = ArticleRepository().dedupe_insert(arts, hits) if arts else 0
+    print(f"tag_pass={len(arts)} tag_skip={skipped} inserted={inserted}")
+    close_db()
+    return 0 if tweets else 1
 
 
 def _table_counts(conn) -> dict[str, int]:
@@ -575,6 +721,19 @@ def main(argv: list[str] | None = None) -> int:
             code = cmd_xwatch_ingest(
                 url_or_id=args.url_or_id,
                 dry_run=getattr(args, "dry_run", False),
+            )
+            close_db()
+            return code
+        if args.xwatch_subcmd == "health":
+            code = cmd_xwatch_health()
+            close_db()
+            return code
+        if args.xwatch_subcmd == "following":
+            code = cmd_xwatch_following(
+                max_posts=getattr(args, "max_posts", 100),
+                max_scrolls=getattr(args, "max_scrolls", 40),
+                dry_run=getattr(args, "dry_run", False),
+                ingest=getattr(args, "ingest", False),
             )
             close_db()
             return code

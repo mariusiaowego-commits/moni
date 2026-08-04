@@ -176,8 +176,9 @@ _DEFAULT_SOURCES = [
         "notes": "BestBlogs X (Twitter) 聚合 (160 feeds)。本地 OPML → 逐 feed 拉取。",
     },
     # v1.0.11: X 关键词监控 — DDG 发现 + syndication 抓全文（无 API key）。
-    # 关键词在 fetch_config.queries。feed_url 故意留空：health.py 会跳过；
-    # 抓取由 moni fetch --source xwatch / moni xwatch ingest 触发。
+    # v1.0.12: 双通道 — accounts (RSS/xgo via bestblogs_x.opml) + queries (DDG)。
+    # feed_url 故意留空；health 走 check_xwatch() 双探针。
+    # 用户可在 /config → xwatch → fetch_config 改 accounts / queries。
     {
         "id": "src-xwatch",
         "name": "xwatch",
@@ -186,20 +187,46 @@ _DEFAULT_SOURCES = [
         "url": "",
         "fetch_interval_min": 30,
         "notes": (
-            "按关键词发现 X 推文（DDG HTML 发现 + twitter syndication 抓全文）。"
-            "v1.0.11 新增。关键词在 fetch_config.queries。无 feed_url — 健康检查跳过。"
+            "X 三通道（v1.0.12）：C Following CDP(Profile6) + A accounts RSS "
+            "+ B DDG queries → tag 门控入库。改 max_posts/accounts 见 fetch_config。"
         ),
         "fetch_config": json.dumps({
+            # Channel C — Following timeline (logged-in Chrome Profile 6 / 9222)
+            "following_enabled": True,
+            "following_max_posts": 100,
+            "following_max_scrolls": 40,
+            "following_scroll_pause": 1.8,
+            "following_skip_syndication": True,
+            # Channel A — 观察列表（OPML/xgo RSS；可改）
+            "accounts": [
+                "op7418",
+                "imxiaohu",
+                "vista8",
+                "PMbackttfuture",
+                "oran_ge",
+                "lijigang_com",
+                "HiTw93",
+                "hidecloud",
+                "geekbb",
+                "idoubicc",
+            ],
+            "accounts_per_run": 5,
+            "max_results_per_account": 5,
+            "account_rss": {},
+            "account_ddg_fallback": True,
+            # Channel B — 关键词（每 run 轮转 1 条）
             "queries": [
                 "微信小程序 触达",
                 "微信小程序 服务通知",
                 "微信小程序 提醒",
             ],
-            "max_results_per_query": 20,
-            # v1.0.11.A: 2.5s → 5s to stay under DDG free endpoint rate cap.
-            "request_delay": 5.0,
+            "queries_per_run": 1,
+            "max_results_per_query": 10,
+            "request_delay": 8.0,
             "search_timeout": 20,
             "syndication_timeout": 20,
+            "ddg_circuit_minutes": 60.0,
+            "skip_existing_urls": True,
         }, ensure_ascii=False),
     },
 ]

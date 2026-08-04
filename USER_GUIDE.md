@@ -621,9 +621,18 @@ python3 -m moni db init
 
 ---
 
-## 12. X 关键词监控 (`xwatch`, v1.0.11)
+## 12. X 关键词监控 (`xwatch`, v1.0.11 / 三通道 v1.0.12)
 
-按关键词从 X (Twitter) 自动发现并收录推文。免费路径（无 API key），走 **DuckDuckGo Lite 发现 → twitter syndication 抓全文 → 既有 keyword filter + dedupe_insert 链路**。
+从 X (Twitter) 发现并收录推文。**无官方 API key**。v1.0.12 三通道：
+
+| 通道 | 作用 | 稳定性 |
+|---|---|---|
+| **C. Following（推荐）** | 登录态 Chrome Profile 6 滚关注流（CDP） | 高（需本机已登录 X） |
+| **A. accounts 观察列表** | 盯固定账号（OPML/xgo RSS） | 高（有 RSS 时） |
+| **B. queries 关键词** | DDG Lite 全网搜 | 中（IP 风控会 0） |
+| **手动 ingest** | 你贴 URL / tweet id | 始终可用 |
+
+发现后：有正文则直接入库映射；否则 syndication 补全文 → wechat/miniprogram tag 门控 → 去重。
 
 ### 12.1 手动收录单条 (推荐入口)
 
@@ -643,23 +652,66 @@ python3 -m moni db init
 
 **Tag 门控**: 推文内容必须命中 xwatch 绑定的 wechat / miniprogram tag 关键词（"微信小程序"、"服务通知"、"订阅消息" 等）才会入库；不命中输出 `SKIP: ...`，不写库、退出码 0。
 
-### 12.2 批量抓取
+### 12.2 Following 抓取 (Channel C)
+
+前置：本机 Chrome **Profile 6** 已登录 X（端口 9222）。与 moni 36kr 用的 Profile 7/9223 隔离。
 
 ```bash
-/usr/local/bin/python3 -m moni fetch --source xwatch --dry-run   # 不写库
-/usr/local/bin/python3 -m moni fetch --source xwatch             # 真实抓取入库
+# 只打印，不写库（默认）
+/usr/local/bin/python3 -m moni xwatch following --max-posts 100 --max-scrolls 40
+
+# 抓 300 条（约 40–80 次滚动，数分钟）
+/usr/local/bin/python3 -m moni xwatch following --max-posts 300 --max-scrolls 80
+
+# 写入 DB（过 wechat/miniprogram tag 门控）
+/usr/local/bin/python3 -m moni xwatch following --max-posts 100 --ingest
 ```
 
-**已知波动**: DDG 公开接口 IP 敏感，频繁批量查询会触发 anomaly 挑战。`xwatch` 默认 `request_delay=5s`、`fetch_interval_min=30` 已在配置中调到能稳定运行的节奏，但偶尔批次仍可能返 anomaly → 自动 sleep 5s + 重试一次 → 仍失败降级 [] + 写日志（不抛异常、不换源、不停功能）。需要稳定入库时优先用手动 `ingest` 路径。
+关注 **300 人**没问题：抓的是**混合 Following 流**最近 N 条，不是 300 个主页。
 
-### 12.3 配置 (改关键词)
+### 12.3 批量抓取（三通道一起）
 
-通过 web UI "配置管理 > 抓取源 > xwatch > fetch_config" 改 JSON。可改字段:
+```bash
+/usr/local/bin/python3 -m moni fetch --source xwatch --dry-run
+/usr/local/bin/python3 -m moni fetch --source xwatch
+```
 
-- `queries` (list[str]): 搜索关键词（当前默认 `["微信小程序 触达", "微信小程序 服务通知", "微信小程序 提醒"]`）
-- `max_results_per_query` (int): 每 query 最多收 N 条 (默认 20)
-- `request_delay` (float): 每个 query 间 sleep 秒数 (默认 5.0)
-- `search_timeout` / `syndication_timeout` (int): DDG / twitter HTTP 超时秒数 (默认 20)
+顺序：Following → accounts 轮转 → DDG query 1 条。DDG anomaly 后熔断约 60 分钟。
+
+### 12.4 健康检查
+
+```bash
+/usr/local/bin/python3 -m moni xwatch health
+/usr/local/bin/python3 -m moni fetch --health
+```
+
+### 12.5 配置 (fetch_config)
+
+Web UI **配置管理 → 抓取源 → xwatch → fetch_config**：
+
+| 字段 | 含义 | 默认 |
+|---|---|---|
+| `following_enabled` | 开 Channel C | true |
+| `following_max_posts` | Following 最多条数（可设 300） | 100 |
+| `following_max_scrolls` | 最大滚动次数 | 40 |
+| `following_scroll_pause` | 滚动间隔秒 | 1.8 |
+| `accounts` | 观察列表 handles | seed 默认 10 个 |
+| `accounts_per_run` | 每轮账号数 | 5 |
+| `queries` / `queries_per_run` | 关键词 / 每轮条数 | 3 词 / 1 |
+| `request_delay` | A/B 步骤间隔秒 | 8.0 |
+| `ddg_circuit_minutes` | DDG 熔断分钟 | 60 |
+| `skip_existing_urls` | 已入库跳过 | true |
+
+```json
+{
+  "following_enabled": true,
+  "following_max_posts": 300,
+  "following_max_scrolls": 80,
+  "accounts": ["dingyi", "HiTw93", "mannay"]
+}
+```
+
+⚠️ `moni db seed-config` 会重置 `fetch_config` 为 seed 默认。
 
 ---
 

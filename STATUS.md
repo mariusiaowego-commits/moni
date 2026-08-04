@@ -4,12 +4,28 @@
 
 ---
 
-## 当前状态: **v1.0.11 — X 关键词监控** (2026-08-02)
+## 当前状态: **v1.0.12-dev — xwatch 三通道** (2026-08-04)
 
-**主分支 tag**: **v1.0.11** @ `e1478d2` (squash merge of PR #60)
-**Web 服务**: `127.0.0.1:8900` (Python 3.12) — 已重启, 5+1 端点 200
-**数据库**: `data/news.db` — schema_version=22, 11 tables
-**测试**: pytest tests/ = 483 passed, 2 skipped, 0 failed
+**分支**: `feature/v1.0.12-xwatch-health`（未合并）
+**基线 tag**: v1.0.11 @ `e1478d2`
+**数据库**: schema_version=22
+
+### v1.0.12 — xwatch Following CDP + accounts + DDG
+
+**目标**: DDG 不稳时仍能抓 X；Following 条数可配（含 300）。
+
+**已交付:**
+1. **Channel C Following** (`xwatch_following.py`)：纯 CDP 滚关注流（Profile 6/9222）；`following_max_posts`/`following_max_scrolls`
+2. **Channel A accounts** + **Channel B DDG**（熔断+轮转）
+3. CLI：`moni xwatch following --max-posts N [--ingest]`、`moni xwatch health`
+4. health/UI ping；seed 含 following_*；依赖 `websocket-client`
+5. Grok skill `x-watch-grok`
+
+**验证**: 实机 CDP 56 帖；单元测试 xwatch 套件通过
+
+**配置**: 默认 max_posts=100；可设 300+scrolls 80。seed-config 会重置 fetch_config。
+
+---
 
 ### v1.0.11 (2026-08-02) — X 关键词监控
 

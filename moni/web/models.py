@@ -198,11 +198,17 @@ class FetchSourceUpdate(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    """Health-check response."""
+    """Health-check response.
+
+    v1.0.12: optional ``detail`` for multi-probe sources (xwatch).
+    Frontend may ignore unknown fields; SPA ping only uses HTTP status.
+    """
 
     status: str = "ok"
     version: str
     db_connected: bool
+    detail: dict | None = None
+    message: str | None = None
 
 
 # ---------------------------------------------------------------------------

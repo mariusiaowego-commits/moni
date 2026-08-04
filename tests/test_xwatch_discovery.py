@@ -17,10 +17,19 @@ from moni.fetch.xwatch_discovery import (
     DDG_URL,
     USER_AGENT,
     _extract_tweet_urls,
+    reset_ddg_circuit,
     search_tweet_urls,
 )
 
 FIX = Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture(autouse=True)
+def _reset_ddg_circuit():
+    """v1.0.12: circuit is process-global — reset between tests."""
+    reset_ddg_circuit()
+    yield
+    reset_ddg_circuit()
 
 
 # ── _extract_tweet_urls (pure-HTML parser) ─────────────────────────────────

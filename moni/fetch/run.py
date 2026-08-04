@@ -133,6 +133,22 @@ def main(argv: list[str] | None = None) -> int:
             source = r.source
             print(f"  {status_icon} [{source}] {url}  status={status_code}  latency={latency_ms}ms"
                   + (f"  ERROR: {error}" if error else ""))
+            # v1.0.12: print xwatch multi-probe detail compactly
+            if getattr(r, "detail", None) and source == "xwatch":
+                d = r.detail
+                synd = d.get("syndication") or {}
+                ddg = d.get("ddg") or {}
+                pas = d.get("passive") or {}
+                print(
+                    f"      synd={'ok' if synd.get('ok') else 'FAIL'}"
+                    f"({synd.get('latency_ms')}ms)"
+                    f"  ddg={ddg.get('status', '?')}"
+                    f"(urls={ddg.get('urls_found', '-')})"
+                    f"  accounts={pas.get('accounts', '-')}"
+                    f"  queries={pas.get('queries', '-')}"
+                    f"  arts={pas.get('article_count', '-')}"
+                    f"  48h={pas.get('articles_last_48h', '-')}"
+                )
         return 0
 
     # Normal fetch path
