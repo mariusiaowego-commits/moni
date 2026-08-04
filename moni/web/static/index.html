@@ -1178,8 +1178,14 @@
             <table>
               <thead>
                 <tr>
-                  <th>name</th><th>display</th><th>type</th><th>url</th>
-                  <th>interval</th><th>active</th><th>tags</th><th>操作</th>
+                  <th>源标识 (name)</th>
+                  <th>显示名</th>
+                  <th>类型</th>
+                  <th>URL / 地址</th>
+                  <th>抓取间隔</th>
+                  <th>状态</th>
+                  <th>业务标签</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -1225,15 +1231,15 @@
             <table>
               <thead>
                 <tr>
-                  <th>name</th>
+                  <th>标识 (name)</th>
                   <!-- v1.0.5.14: display_name column.  Renders the
                        human-friendly Chinese / unicode name the user
                        typed in /config.  Falls back to `name` for
                        legacy rows that haven't been re-seeded yet. -->
-                  <th>显示名 (display_name)</th>
+                  <th>显示名</th>
                   <th>色块</th>
-                  <th>description</th>
-                  <th>active</th>
+                  <th>描述</th>
+                  <th>状态</th>
                   <th>操作</th>
                 </tr>
               </thead>
@@ -1283,8 +1289,12 @@
             <table>
               <thead>
                 <tr>
-                  <th>id</th><th>source</th><th>mode</th>
-                  <th>match_field</th><th>keywords</th><th>操作</th>
+                  <th>ID</th>
+                  <th>所属源</th>
+                  <th>模式</th>
+                  <th>匹配字段</th>
+                  <th>关键词</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -1295,9 +1305,11 @@
                     <td>
                       <span class="status-badge"
                             :class="f.mode === 'blacklist' ? 'status-paused' : 'status-ok'"
-                            x-text="f.mode"></span>
+                            x-text="f.mode === 'blacklist' ? '黑名单' : (f.mode === 'whitelist' ? '白名单' : f.mode)"></span>
                     </td>
-                    <td x-text="f.match_field"></td>
+                    <td x-text="f.match_field === 'title+content' ? '标题+正文'
+                      : (f.match_field === 'title' ? '标题'
+                      : (f.match_field === 'content' ? '正文' : f.match_field))"></td>
                     <td>
                       <template x-for="kw in f.keywords" :key="kw">
                         <span class="tag-chip" x-text="kw"></span>
@@ -1339,7 +1351,11 @@
             <table>
               <thead>
                 <tr>
-                  <th>显示名</th><th>hermes_provider</th><th>备注</th><th>状态</th><th>操作</th>
+                  <th>显示名</th>
+                  <th>Hermes Provider 名</th>
+                  <th>备注</th>
+                  <th>状态</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -1382,7 +1398,12 @@
             <table>
               <thead>
                 <tr>
-                  <th>显示名</th><th>model_id</th><th>Provider</th><th>用途</th><th>状态</th><th>操作</th>
+                  <th>显示名</th>
+                  <th>模型 ID</th>
+                  <th>所属 Provider</th>
+                  <th>用途</th>
+                  <th>状态</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -1543,9 +1564,9 @@
             <input type="text" x-model="llmProviderForm.name" placeholder="e.g. Hermes Cloud">
           </div>
           <div class="form-row">
-            <label>hermes_provider <span class="required">*</span></label>
+            <label>Hermes Provider 名 hermes_provider <span class="required">*</span></label>
             <input type="text" x-model="llmProviderForm.hermes_provider" placeholder="e.g. openai, anthropic">
-            <small class="muted">CLI 中的实际 provider 名称</small>
+            <small class="muted">对应 hermes chat 里的 provider 标识，不是随意起名</small>
           </div>
           <div class="form-row">
             <label>备注</label>
@@ -1581,19 +1602,25 @@
             </select>
           </div>
           <div class="form-row">
-            <label>model_id <span class="required">*</span></label>
+            <label>模型 ID model_id <span class="required">*</span>
+              <small class="muted">API/CLI 实际模型名，创建后不可改</small>
+            </label>
             <input type="text" x-model="llmModelForm.model_id" :disabled="!!llmModelForm.id"
                    placeholder="e.g. gpt-4o, claude-sonnet-4-20250514">
           </div>
           <div class="form-row">
-            <label>显示名 (display_name) <span class="required">*</span></label>
+            <label>显示名 display_name <span class="required">*</span>
+              <small class="muted">界面展示用</small>
+            </label>
             <input type="text" x-model="llmModelForm.display_name" placeholder="e.g. GPT-4o">
           </div>
           <div class="form-row">
-            <label>用途 (use_for) <small class="muted">逗号分隔</small></label>
+            <label>用途 use_for
+              <small class="muted">逗号分隔：summary / fact_check / share 等</small>
+            </label>
             <input type="text" x-model="llmModelForm.use_for_text"
                    placeholder="e.g. summary, fact_check, share">
-            <small class="muted">逗号分隔的用途标签,如 summary, fact_check</small>
+            <small class="muted">决定该模型可用于哪些 LLM 任务</small>
           </div>
           <p class="muted" x-show="llmModelFormError" x-text="llmModelFormError" style="color:#dc2626;"></p>
         </div>
@@ -1867,7 +1894,9 @@
             </div>
             <div class="modal-body">
               <div class="form-row">
-                <label>name <span class="required">*</span></label>
+                <label>标识 name <span class="required">*</span>
+                  <small class="muted">系统主键，创建后不可改；英文/短横线</small>
+                </label>
                 <!-- v1.0.5.12: name was locked whenever the modal was
                      opened with a target (truthy check), but for a
                      "new tag" the target is {} (empty object) which
@@ -1878,7 +1907,9 @@
                        :disabled="!!configModalTarget.name" placeholder="e.g. banking">
               </div>
               <div class="form-row">
-                <label>显示名 (display_name)</label>
+                <label>显示名 display_name
+                  <small class="muted">界面上展示的中文名；改名请改这里，不要改 name</small>
+                </label>
                 <!-- v1.0.5.14: this is the field users edit to "rename"
                      a tag from the UI.  The `name` above is the immutable
                      system primary key + FK reference (cannot be changed
@@ -1890,11 +1921,15 @@
                        placeholder="银行 (留空则用 name)">
               </div>
               <div class="form-row">
-                <label>description</label>
-                <input type="text" x-model="configModalTarget.description" placeholder="银行 业务">
+                <label>描述 description
+                  <small class="muted">用途说明，用于 tooltip</small>
+                </label>
+                <input type="text" x-model="configModalTarget.description" placeholder="银行业务相关">
               </div>
               <div class="form-row">
-                <label>color</label>
+                <label>颜色 color
+                  <small class="muted">列表色块；点下方色板选择</small>
+                </label>
                 <!-- v1.0.5.12: was a free-text <input> that made users
                      type hex.  Replaced with a curated swatch grid
                      whose palette is drawn from /Users/mt16/dev/uiux-asset-library
@@ -1921,10 +1956,12 @@
                 <small class="muted">从 8 色色板中选 — 风格统一参考 /Users/mt16/dev/uiux-asset-library</small>
               </div>
               <div class="form-row">
-                <label>keywords <small class="muted">(v1.0.5.4 — 一行一个, OR 匹配抓取内容)</small></label>
+                <label>关键词 keywords
+                  <small class="muted">一行一个；OR 匹配标题+正文</small>
+                </label>
                 <textarea x-model="configModalTarget.keywordsText" rows="4"
                           placeholder="银行&#10;支付&#10;跨境支付"></textarea>
-                <small class="muted">留空 = 该 tag 仅用于分类显示,不影响抓取。配了关键词后,绑了此 tag 的源的文章必须命中至少一个关键词才入库。</small>
+                <small class="muted">留空 = 仅作分类展示、不参与抓取门控。配了关键词后，绑定此 tag 的源的文章必须命中至少一个词才入库。</small>
               </div>
             </div>
             <div class="modal-footer">
@@ -1947,44 +1984,61 @@
         <template x-if="configModalType === 'source'">
           <div>
             <div class="modal-header">
-              <h3 x-text="configModalTarget?.id ? '编辑 source' : '新建 source'"></h3>
+              <h3 x-text="configModalTarget?.id ? '编辑抓取源' : '新建抓取源'"></h3>
             </div>
             <div class="modal-body">
               <div class="form-row" x-show="!configModalTarget?.id">
-                <label>id <span class="required">*</span></label>
+                <label>源 ID <span class="required">*</span>
+                  <small class="muted">主键，如 src-xwatch；创建后一般不改</small>
+                </label>
                 <input type="text" x-model="configModalTarget.id" placeholder="e.g. src-newsource">
               </div>
               <div class="form-row">
-                <label>name <span class="required">*</span></label>
-                <input type="text" x-model="configModalTarget.name">
+                <label>源标识 name <span class="required">*</span>
+                  <small class="muted">程序内用的名字，如 xwatch、36kr_rss</small>
+                </label>
+                <input type="text" x-model="configModalTarget.name" placeholder="e.g. xwatch">
               </div>
               <div class="form-row">
-                <label>display_name</label>
-                <input type="text" x-model="configModalTarget.display_name">
+                <label>显示名 display_name
+                  <small class="muted">界面上给人看的名字</small>
+                </label>
+                <input type="text" x-model="configModalTarget.display_name" placeholder="e.g. X 关键词监控">
               </div>
               <div class="form-row">
-                <label>type <span class="required">*</span></label>
+                <label>类型 type <span class="required">*</span>
+                  <small class="muted">数据来源形态</small>
+                </label>
                 <select x-model="configModalTarget.source_type">
-                  <option value="rss">rss</option>
-                  <option value="html">html</option>
-                  <option value="api">api</option>
-                  <option value="wechat_aggregator">wechat_aggregator</option>
+                  <option value="rss">rss — RSS/Atom</option>
+                  <option value="html">html — 网页抓取</option>
+                  <option value="api">api — HTTP API</option>
+                  <option value="x">x — X/Twitter（如 xwatch）</option>
+                  <option value="wechat_aggregator">wechat_aggregator — 微信聚合</option>
                 </select>
               </div>
               <div class="form-row">
-                <label>url <span class="required">*</span></label>
-                <input type="text" x-model="configModalTarget.url">
+                <label>地址 url <span class="required">*</span>
+                  <small class="muted">RSS 链接 / OPML 路径 / 站点 URL；xwatch 可留空</small>
+                </label>
+                <input type="text" x-model="configModalTarget.url" placeholder="https://... 或本地 OPML 路径">
               </div>
               <div class="form-row">
-                <label>fetch_interval_min</label>
+                <label>抓取间隔（分钟） fetch_interval_min
+                  <small class="muted">定时任务建议间隔，非强制</small>
+                </label>
                 <input type="number" x-model.number="configModalTarget.fetch_interval_min" min="1">
               </div>
               <div class="form-row">
-                <label>is_active</label>
-                <input type="checkbox" x-model="configModalTarget.is_active">
+                <label class="checkbox-row">
+                  <input type="checkbox" x-model="configModalTarget.is_active">
+                  <span>启用 is_active — 关闭后定时/批量抓取会跳过</span>
+                </label>
               </div>
               <div class="form-row">
-                <label>notes</label>
+                <label>备注 notes
+                  <small class="muted">给人看的说明，不影响抓取逻辑</small>
+                </label>
                 <textarea x-model="configModalTarget.notes" rows="2"></textarea>
               </div>
             </div>
@@ -2026,25 +2080,66 @@
               <h3>抓取配置 — <span x-text="fetchConfigData.source_name"></span></h3>
             </div>
             <div class="modal-body">
-              <p class="hint" x-show="fetchConfigData.has_custom" style="color:#e67e22;">
-                * 有自定义配置（覆盖默认值）
+              <p class="hint" style="margin-bottom:12px; color:#64748b; font-size:0.9em;">
+                每项显示<strong>中文含义</strong> + 英文 key。保存后立即写入数据库。
               </p>
-              <template x-for="(val, key) in fetchConfigData.merged" :key="key">
-                <div class="form-row">
-                  <label>
-                    <span x-text="key"></span>
+              <p class="hint" x-show="fetchConfigData.has_custom" style="color:#e67e22;">
+                * 当前有自定义配置（覆盖系统默认值）
+              </p>
+              <template x-for="key in fetchConfigSortedKeys()" :key="key">
+                <div class="form-row fetch-config-row">
+                  <label class="fetch-config-label">
+                    <span class="fetch-config-zh" x-text="fetchConfigLabel(key)"></span>
+                    <code class="fetch-config-key" x-text="key"></code>
                     <span class="hint"
                           x-show="fetchConfigData.defaults && fetchConfigData.defaults[key] !== undefined"
                           style="color:#888; font-size:0.85em;">
-                      (默认: <span x-text="fetchConfigData.defaults[key]"></span>)
+                      （默认:
+                      <span x-text="typeof fetchConfigData.defaults[key] === 'object'
+                        ? JSON.stringify(fetchConfigData.defaults[key])
+                        : fetchConfigData.defaults[key]"></span>）
                     </span>
                   </label>
+                  <p class="fetch-config-hint muted" x-text="fetchConfigHint(key)"></p>
+
+                  <!-- bool -->
+                  <label class="checkbox-row"
+                         x-show="fetchConfigFieldType(key, fetchConfigData.merged[key]) === 'bool'">
+                    <input type="checkbox" x-model="fetchConfigData.merged[key]">
+                    <span x-text="fetchConfigData.merged[key] ? '已开启' : '已关闭'"></span>
+                  </label>
+
+                  <!-- number -->
                   <input type="number"
+                         x-show="fetchConfigFieldType(key, fetchConfigData.merged[key]) === 'number'"
                          x-model.number="fetchConfigData.merged[key]"
-                         :step="typeof val === 'number' && val < 1 ? 0.1 : 1"
-                         :min="0">
+                         :step="(fetchConfigData.merged[key] < 1 && fetchConfigData.merged[key] > 0) ? 0.1 : 1"
+                         min="0">
+
+                  <!-- string list: one per line -->
+                  <textarea rows="4"
+                            x-show="fetchConfigFieldType(key, fetchConfigData.merged[key]) === 'string_list'"
+                            :value="fetchConfigTextValue(key)"
+                            @change="setFetchConfigTextValue(key, $event.target.value)"
+                            placeholder="一行一个"></textarea>
+
+                  <!-- json object -->
+                  <textarea rows="5"
+                            x-show="fetchConfigFieldType(key, fetchConfigData.merged[key]) === 'json_object'"
+                            :value="fetchConfigTextValue(key)"
+                            @change="setFetchConfigTextValue(key, $event.target.value)"
+                            placeholder='{"key": "value"}'
+                            style="font-family: ui-monospace, monospace; font-size: 12px;"></textarea>
+
+                  <!-- plain string -->
+                  <input type="text"
+                         x-show="fetchConfigFieldType(key, fetchConfigData.merged[key]) === 'string'"
+                         x-model="fetchConfigData.merged[key]">
                 </div>
               </template>
+              <p class="empty-row muted" x-show="fetchConfigSortedKeys().length === 0">
+                该源暂无 fetch_config 字段（可用 seed 或 API 写入）
+              </p>
             </div>
             <div class="modal-footer">
               <button class="btn-secondary" @click="closeConfigModal()">取消</button>
@@ -2057,11 +2152,13 @@
         <template x-if="configModalType === 'filter'">
           <div>
             <div class="modal-header">
-              <h3 x-text="configModalTarget?.id ? '编辑 filter' : '新建 filter'"></h3>
+              <h3 x-text="configModalTarget?.id ? '编辑关键词过滤' : '新建关键词过滤'"></h3>
             </div>
             <div class="modal-body">
               <div class="form-row">
-                <label>source <span class="required">*</span></label>
+                <label>所属抓取源 source <span class="required">*</span>
+                  <small class="muted">规则只作用于该源</small>
+                </label>
                 <select x-model="configModalTarget.source_id" :disabled="!!configModalTarget.id">
                   <template x-for="s in configSources" :key="s.id">
                     <option :value="s.id" x-text="s.name"></option>
@@ -2069,32 +2166,41 @@
                 </select>
               </div>
               <div class="form-row">
-                <label>mode <span class="required">*</span></label>
+                <label>模式 mode <span class="required">*</span>
+                  <small class="muted">黑名单丢弃命中；白名单只保留命中</small>
+                </label>
                 <select x-model="configModalTarget.mode">
-                  <option value="blacklist">blacklist</option>
-                  <option value="whitelist">whitelist</option>
+                  <option value="blacklist">blacklist — 黑名单（命中则丢弃）</option>
+                  <option value="whitelist">whitelist — 白名单（未命中则丢弃）</option>
                 </select>
               </div>
               <div class="form-row">
-                <label>match_field</label>
+                <label>匹配字段 match_field
+                  <small class="muted">在哪些文本上做关键词匹配</small>
+                </label>
                 <select x-model="configModalTarget.match_field">
-                  <option value="title+content">title+content</option>
-                  <option value="title">title</option>
-                  <option value="content">content</option>
+                  <option value="title+content">title+content — 标题+正文</option>
+                  <option value="title">title — 仅标题</option>
+                  <option value="content">content — 仅正文</option>
                 </select>
               </div>
               <div class="form-row">
-                <label>keywords <span class="required">*</span> (逗号分隔)</label>
+                <label>关键词 keywords <span class="required">*</span>
+                  <small class="muted">英文逗号分隔</small>
+                </label>
                 <input type="text"
                        :value="(configModalTarget.keywords || []).join(', ')"
-                       @input="configModalTarget.keywords = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)">
+                       @input="configModalTarget.keywords = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)"
+                       placeholder="游戏, 明星, 美食">
               </div>
               <div class="form-row">
-                <label>is_active</label>
-                <input type="checkbox" x-model="configModalTarget.is_active">
+                <label class="checkbox-row">
+                  <input type="checkbox" x-model="configModalTarget.is_active">
+                  <span>启用 is_active</span>
+                </label>
               </div>
               <div class="form-row">
-                <label>notes</label>
+                <label>备注 notes</label>
                 <textarea x-model="configModalTarget.notes" rows="2"></textarea>
               </div>
             </div>
@@ -2132,23 +2238,27 @@
         </div>
         <div class="modal-body">
           <div class="form-row">
-            <label>title <span class="required">*</span></label>
+            <label>标题 title <span class="required">*</span></label>
             <input type="text" x-model="crudForm.title" placeholder="文章标题">
           </div>
           <div class="form-row">
-            <label>source <span class="required">*</span></label>
+            <label>来源 source <span class="required">*</span>
+              <small class="muted">对应抓取源 name，如 36kr_rss / xwatch</small>
+            </label>
             <!-- v1.0.5.11: editable in create mode, read-only in edit mode
                  (the source is part of the (source,url) UNIQUE constraint
                  so changing it would create a duplicate row). -->
             <input type="text" x-model="crudForm.source"
                    :disabled="crudFormMode === 'edit'"
-                   placeholder="例如 36kr_rss / mpaypass / mywechat">
+                   placeholder="例如 36kr_rss / mpaypass / xwatch">
             <small class="muted" x-show="crudFormMode === 'edit'">
               编辑时不可修改（与 url 共同构成唯一键）
             </small>
           </div>
           <div class="form-row">
-            <label>url <span class="required">*</span></label>
+            <label>链接 url <span class="required">*</span>
+              <small class="muted">文章原文地址</small>
+            </label>
             <input type="text" x-model="crudForm.url"
                    :disabled="crudFormMode === 'edit'"
                    placeholder="https://...">
