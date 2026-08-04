@@ -534,6 +534,44 @@ label { font-size: 0.85rem; }
 /* ═══════════════════════════════════════════════════════════════
    Modal
    ═══════════════════════════════════════════════════════════════ */
+/* v1.0.12.2 — fetch_config modal: Chinese label + English key + hint */
+.fetch-config-row {
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.fetch-config-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  font-weight: 600;
+}
+.fetch-config-zh {
+  color: #0f172a;
+}
+.fetch-config-key {
+  font-size: 0.78em;
+  font-weight: 500;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.fetch-config-hint {
+  display: block;
+  margin: 4px 0 8px;
+  font-size: 0.85em;
+  line-height: 1.45;
+  color: #64748b;
+}
+.form-row label small.muted {
+  display: block;
+  font-weight: 400;
+  margin-top: 2px;
+  color: #64748b;
+}
+
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 100;
   background: oklch(from var(--foreground) l c h / 0.3);

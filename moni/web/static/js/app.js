@@ -372,6 +372,125 @@ function app() {
     configModalTargetOriginal: null,  // for tag edit: original name (immutable)
     fetchConfigData: { source_id: '', source_name: '', merged: {}, defaults: {}, has_custom: false },
 
+    // v1.0.12.2: Chinese labels + hints for fetch_config keys (and fallback).
+    // Keep key as English for API; UI shows zh + description.
+    FETCH_CONFIG_META: {
+      // bestblogs / OPML 聚合
+      max_feeds: {
+        label: '最大 Feed 数',
+        hint: '本轮最多处理 OPML 里多少个订阅源（feed）。',
+        type: 'number',
+      },
+      max_articles_per_feed: {
+        label: '每个 Feed 最多文章',
+        hint: '单个 RSS/OPML feed 最多取最新几篇。',
+        type: 'number',
+      },
+      max_articles_total: {
+        label: '本轮文章上限',
+        hint: '整次抓取合计最多入库/处理多少篇（硬顶）。',
+        type: 'number',
+      },
+      request_delay: {
+        label: '请求间隔（秒）',
+        hint: '两次 HTTP 请求之间的等待，减轻对方限流。',
+        type: 'number',
+      },
+      // xwatch — Following (Channel C)
+      following_enabled: {
+        label: '启用 Following 通道',
+        hint: '用登录态 Chrome（Profile 6）滚关注流；关掉则只跑账号列表/关键词。',
+        type: 'bool',
+      },
+      following_max_posts: {
+        label: 'Following 最多条数',
+        hint: '关注流最多抓多少条（可设 100～300）。',
+        type: 'number',
+      },
+      following_max_scrolls: {
+        label: 'Following 最大滚动次数',
+        hint: '页面下滚次数上限；条数加大时请同步加大（如 300 条约 80 次）。',
+        type: 'number',
+      },
+      following_scroll_pause: {
+        label: '滚动间隔（秒）',
+        hint: '两次滚动之间等待，网络慢可略增大。',
+        type: 'number',
+      },
+      following_skip_syndication: {
+        label: 'Following 跳过 syndication',
+        hint: '关注流已有正文时不再请求 twitter syndication，更快。',
+        type: 'bool',
+      },
+      following_stop_chrome: {
+        label: '抓完关闭 Profile 6',
+        hint: '抓取结束后关掉 9222 的 Chrome，避免程序坞点不开。登录 cookie 仍保留在磁盘。',
+        type: 'bool',
+      },
+      // xwatch — accounts (Channel A)
+      accounts: {
+        label: '观察账号列表',
+        hint: '要盯的 X handle，一行一个，不要写完整 URL。如 dingyi、HiTw93。',
+        type: 'string_list',
+      },
+      accounts_per_run: {
+        label: '每轮抓几个账号',
+        hint: '从观察列表轮转取 N 个账号，避免一次打太多。',
+        type: 'number',
+      },
+      max_results_per_account: {
+        label: '每账号最多条数',
+        hint: '单个观察账号本轮最多发现几条推文。',
+        type: 'number',
+      },
+      account_rss: {
+        label: '账号 RSS 覆盖',
+        hint: 'JSON 对象：{"handle":"https://...rss"}。有则优先用该 RSS，不走 OPML/DDG。',
+        type: 'json_object',
+      },
+      account_ddg_fallback: {
+        label: '账号无 RSS 时用 DDG',
+        hint: '观察账号没有 RSS 时，用 DuckDuckGo from:handle 兜底（易被风控）。',
+        type: 'bool',
+      },
+      // xwatch — queries (Channel B)
+      queries: {
+        label: '关键词列表',
+        hint: 'DDG 搜索词，一行一个。如「微信小程序 服务通知」。',
+        type: 'string_list',
+      },
+      queries_per_run: {
+        label: '每轮关键词数',
+        hint: '每轮只打几条 query（建议 1），降低 DDG 封禁概率。',
+        type: 'number',
+      },
+      max_results_per_query: {
+        label: '每关键词最多条数',
+        hint: '单个关键词本轮最多返回几条推文 URL。',
+        type: 'number',
+      },
+      ddg_circuit_minutes: {
+        label: 'DDG 熔断（分钟）',
+        hint: '触发 anomaly/网络错误后，多久内不再请求 DDG。',
+        type: 'number',
+      },
+      search_timeout: {
+        label: '搜索超时（秒）',
+        hint: 'DDG / 发现请求的 HTTP 超时。',
+        type: 'number',
+      },
+      syndication_timeout: {
+        label: '全文抓取超时（秒）',
+        hint: 'twitter syndication 拉单条推文的超时。',
+        type: 'number',
+      },
+      skip_existing_urls: {
+        label: '跳过已入库 URL',
+        hint: '库中已有的推文不再重复请求 syndication。',
+        type: 'bool',
+      },
+    },
+
     // v1.0.5.10: name -> {description, keywords} map for hover tooltips
     // on the articles page.  Built from configTags on demand.
     tagTooltipMap: {},
@@ -499,6 +618,78 @@ function app() {
     },
 
     // ── Fetch Config ─────────────────────────────────────────────
+    fetchConfigMeta(key) {
+      return this.FETCH_CONFIG_META[key] || null;
+    },
+    fetchConfigLabel(key) {
+      const m = this.fetchConfigMeta(key);
+      return m ? m.label : key;
+    },
+    fetchConfigHint(key) {
+      const m = this.fetchConfigMeta(key);
+      return m ? m.hint : '（未收录说明的自定义字段，请对照文档修改）';
+    },
+    fetchConfigFieldType(key, val) {
+      const m = this.fetchConfigMeta(key);
+      if (m && m.type) return m.type;
+      if (typeof val === 'boolean') return 'bool';
+      if (typeof val === 'number') return 'number';
+      if (Array.isArray(val)) return 'string_list';
+      if (val !== null && typeof val === 'object') return 'json_object';
+      return 'string';
+    },
+    /** Textarea display for list/object fields */
+    fetchConfigTextValue(key) {
+      const val = this.fetchConfigData.merged[key];
+      const t = this.fetchConfigFieldType(key, val);
+      if (t === 'string_list') {
+        return Array.isArray(val) ? val.join('\n') : (val == null ? '' : String(val));
+      }
+      if (t === 'json_object') {
+        try {
+          return JSON.stringify(val && typeof val === 'object' ? val : {}, null, 2);
+        } catch (_) {
+          return '{}';
+        }
+      }
+      return val == null ? '' : String(val);
+    },
+    setFetchConfigTextValue(key, text) {
+      const t = this.fetchConfigFieldType(key, this.fetchConfigData.merged[key]);
+      if (t === 'string_list') {
+        this.fetchConfigData.merged[key] = String(text || '')
+          .split(/\r?\n/)
+          .map(s => s.trim())
+          .filter(Boolean);
+        return;
+      }
+      if (t === 'json_object') {
+        try {
+          const parsed = JSON.parse(text || '{}');
+          if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            throw new Error('需要 JSON 对象 {}');
+          }
+          this.fetchConfigData.merged[key] = parsed;
+        } catch (e) {
+          alert(`字段 ${key} JSON 无效: ` + (e.message || e));
+        }
+        return;
+      }
+      this.fetchConfigData.merged[key] = text;
+    },
+    fetchConfigSortedKeys() {
+      const merged = this.fetchConfigData.merged || {};
+      const keys = Object.keys(merged);
+      // Prefer known meta order, then unknown keys alpha
+      const order = Object.keys(this.FETCH_CONFIG_META);
+      return keys.sort((a, b) => {
+        const ia = order.indexOf(a);
+        const ib = order.indexOf(b);
+        const ra = ia === -1 ? 1000 : ia;
+        const rb = ib === -1 ? 1000 : ib;
+        return ra - rb || a.localeCompare(b);
+      });
+    },
     configEditFetchConfig(source) {
       const sid = encodeURIComponent(source.id);
       fetch(`/api/config/sources/${sid}/fetch_config`, { credentials: 'same-origin' })

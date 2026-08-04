@@ -25,13 +25,53 @@ from moni.web.models import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/config/sources", tags=["config"])
-# Known fetch_config defaults per source type (for UI pre-fill)
+# Known fetch_config defaults per source (for UI pre-fill + merge)
+# v1.0.12: include xwatch so empty/partial rows still show documented keys.
 _FETCH_CONFIG_DEFAULTS: dict[str, dict] = {
     "bestblogs": {
         "max_feeds": 375,
         "max_articles_per_feed": 5,
         "max_articles_total": 500,
         "request_delay": 0.5,
+    },
+    "bestblog-podcast": {
+        "max_feeds": 60,
+        "max_articles_per_feed": 5,
+        "max_articles_total": 100,
+        "request_delay": 0.5,
+    },
+    "bestblog-x": {
+        "max_feeds": 160,
+        "max_articles_per_feed": 5,
+        "max_articles_total": 200,
+        "request_delay": 0.5,
+    },
+    "bestblog-yt": {
+        "max_feeds": 20,
+        "max_articles_per_feed": 5,
+        "max_articles_total": 50,
+        "request_delay": 0.5,
+    },
+    "xwatch": {
+        "following_enabled": True,
+        "following_max_posts": 100,
+        "following_max_scrolls": 40,
+        "following_scroll_pause": 1.8,
+        "following_skip_syndication": True,
+        "following_stop_chrome": True,
+        "accounts": [],
+        "accounts_per_run": 5,
+        "max_results_per_account": 5,
+        "account_rss": {},
+        "account_ddg_fallback": True,
+        "queries": [],
+        "queries_per_run": 1,
+        "max_results_per_query": 10,
+        "request_delay": 8.0,
+        "search_timeout": 20,
+        "syndication_timeout": 20,
+        "ddg_circuit_minutes": 60.0,
+        "skip_existing_urls": True,
     },
 }
 
