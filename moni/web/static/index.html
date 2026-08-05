@@ -468,7 +468,12 @@
           <div class="particle-stage" id="particleStage">
             <div class="source-chain" id="sourceChain"></div>
             <div class="moni-icon" id="moniIcon">
-              <img src="/static/icons/moni_v2.png" alt="moni">
+              <!-- v1.0.13.1: moni_v3.png = 3 层金色环 + 底部 teal 宝石
+                   (candidates/v3-B-rings-gem.png, dad QA 选定).
+                   series 风格: 黑底圆角 + 金色 bevel + 拟人化 emblem.
+                   fetch modal "接收" 语义最强 (3 环递进 + 宝石终点).
+                   moni_v2.png (rejected v3 wisteria silhouette) 保留作回退保险. -->
+              <img src="/static/icons/moni_v3.png" alt="moni">
             </div>
             <span class="moni-label" id="moniLabel">moni</span>
             <canvas id="particleCanvas"></canvas>

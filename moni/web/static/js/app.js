@@ -1415,6 +1415,13 @@ function app() {
       // failing loadSources() does not loop forever; surface error in panel.
       let _initStageRetries = 0;
       const initStageWithSources = () => {
+        // v1.0.13: gate — if the modal was closed / finished before this retry
+        // fires (terminal status already seen, or closeFetchProgress called),
+        // bail instead of re-igniting the particle stage. Without this,
+        // a 100ms retry tick can re-add `.receiving` to moniContainer and
+        // call `gsap.set(row.el, ...)` to reposition the source rows,
+        // making the "完成" background lurch back to live.
+        if (!this.fetchProgressModal) return;
         if (this.sources && this.sources.length > 0) {
           this._initParticleStage();
           // v1.0.9.8: initial layout — show all rows below center (chain visible immediately)
@@ -1422,7 +1429,8 @@ function app() {
           // Initial burst from each source so particles are visible immediately
           this._chainRows.forEach((_, i) => this._spawnBurst(i, 2));
         } else if (_initStageRetries++ < 50) {
-          setTimeout(initStageWithSources, 100);
+          // v1.0.13: track retry timer so _stopParticleAnimation can cancel.
+          this._particleInitTimer = setTimeout(initStageWithSources, 100);
         } else {
           this.fetchProgress = this.fetchProgress || {};
           this.fetchProgress.error = this.fetchProgress.error
@@ -1436,18 +1444,29 @@ function app() {
           if (!r.ok) return; // transient — try again next tick
           const data = await r.json();
           this.fetchProgress = data;
-          // v1.0.9.8: update feed info + article count
-          if (this.fetchBatchMode === false) {
-            const srcName = data.source || this.fetchProgress?.source || '';
-            this._updateFeedInfo(srcName, data.current_feed || '');
-            this._animateArticleCount(data.articles_so_far || 0);
-            this._spawnBurst(0, 3);
+          // v1.0.13: stop animating the moment we see a terminal status.
+          // _finishFetchAnimation() is the gate; per-frame spawn happens
+          // ONLY while non-terminal.
+          const terminal = ['done', 'failed', 'timeout', 'stale'].includes(data.status);
+          if (!terminal) {
+            // v1.0.9.8: update feed info + article count (running branch only)
+            if (this.fetchBatchMode === false) {
+              const srcName = data.source || this.fetchProgress?.source || '';
+              this._updateFeedInfo(srcName, data.current_feed || '');
+              this._animateArticleCount(data.articles_so_far || 0);
+              this._spawnBurst(0, 3);
+            }
           }
-          if (['done', 'failed', 'timeout', 'stale'].includes(data.status)) {
+          if (terminal) {
             if (this._fetchPollTimer) {
               clearInterval(this._fetchPollTimer);
               this._fetchPollTimer = null;
             }
+            // v1.0.13: stop particles + GSAP tweens BEFORE status flip /
+            // completion overlay, so the modal reads "完成" against a still
+            // background (no late burst leaking through). Pass true for
+            // non-done statuses — done keeps _suckIntoMoni() alive below.
+            this._finishFetchAnimation(data.status !== 'done');
             // v1.0.9.8: status flip + completion overlay
             const labelMap = { done: '完成', failed: '失败', timeout: '超时', stale: '已中止' };
             this._flipStatus(labelMap[data.status] || data.status);
@@ -1510,6 +1529,8 @@ function app() {
       // failing loadSources() does not loop forever; surface error in panel.
       let _initStageRetries = 0;
       const initStageWithSources = () => {
+        // v1.0.13: gate — see single-source branch above for the rationale.
+        if (!this.fetchProgressModal) return;
         if (this.sources && this.sources.length > 0) {
           this._initParticleStage();
           // v1.0.9.8: initial layout — show all rows below center (chain visible immediately)
@@ -1517,7 +1538,8 @@ function app() {
           // Initial burst from each source so particles are visible immediately
           this._chainRows.forEach((_, i) => this._spawnBurst(i, 2));
         } else if (_initStageRetries++ < 50) {
-          setTimeout(initStageWithSources, 100);
+          // v1.0.13: track retry timer so _stopParticleAnimation can cancel.
+          this._particleInitTimer = setTimeout(initStageWithSources, 100);
         } else {
           this.fetchProgress = this.fetchProgress || {};
           this.fetchProgress.error = this.fetchProgress.error
@@ -1534,8 +1556,11 @@ function app() {
           // Preserve batchMode flag through the merge
           this.fetchProgress = { ...data, batchMode: true };
 
+          // v1.0.13: stop animating the moment we see a terminal batch status.
+          const terminal = ['done', 'partial', 'failed'].includes(data.status);
+
           // v1.0.9.8: update chain focus + spawn particles from current source
-          if (this._chainRows.length > 0) {
+          if (!terminal && this._chainRows.length > 0) {
             const currentSrc = data.current_source || '';
             let idx = this._chainRows.findIndex(r => r.dbName === currentSrc);
             if (idx >= 0) {
@@ -1547,16 +1572,22 @@ function app() {
               this._spawnBurst(idx, 8);
             }
           }
-          // v1.0.9.8: feed info + article count (batch)
-          this._updateFeedInfo(data.current_source || '', data.current_feed || '');
-          this._animateArticleCount(data.articles_so_far || 0);
+          // v1.0.9.8: feed info + article count
+          if (!terminal) {
+            this._updateFeedInfo(data.current_source || '', data.current_feed || '');
+            this._animateArticleCount(data.articles_so_far || 0);
+          }
 
-          if (['done', 'partial', 'failed'].includes(data.status)) {
+          if (terminal) {
             if (this._fetchPollTimer) {
               clearInterval(this._fetchPollTimer);
               this._fetchPollTimer = null;
             }
             this.fetchingAll = false;
+            // v1.0.13: stop particles + GSAP tweens BEFORE summary / overlay.
+            // Batch has no _suckIntoMoni() — safe to kill source-row tweens
+            // on every terminal status (done / partial / failed).
+            this._finishFetchAnimation(true);
             // Merge results + errors into fetchAllResult for the summary panel
             const allResults = [
               ...(data.results || []),
@@ -1594,15 +1625,38 @@ function app() {
         clearInterval(this._fetchPollTimer);
         this._fetchPollTimer = null;
       }
-      this._stopParticleAnimation();
+      // v1.0.13: also clear polling error retry timer if any.
+      if (this._particleInitTimer) {
+        clearTimeout(this._particleInitTimer);
+        this._particleInitTimer = null;
+      }
+      // Close path: stop particles + GSAP tweens on rows AND moniIcon (we're
+      // not running _suckIntoMoni() here, so killing moniIcon tweens is safe
+      // and prevents a stray yoyo from animating after the modal is gone).
+      this._finishFetchAnimation(true);
+      // Belt + suspenders: moniIcon is not part of _chainRows so the kill
+      // above skips it. Handle it explicitly.
+      if (window.gsap) {
+        try {
+          const mi = document.getElementById('moniIcon');
+          if (mi) gsap.killTweensOf(mi);
+        } catch (_) { /* gsap guard */ }
+      }
     },
 
     // v1.0.9.8: particle animation + source chain for fetch modal
+    // v1.0.13: stop gating — _particleRunning + tracked timers prevent late
+    // bursts from leaking after completion (fetch modal was animating forever
+    // because _spawnBurst() schedules setTimeout per particle and the
+    // completion handler ran AFTER the spawn).
     _particles: [],
     _animFrame: null,
     _chainRows: [],          // [{el, idx, name, icon, color}]
     _moniLeft: 0,
     _moniY: 0,
+    _particleRunning: false,
+    _particleBurstTimers: new Set(),   // every setTimeout from _spawnBurst
+    _particleInitTimer: null,           // setTimeout retry from initStageWithSources
 
     _initParticleStage() {
       const stage = document.getElementById('particleStage');
@@ -1611,8 +1665,11 @@ function app() {
       const canvas = document.getElementById('particleCanvas');
       if (!stage || !chain || !moniIcon || !canvas) return;
 
-      // Stop any prior animation
+      // Stop any prior animation (also clears _particleRunning + timers)
       this._stopParticleAnimation();
+
+      // Mark running BEFORE scheduling any timer/RAF
+      this._particleRunning = true;
 
       // Resize canvas (DPR-aware)
       const rect = stage.getBoundingClientRect();
@@ -1697,6 +1754,9 @@ function app() {
 
       // Start rAF + continuous burst loop for sustained particles
       this._particles = [];
+      // Only kick the RAF loop if running — _stopParticleAnimation already
+      // flipped the gate to false during re-init, so re-arm it FIRST.
+      this._particleRunning = true;
       this._animFrame = requestAnimationFrame(() => this._animateParticles());
       // Burst from current focus every 200ms; if no focus, burst all
       if (this._burstTimer) clearInterval(this._burstTimer);
@@ -1713,6 +1773,8 @@ function app() {
     },
 
     _stopParticleAnimation() {
+      // Gate FIRST so any in-flight RAF/timer callbacks bail on their next run.
+      this._particleRunning = false;
       if (this._animFrame) {
         cancelAnimationFrame(this._animFrame);
         this._animFrame = null;
@@ -1720,6 +1782,17 @@ function app() {
       if (this._burstTimer) {
         clearInterval(this._burstTimer);
         this._burstTimer = null;
+      }
+      // Cancel every pending burst setTimeout (otherwise late callbacks
+      // push particles into the array after we cleared it).
+      if (this._particleBurstTimers) {
+        this._particleBurstTimers.forEach((tid) => clearTimeout(tid));
+        this._particleBurstTimers.clear();
+      }
+      // Cancel the initStageWithSources retry timer if mid-flight.
+      if (this._particleInitTimer) {
+        clearTimeout(this._particleInitTimer);
+        this._particleInitTimer = null;
       }
       this._particles = [];
       const moniIcon = document.getElementById('moniIcon');
@@ -1734,7 +1807,31 @@ function app() {
       }
     },
 
+    // v1.0.13: unified terminal-state handler. Call from any polling branch
+    // (single / batch) before the visual completion overlay shows, so the
+    // background is quiet by the time the modal reads "完成".
+    //
+    // `killGsapRows` defaults to false because the single-source "done"
+    // path runs _suckIntoMoni() AFTER this — that gsap shrink-into-moni
+    // tween is intentional and must NOT be killed. For failed / timeout /
+    // stale / partial / close-fetch-progress, pass true.
+    _finishFetchAnimation(killGsapRows = false) {
+      this._stopParticleAnimation();
+      if (killGsapRows && window.gsap) {
+        try {
+          (this._chainRows || []).forEach((row) => {
+            if (row && row.el) gsap.killTweensOf(row.el);
+          });
+          // Don't kill moniIcon tweens — yoyo on _suckIntoMoni lands the
+          // bounce; only the closeFetchProgress path should reset it.
+        } catch (_) { /* gsap guard */ }
+      }
+    },
+
     _activeSourcesForModal() {
+      // v1.0.13: xwatch (X 关键词监控) gets its own line-art icon
+      // — was previously falling through to the 36kr fallback, which
+      // mis-identified the source on the fetch-modal chain.
       const iconMap = {
         '36kr_rss': '/static/icons/sources/36kr.png',
         'bestblogs': '/static/icons/sources/bestblog-gzh.png',
@@ -1746,25 +1843,34 @@ function app() {
         'qbitai': '/static/icons/sources/qbitai.png',
         'wechat_rss_a': '/static/icons/sources/wechat_rss.png',
         'wechat_rss_b': '/static/icons/sources/wechat_rss_b.png',
+        'xwatch': '/static/icons/sources/xwatch.png',
       };
       const labelMap = {
         '36kr_rss': '36氪', 'bestblogs': 'bb公众号', 'bestblog-podcast': 'bb博客',
         'bestblog-x': 'bb X', 'bestblog-yt': 'bb YT',
         'huxiu': '虎嗅', 'mpaypass': '移动支付网', 'qbitai': '量子位',
         'wechat_rss_a': 'wechatrss-A', 'wechat_rss_b': 'wechatrss-B',
+        'xwatch': 'X 关键词',
       };
       const colorMap = {
         '36kr_rss': [90,140,220], 'bestblogs': [60,180,170], 'bestblog-podcast': [60,180,170],
         'bestblog-x': [60,180,170], 'bestblog-yt': [60,180,170],
         'huxiu': [210,140,60], 'mpaypass': [180,150,60], 'qbitai': [140,80,200],
         'wechat_rss_a': [70,170,100], 'wechat_rss_b': [70,170,100],
+        // v1.0.13: X icon is cobalt blue (#1E40AF) line art — keep the
+        // particle accent in the same blue-grey family so the receiving
+        // burst blends with the source icon. Earlier draft used X-brand
+        // red [220,90,90] which clashed with the cobalt stroke.
+        'xwatch': [30, 64, 175],
       };
 
       if (this.fetchBatchMode) {
-        // Custom sort order for batch fetch chain
+        // Custom sort order for batch fetch chain.
+        // v1.0.13: xwatch slotted between bestblog-x and bestblog-yt to
+        // keep "X-flavored" sources grouped on the right side of the chain.
         const sortOrder = [
           'wechat_rss_a', 'wechat_rss_b', 'bestblogs', 'qbitai', 'mpaypass',
-          '36kr_rss', 'bestblog-podcast', 'bestblog-x', 'bestblog-yt', 'huxiu',
+          '36kr_rss', 'bestblog-podcast', 'bestblog-x', 'xwatch', 'bestblog-yt', 'huxiu',
         ];
         return (this.sources || []).filter(s => s.is_active)
           .sort((a, b) => {
@@ -1842,7 +1948,7 @@ function app() {
     _animateParticles() {
       const stage = document.getElementById('particleStage');
       const canvas = document.getElementById('particleCanvas');
-      if (!stage || !canvas) {
+      if (!stage || !canvas || !this._particleRunning) {
         this._animFrame = null;
         return;
       }
@@ -1857,10 +1963,18 @@ function app() {
         p.draw(ctx);
       });
 
-      this._animFrame = requestAnimationFrame(() => this._animateParticles());
+      // Only schedule next frame if still running — otherwise the RAF queue
+      // could keep the loop alive for one more frame after stop().
+      if (this._particleRunning) {
+        this._animFrame = requestAnimationFrame(() => this._animateParticles());
+      } else {
+        this._animFrame = null;
+      }
     },
 
     _spawnBurst(idx, count = 4) {
+      // Bail out if animation was stopped (race with terminal status).
+      if (!this._particleRunning) return;
       const row = this._chainRows[idx];
       const stage = document.getElementById('particleStage');
       const moniIcon = document.getElementById('moniIcon');
@@ -1875,7 +1989,11 @@ function app() {
       // Multiply count by 1.3 (overall particle density increase)
       const c = Math.ceil(count * 2.6);
       for (let i = 0; i < c; i++) {
-        setTimeout(() => {
+        const tid = setTimeout(() => {
+          // Track + clear from set so stop() can cancel pending bursts.
+          this._particleBurstTimers.delete(tid);
+          // Bail if animation was stopped while this timer was queued.
+          if (!this._particleRunning) return;
           const p = new FetchParticle(
             sx + (Math.random() - 0.5) * 4,
             sy + (Math.random() - 0.5) * ir.height * 0.6,
@@ -1884,6 +2002,7 @@ function app() {
           );
           this._particles.push(p);
         }, i * 60);
+        this._particleBurstTimers.add(tid);
       }
     },
 
@@ -1992,6 +2111,8 @@ function app() {
     },
 
     getSourceIcon(name) {
+      // v1.0.13: xwatch needs its own entry (was missing → fell back to
+      // 36kr.png on the sources table and the chain panel).
       const map = {
         '36kr_rss': '/static/icons/sources/36kr.png',
         'bestblogs': '/static/icons/sources/bestblog-gzh.png',
@@ -2003,6 +2124,7 @@ function app() {
         'qbitai': '/static/icons/sources/qbitai.png',
         'wechat_rss_a': '/static/icons/sources/wechat_rss.png',
         'wechat_rss_b': '/static/icons/sources/wechat_rss_b.png',
+        'xwatch': '/static/icons/sources/xwatch.png',
       };
       return map[name] || '/static/icons/sources/36kr.png';
     },

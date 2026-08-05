@@ -60,6 +60,11 @@ share_output/
 # workaround).  Committed scripts should use web.sh / web-8901.sh.
 scripts/dev_*.py
 
+# v1.0.13: icon 改版期间的临时产物 (scripts/.pending_*.py + docs/moni-icon-redesign-*)
+# 不入库, 完成迭代后正式版落到 moni/web/static/icons/
+scripts/.pending_*.py
+docs/moni-icon-redesign-*
+
 # 散落临时废料 (v1.0.9.10 收尾清理, 6/12-6/29 期间积累)
 /tmp/
 /output/
