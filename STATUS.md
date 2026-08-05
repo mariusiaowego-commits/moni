@@ -4,7 +4,61 @@
 
 ---
 
-## 当前状态: **v1.0.13 — Dialog Certainty (frontend audit-fix)** (2026-08-05)
+## 当前状态: **v1.0.13.1 — fetch modal particle stop + xwatch icon + moni-icon v3.1** (2026-08-05)
+
+**主分支 tag**: **v1.0.13.1** @ 93ae824 (PR #68 squash-merged)
+**Web 服务**: `127.0.0.1:8900` 已重启 (PID 69873, 3.12 venv); `8901` 不再需要
+**数据库**: schema_version=22 (无 schema 变更)
+**测试**: **504 passed, 2 skipped in 59.29s** (基线无回归)
+
+### v1.0.13.1 — Sprint 03 fetch modal particles + source icons
+
+针对 dad QA 的 3 个 frontend 问题修复:
+
+**1. 抓取 modal 粒子动画完成态不停止 (修复)**
+- Bug: modal 显示"完成"后背景粒子还在持续动画
+- 根因: `_spawnBurst` 内嵌套 `setTimeout` 延迟 burst + `_initParticleStage` 内 `setTimeout(initStageWithSources, 100)` 重试 + `cancelAnimationFrame` 前未先置 `_particleRunning = false` (循环体内会再次申请 RAF)
+- 修复 (app.js +162/-21):
+  - `_particleRunning` 闸门 (RAF 循环体内 `if (this._particleRunning)` 守卫)
+  - `_particleBurstTimers` Set 追踪 `_spawnBurst` 内嵌套 `setTimeout`
+  - `_particleInitTimer` 追踪 `initStageWithSources` 的 100ms 重试
+  - 统一收尾函数 `_finishFetchAnimation(killGsapRows)` (默认 false, 保留 done 路径的 `_suckIntoMoni` GSAP tween)
+  - `closeFetchProgress()` 走 `_finishFetchAnimation(true)` + 显式 `gsap.killTweensOf(moniIcon)`
+  - `initStageWithSources` retry 内加 `if (!this.fetchProgressModal) return` gate
+- 覆盖路径: 单源 done / 失败 / 超时 / 已中止 + 批量 done / partial / failed + 关闭 modal
+
+**2. xwatch (X 关键词监控) icon (新增)**
+- Bug: 5 处 iconMap 都没有 `xwatch` 条目, 全部 fallback 到 36kr.png
+- 修复: 256×256 RGBA 60KB 新图 (cobalt blue `#1E40AF` 字母 X + 金色放大镜 + 黑色圆角底 + 金色 bevel + 3D 高光, 与 series 风格对齐)
+- 接入 (app.js):
+  - `_activeSourcesForModal()` iconMap + labelMap + colorMap + sortOrder (插在 bestblog-x 与 bestblog-yt 之间)
+  - `getSourceIcon()`
+- colorMap `[30, 64, 175]` cobalt blue 与图标描边同色
+
+**3. moni-icon v3.1 (升级)**
+- Bug: v1.0.9.10 moni_v2.png 是黑底纯白扁平漏斗, 与 source icon 系列风格 (黑底圆角 + 金色 bevel + 高饱和纯色 + 拟人化) 不一致
+- v1.0.13 第一版 (紫藤萝 solid silhouette, 仿 v1.0.8.3 Pin icon 17px 风格) 被 dad QA reject: "太丑了, 风格不一致"
+- v1.0.13.1 = 候选 B (3 层金色 concentric ring 由大到小 + 底部 teal `#14B8A6` 宝石终点), 256×256 RGBA 44KB, 走 series emblem 风格
+- `index.html` L471 引用 `moni_v2.png` → `moni_v3.png`
+- `moni_v2.png` (406KB) 与 `_rejected-moniv3-wisteria-silhouette.png` 都保留作回退保险
+
+**4. .gitignore 新增**
+- `scripts/.pending_*.py` — icon 迭代期间临时脚本不入库
+- `docs/moni-icon-redesign-*` — 候选目录不入库
+
+**决策档案**: `docs/moni-icon-redesign-2026-08-05/DECISIONS.md` (含 6 line-art 候选废弃原因 + A/B/C 三选 + image-gen swap 真相)
+
+**验收**:
+- pytest: **504 passed, 2 skipped in 59.29s** (基线无回归)
+- node --check app.js: PASS
+- 8901 dev 5 端点 200 OK
+- 8900 prod 已 restart (PID 69873), 5 端点 200 OK
+- xwatch 实跑 fetch: 99 抓 / 1 入库 / 137.1s (DDG anomaly + SSL EOF 已知坑, 不阻塞; `tag_definitions` miniprogram row 自动命中)
+- 视觉 (dad QA): xwatch 链显示新 cobalt 图, moni-icon 是 3 金环+teal 宝石
+
+---
+
+## 历史: **v1.0.13 — Dialog Certainty (frontend audit-fix)** (2026-08-05)
 
 **主分支 tag**: **v1.0.13** @ 4 PRs squash-merge 后
 **Web 服务**: `127.0.0.1:8900` 重启 (3.12 venv); `8901` 验证
