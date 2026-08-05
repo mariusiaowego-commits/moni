@@ -68,19 +68,22 @@
             <!-- v1.0.5.12: 搜索 icon (left, visual hint) -->
             <span class="search-icon" aria-hidden="true">🔍</span>
             <!-- v1.0.5.10: source / tag filters — 后端 /api/articles 已支持 ?source= & ?tag= -->
-            <select x-model="articlesSource" @change="loadArticles()"
+            <!-- v1.0.13 (Sprint 02 — Q3): use onArticlesFilterChange() so changing
+                 source/tag from page N resets to page 1 (otherwise the user lands
+                 on an empty list because the new filter has fewer pages). -->
+            <select x-model="articlesSource" @change="onArticlesFilterChange()"
                     title="按来源筛选"
-                    style="margin-left: 8px; padding: 4px 8px;">
+                    class="filter-select">
               <option value="">所有来源</option>
-              <template x-for="s in articlesSources" :key="s.id">
+              <template x-for="s in (articlesSources || [])" :key="s.id">
                 <option :value="s.name" x-text="s.display_name || s.name"></option>
               </template>
             </select>
-            <select x-model="articlesTag" @change="loadArticles()"
+            <select x-model="articlesTag" @change="onArticlesFilterChange()"
                     title="按分类筛选"
-                    style="margin-left: 8px; padding: 4px 8px;">
+                    class="filter-select">
               <option value="">所有分类</option>
-              <template x-for="t in articlesTags" :key="t.name">
+              <template x-for="t in (articlesTags || [])" :key="t.name">
                 <option :value="t.name" x-text="t.name"></option>
               </template>
             </select>
