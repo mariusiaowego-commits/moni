@@ -298,6 +298,7 @@ tbody tr:last-child td { border-bottom: none; }
   display: inline-flex; align-items: center;
   padding: 2px 8px; border-radius: 999px;
   font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em;
+  white-space: nowrap;        /* v1.0.13.1: keep CJK / long text on a single line */
   position: relative;
 }
 .badge[data-tooltip]:hover::after {
@@ -317,7 +318,7 @@ tbody tr:last-child td { border-bottom: none; }
 .badge-warning { background: oklch(0.88 0.08 80); color: oklch(0.35 0.08 80); }
 .badge-info { background: oklch(0.88 0.06 240); color: oklch(0.35 0.06 240); }
 .badge-success { background: oklch(0.85 0.08 150); color: oklch(0.3 0.08 150); }
-.status-badge { padding: 3px 10px; border-radius: 4px; font-size: 0.78rem; font-weight: 500; }
+.status-badge { padding: 3px 10px; border-radius: 4px; font-size: 0.78rem; font-weight: 500; white-space: nowrap; }
 .status-success { background: oklch(0.85 0.08 150); color: oklch(0.3 0.08 150); }
 .status-failed { background: oklch(0.85 0.1 25); color: oklch(0.35 0.1 25); }
 
@@ -387,6 +388,14 @@ tbody tr:last-child td { border-bottom: none; }
   box-shadow: 0 1px 3px oklch(0 0 0 / 0.03);
 }
 .search-box select:focus, .filter-bar select:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.12), 0 2px 8px oklch(0 0 0 / 0.08); }
+
+/* v1.0.13 (Sprint 02 — Q3): unify the article filter <select> height with the
+   search input. The previous inline `padding: 4px 8px;` made the selects
+   27px vs the input's 35px (audit evidence). Pin the height directly. */
+.filter-select {
+  height: 35px;
+  box-sizing: border-box;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    Forms & Inputs
@@ -954,18 +963,74 @@ label { font-size: 0.85rem; }
 .theme-tab.active { background: var(--accent); color: var(--accent-fg); }
 
 /* ═══════════════════════════════════════════════════════════════
-   Toast
+   Toast (v1.0.13 — dialog certainty stack)
    ═══════════════════════════════════════════════════════════════ */
-.toast {
+#moni-toast-region {
   position: fixed; bottom: 24px; right: 24px; z-index: 200;
-  padding: 10px 18px; border-radius: 8px;
-  background: var(--foreground); color: var(--background);
-  font-size: 0.84rem; font-weight: 500;
+  display: flex; flex-direction: column-reverse; gap: 12px;
+  pointer-events: none;
+  max-width: 420px;
+}
+.toast {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 10px 16px; border-radius: 8px;
+  background: var(--card); color: var(--card-fg);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 16px oklch(0 0 0 / 0.18);
+  font-size: 0.86rem; font-weight: 500;
   opacity: 0; transform: translateY(10px);
   transition: opacity 0.2s, transform 0.2s;
-  pointer-events: none;
+  pointer-events: auto;
+  position: relative;
 }
+.toast .toast-msg { flex: 1; }
+.toast .toast-action {
+  background: var(--muted); color: var(--foreground);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px 10px; font-size: 0.82rem; font-weight: 500;
+  cursor: pointer; transition: background 0.12s;
+}
+.toast .toast-action:hover { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.toast .toast-action:disabled { opacity: 0.5; cursor: default; }
+.toast .toast-close {
+  background: transparent; border: none; color: var(--muted-fg);
+  font-size: 1.05rem; line-height: 1; cursor: pointer;
+  padding: 2px 4px; border-radius: 4px;
+}
+.toast .toast-close:hover { background: var(--muted); color: var(--foreground); }
+
 .toast.show { opacity: 1; transform: translateY(0); }
+.toast.dismissing { opacity: 0; transform: translateY(-6px); }
+
+.toast-success { border-left: 3px solid oklch(from var(--accent) l c h); }
+.toast-error   {
+  background: var(--card); color: var(--card-fg);
+  border-left: 3px solid var(--destructive);
+}
+.toast-error.sticky { /* persistent until user clicks */ }
+.toast-info    { border-left: 3px solid var(--border); }
+
+/* ═══════════════════════════════════════════════════════════════
+   Modal accessibility helpers (v1.0.13)
+   ═══════════════════════════════════════════════════════════════ */
+.moni-modal-open { overflow: hidden; }
+
+/* Confirm modal (built by moniModal.confirm) */
+.moni-modal-confirm .modal-content { animation: moniModalIn 0.18s ease-out; }
+.moni-modal-confirm .modal-footer {
+  display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;
+}
+.moni-modal-confirm .modal-body p {
+  margin: 0; font-size: 0.92rem; line-height: 1.5; color: var(--card-fg);
+}
+@keyframes moniModalIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .moni-modal-confirm .modal-content { animation: none; }
+  .toast { transition: none; }
+}
 
 /* ═══════════════════════════════════════════════════════════════
    Tag Filter Drop Detail Panel (v1.0.6.4)

@@ -4,7 +4,62 @@
 
 ---
 
-## 当前状态: **v1.0.12.2 — 配置 UI 中文说明** (2026-08-04)
+## 当前状态: **v1.0.13 — Dialog Certainty (frontend audit-fix)** (2026-08-05)
+
+**主分支 tag**: **v1.0.13** @ 4 PRs squash-merge 后
+**Web 服务**: `127.0.0.1:8900` 重启 (3.12 venv); `8901` 验证
+**数据库**: schema_version=22 (无 schema 变更)
+
+### v1.0.13 — Sprint 02 Dialog Certainty (frontend audit-fix)
+
+针对 `docs/frontend-arch-a11y-audit-2026-08-05.md` (16 项) 的 9 项修复; 7 项留 Sprint 03+ 路线.
+(注: Sprint 02 final PR #67 squash 合并, 把 4 个独立 PR 的 commit squash 成 1 个 v1.0.13 commit)
+
+**Sprint 02 范围 (Q1=A Q2=A Q3=A Q4=A):**
+
+PRs (全部 OPEN → squash merge 成 v1.0.13):
+- **#64** `feature/v1.0.13-dialog-certainty-modal-accessibility` — `feat(ui): dialog certainty + modal accessibility (audit F4/F5/F13/F14)`
+  - `moni/web/static/js/toast.js` (新) — 33 native `alert()` → `moniToast.{success,error,info,undo}`, 4 档 + sticky + 复制错误
+  - `moni/web/static/js/modal.js` (新) — 9 native `confirm()` → `moniModal.confirm()` (role=alertdialog); `moniModal.open()` 自动注入 `role="dialog"` / `aria-modal="true"` / `aria-labelledby`; Tab focus trap; body scroll lock
+  - `index.html` — 12 modal 加 `aria-label="关闭"` 6 处 + `@keydown.escape.window` 6 处; 加载 toast/modal 在 app.js 之前
+  - `main.css` — 单 toast 改 stack, 加 action button / sticky / 错误红条
+  - `app.js` — 新增 `_notify(kind, msg)` helper; 8 destructive 方法改 `async` + `await moniModal.confirm(...)`
+- **#65** `feature/v1.0.13-audit-fix-timers-stubs-clean` — `chore(ui): audit fix F2/F3/F6 (stubs + share-poll teardown + busy-wait cap)`
+  - 删 5 stub JS 文件 (`articles.js` / `cron.js` / `fetch.js` / `share.js` / `crud.js` — crud.js 一旦加载会静默改 DELETE 行为)
+  - `_stopSharePoll()` — `navigate()` / `onPopState()` 离开 `/share` 时显式清理 5s `setInterval`
+  - busy-wait cap — 两处 `setTimeout(initStageWithSources, 100)` 加 50 次重试上限 + 错误提示
+- **#66** `feature/v1.0.13-audit-fix-headmeta` — `feat(ui): audit fix F16 (head meta + inline SVG favicon)`
+  - `<meta name="description">` / `color-scheme` / `theme-color` (light + dark) / inline SVG favicon data: URL
+  - `<title>` 改为 "moni — 同业信源本地新闻库"
+  - **未做 (F1 app.js 拆块)**: 留 Sprint 03+, 跟 F7 三处 dispatch 树一起做
+- **#67** `feature/v1.0.13-dialog-certainty` — Sprint 02 final (Q3 polish + Sprint 02 final commit)
+  - `index.html` — 文章 filter `<select>` 加 `class="filter-select"`, `@change` 改 `onArticlesFilterChange()` (避免后页筛选假空态)
+  - `main.css` — `.filter-select { height: 35px; box-sizing: border-box; }` (Q3 高度统一)
+  - `main.css` (v1.0.13.1) — `.badge` / `.status-badge` 加 `white-space: nowrap` (dad QA 修复: basket `tag 过滤` / config `启用` 不再换行)
+  - 5 paths HTML + 3 API 在 3.12 venv 8901 dev 全部 200
+
+**验收**:
+- pytest: **504 passed, 2 skipped in 59.74s** (基线无回归)
+- node --check toast.js / modal.js / app.js 全 0 错误
+- 8901 dev (3.12): 5 paths HTML 200; 3 API 200; filterSelectHeight=35px == searchInputHeight=35px
+- 浏览器: `moniToast` / `moniModal` 全局可用, `moniModal.confirm` 渲染 role=alertdialog, 13 modal 自动 ARIA
+- 视觉 (dad QA): filter 高度统一, basket/config pill 单行不换行
+
+**Sprint 03+ 候选** (本 sprint 不做):
+- F1: app.js 拆 basket / share / llm 模块 (跟 F7 一起)
+- F7: navigate / onPopState / init 三处 dispatch 树合并
+- F8: pin icon SVG 每次重渲 perf
+- F9: source icon 4 处重复 (iconMap / labelMap / colorMap / PNG)
+- F10: oklch Relative-Color Syntax 30+ 处 @supports 包装
+- F11: 单移动断点 → 多档
+- F12: design token SSoT (CSS :root + .dark + theme.js DEFAULT_THEME)
+- F15: polling .then() 链堆叠
+- Sprint 03 候选: 方向 A 扫读速度 / 方向 C 键盘+导航骨架 / Audit F1-F7
+- 已知: pytest 3.14 偶发 segfault (与本 sprint 改动无关, 是 moni 自身 fixture 兼容)
+
+---
+
+## 历史: **v1.0.12.2 — 配置 UI 中文说明** (2026-08-04)
 
 **主分支 tag**: **v1.0.12.2** @ `3925854` (PR #63; 基线 v1.0.12 / .1)
 **Web 服务**: `127.0.0.1:8900` 已重启
