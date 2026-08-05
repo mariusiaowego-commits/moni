@@ -286,6 +286,10 @@ function app() {
 
     navigate(view) {
       this.currentView = view;
+      // v1.0.13 (audit fix F3): tear down the share-queue poll if leaving /share.
+      if (view !== 'share' && this._sharePollInterval) {
+        this._stopSharePoll();
+      }
       // v1.0.5.10: sync the URL so refresh / back / forward work and the
       // active link is shareable.  Use replaceState on first call (no
       // history entry yet) and pushState on subsequent navigations.
@@ -333,6 +337,8 @@ function app() {
     // URL (the URL already changed via the browser's own history machinery).
     onPopState(event) {
       const view = (event.state && event.state.view) || this._pathToView[window.location.pathname] || 'articles';
+      // v1.0.13 (audit fix F3): same teardown on back/forward.
+      if (this.currentView === 'share' && view !== 'share') this._stopSharePoll();
       this.currentView = view;
       // Re-run the loaders for the target view.
       if (view === 'articles') {
@@ -1388,7 +1394,9 @@ function app() {
       if (!this.sources || this.sources.length === 0) {
         this.loadSources();
       }
-      // v1.0.9.8: ensure particle stage is initialized (retry until sources loaded)
+      // v1.0.13 (audit fix F6): cap the busy-wait at 50 retries (~5s) so a
+      // failing loadSources() does not loop forever; surface error in panel.
+      let _initStageRetries = 0;
       const initStageWithSources = () => {
         if (this.sources && this.sources.length > 0) {
           this._initParticleStage();
@@ -1396,8 +1404,12 @@ function app() {
           this._layoutChain(0, false);
           // Initial burst from each source so particles are visible immediately
           this._chainRows.forEach((_, i) => this._spawnBurst(i, 2));
-        } else {
+        } else if (_initStageRetries++ < 50) {
           setTimeout(initStageWithSources, 100);
+        } else {
+          this.fetchProgress = this.fetchProgress || {};
+          this.fetchProgress.error = this.fetchProgress.error
+            || '源列表加载超时。请刷新页面 / 重启 8901 dev 服务后重试';
         }
       };
       initStageWithSources();
@@ -1477,7 +1489,9 @@ function app() {
       if (!this.sources || this.sources.length === 0) {
         this.loadSources();
       }
-      // v1.0.9.8: ensure particle stage is initialized (retry until sources loaded)
+      // v1.0.13 (audit fix F6): cap the busy-wait at 50 retries (~5s) so a
+      // failing loadSources() does not loop forever; surface error in panel.
+      let _initStageRetries = 0;
       const initStageWithSources = () => {
         if (this.sources && this.sources.length > 0) {
           this._initParticleStage();
@@ -1485,8 +1499,12 @@ function app() {
           this._layoutChain(0, false);
           // Initial burst from each source so particles are visible immediately
           this._chainRows.forEach((_, i) => this._spawnBurst(i, 2));
-        } else {
+        } else if (_initStageRetries++ < 50) {
           setTimeout(initStageWithSources, 100);
+        } else {
+          this.fetchProgress = this.fetchProgress || {};
+          this.fetchProgress.error = this.fetchProgress.error
+            || '源列表加载超时。请刷新页面 / 重启 8901 dev 服务后重试';
         }
       };
       initStageWithSources();
@@ -2632,7 +2650,10 @@ function app() {
     },
 
     _startSharePoll() {
-      if (this._sharePollInterval) return;
+      // v1.0.13 (audit fix F3): defensively clear any prior poll first so a
+      // second _startSharePoll() (e.g. via SPA back/forward) does not stack
+      // intervals.
+      this._stopSharePoll();
       this.loadShareQueue();
       // v1.0.10: poll every 5s so brief progress is visible (was 30s)
       this._sharePollInterval = setInterval(() => {
@@ -2644,6 +2665,16 @@ function app() {
           this.workerRunning = false;
         }
       }, 5000);
+    },
+
+    // v1.0.13 (audit fix F3): explicit teardown for the share-queue poll.
+    // Called from navigate() / onPopState() when leaving /share to prevent
+    // the 5s poll from running forever after the first /share visit.
+    _stopSharePoll() {
+      if (this._sharePollInterval) {
+        clearInterval(this._sharePollInterval);
+        this._sharePollInterval = null;
+      }
     },
 
     // ── Init ────────────────────────────────────────────────
