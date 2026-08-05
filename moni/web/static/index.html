@@ -3,7 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>moni</title>
+  <meta name="description" content="moni — 同业信源自动抓取与本地新闻库 (RSS 聚合 / BestBlogs 公众号 / X 关键词 / 抓取历史)">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f5f1e8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1f1a16" media="(prefers-color-scheme: dark)">
+  <title>moni — 同业信源本地新闻库</title>
+  <!-- v1.0.13 (audit fix F16): inline SVG favicon — avoids /favicon.ico 404 and matches the moni_v2.png visual identity.  data: URL — no extra request. -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23f5f1e8'/%3E%3Ccircle cx='32' cy='32' r='12' fill='%23b08968'/%3E%3Ccircle cx='32' cy='32' r='4' fill='%231f1a16'/%3E%3C/svg%3E">
   <!-- v1.0.8.7: preload alpinejs so hard-refresh doesn't race the
        x-cloak → x-show transition (browser sometimes hides the list
        because Alpine hasn't finished init by the time it processes
