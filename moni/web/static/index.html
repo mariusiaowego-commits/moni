@@ -400,7 +400,7 @@
       </section>
 
       <!-- ══ Date-range modal for bestblogs (v1.0.5.24) ═══════════════════ -->
-      <div class="modal-backdrop" x-show="fetchDateModal" x-cloak @click.self="fetchDateModal=false">
+      <div class="modal-backdrop" x-show="fetchDateModal" x-cloak @click.self="fetchDateModal=false" @keydown.escape.window="fetchDateModal=false">
         <div class="modal-content" style="max-width: 420px;">
           <h3>选择抓取时间范围</h3>
           <div style="display:flex; flex-direction:column; gap:12px; margin-top:16px;">
@@ -451,14 +451,14 @@
       </div>
 
       <!-- ══ Fetch progress modal (v1.0.9.8: particle + source chain) ══════════════════ -->
-      <div class="modal-backdrop" x-show="fetchProgressModal" x-cloak @click.self="closeFetchProgress()">
+      <div class="modal-backdrop" x-show="fetchProgressModal" x-cloak @click.self="closeFetchProgress()" @keydown.escape.window="closeFetchProgress()">
         <div class="modal-content fetch-modal">
           <div class="modal-header">
             <h3>
               <span x-show="fetchBatchMode">⚡ 全部抓取</span>
               <span x-show="!fetchBatchMode">抓取中: <span x-text="fetchProgress?.source || '...'"></span></span>
             </h3>
-            <button class="modal-close" @click="closeFetchProgress()">&times;</button>
+            <button class="modal-close" @click="closeFetchProgress()" aria-label="关闭">&times;</button>
           </div>
 
           <!-- Particle stage -->
@@ -1078,11 +1078,11 @@
       </section>
 
       <!-- Basket Detail Modal -->
-      <div class="modal-backdrop" x-show="basketDetail" x-cloak @click.self="basketDetail = null">
+      <div class="modal-backdrop" x-show="basketDetail" x-cloak @click.self="basketDetail = null" @keydown.escape.window="basketDetail = null">
         <div class="modal-content" x-show="basketDetail">
           <div class="modal-header">
             <h3>菜篮子详情</h3>
-            <button class="modal-close" @click="basketDetail = null">&times;</button>
+            <button class="modal-close" @click="basketDetail = null" aria-label="关闭">&times;</button>
           </div>
           <div class="modal-body" x-show="basketDetail">
             <div class="detail-field">
@@ -1634,7 +1634,7 @@
     </div>
 
     <!-- ══ Article detail modal ════════════════════════════════ -->
-    <div class="modal-backdrop" x-show="articleDetail" x-cloak @click.self="closeArticleDetail()">
+    <div class="modal-backdrop" x-show="articleDetail" x-cloak @click.self="closeArticleDetail()" @keydown.escape.window="closeArticleDetail()">
       <div class="modal-content" x-show="articleDetail">
         <div class="modal-header">
           <h3 x-text="articleDetail?.title"></h3>
@@ -1649,7 +1649,7 @@
               <span x-html="pinIcon(articleDetail?.is_pinned)"></span>
               <span x-text="articleDetail?.is_pinned ? '已 Pin' : 'Pin'"></span>
             </button>
-            <button class="modal-close" @click="closeArticleDetail()">×</button>
+            <button class="modal-close" @click="closeArticleDetail()" aria-label="关闭">×</button>
           </div>
         </div>
         <div class="modal-body">
@@ -1713,7 +1713,7 @@
         <div class="modal-header">
           <h3 x-text="(jobDetail?.task_type === 'summary' ? '摘要' : '事实核查')
                        + ' · ' + (jobDetail?.article_title || jobDetail?.article_id || '')"></h3>
-          <button class="modal-close" @click="closeJobDetail()">×</button>
+          <button class="modal-close" @click="closeJobDetail()" aria-label="关闭">×</button>
         </div>
         <div class="modal-body">
           <div class="article-meta">
@@ -1757,7 +1757,7 @@
       <div class="modal-content" x-show="shareEstimate">
         <div class="modal-header">
           <h3>确认加入分享队列</h3>
-          <button class="modal-close" @click="cancelShareEstimate()">×</button>
+          <button class="modal-close" @click="cancelShareEstimate()" aria-label="关闭">×</button>
         </div>
         <div class="modal-body">
           <div class="article-meta">
@@ -1839,7 +1839,7 @@
           <h3>
             <span x-text="workerModalTitle"></span>
           </h3>
-          <button class="modal-close" @click="closeWorkerModal()">×</button>
+          <button class="modal-close" @click="closeWorkerModal()" aria-label="关闭">×</button>
         </div>
         <div class="modal-body">
           <div class="article-meta" x-show="workerModalResult">
@@ -1883,7 +1883,7 @@
     </div>
 
     <!-- ══ Config Edit Modal (v1.0.2-F) ═════════════════════════════ -->
-    <div class="modal-backdrop" x-show="configModalOpen" x-cloak @click.self="closeConfigModal()">
+    <div class="modal-backdrop" x-show="configModalOpen" x-cloak @click.self="closeConfigModal()" @keydown.escape.window="closeConfigModal()">
       <div class="modal-content">
 
         <!-- Tag modal -->
@@ -2215,7 +2215,7 @@
     </div>
 
     <!-- ══ Delete Confirmation Modal ══════════════════════════════ -->
-    <div class="modal-backdrop" x-show="showModal" x-cloak @click.self="closeModal()">
+    <div class="modal-backdrop" x-show="showModal" x-cloak @click.self="closeModal()" @keydown.escape.window="closeModal()">
       <div class="modal-content">
         <div class="modal-header"><h3>确认删除</h3></div>
         <div class="modal-body">
@@ -2231,7 +2231,7 @@
     </div>
 
     <!-- ══ CRUD Create / Edit Form Modal (v1.0.5.11) ══════════════ -->
-    <div class="modal-backdrop" x-show="crudFormOpen" x-cloak @click.self="closeCrudForm()">
+    <div class="modal-backdrop" x-show="crudFormOpen" x-cloak @click.self="closeCrudForm()" @keydown.escape.window="closeCrudForm()">
       <div class="modal-content">
         <div class="modal-header">
           <h3 x-text="crudFormMode === 'edit' ? '编辑文章' : '新建文章'"></h3>
@@ -2347,6 +2347,9 @@
 
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <!-- v1.0.13: dialog-certainty helpers (must load before app.js) -->
+  <script src="js/toast.js?v=1785000000"></script>
+  <script src="js/modal.js?v=1785000000"></script>
   <script src="js/app.js?v=1785000000"></script>
   <script src="js/theme.js?v=1785000000"></script>
   <script src="js/icons.js?v=1785000000"></script>

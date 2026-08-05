@@ -66,6 +66,23 @@ function app() {
     // ── Theme engine (from theme.js) ──
     ...themeMixin(),
 
+    // ── Notification helpers (v1.0.13 dialog certainty) ──
+    //    Replaces 33 native alert() calls with the moniToast stack.
+    //    showToast() in themeMixin is a single-line legacy helper;
+    //    _notify() routes to the stacking toast + sticky-on-error.
+    _notify(kind, msg, opts) {
+      try {
+        if (typeof window.moniToast === 'object' && window.moniToast) {
+          if (kind === 'error') return window.moniToast.error(msg, opts);
+          if (kind === 'success') return window.moniToast.success(msg, opts);
+          return window.moniToast.info(msg, opts);
+        }
+      } catch (e) { /* swallow — fall through */ }
+      // Fallback: if toast stack isn't ready (very early load), use legacy showToast.
+      if (typeof this.showToast === 'function') this.showToast(String(msg || ''));
+    },
+
+
     // ── Service control ──
     serviceRunning: false,
     servicePid: null,
@@ -83,8 +100,8 @@ function app() {
         });
     },
 
-    restartService() {
-      if (!confirm('确定重启服务？页面会短暂不可用 (~3秒)')) return;
+    async restartService() {
+      if (!(await moniModal.confirm('确定重启服务？页面会短暂不可用 (~3秒)', { title: '重启服务', okLabel: '重启', danger: true }))) return;
       fetch('/api/service/restart', { method: 'POST', credentials: 'same-origin' })
         .then(r => r.json())
         .then(d => {
@@ -217,9 +234,9 @@ function app() {
         .finally(() => { this.basketRescuing = false; });
     },
 
-    deleteBasketItem() {
+    async deleteBasketItem() {
       if (!this.basketDetail) return;
-      if (!confirm('确定从菜篮子删除？')) return;
+      if (!(await moniModal.confirm('确定从菜篮子删除？', { title: '从菜篮子删除', okLabel: '删除', danger: true }))) return;
       fetch(`/api/basket/${this.basketDetail.id}`, {
         method: 'DELETE',
         credentials: 'same-origin',
@@ -542,13 +559,13 @@ function app() {
     },
     configCreateTag() { this.openConfigModal('tag', null); },
     configEditTag(tag) { this.openConfigModal('tag', tag); },
-    configDeleteTag(tag) {
-      if (!confirm(`确定删除 tag "${tag.name}"? (会级联清除 source_tags 和 article_tags)`)) return;
+    async configDeleteTag(tag) {
+      if (!(await moniModal.confirm(`确定删除 tag "${tag.name}"? (会级联清除 source_tags 和 article_tags)`, { title: '删除 tag', okLabel: '删除', danger: true }))) return;
       fetch(`/api/config/tags/${encodeURIComponent(tag.name)}`, {
     method: 'DELETE', credentials: 'same-origin',
       })
     .then(r => { if (!r.ok) throw new Error('Delete failed'); this.configLoadTags(); })
-    .catch(err => alert('删除失败: ' + err.message));
+    .catch(err => this._notify('error', '删除失败: ' + err.message));
     },
     configSaveTag(body, isEdit, originalName) {
       const url = isEdit
@@ -565,7 +582,7 @@ function app() {
       }).then(() => {
     this.configLoadTags();
     this.closeConfigModal();
-      }).catch(err => alert('保存失败: ' + err.message));
+      }).catch(err => this._notify('error', '保存失败: ' + err.message));
     },
 
     // ── Sources CRUD ───────────────────────────────────────────────
@@ -577,13 +594,13 @@ function app() {
     },
     configCreateSource() { this.openConfigModal('source', null); },
     configEditSource(source) { this.openConfigModal('source', source); },
-    configDeleteSource(source) {
-      if (!confirm(`确定删除 source "${source.name}"?`)) return;
+    async configDeleteSource(source) {
+      if (!(await moniModal.confirm(`确定删除 source "${source.name}"?`, { title: '删除 source', okLabel: '删除', danger: true }))) return;
       fetch(`/api/config/sources/${encodeURIComponent(source.id)}`, {
         method: 'DELETE', credentials: 'same-origin',
       })
         .then(r => { if (!r.ok) throw new Error('Delete failed'); this.configLoadSources(); })
-        .catch(err => alert('删除失败: ' + err.message));
+        .catch(err => this._notify('error', '删除失败: ' + err.message));
     },
     configSaveSource(body, isEdit) {
       const url = isEdit
@@ -600,7 +617,7 @@ function app() {
       }).then(() => {
         this.configLoadSources();
         this.closeConfigModal();
-      }).catch(err => alert('保存失败: ' + err.message));
+      }).catch(err => this._notify('error', '保存失败: ' + err.message));
     },
     configEditSourceTags(source) { this.openConfigModal('sourceTags', source); },
     configSaveSourceTags(sourceId, tagNames) {
@@ -614,7 +631,7 @@ function app() {
       }).then(() => {
         this.configLoadSources();
         this.closeConfigModal();
-      }).catch(err => alert('保存 tags 失败: ' + err.message));
+      }).catch(err => this._notify('error', '保存 tags 失败: ' + err.message));
     },
 
     // ── Fetch Config ─────────────────────────────────────────────
@@ -671,7 +688,7 @@ function app() {
           }
           this.fetchConfigData.merged[key] = parsed;
         } catch (e) {
-          alert(`字段 ${key} JSON 无效: ` + (e.message || e));
+          this._notify('error', `字段 ${key} JSON 无效: ` + (e.message || e));
         }
         return;
       }
@@ -705,7 +722,7 @@ function app() {
           this.configModalType = 'fetchConfig';
           this.configModalOpen = true;
         })
-        .catch(err => alert('加载抓取配置失败: ' + err.message));
+        .catch(err => this._notify('error', '加载抓取配置失败: ' + err.message));
     },
     configSaveFetchConfig() {
       const sid = encodeURIComponent(this.fetchConfigData.source_id);
@@ -726,7 +743,7 @@ function app() {
         };
         this.configLoadSources();
         this.closeConfigModal();
-      }).catch(err => alert('保存抓取配置失败: ' + err.message));
+      }).catch(err => this._notify('error', '保存抓取配置失败: ' + err.message));
     },
 
     // ── Filters CRUD ───────────────────────────────────────────────
@@ -742,13 +759,13 @@ function app() {
     },
     configCreateFilter() { this.openConfigModal('filter', null); },
     configEditFilter(filter) { this.openConfigModal('filter', filter); },
-    configDeleteFilter(filter) {
-      if (!confirm(`确定删除 filter id=${filter.id}?`)) return;
+    async configDeleteFilter(filter) {
+      if (!(await moniModal.confirm(`确定删除 filter id=${filter.id}?`, { title: '删除 filter', okLabel: '删除', danger: true }))) return;
       fetch(`/api/config/filters/${filter.id}`, {
         method: 'DELETE', credentials: 'same-origin',
       })
         .then(r => { if (!r.ok) throw new Error('Delete failed'); this.configLoadFilters(); })
-        .catch(err => alert('删除失败: ' + err.message));
+        .catch(err => this._notify('error', '删除失败: ' + err.message));
     },
     configSaveFilter(body, isEdit) {
       const url = isEdit
@@ -765,7 +782,7 @@ function app() {
       }).then(() => {
         this.configLoadFilters();
         this.closeConfigModal();
-      }).catch(err => alert('保存失败: ' + err.message));
+      }).catch(err => this._notify('error', '保存失败: ' + err.message));
     },
 
     // ── Modal helpers ───────────────────────────────────────────────
@@ -1041,7 +1058,7 @@ function app() {
           this.allArticles   = this.allArticles.filter(a => a.id !== article.id);
           this.closeModal();
         })
-        .catch(err => { alert('删除失败: ' + err.message); this.closeModal(); });
+        .catch(err => { this._notify('error', '删除失败: ' + err.message); this.closeModal(); });
     },
 
     // ── CRUD form (v1.0.5.11) ───────────────────────────────────
@@ -1977,7 +1994,7 @@ function app() {
       if (!this.articleDetail?.url) return;
       navigator.clipboard.writeText(this.articleDetail.url)
         .then(() => { this.copyToast = true; setTimeout(() => { this.copyToast = false; }, 2000); })
-        .catch(() => { alert('复制失败，请手动复制:\n' + this.articleDetail.url); });
+        .catch(() => { this._notify('error', '复制失败，请手动复制 URL (见详情页)。'); });
     },
 
     // v1.0.5.24: import full-text from local .md file
@@ -1993,10 +2010,10 @@ function app() {
         .then(r => r.json().then(d => r.ok ? d : Promise.reject(d)))
         .then(data => {
           this.articleDetail = { ...this.articleDetail, content: data.content_preview };
-          alert(`全文导入成功，${data.char_count} 字`);
+          this._notify('success', `全文导入成功，${data.char_count} 字`);
           this.importFilePath = '';
         })
-        .catch(err => { alert('导入失败: ' + (err.message || err.detail || '未知错误')); })
+        .catch(err => { this._notify('error', '导入失败: ' + (err.message || err.detail || '未知错误')); })
         .finally(() => { this.importLoading = false; });
     },
 
@@ -2234,7 +2251,7 @@ function app() {
       if (this.briefSubmitting) return;
       const n = this.pinnedTotal || this.pinnedArticles.length || 0;
       if (n <= 0) {
-        alert('还没有 Pin 文章。\n\n请先在「文章查阅」最左列 Pin 至少 1 篇，再生成简报。');
+        this._notify('info', '还没有 Pin 文章。请先在「文章查阅」最左列 Pin 至少 1 篇，再生成简报。');
         return;
       }
       this.briefSubmitting = true;
@@ -2301,7 +2318,7 @@ function app() {
         return;
       }
       if (!this.selectedArticleIds.length) {
-        alert('请先勾选要分享的文章 (在文章卡片上点 checkbox, 至少 1 个)。\n\n这是浏览器本地检查, 不是 HTTP 错误。');
+        this._notify('info', '请先勾选要分享的文章 (在文章卡片上点 checkbox, 至少 1 个)。');
         return;
       }
       // v1.0.5.14: html_landing / ppt_slides require a `title` field
@@ -2333,7 +2350,7 @@ function app() {
       if (this.shareFormatNeedsTitle()) {
         const t = (this.shareFormatTitle || '').trim();
         if (!t) {
-          alert('此格式 (' + this.shareFormat + ') 必填 title 字段。\n\n请在上方输入框填写 页面/演示标题。\n\n这是浏览器本地检查, 不是 HTTP 错误。');
+          this._notify('info', '此格式 (' + this.shareFormat + ') 必填 title 字段。请在上方输入框填写页面/演示标题。');
           return;
         }
         payload.title = t;
@@ -2425,7 +2442,7 @@ function app() {
         // clears it.  If it does, fail loudly so the user sees
         // something rather than a silent no-op.
         this.cancelShareEstimate();
-        alert('内部状态错误: 请重试。');
+        this._notify('error', '内部状态错误: 请重试。');
         return;
       }
       this.shareEstimateSubmitting = true;
@@ -2452,7 +2469,7 @@ function app() {
         })
         .catch(err => {
           console.error('addToQueue failed:', err);
-          alert('加入队列失败: ' + err.message);
+          this._notify('error', '加入队列失败: ' + err.message);
           // Close the modal too — keeping it open with an error
           // visible would force the user to dismiss it manually,
           // and the alert already conveys the failure.
@@ -2537,7 +2554,7 @@ function app() {
         this._startWorkerLogPoll();
       } catch (err) {
         console.error('triggerWorker failed:', err);
-        alert('触发 worker 失败: ' + err.message);
+        this._notify('error', '触发 worker 失败: ' + err.message);
       } finally {
         // We re-enable the button so the user can re-trigger after
         // a transient error.  workerModalResult.started is the
@@ -2701,7 +2718,7 @@ function app() {
           return r.json();
         })
         .then(data => { self.articleDetail = data; })
-        .catch(err => { alert('加载文章失败: ' + err.message); });
+        .catch(err => { this._notify('error', '加载文章失败: ' + err.message); });
     },
 
     closeArticleDetail() {
@@ -2865,7 +2882,7 @@ function app() {
           if (err && err.status === 405) {
             msg = '后端不支持 Pin 接口 (405). 请重启 8900 服务 (v1.0.8 部署后). ' + msg;
           }
-          alert('Pin 切换失败: ' + msg);
+          this._notify('error', 'Pin 切换失败: ' + msg);
         });
     },
 
@@ -3081,7 +3098,7 @@ function app() {
             summary: '⏳ 摘要生成中... (job ' + data.job_id.slice(0, 8) + ')',
           };
         })
-        .catch(err => { alert('生成摘要失败: ' + err.message); })
+        .catch(err => { this._notify('error', '生成摘要失败: ' + err.message); })
         .finally(() => { self.summaryLoading = false; });
     },
 
@@ -3109,7 +3126,7 @@ function app() {
             fact_check_conclusion: '⏳ 核查中... (job ' + data.job_id.slice(0, 8) + ')',
           };
         })
-        .catch(err => { alert('事实核查失败: ' + err.message); })
+        .catch(err => { this._notify('error', '事实核查失败: ' + err.message); })
         .finally(() => { self.factCheckLoading = false; });
     },
 
@@ -3160,8 +3177,8 @@ function app() {
         });
     },
 
-    cancelLlmJob(jobId) {
-      if (!confirm('取消这个 LLM 任务? 已生成的内容会保留, 但状态会标记为 cancelled.')) return;
+    async cancelLlmJob(jobId) {
+      if (!(await moniModal.confirm('取消这个 LLM 任务? 已生成的内容会保留, 但状态会标记为 cancelled.', { title: '取消 LLM 任务', okLabel: '取消任务', danger: true }))) return;
       const self = this;
       fetch(`/api/llm/jobs/${jobId}/cancel`, {
         method: 'POST',
@@ -3174,7 +3191,7 @@ function app() {
           return r.json();
         })
         .then(() => { self.loadLlmJobs(); })
-        .catch(err => { alert('取消失败: ' + err.message); });
+        .catch(err => { this._notify('error', '取消失败: ' + err.message); });
     },
 
     llmJobStatusBadge(status) {
@@ -3268,7 +3285,7 @@ function app() {
         setTimeout(() => { this.jobDetailCopied = false; }, 1500);
       } catch (err) {
         console.error('copyJobDetail failed:', err);
-        alert('复制失败: ' + (err && err.message ? err.message : String(err)));
+        this._notify('error', '复制失败: ' + (err && err.message ? err.message : String(err)));
       }
     },
 
@@ -3434,11 +3451,11 @@ function app() {
           if (!r.ok) throw new Error('Toggle failed');
           this.loadLlmProviders();
         })
-        .catch(err => alert('操作失败: ' + err.message));
+        .catch(err => this._notify('error', '操作失败: ' + err.message));
     },
 
-    deleteLlmProvider(provider) {
-      if (!confirm(`确定删除 Provider "${provider.name}"?`)) return;
+    async deleteLlmProvider(provider) {
+      if (!(await moniModal.confirm(`确定删除 Provider "${provider.name}"?`, { title: '删除 Provider', okLabel: '删除', danger: true }))) return;
       fetch(`/api/llm/providers/${provider.id}`, {
         method: 'DELETE',
         credentials: 'same-origin',
@@ -3453,12 +3470,12 @@ function app() {
           }
           this.loadLlmProviders();
         })
-        .catch(err => alert('删除失败: ' + err.message));
+        .catch(err => this._notify('error', '删除失败: ' + err.message));
     },
 
-    testLlmProvider(provider) {
+    async testLlmProvider(provider) {
       // Single confirmation — warns about token usage
-      if (!confirm(`测试 "${provider.name}" (${provider.hermes_provider}) 连通性？\n\n⚠️ 将消耗约 5-10 tokens`)) return;
+      if (!(await moniModal.confirm(`测试 "${provider.name}" (${provider.hermes_provider}) 连通性？\n\n⚠️ 将消耗约 5-10 tokens`, { title: '测试 LLM Provider', okLabel: '测试', danger: true }))) return;
 
       provider._testing = true;
 
@@ -3470,14 +3487,14 @@ function app() {
         .then(data => {
           provider._testing = false;
           if (data.ok) {
-            alert(`✅ 连通成功\n\nProvider: ${data.provider}\nModel: ${data.model}\n耗时: ${data.duration_ms}ms\n回复: ${data.reply_preview}`);
+            this._notify('success', `✅ 连通成功 — Provider: ${data.provider} · Model: ${data.model} · 耗时 ${data.duration_ms}ms`, { duration: 6000 });
           } else {
-            alert(`❌ 连通失败\n\nProvider: ${data.provider}\nModel: ${data.model}\n错误: ${data.error}`);
+            this._notify('error', `❌ 连通失败 — Provider: ${data.provider} · Model: ${data.model} · ${data.error || '未知错误'}`);
           }
         })
         .catch(err => {
           provider._testing = false;
-          alert('测试失败: ' + err.message);
+          this._notify('error', '测试失败: ' + err.message);
         });
     },
 
@@ -3588,7 +3605,7 @@ function app() {
           if (!r.ok) throw new Error('Toggle failed');
           this.loadLlmModels();
         })
-        .catch(err => alert('操作失败: ' + err.message));
+        .catch(err => this._notify('error', '操作失败: ' + err.message));
     },
 
     // ── Settings save ────────────────────────────────────────────
@@ -3606,7 +3623,7 @@ function app() {
           // Reload settings to stay in sync
           this.loadLlmSettings();
         })
-        .catch(err => alert('保存设置失败: ' + err.message));
+        .catch(err => this._notify('error', '保存设置失败: ' + err.message));
     },
   };
 }
