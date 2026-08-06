@@ -95,7 +95,8 @@ def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):  # tmp_pat
     assert "业务价值" in html_doc
     # AI mark is end-of-text micro tag, not section-title label
     assert 'class="ai-end' in html_doc or "ai-end" in html_doc
-    assert "sec-label-row" in html_doc  # BV score sits on 业务判断 title row
+    assert "bv-score" in html_doc  # score sits next to 业务判断 title
+    assert "fc-inline" in html_doc  # 已核实 inline with claim text
     # frontmatter stripped
     assert "title: x" not in html_doc
 
@@ -231,3 +232,4 @@ def test_fc_badge_has_label_and_inline_claim(fresh_db: Path):
     assert "监管已发文" in html_doc
     assert "65分" in html_doc
     assert "has-tip" in html_doc
+    assert "fc-inline" in html_doc

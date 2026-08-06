@@ -741,8 +741,9 @@ def render_brief_html(
                 )
             else:
                 lab = _fc_lab.get(kind, "")
+                # 标签与正文同一行：已核实/待核实在段首
                 fc_lis.append(
-                    f"<li class='fc-line fc-stack'>"
+                    f"<li class='fc-line fc-inline'>"
                     f"<span class='badge {kind}'>"
                     f"{_badge_svg(kind)}<span class='badge-lab'>{_esc(lab)}</span>"
                     f"</span>"
@@ -759,17 +760,11 @@ def render_brief_html(
         if bv is not None or bv_note:
             note_txt = bv_note or "（无业务判断说明）"
             bv_ai = ai_end if (bv_is_ai or bv_score_ai) else ""
+            # 标题与摘要/事实核查同用 .sec-label（左对齐 ▎）；分数跟在标题文字后
             bv_sec_html = f"""
   <div class="sec">
-    <h3 class="sec-label sec-label-row">
-      <span class="sec-label-txt">业务判断</span>
-      <span class="badge bv {_esc(bv_tier)}">{_esc(score_label)}</span>
-    </h3>
-    <ul class="fc">
-      <li class="fc-line fc-stack">
-        <span class="fc-text">{_esc(note_txt)}{bv_ai}</span>
-      </li>
-    </ul>
+    <h3 class="sec-label">业务判断 <span class="bv-score {_esc(bv_tier)}">{_esc(score_label)}</span></h3>
+    <div class="bv-body">{_esc(note_txt)}{bv_ai}</div>
   </div>"""
         sum_cls = "summary-block is-thin" if summ_thin else "summary-block"
         if sum_origin == "body_lead":
@@ -1016,17 +1011,41 @@ def render_brief_html(
   .sec-label {{
     font-size: 0.82rem; margin: 0 0 14px; color: var(--accent);
     font-weight: 650; font-family: var(--sans); letter-spacing: 0.04em;
-    display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
+    /* 与摘要/事实核查同一行内布局，保证 ▎ 与标题左对齐 */
+    display: block;
+    line-height: 1.5;
   }}
-  .sec-label::before {{ content: "▎"; margin-right: 2px; color: var(--accent-soft); }}
-  /* 业务判断：标题 + 分数同行 */
-  .sec-label.sec-label-row {{
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 10px 12px;
+  .sec-label::before {{
+    content: "▎";
+    margin-right: 2px;
+    color: var(--accent-soft);
   }}
-  .sec-label-txt {{ display: inline-flex; align-items: center; }}
+  /* 业务判断分数：标题同行、非 pill，无描边 */
+  .bv-score {{
+    display: inline-block;
+    margin-left: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    border: none;
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.35;
+    vertical-align: 0.05em;
+  }}
+  .bv-score.bv-lo {{ background: #dc2626; color: #fff; }}
+  .bv-score.bv-60 {{ background: #ea580c; color: #fff; }}
+  .bv-score.bv-70 {{ background: #d97706; color: #fff; }}
+  .bv-score.bv-80 {{ background: #ca8a04; color: #fff; }}
+  .bv-score.bv-90 {{ background: #16a34a; color: #fff; }}
+  .bv-score.bv-na {{ background: var(--tone-1); color: var(--muted); }}
+  .bv-body {{
+    margin: 0;
+    font-size: 1.02rem;
+    line-height: 1.75;
+    color: #1c1917;
+  }}
   .summary-block {{
     margin: 0; padding: 16px 18px; background: var(--summary-bg);
     border: none; border-radius: 10px; color: #292524; font-size: 1.02rem; line-height: 1.75;
@@ -1037,10 +1056,19 @@ def render_brief_html(
     background: var(--tone-0); border-radius: 0 8px 8px 0; color: #44403c;
   }}
   .fc {{ list-style: none; padding: 0; margin: 4px 0 0; }}
+  /* 已核实/待核实：与正文同一行，标签在段首 */
   .fc-line {{
-    margin: 0 0 16px; display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 10px;
+    margin: 0 0 14px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px 10px;
   }}
-  /* 标签单独一行，正文换行 */
+  .fc-line.fc-inline {{
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+  }}
   .fc-line.fc-stack {{
     flex-direction: column;
     align-items: flex-start;
@@ -1051,28 +1079,19 @@ def render_brief_html(
   .badge {{
     display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
     font-size: 12px; font-weight: 600; font-family: var(--sans);
-    padding: 3px 9px 3px 5px; border-radius: 999px; white-space: nowrap; line-height: 1.4;
+    padding: 2px 8px 2px 4px; border-radius: 999px; white-space: nowrap; line-height: 1.4;
     border: 1px solid var(--tone-2); background: var(--tone-1); color: var(--navy);
   }}
   .badge.ok {{ background: #f0ebe3; color: #3f3a34; border-color: #ddd0bc; }}
   .badge.warn {{ background: #fff4e6; color: #9a3412; border-color: #f0d9b5; }}
   .badge.bad {{ background: #f5e6e0; color: #7c2d12; border-color: #e8c4b0; }}
-  /* BV 分档着色：&lt;60 红，每 10 分一档 */
-  .badge.bv {{
-    font-variant-numeric: tabular-nums; min-width: 3.2em; justify-content: center;
-    padding: 4px 10px;
-  }}
-  .badge.bv.bv-lo {{ background: #dc2626; color: #fff; border-color: #b91c1c; }}
-  .badge.bv.bv-60 {{ background: #ea580c; color: #fff; border-color: #c2410c; }}
-  .badge.bv.bv-70 {{ background: #d97706; color: #fff; border-color: #b45309; }}
-  .badge.bv.bv-80 {{ background: #ca8a04; color: #fff; border-color: #a16207; }}
-  .badge.bv.bv-90 {{ background: #16a34a; color: #fff; border-color: #15803d; }}
-  .badge.bv.bv-na {{ background: var(--tone-1); color: var(--muted); border-color: var(--tone-2); }}
   .badge svg {{ flex-shrink: 0; display: block; }}
   .badge-lab {{ letter-spacing: 0.02em; }}
   .fc-text {{
-    display: block; width: 100%;
-    min-width: 0; line-height: 1.7; color: #1c1917;
+    flex: 1 1 12em;
+    min-width: 0;
+    line-height: 1.7;
+    color: #1c1917;
   }}
   .excluded {{
     margin: 40px 0 0; padding: 22px 24px;
