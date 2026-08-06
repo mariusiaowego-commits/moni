@@ -28,7 +28,7 @@ def fresh_db(tmp_path: Path) -> Path:
     conn_mod._DB_PATH = None
 
 
-def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):
+def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):  # tmp_path for write_brief_html
     conn = get_db()
     now = datetime.now(timezone.utc).isoformat()
     body = (
@@ -89,6 +89,11 @@ def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):
     # frontmatter stripped
     assert "title: x" not in html_doc
 
+    out = tmp_path / "out.html"
+    write_brief_html(str(fresh_db), ["h1"], out)
+    assert out.is_file()
+    assert out.stat().st_size > 500
+
 
 def test_thin_article_summary_copy(fresh_db: Path):
     """Empty raw → readable thin copy, not bare （无摘要）."""
@@ -124,11 +129,6 @@ def test_thin_article_summary_copy(fresh_db: Path):
     # publisher prefix stripped from h2
     assert "短讯标题" in html_doc
     assert "[某号]" not in html_doc
-
-    out = tmp_path / "out.html"
-    write_brief_html(str(fresh_db), ["h1"], out)
-    assert out.is_file()
-    assert out.stat().st_size > 500
 
 
 def test_body_to_html_plain_paragraphs():
