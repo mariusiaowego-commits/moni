@@ -93,10 +93,9 @@ def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):  # tmp_pat
     assert "card-idx" in html_doc
     assert "质量分" in html_doc
     assert "业务价值" in html_doc
-    # AI mark is end-of-text micro tag, not section-title label
-    assert 'class="ai-end' in html_doc or "ai-end" in html_doc
     assert "bv-score" in html_doc  # score sits next to 业务判断 title
     assert "fc-inline" in html_doc  # 已核实 inline with claim text
+    assert "ai-end" not in html_doc  # no trailing AI micro-tags
     # frontmatter stripped
     assert "title: x" not in html_doc
 
