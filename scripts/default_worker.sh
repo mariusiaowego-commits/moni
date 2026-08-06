@@ -41,6 +41,16 @@ TIMEOUT_SECONDS="${MONI_WORKER_TIMEOUT:-600}"  # 10 minutes default, override vi
 # worker's CWD.  Defaults to ${REPO_ROOT}/moni/share/prompts/.
 PROMPT_DIR="${MONI_PROMPT_DIR:-${REPO_ROOT}/moni/share/prompts}"
 
+# v1.0.14: artifacts + worker log paths.  moni.share.worker.LOG_FILE is
+# Python-only; the shell path used to reference $LOG_FILE without defining
+# it → under `set -u`, brief html_landing always failed with
+# "LOG_FILE: unbound variable" misreported as "brief_html render failed".
+ARTIFACTS_DIR="${ARTIFACTS_DIR:-${REPO_ROOT}/data/artifacts}"
+LOG_FILE="${MONI_WORKER_LOG:-${ARTIFACTS_DIR}/worker.log}"
+mkdir -p "$ARTIFACTS_DIR"
+# Touch so 2>>"$LOG_FILE" never fails if parent was just created.
+: >>"$LOG_FILE" 2>/dev/null || true
+
 # --- Env validation ---------------------------------------------------------
 if [[ ! -d "$QUEUE_DIR" ]]; then
     echo "[worker] queue dir not found: $QUEUE_DIR — nothing to do" >&2
@@ -736,11 +746,18 @@ d=json.load(open(sys.argv[1]))
 p=d.get('payload',{}) if isinstance(d.get('payload'),dict) else {}
 print(p.get('title') or ('同业简报 — ' + date.today().isoformat()))
 " "$manifest_path" 2>/dev/null || echo "同业简报")
+        # stderr → LOG_FILE (now defined above under set -u).  Also keep a
+        # temp copy so failure messages surface in share_tasks.error.
+        local brief_err
+        brief_err=$(mktemp "${TMPDIR:-/tmp}/moni_brief_XXXXXX.err")
         if python3 -m moni.share.brief_html \
             --db "$DB_PATH" \
             --article-ids "$article_ids_str" \
             --output "$output_path" \
-            --title "$brief_title" 2>>"$LOG_FILE"; then
+            --title "$brief_title" \
+            >"$brief_err" 2>&1; then
+            cat "$brief_err" >>"$LOG_FILE" 2>/dev/null || true
+            rm -f "$brief_err"
             log "BRIEF_HTML $task_id -> $output_path"
             update_progress "$task_id" "writing_artifact" 95 "HTML 已写入 $output_path"
             task_status_update "$task_id" "done" "$output_path"
@@ -750,7 +767,14 @@ print(p.get('title') or ('同业简报 — ' + date.today().isoformat()))
             log "DONE $task_id -> $output_path"
             return 0
         else
+            cat "$brief_err" >>"$LOG_FILE" 2>/dev/null || true
+            local brief_tail
+            brief_tail=$(tail -c 400 "$brief_err" 2>/dev/null | tr '\n' ' ' | head -c 300 || true)
+            rm -f "$brief_err"
             error_msg="brief_html render failed"
+            if [[ -n "${brief_tail// /}" ]]; then
+                error_msg="brief_html render failed: $brief_tail"
+            fi
             log "FAIL $task_id — $error_msg"
             task_status_update "$task_id" "failed" "" "$error_msg"
             return 0
