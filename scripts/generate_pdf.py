@@ -39,19 +39,29 @@ def load_config():
     defaults = {
         'colors': {
             'primary': '#1a365d', 'accent': '#d97706', 'accent_light': '#fef3c7',
+            # v1.0.15: soft wash for summary / quote blocks (fill, not stroke)
+            'summary_bg': '#fff4e6',
             'text': '#2a3447', 'muted': '#6b7280', 'border': '#e5e1d8',
-            'tag_bg': '#f3f4f6', 'white': '#ffffff',
+            'tag_bg': '#f3f4f6', 'white': '#ffffff', 'page_bg': '#fffcf7',
         },
-        'header': {'title_font_size': 28, 'date_font_size': 14, 'padding_top': 30, 'padding_bottom': 25},
+        'header': {'title_font_size': 26, 'date_font_size': 12, 'padding_top': 22, 'padding_bottom': 18},
         'article': {
-            'number_font_size': 32, 'title_font_size': 18, 'title_space_after': 6,
-            'source_font_size': 10, 'body_font_size': 11, 'body_line_height': 18,
+            'number_font_size': 28, 'title_font_size': 15, 'title_space_after': 4,
+            'source_font_size': 9, 'body_font_size': 10.5, 'body_line_height': 16,
             'section_label_prefix': '▎',
         },
         'tag': {'font_size': 9, 'padding': 3, 'radius': 3, 'max_display': 6},
-        'list': {'bullet': '•', 'indent': 15},
-        'quote': {'border_width': 3, 'indent': 20},
-        'divider': {'thickness': 0.5, 'space_before': 15, 'space_after': 15},
+        'list': {'bullet': '•', 'indent': 14},
+        # v1.0.15: quote/summary = soft fill block, no heavy border frame
+        'quote': {
+            'border_width': 0,
+            'indent': 0,
+            'padding': 10,
+            'radius': 4,
+            'space_before': 4,
+            'space_after': 10,
+        },
+        'divider': {'thickness': 0.5, 'space_before': 12, 'space_after': 12},
     }
     
     # 尝试加载 yaml
@@ -162,22 +172,45 @@ def create_styles(font_name, cfg):
         textColor=c(cfg, 'colors.text'),
         leftIndent=cfg['list']['indent'], spaceAfter=4,
     ))
+    # Inner text for soft summary/quote wash (no Paragraph border — Table fills bg)
+    styles.add(ParagraphStyle(
+        name='QuoteInner', fontName=font_name,
+        fontSize=cfg['article']['body_font_size'],
+        leading=cfg['article']['body_line_height'],
+        textColor=c(cfg, 'colors.text'),
+        spaceAfter=0,
+    ))
+    # Legacy name kept for any external callers
     styles.add(ParagraphStyle(
         name='Quote', fontName=font_name,
         fontSize=cfg['article']['body_font_size'],
         leading=cfg['article']['body_line_height'],
-        textColor=c(cfg, 'colors.muted'),
-        leftIndent=cfg['quote']['indent'],
-        borderPadding=12,
-        borderColor=c(cfg, 'colors.accent'),
-        borderWidth=cfg['quote']['border_width'],
-        spaceAfter=12,
+        textColor=c(cfg, 'colors.text'),
+        spaceAfter=0,
+    ))
+    styles.add(ParagraphStyle(
+        name='SectionH2', fontName=font_name,
+        fontSize=16, leading=22,
+        textColor=c(cfg, 'colors.primary'),
+        spaceBefore=6, spaceAfter=10,
+    ))
+    styles.add(ParagraphStyle(
+        name='MetaLine', fontName=font_name,
+        fontSize=cfg['article']['source_font_size'],
+        leading=cfg['article']['source_font_size'] + 5,
+        textColor=c(cfg, 'colors.muted'), spaceAfter=8,
     ))
     styles.add(ParagraphStyle(
         name='TagText', fontName=font_name,
         fontSize=cfg['tag']['font_size'],
         leading=cfg['tag']['font_size'] + 3,
         textColor=c(cfg, 'colors.muted'),
+    ))
+    styles.add(ParagraphStyle(
+        name='DeckLine', fontName=font_name,
+        fontSize=10, leading=15,
+        textColor=c(cfg, 'colors.muted'),
+        alignment=TA_CENTER, spaceAfter=4,
     ))
     return styles
 
@@ -258,6 +291,46 @@ def make_tag_pill(tag_text, styles, cfg):
     return tag_table
 
 
+def make_summary_block(text: str, styles, cfg, width: float):
+    """v1.0.15: soft orange wash for 摘要 / blockquote — fill only, no frame.
+
+    Previous Quote ParagraphStyle used borderWidth=3 + accent stroke → ugly
+    yellow/orange box. User wants a light orange background chip instead.
+    """
+    body = (text or "").strip() or "（无摘要）"
+    pad = int(cfg.get('quote', {}).get('padding', 10))
+    radius = int(cfg.get('quote', {}).get('radius', 4))
+    bg = c(cfg, 'colors.summary_bg') or c(cfg, 'colors.accent_light')
+    inner = Paragraph(format_text(body), styles['QuoteInner'])
+    tbl = Table([[inner]], colWidths=[width])
+    tbl.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), bg),
+        ('TOPPADDING', (0, 0), (-1, -1), pad),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), pad),
+        ('LEFTPADDING', (0, 0), (-1, -1), pad + 2),
+        ('RIGHTPADDING', (0, 0), (-1, -1), pad + 2),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('ROUNDEDCORNERS', [radius] * 4),
+        # Explicitly no BOX / LINEBELOW — fill only
+    ]))
+    return tbl
+
+
+def _is_section_heading(text: str) -> bool:
+    """Headings that must not get the orange article index (01/02…)."""
+    t = (text or "").strip()
+    if not t:
+        return False
+    # 优先关注 / 目录 / 导读 etc.
+    keys = ("优先关注", "今日要点", "目录", "导读", "摘要总览", "Highlights", "TL;DR")
+    return any(k in t for k in keys) and len(t) < 40
+
+
+def _is_meta_body(text: str) -> bool:
+    t = (text or "").strip()
+    return ("来源" in t) or t.startswith("from moni") or ("质量" in t and "业务价值" in t)
+
+
 def build_pdf(md_text, output_path, title="同业追踪日报"):
     """构建 PDF 文件"""
     cfg = load_config()
@@ -266,8 +339,8 @@ def build_pdf(md_text, output_path, title="同业追踪日报"):
     
     doc = SimpleDocTemplate(
         output_path, pagesize=A4,
-        leftMargin=2*cm, rightMargin=2*cm,
-        topMargin=2*cm, bottomMargin=2*cm,
+        leftMargin=1.8*cm, rightMargin=1.8*cm,
+        topMargin=1.6*cm, bottomMargin=1.6*cm,
     )
     
     story = []
@@ -288,12 +361,14 @@ def build_pdf(md_text, output_path, title="同业追踪日报"):
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
     ]))
     story.append(title_table)
-    story.append(Spacer(1, 25))
+    story.append(Spacer(1, 18))
     
     # === 文章 ===
     paragraphs = parse_markdown(md_text)
     article_count = 0
     prefix = cfg['article'].get('section_label_prefix', '▎')
+    q_before = float(cfg.get('quote', {}).get('space_before', 4))
+    q_after = float(cfg.get('quote', {}).get('space_after', 10))
     
     i = 0
     while i < len(paragraphs):
@@ -303,22 +378,32 @@ def build_pdf(md_text, output_path, title="同业追踪日报"):
             pass  # 跳过，已渲染标题区
         
         elif para_type == 'h2':
-            article_count += 1
-            num_str = f"{article_count:02d}"
-            
-            # 查找来源
-            source_text = ""
-            if i + 1 < len(paragraphs) and paragraphs[i+1][0] == 'body':
-                body = paragraphs[i+1][1]
-                if '来源' in body:
-                    source_text = body
-            
-            story.append(Paragraph(num_str, styles['ArticleNumber']))
-            story.append(Paragraph(format_text(content), styles['ArticleTitle']))
-            if source_text:
-                story.append(Paragraph(format_text(source_text), styles['ArticleSource']))
-                i += 1
-            story.append(HRFlowable(width="100%", thickness=1, color=c(cfg, 'colors.border'), spaceAfter=10))
+            heading = content.strip()
+            # v1.0.15: "优先关注" is a section, not article #01
+            if _is_section_heading(heading):
+                story.append(Paragraph(format_text(heading), styles['SectionH2']))
+                story.append(HRFlowable(
+                    width="100%", thickness=1, color=c(cfg, 'colors.border'), spaceAfter=8,
+                ))
+            else:
+                article_count += 1
+                num_str = f"{article_count:02d}"
+
+                # 查找来源 / 元信息行
+                source_text = ""
+                if i + 1 < len(paragraphs) and paragraphs[i + 1][0] == 'body':
+                    body = paragraphs[i + 1][1]
+                    if _is_meta_body(body):
+                        source_text = body
+
+                story.append(Paragraph(num_str, styles['ArticleNumber']))
+                story.append(Paragraph(format_text(heading), styles['ArticleTitle']))
+                if source_text:
+                    story.append(Paragraph(format_text(source_text), styles['MetaLine']))
+                    i += 1
+                story.append(HRFlowable(
+                    width="100%", thickness=0.6, color=c(cfg, 'colors.border'), spaceAfter=8,
+                ))
         
         elif para_type == 'h3':
             label_text = content.strip()
@@ -342,15 +427,35 @@ def build_pdf(md_text, output_path, title="同业追踪日报"):
                 story.append(Paragraph(f"{prefix}{label_text}", styles['SectionLabel']))
         
         elif para_type == 'body':
-            if content.strip():
-                story.append(Paragraph(format_text(content), styles['ArticleBody']))
+            text = content.strip()
+            if not text:
+                pass
+            elif text.startswith("from moni"):
+                story.append(Paragraph(format_text(text), styles['DeckLine']))
+            elif re.match(r'^\*?\*?摘要\*?\*?\s*[:：]', text):
+                # "**摘要**:" alone as body — label only; quote follows
+                story.append(Paragraph(f"{prefix}摘要", styles['SectionLabel']))
+            elif re.match(r'^\*?\*?事实核查\*?\*?\s*[:：]', text):
+                story.append(Paragraph(f"{prefix}事实核查", styles['SectionLabel']))
+            elif _is_meta_body(text):
+                story.append(Paragraph(format_text(text), styles['MetaLine']))
+            else:
+                story.append(Paragraph(format_text(text), styles['ArticleBody']))
         
         elif para_type == 'li':
             bullet = cfg['list']['bullet']
             story.append(Paragraph(f"{bullet}  {format_text(content)}", styles['ListItem']))
         
         elif para_type == 'quote':
-            story.append(Paragraph(format_text(content), styles['Quote']))
+            # Merge consecutive > lines into one soft block
+            chunks = [content]
+            while i + 1 < len(paragraphs) and paragraphs[i + 1][0] == 'quote':
+                i += 1
+                chunks.append(paragraphs[i][1])
+            merged = " ".join(c.strip() for c in chunks if c and c.strip())
+            story.append(Spacer(1, q_before))
+            story.append(make_summary_block(merged, styles, cfg, doc.width))
+            story.append(Spacer(1, q_after))
         
         elif para_type == 'hr':
             story.append(Spacer(1, cfg['divider']['space_before']))
