@@ -431,9 +431,10 @@ def create_brief(body: BriefCreateRequest) -> BriefCreateResponse:
                 },
             )
 
-    # v1.0.15: refuse brief when some pins have neither summary nor body
+    # v1.0.15: if *all* pins lack usable content, refuse; partial set still
+    # enqueues — HTML render drops weak items and lists them in a footer.
     unready = find_unready_articles(str(get_db_path()), article_ids)
-    if unready:
+    if unready and len(unready) >= len(article_ids):
         titles = [u["title"] for u in unready[:12]]
         raise BadRequestError(
             message="articles_not_ready",
@@ -441,8 +442,8 @@ def create_brief(body: BriefCreateRequest) -> BriefCreateResponse:
                 "articles": unready,
                 "count": len(unready),
                 "hint": (
-                    "以下 Pin 既无可用摘要也无全文，生成简报无实质内容。"
-                    "请先补抓取/重抓，或在文章流确认正文入库后再试。"
+                    "全部 Pin 均信息不足（缺正文/摘要/业务判断/事实核查），"
+                    "无法生成有价值简报。请先补抓取或补跑增强后再试。"
                 ),
                 "titles": titles,
             },

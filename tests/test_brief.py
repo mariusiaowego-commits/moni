@@ -42,12 +42,29 @@ def client(fresh_db: Path) -> TestClient:
 def _insert_article(aid: str, title: str, body: str = "正文足够长，用于通过简报就绪校验。" * 20) -> None:
     conn = get_db()
     now = datetime.now(timezone.utc).isoformat()
+    # Seed summary + BV + FC so v1.0.15 readiness / exclusion gates pass
     conn.execute(
         """
-        INSERT INTO articles (id, title, url, source, publisher, published_at, fetched_at, raw_content)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO articles (
+          id, title, url, source, publisher, published_at, fetched_at, raw_content,
+          ai_summary, business_value_score, business_value_note, fact_check_conclusion
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (aid, title, f"https://example.com/{aid}", "testsrc", "Pub", now, now, body),
+        (
+            aid,
+            title if len(title) >= 4 else f"标题-{aid}",
+            f"https://example.com/{aid}",
+            "testsrc",
+            "Pub",
+            now,
+            now,
+            body,
+            f"{title}的摘要：包含核心事实与可对标结论，长度足够用于简报卡片展示。",
+            72,
+            "对同业数字化有对标参考价值",
+            "无需核查",
+        ),
     )
     conn.commit()
 
