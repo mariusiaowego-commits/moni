@@ -26,8 +26,9 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from moni.db.connection import get_db
+from moni.db.connection import get_db, get_db_path
 from moni.share.artifacts import ARTIFACTS_DIR, ensure_artifact
+from moni.share.brief_html import find_unready_articles
 from moni.share.formats import validate_manifest
 from moni.share.manifest import write_manifest
 from moni.share.worker import LOG_FILE, launch_worker, tail_log
@@ -429,6 +430,23 @@ def create_brief(body: BriefCreateRequest) -> BriefCreateResponse:
                     "hint": "已有相同 Pin 集的任务在排队或运行；确认后再生成请传 force=true",
                 },
             )
+
+    # v1.0.15: refuse brief when some pins have neither summary nor body
+    unready = find_unready_articles(str(get_db_path()), article_ids)
+    if unready:
+        titles = [u["title"] for u in unready[:12]]
+        raise BadRequestError(
+            message="articles_not_ready",
+            details={
+                "articles": unready,
+                "count": len(unready),
+                "hint": (
+                    "以下 Pin 既无可用摘要也无全文，生成简报无实质内容。"
+                    "请先补抓取/重抓，或在文章流确认正文入库后再试。"
+                ),
+                "titles": titles,
+            },
+        )
 
     # Default format: offline HTML brief (full body + collapsible 原文)
     format_name = (body.format or "html_landing").strip()

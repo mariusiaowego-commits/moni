@@ -39,7 +39,7 @@ def client(fresh_db: Path) -> TestClient:
     return TestClient(create_app())
 
 
-def _insert_article(aid: str, title: str, body: str = "正文足够长" * 30) -> None:
+def _insert_article(aid: str, title: str, body: str = "正文足够长，用于通过简报就绪校验。" * 20) -> None:
     conn = get_db()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
@@ -190,6 +190,22 @@ class TestBriefApi:
                 assert payload["brief"] is True
                 assert payload["include_business_value"] is True
                 assert payload["include_fact_check"] is True
+
+    def test_brief_unready_articles_400(self, client: TestClient, fresh_db: Path):
+        """v1.0.15: pins with neither summary nor body → 400 articles_not_ready."""
+        _insert_article("thin-a", "空标题A", body="")
+        _insert_article("thin-b", "空标题B", body="x")  # still thin < 200
+        # overwrite raw to empty
+        conn = get_db()
+        conn.execute("UPDATE articles SET raw_content='' WHERE id IN ('thin-a','thin-b')")
+        conn.commit()
+        _pin("thin-a")
+        _pin("thin-b")
+        r = client.post("/api/share/brief", json={"format": "html_landing"})
+        assert r.status_code == 400, r.text
+        body = r.json()
+        assert body.get("message") == "articles_not_ready"
+        assert body.get("details", {}).get("count", 0) >= 1
 
     def test_brief_duplicate_active_409(self, client: TestClient, fresh_db: Path):
         """v1.0.14: second brief with same pin set while pending → 409 unless force."""

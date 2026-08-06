@@ -30,6 +30,10 @@ from moni.share.enrichment import (
 # Display copy when raw body is missing / too short (aligned with PDF brief prompt v1.0.15)
 _THIN_SUMMARY_COPY = "仅标题/短帖入库，正文未抓取，无可展开摘要。"
 
+_EMPTY_SUM_MARKERS = frozenset(
+    {"", "素材不足", "（无摘要）", "无摘要", "（暂无可用摘要）", "—", "-"}
+)
+
 
 def _esc(s: Any) -> str:
     return html.escape("" if s is None else str(s), quote=True)
@@ -265,23 +269,77 @@ def _is_thin_article(row: sqlite3.Row) -> bool:
     return _raw_len(row) < THIN_CONTENT_CHARS
 
 
-def _summary_text(row: sqlite3.Row) -> str:
-    """Prefer brief_summary → source summary; never dump bare 素材不足 into the box."""
-    bs = ""
+def _has_body(row: sqlite3.Row) -> bool:
+    """True when we can embed a real article body (not thin/empty title-only)."""
+    try:
+        if (row["brief_body_md"] or "").strip():
+            return True
+    except (KeyError, IndexError, TypeError):
+        pass
+    return not _is_thin_article(row)
+
+
+def _usable_summary_raw(row: sqlite3.Row) -> tuple[str, str] | None:
+    """Return (text, origin) if a real summary exists. origin: ai|bb|source."""
     try:
         bs = (row["brief_summary"] or "").strip()
     except (KeyError, IndexError):
         bs = ""
-    if bs and bs not in ("素材不足", "（无摘要）", "无摘要"):
-        return bs
-    full, _ = pick_source_summary(row)
+    if bs and bs not in _EMPTY_SUM_MARKERS:
+        return bs, "ai"
+    full, origin = pick_source_summary(row)
     full = (full or "").strip()
-    if full and full not in ("素材不足", "（无摘要）", "无摘要"):
-        return full
-    # Thin / empty body: human-readable note (not a two-char corpse in a highlight box)
+    if full and full not in _EMPTY_SUM_MARKERS:
+        o = (origin or "").lower()
+        if "bb" in o or "bestblog" in o:
+            return full, "bb"
+        if "ai" in o or "moni" in o:
+            return full, "ai"
+        return full, "source"
+    return None
+
+
+def _summary_text(row: sqlite3.Row) -> str:
+    """Prefer brief_summary → source summary; never dump bare 素材不足 into the box."""
+    hit = _usable_summary_raw(row)
+    if hit:
+        return hit[0]
     if _is_thin_article(row):
         return _THIN_SUMMARY_COPY
     return "（暂无可用摘要）"
+
+
+def _summary_with_meta(row: sqlite3.Row) -> tuple[str, str, bool]:
+    """(text, origin, is_ai) for rendering AI marks."""
+    hit = _usable_summary_raw(row)
+    if hit:
+        text, origin = hit
+        return text, origin, origin in ("ai", "bb")
+    if _is_thin_article(row):
+        return _THIN_SUMMARY_COPY, "thin", False
+    return "（暂无可用摘要）", "none", False
+
+
+def find_unready_articles(db_path: str, article_ids: list[str]) -> list[dict[str, Any]]:
+    """Articles with neither usable summary nor full body — block brief generation."""
+    rows = _load_rows(db_path, article_ids)
+    bad: list[dict[str, Any]] = []
+    for r in rows:
+        missing: list[str] = []
+        if _usable_summary_raw(r) is None:
+            missing.append("summary")
+        if not _has_body(r):
+            missing.append("body")
+        if set(missing) >= {"summary", "body"}:
+            bad.append(
+                {
+                    "id": str(r["id"]),
+                    "title": _display_title(r),
+                    "missing": ["summary", "body"],
+                    "hint": "需补全文抓取或生成摘要后再纳入简报",
+                }
+            )
+    return bad
 
 
 def _display_title(row: sqlite3.Row) -> str:
@@ -413,8 +471,10 @@ def render_brief_html(
         bv_s = str(bv) if bv is not None else "—"
         focus_items.append(
             f"""<li class="focus-item">
-  <div class="focus-title"><span class="focus-bv">BV {_esc(bv_s)}</span>
-    <strong>{_esc(t)}</strong></div>
+  <div class="focus-title">
+    <span class="focus-bv" title="业务价值（0–100）：对同业/自身业务可对标程度，AI 评估">业务价值 {_esc(bv_s)}</span>
+    <strong>{_esc(t)}</strong>
+  </div>
   <p class="focus-note">{_esc(note)}</p>
 </li>"""
         )
@@ -432,10 +492,12 @@ def render_brief_html(
         thin = _is_thin_article(r)
         body = laid or raw_body or "（无正文）"
         body_html = body_to_html(body)
-        summ = _summary_text(r)
-        summ_thin = summ == _THIN_SUMMARY_COPY or thin and not (r["brief_summary"] or "").strip()
+        summ, sum_origin, sum_is_ai = _summary_with_meta(r)
+        summ_thin = sum_origin in ("thin", "none")
         bv = r["business_value_score"]
         bv_note = _bv_note_display(r["business_value_note"])
+        bv_is_ai = bool(bv_note) and "素材不足" not in (bv_note or "")
+        bv_score_ai = bv is not None
         q = _quality(r)
         pub_date = _format_date(r["published_at"]) or "日期不详"
         url = (r["url"] or "").strip()
@@ -444,31 +506,54 @@ def render_brief_html(
             if url
             else ""
         )
+        fc_items = _fc_items(r)
+        fc_is_ai = not (
+            len(fc_items) == 1 and fc_items[0][0] == "none" and "无需" in fc_items[0][1]
+        )
         fc_lis = []
         _fc_lab = {"ok": "已核实", "warn": "待核实", "bad": "存疑"}
-        for kind, text in _fc_items(r):
+        for kind, fctext in fc_items:
             if kind == "none":
-                fc_lis.append(f"<li class='fc-line fc-plain'>{_esc(text)}</li>")
+                fc_lis.append(f"<li class='fc-line fc-plain'>{_esc(fctext)}</li>")
             else:
-                # icon + 文字 同一容器，claim 紧随其后同一行（不换行断开）
                 lab = _fc_lab.get(kind, "")
                 fc_lis.append(
                     f"<li class='fc-line'>"
                     f"<span class='badge {kind}'>"
                     f"{_badge_svg(kind)}<span class='badge-lab'>{_esc(lab)}</span>"
                     f"</span>"
-                    f"<span class='fc-text'>{_esc(text)}</span>"
+                    f"<span class='fc-text'>{_esc(fctext)}</span>"
                     f"</li>"
                 )
 
         idx = f"{i:02d}"
         bv_s = str(bv) if bv is not None else "—"
-        bv_note_html = (
-            f'<p class="bv-note">{_esc(bv_note)}</p>' if bv_note else ""
+        ai_mark = (
+            '<span class="ai-mark" title="由 moni / hermes 生成或压缩，非原文照搬">'
+            "AI 生成</span>"
         )
+        bv_note_html = ""
+        if bv_note:
+            mark = ai_mark if (bv_is_ai or bv_score_ai) else ""
+            bv_note_html = (
+                f'<p class="bv-note"><span class="bv-note-lab">业务判断</span>'
+                f"{mark}"
+                f'<span class="bv-note-txt">{_esc(bv_note)}</span></p>'
+            )
         sum_cls = "summary-block is-thin" if summ_thin else "summary-block"
-        fold_label = "全文未入库" if thin and not laid else "查看全文"
+        sum_ai = ai_mark if sum_is_ai else ""
+        fc_ai = ai_mark if fc_is_ai else ""
+        fold_open = "全文未入库" if thin and not laid else "查看全文"
+        fold_close = "收起全文"
         card_cls = "card is-thin" if thin and not laid else "card"
+        q_title = (
+            "质量/注意力分（0–100）：综合标题完整度、正文信息量等的启发式评分，"
+            "用于粗略判断文章是否「值得一读」。非机构评级。"
+        )
+        bv_title = (
+            "业务价值（0–100）：对同业/自身业务的可对标、可落地程度。"
+            "由 moni 结合正文做 AI 评估；正文过短时会标「素材不足」。"
+        )
 
         cards.append(
             f"""
@@ -480,43 +565,31 @@ def render_brief_html(
   <div class="meta-row">
     <span class="chip">{_esc(_source_line(r))}</span>
     <span class="chip">{_esc(pub_date)}</span>
-    <span class="chip score-q" title="质量/注意力分">Q {q}</span>
-    <span class="chip score-bv" title="业务价值">BV {bv_s}</span>
+    <span class="chip score" title="{_esc(q_title)}">质量分 {q}</span>
+    <span class="chip score" title="{_esc(bv_title)}">业务价值 {bv_s}</span>
   </div>
   {bv_note_html}
   <div class="sec">
-    <h3 class="sec-label">摘要</h3>
+    <h3 class="sec-label">摘要 {sum_ai}</h3>
     <div class="{sum_cls}">{_esc(summ)}</div>
   </div>
   <div class="sec">
-    <h3 class="sec-label">事实核查</h3>
+    <h3 class="sec-label">事实核查 {fc_ai}</h3>
     <ul class="fc">{''.join(fc_lis)}</ul>
   </div>
   <div class="orig-wrap">
-    <button type="button" class="orig-toggle bd-root" aria-expanded="false">
-      <span class="bd-pill" aria-hidden="true">
-        <svg class="bd-chevs" width="14" height="16" viewBox="0 0 14 16">
-          <g class="bd-dots" fill="#78716c">
-            <circle class="bd-dot" cx="2" cy="2" r="1" style="animation-delay:0s"/>
-            <circle class="bd-dot" cx="5" cy="5" r="1" style="animation-delay:0.1s"/>
-            <circle class="bd-dot" cx="8" cy="8" r="1" style="animation-delay:0.2s"/>
-            <circle class="bd-dot" cx="5" cy="11" r="1" style="animation-delay:0.3s"/>
-            <circle class="bd-dot" cx="2" cy="14" r="1" style="animation-delay:0.4s"/>
-            <circle class="bd-dot" cx="6" cy="2" r="1" style="animation-delay:0.1s"/>
-            <circle class="bd-dot" cx="9" cy="5" r="1" style="animation-delay:0.2s"/>
-            <circle class="bd-dot" cx="12" cy="8" r="1" style="animation-delay:0.3s"/>
-            <circle class="bd-dot" cx="9" cy="11" r="1" style="animation-delay:0.4s"/>
-            <circle class="bd-dot" cx="6" cy="14" r="1" style="animation-delay:0.5s"/>
-          </g>
-        </svg>
-      </span>
-      <span class="bd-label" data-label="{_esc(fold_label)}">{_esc(fold_label)}</span>
+    <button type="button" class="fold-btn" aria-expanded="false"
+            data-label-open="{_esc(fold_open)}" data-label-close="{_esc(fold_close)}">
+      <span class="fold-chev" aria-hidden="true"></span>
+      <span class="fold-txt">{_esc(fold_open)}</span>
     </button>
     <div class="orig-panel" aria-hidden="true">
-      <div class="orig-scroll">
-        <div class="orig-body">{body_html}</div>
+      <div class="orig-inner">
+        <div class="orig-scroll">
+          <div class="orig-body">{body_html}</div>
+        </div>
+        <div class="orig-foot">{link_html}</div>
       </div>
-      <div class="orig-foot">{link_html}</div>
     </div>
   </div>
 </article>
@@ -529,8 +602,7 @@ def render_brief_html(
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>{_esc(title)}</title>
-<!-- GSAP: light height tween only -->
-<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer></script>
+
 <style>
   :root {{
     --bg: #f5f2eb;
@@ -538,12 +610,15 @@ def render_brief_html(
     --text: #1c1917;
     --muted: #78716c;
     --border: #e7e0d4;
-    /* v1.0.15: warm moni palette (align PDF navy/amber) */
-    --accent: #c2410c;
-    --accent-soft: #d97706;
     --navy: #1a365d;
+    --accent: #b45309;
+    --accent-soft: #d97706;
+    --tone-0: #faf7f2;
+    --tone-1: #f3ebe0;
+    --tone-2: #e8d9c4;
+    --tone-3: #ddc9a8;
     --panel: #f0ebe3;
-    --summary-bg: #fff4e6;   /* soft orange wash — fill only, no frame */
+    --summary-bg: #fff4e6;
     --focus-bg: #f8f4ee;
     --focus-border: #e8d9c4;
     --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC",
@@ -557,300 +632,162 @@ def render_brief_html(
     line-height: 1.75; font-size: 17px;
     -webkit-font-smoothing: antialiased;
   }}
-  .wrap {{
-    max-width: 960px;          /* desktop reading width */
-    margin: 0 auto;
-    padding: 40px 32px 72px;
-  }}
+  .wrap {{ max-width: 960px; margin: 0 auto; padding: 48px 36px 80px; }}
   h1 {{
     font-family: var(--serif);
-    font-size: 2rem; margin: 0 0 8px; letter-spacing: -0.02em;
+    font-size: 2rem; margin: 0 0 12px; letter-spacing: -0.02em;
     font-weight: 700; line-height: 1.25;
   }}
   .sub {{
-    color: var(--muted); margin: 0 0 28px; font-size: 0.95rem;
+    color: var(--muted); margin: 0 0 36px; font-size: 0.95rem;
     font-family: var(--sans);
   }}
-
-  /* —— 优先关注：完整文案，不截断 —— */
   .focus {{
-    background: var(--focus-bg);
-    border: 1px solid var(--focus-border);
-    border-radius: 14px;
-    padding: 20px 22px 18px;
-    margin: 0 0 28px;
+    background: var(--focus-bg); border: 1px solid var(--focus-border);
+    border-radius: 14px; padding: 28px 26px 24px; margin: 0 0 40px;
   }}
   .focus > h2 {{
-    margin: 0 0 14px; font-size: 1.05rem; font-family: var(--sans);
+    margin: 0 0 20px; font-size: 1.05rem; font-family: var(--sans);
     font-weight: 650; letter-spacing: 0.02em; color: var(--navy);
   }}
   .focus-list {{ list-style: none; margin: 0; padding: 0; counter-reset: fi; }}
   .focus-item {{
     counter-increment: fi;
-    margin: 0 0 14px; padding: 12px 14px 12px 44px; position: relative;
-    background: rgba(255,255,255,0.78); border-radius: 10px;
+    margin: 0 0 18px; padding: 16px 16px 16px 48px; position: relative;
+    background: rgba(255,255,255,0.82); border-radius: 12px;
     border: 1px solid rgba(26,54,93,0.06);
   }}
   .focus-item:last-child {{ margin-bottom: 0; }}
   .focus-item::before {{
     content: counter(fi);
-    position: absolute; left: 12px; top: 12px;
-    width: 24px; height: 24px; border-radius: 999px;
+    position: absolute; left: 14px; top: 16px;
+    width: 26px; height: 26px; border-radius: 999px;
     background: var(--navy); color: #fff;
     font-family: var(--sans); font-size: 12px; font-weight: 700;
     display: flex; align-items: center; justify-content: center;
   }}
   .focus-title {{
-    display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
-    margin: 0 0 6px; line-height: 1.45;
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px;
+    margin: 0 0 10px; line-height: 1.45;
   }}
   .focus-title strong {{ font-weight: 650; font-size: 1.02rem; }}
   .focus-bv {{
     font-family: var(--sans); font-size: 11px; font-weight: 700;
-    letter-spacing: 0.04em; color: #9a3412;
-    background: #ffedd5; border-radius: 999px; padding: 2px 8px;
+    color: var(--navy); background: var(--tone-1); border: 1px solid var(--tone-2);
+    border-radius: 999px; padding: 3px 10px; cursor: help;
   }}
-  .focus-note {{
-    margin: 0; color: #44403c; font-size: 0.98rem; line-height: 1.65;
-  }}
-
+  .focus-note {{ margin: 0; color: #44403c; font-size: 0.98rem; line-height: 1.7; }}
   .card {{
     background: var(--card); border: 1px solid var(--border); border-radius: 14px;
-    padding: 20px 24px 16px; margin: 0 0 18px;
+    padding: 28px 28px 24px; margin: 0 0 32px;
     box-shadow: 0 1px 0 rgba(28,25,23,0.03);
   }}
-  .card.is-thin {{ opacity: 0.96; }}
+  .card.is-thin {{ opacity: 0.97; }}
   .card-head {{
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 10px 14px;
-    align-items: start;
-    margin: 0 0 12px;
+    display: grid; grid-template-columns: auto 1fr; gap: 12px 16px;
+    align-items: start; margin: 0 0 18px;
   }}
   .card-idx {{
-    font-family: var(--sans);
-    font-size: 1.55rem; font-weight: 700; line-height: 1.1;
-    color: var(--accent-soft);
-    letter-spacing: -0.02em;
-    min-width: 1.6em;
+    font-family: var(--sans); font-size: 1.6rem; font-weight: 700; line-height: 1.1;
+    color: var(--accent-soft); letter-spacing: -0.02em; min-width: 1.6em;
   }}
   .card h2 {{
-    font-size: 1.18rem; margin: 0; line-height: 1.4;
-    font-weight: 700; color: var(--navy);
+    font-size: 1.2rem; margin: 0; line-height: 1.45; font-weight: 700; color: var(--navy);
   }}
   .meta-row {{
-    display: flex; flex-wrap: wrap; gap: 6px 8px;
-    margin: 0 0 8px;
-    font-family: var(--sans);
+    display: flex; flex-wrap: wrap; gap: 8px 10px; margin: 0 0 16px; font-family: var(--sans);
   }}
   .chip {{
-    display: inline-flex; align-items: center;
-    font-size: 0.78rem; color: var(--muted);
-    background: #f3f0ea; border-radius: 999px;
-    padding: 3px 10px; max-width: 100%;
-    line-height: 1.35;
+    display: inline-flex; align-items: center; font-size: 0.8rem; color: var(--navy);
+    background: var(--tone-1); border: 1px solid var(--tone-2);
+    border-radius: 999px; padding: 5px 12px; max-width: 100%; line-height: 1.4;
   }}
-  .chip.score-q {{
-    color: #1e3a5f; background: #e8eef6; font-weight: 650;
-  }}
-  .chip.score-bv {{
-    color: #9a3412; background: #ffedd5; font-weight: 650;
+  .chip.score {{
+    font-weight: 650; cursor: help; background: var(--tone-0);
+    border-color: var(--tone-2); color: var(--navy);
   }}
   .bv-note {{
-    margin: 0 0 12px; font-size: 0.9rem; line-height: 1.55;
-    color: #57534e; font-family: var(--sans);
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 10px;
+    margin: 0 0 20px; padding: 14px 16px;
+    background: var(--tone-0); border-radius: 10px; border: 1px solid var(--tone-2);
+    font-size: 0.92rem; line-height: 1.65; color: #44403c; font-family: var(--sans);
   }}
-  .sec {{ margin: 14px 0 4px; }}
+  .bv-note-lab {{ font-weight: 650; color: var(--navy); font-size: 0.78rem; letter-spacing: 0.04em; }}
+  .bv-note-txt {{ flex: 1 1 12em; min-width: 0; }}
+  .ai-mark {{
+    display: inline-flex; align-items: center;
+    font-family: var(--sans); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em;
+    color: var(--navy); background: var(--tone-1); border: 1px solid var(--tone-2);
+    border-radius: 4px; padding: 2px 6px; vertical-align: middle; margin-left: 6px; cursor: help;
+  }}
+  .sec {{ margin: 24px 0 10px; }}
+  .sec + .sec {{ margin-top: 30px; }}
   .sec-label {{
-    font-size: 0.8rem; margin: 0 0 8px; color: var(--accent-soft);
-    font-weight: 650; font-family: var(--sans); letter-spacing: 0.06em;
+    font-size: 0.82rem; margin: 0 0 14px; color: var(--accent);
+    font-weight: 650; font-family: var(--sans); letter-spacing: 0.04em;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
   }}
-  .sec-label::before {{
-    content: "▎";
-    margin-right: 4px;
-    color: var(--accent-soft);
-  }}
-  /* v1.0.15: 摘要 = soft orange wash, NO left stroke / frame (PDF-aligned) */
+  .sec-label::before {{ content: "▎"; margin-right: 2px; color: var(--accent-soft); }}
   .summary-block {{
-    margin: 0;
-    padding: 12px 14px;
-    background: var(--summary-bg);
-    border: none;
-    border-radius: 10px;
-    color: #292524;
-    font-size: 1.02rem;
-    line-height: 1.65;
+    margin: 0; padding: 16px 18px; background: var(--summary-bg);
+    border: none; border-radius: 10px; color: #292524; font-size: 1.02rem; line-height: 1.75;
   }}
-  .summary-block.is-thin {{
-    background: #f3f0ea;
-    color: var(--muted);
-    font-size: 0.95rem;
+  .summary-block.is-thin {{ background: var(--tone-1); color: var(--muted); font-size: 0.95rem; }}
+  .orig-body blockquote, blockquote {{
+    margin: 0.7em 0; padding: 10px 14px; border-left: 3px solid var(--tone-2);
+    background: var(--tone-0); border-radius: 0 8px 8px 0; color: #44403c;
   }}
-  /* body-of-article blockquotes keep a quiet left rule */
-  .orig-body blockquote,
-  blockquote {{
-    margin: 0.7em 0; padding: 10px 14px;
-    border-left: 3px solid #d6d3d1;
-    background: #f5f5f4; border-radius: 0 8px 8px 0; color: #44403c;
-  }}
-  .fc {{ list-style: none; padding: 0; margin: 0; }}
+  .fc {{ list-style: none; padding: 0; margin: 4px 0 0; }}
   .fc-line {{
-    margin: 8px 0;
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: flex-start;
-    gap: 8px;
+    margin: 0 0 14px; display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 10px;
   }}
+  .fc-line:last-child {{ margin-bottom: 0; }}
   .fc-plain {{ color: var(--muted); font-family: var(--sans); }}
   .badge {{
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    flex-shrink: 0;
-    font-size: 12px;
-    font-weight: 600;
-    font-family: var(--sans);
-    padding: 2px 8px 2px 4px;
-    border-radius: 999px;
-    white-space: nowrap;
-    line-height: 1.4;
+    display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
+    font-size: 12px; font-weight: 600; font-family: var(--sans);
+    padding: 3px 9px 3px 5px; border-radius: 999px; white-space: nowrap; line-height: 1.4;
+    border: 1px solid var(--tone-2); background: var(--tone-1); color: var(--navy);
   }}
-  .badge.ok {{ background: #dcfce7; color: #166534; }}
-  .badge.warn {{ background: #fef3c7; color: #92400e; }}
-  .badge.bad {{ background: #fee2e2; color: #991b1b; }}
+  .badge.ok {{ background: #f0ebe3; color: #3f3a34; border-color: #ddd0bc; }}
+  .badge.warn {{ background: #fff4e6; color: #9a3412; border-color: #f0d9b5; }}
+  .badge.bad {{ background: #f5e6e0; color: #7c2d12; border-color: #e8c4b0; }}
   .badge svg {{ flex-shrink: 0; display: block; }}
   .badge-lab {{ letter-spacing: 0.02em; }}
-  .fc-text {{
-    flex: 1 1 auto;
-    min-width: 0;
-    line-height: 1.55;
-    color: #1c1917;
+  .fc-text {{ flex: 1 1 auto; min-width: 0; line-height: 1.65; color: #1c1917; }}
+  .orig-wrap {{ margin-top: 28px; border-top: 1px dashed var(--border); padding-top: 22px; }}
+  .fold-btn {{
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    width: 100%; min-height: 44px; padding: 10px 16px;
+    border: 1px solid var(--tone-2); border-radius: 10px; cursor: pointer;
+    font-family: var(--sans); font-size: 14px; font-weight: 600; letter-spacing: 0.03em;
+    color: var(--navy); background: var(--tone-0);
+    transition: background 0.15s ease, border-color 0.15s ease;
   }}
-
-  /* —— 折叠按钮：浅灰克制；仅 click 才滑 pill / 渐隐文案 —— */
-  .orig-wrap {{
-    margin-top: 18px;
-    border-top: 1px dashed var(--border);
-    padding-top: 14px;
-    padding-left: 4px;
-    padding-right: 4px;
+  .fold-btn:hover {{ background: var(--tone-1); border-color: var(--tone-3); }}
+  .fold-btn:focus-visible {{ outline: 2px solid var(--accent-soft); outline-offset: 2px; }}
+  .fold-chev {{
+    width: 0; height: 0;
+    border-left: 5px solid transparent; border-right: 5px solid transparent;
+    border-top: 6px solid var(--muted); transition: transform 0.25s ease;
   }}
-  .bd-root {{
-    --shell-from: #f7f6f4;
-    --shell-to: #efeeeb;
-    --pill-from: #e8e6e2;
-    --pill-to: #d8d5cf;
-    --ink: #57534e;
-    --ink-soft: #78716c;
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 48px;
-    padding: 0 12px 0 4px;
-    border: 1px solid #e4e2dc;
-    border-radius: 12px;
-    cursor: pointer;
-    overflow: hidden;
-    font-family: var(--sans);
-    color: var(--ink);
-    background: linear-gradient(180deg, var(--shell-from) 0%, var(--shell-to) 100%);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 3px rgba(28,25,23,0.04);
-    transition: transform 0.15s ease, border-color 0.2s ease;
-  }}
-  .bd-root:hover {{
-    border-color: #d4d1c9;
-  }}
-  .bd-root:active {{ transform: scale(0.992); }}
-  .bd-root:focus-visible {{ outline: 2px solid #a8a29e; outline-offset: 2px; }}
-  .bd-pill {{
-    position: absolute;
-    top: 4px; left: 4px; bottom: 4px;
-    width: 40px;
-    display: flex; align-items: center; justify-content: center;
-    border-radius: 8px;
-    background: linear-gradient(180deg, var(--pill-from) 0%, var(--pill-to) 100%);
-    box-shadow:
-      inset 0 1px 0 rgba(255,255,255,0.7),
-      inset 0 -1px 2px rgba(0,0,0,0.04);
-    /* 仅 aria-expanded 驱动宽度，不用 hover */
-    transition: width 0.42s cubic-bezier(0.22,1,0.36,1);
-    z-index: 1;
-  }}
-  .bd-root[aria-expanded="true"] .bd-pill {{
-    width: calc(100% - 8px);
-  }}
-  .bd-label {{
-    position: absolute;
-    left: 0; right: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 2;
-    margin: 0;
-    text-align: center;
-    font-size: 15px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    color: var(--ink);
-    pointer-events: none;
-    opacity: 1;
-  }}
-  .bd-label .bd-ch {{
-    display: inline-block;
-    will-change: contents, opacity, text-shadow;
-  }}
-  .bd-root[aria-expanded="true"] .bd-label {{
-    opacity: 0 !important;
-    visibility: hidden;
-    pointer-events: none;
-  }}
-  .bd-chevs .bd-dots {{ fill: #78716c; }}
-  @keyframes bd-dot-wave {{
-    0%, 72%, 100% {{ opacity: 0.25; transform: scale(0.78); }}
-    36% {{ opacity: 0.9; transform: scale(1.04); }}
-  }}
-  .bd-dot {{
-    transform-box: fill-box;
-    transform-origin: center;
-    animation: bd-dot-wave 3.2s cubic-bezier(0.45,0.05,0.55,0.95) infinite;
-  }}
-  /* 展开后箭头略加快，hover 不再改进度 */
-  .bd-root[aria-expanded="true"] .bd-dot {{
-    animation-duration: 2.4s;
-  }}
-  @media (prefers-reduced-motion: reduce) {{
-    .bd-dot {{ animation: none; opacity: 0.7; }}
-    .bd-pill {{ transition: none; }}
-  }}
-  .orig-panel {{
-    height: 0; overflow: hidden; will-change: height;
-  }}
+  .fold-btn[aria-expanded="true"] .fold-chev {{ transform: rotate(180deg); }}
+  .orig-panel {{ overflow: hidden; max-height: 0; transition: max-height 0.32s ease; }}
+  .orig-inner {{ padding-top: 16px; }}
   .orig-scroll {{
-    margin-top: 12px;
-    max-height: 420px;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 18px 20px;
-    font-size: 1.02rem;
-    color: #1c1917;
-    line-height: 1.8;
+    max-height: 420px; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 20px 22px; font-size: 1.02rem; color: #1c1917; line-height: 1.85;
   }}
   .orig-body {{ white-space: normal; word-break: break-word; font-family: var(--serif); }}
-  .orig-body h2 {{ font-size: 1.12rem; margin: 1.15em 0 0.5em; color: var(--text); }}
-  .orig-body h3 {{ font-size: 1.04rem; margin: 1.05em 0 0.45em; color: #44403c; }}
-  .orig-body h4 {{ font-size: 0.98rem; margin: 0.95em 0 0.4em; color: #57534e; }}
-  .orig-body p {{ margin: 0 0 0.85em; }}
+  .orig-body h2 {{ font-size: 1.12rem; margin: 1.2em 0 0.55em; color: var(--text); }}
+  .orig-body h3 {{ font-size: 1.04rem; margin: 1.1em 0 0.5em; color: #44403c; }}
+  .orig-body h4 {{ font-size: 0.98rem; margin: 1em 0 0.45em; color: #57534e; }}
+  .orig-body p {{ margin: 0 0 0.95em; }}
   .orig-body p:last-child {{ margin-bottom: 0; }}
-  .orig-body ul, .orig-body ol {{ margin: 0 0 0.85em; padding-left: 1.4em; }}
-  .orig-body li {{ margin: 0.3em 0; }}
-  .orig-body blockquote {{
-    /* inherits quiet rule from global blockquote */
-  }}
-  .orig-body hr {{ border: 0; border-top: 1px solid #d6d3d1; margin: 1.1em 0; }}
+  .orig-body ul, .orig-body ol {{ margin: 0 0 0.95em; padding-left: 1.4em; }}
+  .orig-body li {{ margin: 0.35em 0; }}
+  .orig-body hr {{ border: 0; border-top: 1px solid #d6d3d1; margin: 1.2em 0; }}
   .orig-body code {{
     font-family: ui-monospace, Consolas, monospace; font-size: 0.88em;
     background: #e7e5e4; padding: 0.1em 0.35em; border-radius: 4px;
@@ -859,24 +796,70 @@ def render_brief_html(
   .orig-body a:hover {{ text-decoration: underline; }}
   .orig-body strong {{ font-weight: 700; color: #0c0a09; }}
   .orig-body .empty {{ color: var(--muted); }}
-  .orig-foot {{ margin-top: 10px; font-size: 0.85rem; font-family: var(--sans); }}
+  .orig-foot {{ margin-top: 12px; font-size: 0.85rem; font-family: var(--sans); }}
   .orig-foot .ext {{ color: var(--muted); }}
-
   .foot {{
     text-align: center; color: var(--muted); font-size: 0.88rem;
-    margin-top: 36px; font-family: var(--sans);
+    margin-top: 48px; font-family: var(--sans);
   }}
   @media print {{
-    .orig-panel {{ height: auto !important; overflow: visible !important; }}
+    .orig-panel {{ max-height: none !important; overflow: visible !important; }}
     .orig-scroll {{ max-height: none; overflow: visible; }}
-    .bd-root {{ display: none; }}
+    .fold-btn {{ display: none; }}
     .wrap {{ max-width: none; }}
   }}
   @media (max-width: 720px) {{
-    .wrap {{ padding: 24px 16px 48px; }}
+    .wrap {{ padding: 28px 16px 56px; }}
     body {{ font-size: 16px; }}
+    .card {{ padding: 22px 18px 20px; margin-bottom: 24px; }}
+  }}
+  @media (prefers-reduced-motion: reduce) {{
+    .orig-panel, .fold-chev {{ transition: none; }}
   }}
 </style>
+
+<script>
+(function () {{
+  function setOpen(btn, panel, open) {{
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    panel.setAttribute("aria-hidden", open ? "false" : "true");
+    var txt = btn.querySelector(".fold-txt");
+    if (txt) {{
+      txt.textContent = open
+        ? (btn.getAttribute("data-label-close") || "收起全文")
+        : (btn.getAttribute("data-label-open") || "查看全文");
+    }}
+    if (open) {{
+      panel.style.maxHeight = "none";
+      var h = panel.scrollHeight;
+      panel.style.maxHeight = "0px";
+      void panel.offsetHeight;
+      panel.style.maxHeight = h + "px";
+      var done = function () {{
+        if (btn.getAttribute("aria-expanded") === "true") {{
+          panel.style.maxHeight = "none";
+        }}
+        panel.removeEventListener("transitionend", done);
+      }};
+      panel.addEventListener("transitionend", done);
+    }} else {{
+      panel.style.maxHeight = panel.scrollHeight + "px";
+      void panel.offsetHeight;
+      panel.style.maxHeight = "0px";
+    }}
+  }}
+  document.addEventListener("click", function (e) {{
+    var btn = e.target.closest(".fold-btn");
+    if (!btn) return;
+    var wrap = btn.closest(".orig-wrap");
+    if (!wrap) return;
+    var panel = wrap.querySelector(".orig-panel");
+    if (!panel) return;
+    var open = btn.getAttribute("aria-expanded") === "true";
+    setOpen(btn, panel, !open);
+  }});
+}})();
+</script>
 </head>
 <body>
 <div class="wrap">
@@ -892,161 +875,7 @@ def render_brief_html(
 
   <p class="foot">Curated by moni — a TQ project.</p>
 </div>
-<script>
-(function () {{
-  var MATRIX = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789";
-  var ACCENT = "#a8a29e";
 
-  function panelInnerHeight(panel) {{
-    var scroll = panel.querySelector('.orig-scroll');
-    var foot = panel.querySelector('.orig-foot');
-    var h = 0;
-    if (scroll) h += scroll.offsetHeight;
-    if (foot) h += foot.offsetHeight + 8;
-    return h;
-  }}
-
-  function clearLabelTimers(label) {{
-    if (label._bdIntervals) {{
-      label._bdIntervals.forEach(clearInterval);
-      label._bdIntervals = [];
-    }}
-    if (label._bdTimeouts) {{
-      label._bdTimeouts.forEach(clearTimeout);
-      label._bdTimeouts = [];
-    }}
-    if (window.gsap) window.gsap.killTweensOf(label.querySelectorAll('.bd-ch'));
-  }}
-
-  function setPlainLabel(label, text) {{
-    clearLabelTimers(label);
-    label.style.visibility = 'visible';
-    label.textContent = text;
-    label.style.opacity = '1';
-    label.style.color = '';
-  }}
-
-  /** 仅 click 展开：matrix 后渐隐并保持消失 */
-  function hideLabelStay(label) {{
-    var finalText = label.getAttribute('data-label') || '查看全文';
-    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    function done() {{
-      label.style.opacity = '0';
-      label.style.visibility = 'hidden';
-      label.textContent = finalText;
-    }}
-    if (reduce || !window.gsap) {{
-      if (window.gsap) {{
-        window.gsap.to(label, {{ opacity: 0, duration: 0.35, ease: 'power2.out', onComplete: done }});
-      }} else {{
-        label.style.transition = 'opacity 0.35s ease';
-        label.style.opacity = '0';
-        setTimeout(done, 360);
-      }}
-      return;
-    }}
-    clearLabelTimers(label);
-    label._bdIntervals = [];
-    label._bdTimeouts = [];
-    label.style.visibility = 'visible';
-    label.innerHTML = '';
-    label.style.opacity = '1';
-    var chars = finalText.split('');
-    var spans = [];
-    chars.forEach(function (ch) {{
-      var span = document.createElement('span');
-      span.className = 'bd-ch';
-      span.style.display = 'inline-block';
-      span.style.color = ACCENT;
-      span.textContent = ch === ' ' ? '\\u00A0' : MATRIX[Math.floor(Math.random() * MATRIX.length)];
-      label.appendChild(span);
-      spans.push(span);
-    }});
-    var locked = 0;
-    spans.forEach(function (span, i) {{
-      if (chars[i] === ' ') {{ locked++; return; }}
-      var scramble = setInterval(function () {{
-        if (!span._locked) span.textContent = MATRIX[Math.floor(Math.random() * MATRIX.length)];
-      }}, 60);
-      label._bdIntervals.push(scramble);
-      var t = setTimeout(function () {{
-        clearInterval(scramble);
-        span._locked = true;
-        span.textContent = chars[i];
-        locked++;
-        if (locked >= spans.length) {{
-          window.gsap.to(label, {{ opacity: 0, duration: 0.35, ease: 'power2.out', onComplete: done }});
-        }}
-      }}, i * 50 + Math.random() * 90);
-      label._bdTimeouts.push(t);
-    }});
-  }}
-
-  function showLabelBack(label) {{
-    var finalText = label.getAttribute('data-label') || '查看全文';
-    clearLabelTimers(label);
-    label.style.visibility = 'visible';
-    if (window.gsap) {{
-      setPlainLabel(label, finalText);
-      window.gsap.fromTo(label, {{ opacity: 0 }}, {{ opacity: 1, duration: 0.35, ease: 'power2.out' }});
-    }} else {{
-      setPlainLabel(label, finalText);
-      label.style.transition = 'opacity 0.35s ease';
-      label.style.opacity = '1';
-    }}
-  }}
-
-  function openPanel(btn, panel) {{
-    btn.setAttribute('aria-expanded', 'true');
-    panel.setAttribute('aria-hidden', 'false');
-    var target = panelInnerHeight(panel);
-    if (window.gsap) {{
-      window.gsap.killTweensOf(panel);
-      window.gsap.fromTo(panel,
-        {{ height: 0 }},
-        {{ height: target, duration: 0.36, ease: 'power2.out',
-           onComplete: function () {{ panel.style.height = 'auto'; }} }}
-      );
-    }} else {{
-      panel.style.height = target + 'px';
-      panel.style.transition = 'height 0.36s ease';
-      setTimeout(function () {{ panel.style.height = 'auto'; }}, 380);
-    }}
-    var label = btn.querySelector('.bd-label');
-    if (label) hideLabelStay(label);
-  }}
-
-  function closePanel(btn, panel) {{
-    btn.setAttribute('aria-expanded', 'false');
-    panel.setAttribute('aria-hidden', 'true');
-    var start = panel.scrollHeight;
-    panel.style.height = start + 'px';
-    void panel.offsetHeight;
-    if (window.gsap) {{
-      window.gsap.killTweensOf(panel);
-      window.gsap.to(panel, {{ height: 0, duration: 0.3, ease: 'power2.in' }});
-    }} else {{
-      panel.style.transition = 'height 0.3s ease';
-      panel.style.height = '0px';
-    }}
-    var label = btn.querySelector('.bd-label');
-    if (label) showLabelBack(label);
-  }}
-
-  /* 仅 click 切换 pill 滑动与文案动效；hover 不启动 */
-  document.addEventListener('click', function (e) {{
-    var btn = e.target.closest('.orig-toggle');
-    if (!btn) return;
-    var wrap = btn.closest('.orig-wrap');
-    if (!wrap) return;
-    var panel = wrap.querySelector('.orig-panel');
-    if (!panel) return;
-    var open = btn.getAttribute('aria-expanded') === 'true';
-    if (open) closePanel(btn, panel);
-    else openPanel(btn, panel);
-  }});
-}})();
-</script>
 </body>
 </html>
 """

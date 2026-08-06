@@ -67,7 +67,7 @@ def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):  # tmp_pat
 
     html_doc = render_brief_html(str(fresh_db), ["h1"], title="同业简报 — test")
     assert "查看全文" in html_doc
-    assert "orig-toggle" in html_doc or "bd-root" in html_doc
+    assert "fold-btn" in html_doc
     assert "orig-scroll" in html_doc
     assert "max-height: 420px" in html_doc
     assert "var(--serif)" in html_doc or "serif" in html_doc
@@ -78,14 +78,18 @@ def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):  # tmp_pat
     assert "<ul>" in html_doc and "列表甲" in html_doc
     assert "短摘要两句内" in html_doc
     assert "极客公园" in html_doc
-    assert "gsap" in html_doc.lower()
+    assert "MATRIX" not in html_doc  # no exaggerated scramble
+    assert "bd-root" not in html_doc
     assert 'aria-expanded="false"' in html_doc
     assert "from moni by TQ" in html_doc
     assert "Curated by moni" in html_doc
-    # v1.0.15: soft summary wash (not left-stroke blockquote frame)
+    # v1.0.15: soft summary wash + readable score chips + AI mark
     assert "summary-block" in html_doc
     assert "--summary-bg" in html_doc
     assert "card-idx" in html_doc
+    assert "质量分" in html_doc
+    assert "业务价值" in html_doc
+    assert "AI 生成" in html_doc
     # frontmatter stripped
     assert "title: x" not in html_doc
 
@@ -129,6 +133,34 @@ def test_thin_article_summary_copy(fresh_db: Path):
     # publisher prefix stripped from h2
     assert "短讯标题" in html_doc
     assert "[某号]" not in html_doc
+
+
+def test_find_unready_articles(fresh_db: Path):
+    from moni.share.brief_html import find_unready_articles
+
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """
+        INSERT INTO articles
+        (id, title, url, source, publisher, published_at, fetched_at, raw_content)
+        VALUES (?,?,?,?,?,?,?,?)
+        """,
+        ("bad1", "空文", "https://e.com/b", "s", "p", now, now, ""),
+    )
+    conn.execute(
+        """
+        INSERT INTO articles
+        (id, title, url, source, publisher, published_at, fetched_at, raw_content, brief_summary)
+        VALUES (?,?,?,?,?,?,?,?,?)
+        """,
+        ("ok1", "有摘要", "https://e.com/o", "s", "p", now, now, "", "这是可用摘要。"),
+    )
+    conn.commit()
+    bad = find_unready_articles(str(fresh_db), ["bad1", "ok1"])
+    assert len(bad) == 1
+    assert bad[0]["id"] == "bad1"
+    assert "summary" in bad[0]["missing"] and "body" in bad[0]["missing"]
 
 
 def test_body_to_html_plain_paragraphs():
