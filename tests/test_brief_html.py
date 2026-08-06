@@ -81,7 +81,7 @@ def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):  # tmp_pat
     assert "极客公园" in html_doc
     # 业务判断 uses same .fc list layout as 事实核查
     assert "业务判断" in html_doc
-    assert 'badge bv' in html_doc or "badge bv" in html_doc
+    assert "bv-score" in html_doc
     assert "MATRIX" not in html_doc  # no exaggerated scramble
     assert "bd-root" not in html_doc
     assert 'aria-expanded="false"' in html_doc
