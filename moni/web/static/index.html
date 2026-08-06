@@ -698,8 +698,17 @@
               <template x-if="activeBriefTask?.output_url && activeBriefTask?.status === 'done'">
                 <a class="btn-primary" :href="activeBriefTask.output_url" target="_blank">打开产物</a>
               </template>
+              <template x-if="activeBriefTask?.status === 'failed' || activeBriefTask?.status === 'paused'">
+                <button class="btn-secondary" @click="shareTaskResume(activeBriefTask.id)">继续/重试</button>
+              </template>
               <template x-if="activeBriefTask?.status === 'failed'">
-                <button class="btn-secondary" @click="retryBrief()">重试</button>
+                <button class="btn-secondary" @click="retryBrief()">重新生成</button>
+              </template>
+              <template x-if="activeBriefTask && (activeBriefTask.status === 'pending' || activeBriefTask.status === 'running')">
+                <button class="btn-secondary" @click="shareTaskPause(activeBriefTask.id)">暂停</button>
+              </template>
+              <template x-if="activeBriefTask && ['pending','running','paused','failed'].includes(activeBriefTask.status)">
+                <button class="btn-secondary" style="color:#b91c1c;" @click="shareTaskCancel(activeBriefTask.id)">丢弃</button>
               </template>
               <span class="muted" style="font-size:0.8em;" x-text="'任务 ' + (activeBriefTask?.id || '')"></span>
             </div>
@@ -960,12 +969,12 @@
             <table>
               <thead>
                 <!-- v1.0.5.15: 加"输出"列, 让用户直接打开 done task 的 output_path -->
-                <tr><th>任务ID</th><th>文章数</th><th>格式</th><th>状态</th><th>进度</th><th>时间</th><th>输出</th></tr>
+                <tr><th>任务ID</th><th>文章数</th><th>格式</th><th>状态</th><th>进度</th><th>时间</th><th>输出</th><th>操作</th></tr>
               </thead>
               <tbody>
                 <template x-for="q in shareQueue" :key="q.id">
                   <tr>
-                    <td x-text="q.id"></td>
+                    <td x-text="q.id" style="font-size:0.8em; max-width:10em; overflow:hidden; text-overflow:ellipsis;" :title="q.id"></td>
                     <td x-text="q.article_count"></td>
                     <td x-text="q.format"></td>
                     <td><span class="status-badge" :class="'status-' + q.status" x-text="q.status"></span></td>
@@ -997,13 +1006,28 @@
                               x-text="(q.output_path || '').split('/').pop() || '(missing)'"></span>
                       </template>
                       <template x-if="q.status !== 'done'">
-                        <span class="muted" x-text="q.status === 'failed' ? (q.error || 'failed') : '—'"></span>
+                        <span class="muted" x-text="(q.status === 'failed' || q.status === 'cancelled') ? (q.error || q.status) : '—'"></span>
+                      </template>
+                    </td>
+                    <td style="white-space:nowrap;">
+                      <!-- v1.0.14: pause / resume / cancel -->
+                      <template x-if="q.status === 'pending' || q.status === 'running'">
+                        <button class="btn-ghost btn-sm" @click="shareTaskPause(q.id)" title="暂停">暂停</button>
+                      </template>
+                      <template x-if="q.status === 'paused' || q.status === 'failed'">
+                        <button class="btn-ghost btn-sm" @click="shareTaskResume(q.id)" title="继续/重试">继续</button>
+                      </template>
+                      <template x-if="['pending','running','paused','failed'].includes(q.status)">
+                        <button class="btn-ghost btn-sm" style="color:#b91c1c;" @click="shareTaskCancel(q.id)" title="丢弃">丢弃</button>
+                      </template>
+                      <template x-if="q.status === 'done' || q.status === 'cancelled'">
+                        <span class="muted">—</span>
                       </template>
                     </td>
                   </tr>
                 </template>
                 <tr x-show="shareQueue.length === 0">
-                  <td colspan="7" class="empty-row">暂无数据</td>
+                  <td colspan="8" class="empty-row">暂无数据</td>
                 </tr>
               </tbody>
             </table>

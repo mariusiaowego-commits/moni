@@ -31,7 +31,7 @@ from moni.share.artifacts import ARTIFACTS_DIR, ensure_artifact
 from moni.share.formats import validate_manifest
 from moni.share.manifest import write_manifest
 from moni.share.worker import LOG_FILE, launch_worker, tail_log
-from moni.web.exceptions import BadRequestError, NotFoundError
+from moni.web.exceptions import BadRequestError, ConflictError, NotFoundError
 from moni.web.models import (
     BriefCreateRequest,
     BriefCreateResponse,
@@ -349,12 +349,61 @@ def _default_brief_title() -> str:
     return f"同业简报 {datetime.now().strftime('%Y-%m-%d')}"
 
 
+def _article_id_set(raw: Any) -> set[str]:
+    try:
+        ids = json.loads(raw) if isinstance(raw, str) else (raw or [])
+        if not isinstance(ids, list):
+            return set()
+        return {str(x) for x in ids if x}
+    except (TypeError, json.JSONDecodeError):
+        return set()
+
+
+def _find_active_task_same_pins(conn: Any, article_ids: list[str]) -> dict[str, Any] | None:
+    """Return the newest pending/running task whose article set matches *article_ids*."""
+    target = set(article_ids)
+    if not target:
+        return None
+    rows = conn.execute(
+        """
+        SELECT id, status, format, article_ids, created_at
+        FROM share_tasks
+        WHERE status IN ('pending', 'running')
+        ORDER BY created_at DESC
+        """
+    ).fetchall()
+    for row in rows:
+        if _article_id_set(row["article_ids"]) == target:
+            return dict(row)
+    return None
+
+
+def _fetch_share_task_row(conn: Any, task_id: str) -> dict[str, Any] | None:
+    row = conn.execute(
+        """
+        SELECT id, format, article_ids, output_path, status, error,
+               progress_stage, progress_pct, progress_message,
+               created_at, started_at, finished_at, extra
+        FROM share_tasks WHERE id = ?
+        """,
+        (task_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def _now_local() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 @router.post("/brief", response_model=BriefCreateResponse, status_code=201)
 def create_brief(body: BriefCreateRequest) -> BriefCreateResponse:
     """Create a brief share task from **all** current pins and auto-start worker.
 
     Opinionated defaults: abstract + fact_check + business_value ON, BB OFF.
     article_ids are never taken from the client (brief = full pin set).
+
+    v1.0.14: unless ``force=true``, refuse when a pending/running task already
+    covers the same pin set (stops triple-click enqueue storms).
     """
     conn = get_db()
     pin_rows = conn.execute(
@@ -367,6 +416,19 @@ def create_brief(body: BriefCreateRequest) -> BriefCreateResponse:
             message="no_pins",
             details={"hint": "先去文章页 Pin 至少 1 篇，再生成简报"},
         )
+
+    if not body.force:
+        dup = _find_active_task_same_pins(conn, article_ids)
+        if dup is not None:
+            raise ConflictError(
+                message="duplicate_active_brief",
+                details={
+                    "share_id": dup["id"],
+                    "status": dup["status"],
+                    "format": dup.get("format"),
+                    "hint": "已有相同 Pin 集的任务在排队或运行；确认后再生成请传 force=true",
+                },
+            )
 
     # Default format: offline HTML brief (full body + collapsible 原文)
     format_name = (body.format or "html_landing").strip()
@@ -470,20 +532,140 @@ def list_share_tasks(
 def get_share_task(task_id: str) -> ShareTask:
     """Fetch a single share task by its string ID (UUID)."""
     conn = get_db()
-    row = conn.execute(
-        """
-        SELECT id, format, article_ids, output_path, status, error,
-               progress_stage, progress_pct, progress_message,
-               created_at, started_at, finished_at, extra
-        FROM share_tasks WHERE id = ?
-        """,
-        (task_id,),
-    ).fetchone()
-
+    row = _fetch_share_task_row(conn, task_id)
     if row is None:
         raise NotFoundError(message=f"Share task {task_id!r} not found")
+    return _row_to_share_task(row)
 
-    return _row_to_share_task(dict(row))
+
+# ---------------------------------------------------------------------------
+# v1.0.14: task control — pause / resume / cancel
+# ---------------------------------------------------------------------------
+# Status vocabulary (share_tasks.status TEXT, no migration needed):
+#   pending | running | paused | cancelled | done | failed
+# Worker only picks status='pending'.  Cancelled/paused rows are skipped;
+# done/failed writes use WHERE status IN ('pending','running') so a
+# mid-run cancel wins over a late worker UPDATE.
+# ---------------------------------------------------------------------------
+
+
+@router.post("/tasks/{task_id}/pause", response_model=ShareTask)
+def pause_share_task(task_id: str) -> ShareTask:
+    """Pause a pending task (v1: running→pause = soft cancel mark as paused).
+
+    - pending → paused (worker will never start it)
+    - running → paused (worker stage checks abort; in-flight hermes may finish
+      but will not flip to done if status is no longer running)
+    """
+    conn = get_db()
+    row = _fetch_share_task_row(conn, task_id)
+    if row is None:
+        raise NotFoundError(message=f"Share task {task_id!r} not found")
+    st = row["status"]
+    if st not in ("pending", "running"):
+        raise ConflictError(
+            message=f"cannot_pause_{st}",
+            details={"hint": f"任务状态为 {st!r}，仅 pending/running 可暂停"},
+        )
+    conn.execute(
+        """
+        UPDATE share_tasks
+        SET status = 'paused',
+            progress_stage = 'paused',
+            progress_message = '已暂停',
+            error = NULL
+        WHERE id = ? AND status IN ('pending', 'running')
+        """,
+        (task_id,),
+    )
+    conn.commit()
+    logger.info("share task paused: %s (was %s)", task_id, st)
+    updated = _fetch_share_task_row(conn, task_id)
+    assert updated is not None
+    return _row_to_share_task(updated)
+
+
+@router.post("/tasks/{task_id}/resume", response_model=ShareTask)
+def resume_share_task(task_id: str) -> ShareTask:
+    """Resume a paused (or failed) task back to pending and launch worker."""
+    conn = get_db()
+    row = _fetch_share_task_row(conn, task_id)
+    if row is None:
+        raise NotFoundError(message=f"Share task {task_id!r} not found")
+    st = row["status"]
+    if st not in ("paused", "failed"):
+        raise ConflictError(
+            message=f"cannot_resume_{st}",
+            details={"hint": f"任务状态为 {st!r}，仅 paused/failed 可重启"},
+        )
+    conn.execute(
+        """
+        UPDATE share_tasks
+        SET status = 'pending',
+            started_at = NULL,
+            finished_at = NULL,
+            error = NULL,
+            output_path = NULL,
+            progress_stage = 'queued',
+            progress_pct = 0,
+            progress_message = '重新排队'
+        WHERE id = ? AND status IN ('paused', 'failed')
+        """,
+        (task_id,),
+    )
+    conn.commit()
+    worker = launch_worker()
+    logger.info(
+        "share task resumed: %s (was %s) worker=%s",
+        task_id,
+        st,
+        {"started": worker.started, "already_running": worker.already_running},
+    )
+    updated = _fetch_share_task_row(conn, task_id)
+    assert updated is not None
+    return _row_to_share_task(updated)
+
+
+@router.post("/tasks/{task_id}/cancel", response_model=ShareTask)
+def cancel_share_task(task_id: str) -> ShareTask:
+    """Discard a task: pending/paused/running → cancelled (terminal).
+
+    Running workers may still finish hermes, but status=done will not
+    overwrite cancelled (see default_worker.sh task_status_update).
+    """
+    conn = get_db()
+    row = _fetch_share_task_row(conn, task_id)
+    if row is None:
+        raise NotFoundError(message=f"Share task {task_id!r} not found")
+    st = row["status"]
+    if st in ("done", "cancelled"):
+        raise ConflictError(
+            message=f"cannot_cancel_{st}",
+            details={"hint": f"任务已是终态 {st!r}"},
+        )
+    if st not in ("pending", "running", "paused", "failed"):
+        raise ConflictError(
+            message=f"cannot_cancel_{st}",
+            details={"hint": f"不支持取消状态 {st!r}"},
+        )
+    now = _now_local()
+    conn.execute(
+        """
+        UPDATE share_tasks
+        SET status = 'cancelled',
+            finished_at = ?,
+            error = 'cancelled by user',
+            progress_stage = 'cancelled',
+            progress_message = '已丢弃'
+        WHERE id = ? AND status IN ('pending', 'running', 'paused', 'failed')
+        """,
+        (now, task_id),
+    )
+    conn.commit()
+    logger.info("share task cancelled: %s (was %s)", task_id, st)
+    updated = _fetch_share_task_row(conn, task_id)
+    assert updated is not None
+    return _row_to_share_task(updated)
 
 
 # ---------------------------------------------------------------------------

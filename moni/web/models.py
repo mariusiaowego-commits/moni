@@ -301,6 +301,11 @@ class BriefCreateRequest(BaseModel):
         default=None,
         description="Override defaults: include_abstract/fact_check/business_value/...",
     )
+    # v1.0.14: skip active-duplicate guard after user confirms in UI
+    force: bool = Field(
+        default=False,
+        description="If true, enqueue even when a pending/running task already has the same pin set",
+    )
 
 
 class BriefCreateResponse(BaseModel):
