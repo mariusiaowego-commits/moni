@@ -4,7 +4,34 @@
 
 ---
 
-## 当前状态: **v1.0.13.3 — svc-status port fallback** (2026-08-06)
+## 当前状态: **v1.0.14 — brief 防呆 + 队列 pause/resume/cancel + LOG_FILE 修复** (2026-08-06)
+
+**主分支 tag**: **v1.0.14** @ c238f6a (PR #74 squash-merged)
+**Web 服务**: `127.0.0.1:8900` 经 `web.sh` 重启; source=pidfile
+**数据库**: schema_version=22 (无 schema 变更)
+**测试**: `tests/test_brief.py` 12 passed (+ 既有 service status 10)
+
+### v1.0.14 — 一键简报连点防呆 + 任务控制 + html 简报失败修复
+
+**问题**:
+1. 分享页「用当前 Pin 生成简报」连点 3 次 → 入队 3 份相同任务
+2. 队列无暂停/丢弃，误点后只能干等 LLM
+3. `html_landing` 简报 enrich 成功后一律 `brief_html render failed`
+
+**修复** (PR #74):
+- **防呆**: `POST /api/share/brief` 同 pin 集 pending/running → 409 `duplicate_active_brief`；`force=true` 二次确认后放行
+- **前端**: briefSubmitting + 15s cooldown toast + moniModal 确认；队列表/当前简报卡 暂停·继续·丢弃
+- **队列 API**: `POST /api/share/tasks/{id}/pause|resume|cancel`；状态 `paused`/`cancelled`
+- **Worker**: 阶段边界 abort；`done` 不覆盖用户 cancel
+- **LOG_FILE**: `default_worker.sh` 定义 `ARTIFACTS_DIR`/`LOG_FILE`（`set -u` 下未定义导致假失败）
+
+**验收**:
+- 二次 brief 无 force → 409；pause/cancel API OK；产物 HTML 200
+- 8900 硬刷新 /share 视觉通过
+
+---
+
+## 历史: **v1.0.13.3 — svc-status port fallback** (2026-08-06)
 
 **主分支 tag**: **v1.0.13.3** @ c3da809 (PR #72 squash-merged)
 **Web 服务**: `127.0.0.1:8900` 经 `web.sh` 重启 (PID 见 status API); source=pidfile
