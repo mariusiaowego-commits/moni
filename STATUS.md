@@ -4,7 +4,40 @@
 
 ---
 
-## 当前状态: **v1.0.13.1 — fetch modal particle stop + xwatch icon + moni-icon v3.1** (2026-08-05)
+## 当前状态: **v1.0.13.2 — audit F16 head meta + inline SVG favicon** (2026-08-06)
+
+**主分支 tag**: **v1.0.13.2** @ 5687a34 (PR #70 squash-merged)
+**Web 服务**: `127.0.0.1:8900` 已重启 (3.12); `8901` 可选 dev
+**数据库**: schema_version=22 (无 schema 变更)
+**测试**: 本版仅 `index.html` head 静态变更（无 Python/JS 逻辑）
+
+### v1.0.13.2 — Sprint 补合 F16 + git 仓库自检清枝
+
+**背景**: git 仓库自检发现 Sprint 02 Block C 的 F16（head meta）在旧 feature 枝上未合入 main；旧枝 base 落后，直接 merge 会回退 Q3/a11y/particle。
+
+**代码 (PR #70)**:
+- cherry-pick `b91748c` → 干净枝 `feature/v1.0.13.2-head-meta` from current main
+- `index.html` head +7/−1:
+  - `<meta name="description">`
+  - `<meta name="color-scheme" content="light dark">`
+  - `<meta name="theme-color">` light + dark
+  - `<title>` → `moni — 同业信源本地新闻库`
+  - inline SVG favicon（data URL，避免 `/favicon.ico` 404）
+
+**仓库卫生**:
+- 本地删 5 条 stale feature 枝
+- 远程 prune 9 条已合/取代 feature+docs 枝
+- tag 纠偏：曾误打到 docs commit，已 force → `5687a34`
+- `.git` ~7.5MB（gc 后）
+
+**验收**:
+- main @ `5687a34` 与 tag `v1.0.13.2` 一致
+- head 含 description / color-scheme / theme-color / favicon
+- Q3 `onArticlesFilterChange` 未回退
+
+---
+
+## 历史: **v1.0.13.1 — fetch modal particle stop + xwatch icon + moni-icon v3.1** (2026-08-05)
 
 **主分支 tag**: **v1.0.13.1** @ 93ae824 (PR #68 squash-merged)
 **Web 服务**: `127.0.0.1:8900` 已重启 (PID 69873, 3.12 venv); `8901` 不再需要
