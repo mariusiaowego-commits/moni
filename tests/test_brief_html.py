@@ -82,8 +82,48 @@ def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):
     assert 'aria-expanded="false"' in html_doc
     assert "from moni by TQ" in html_doc
     assert "Curated by moni" in html_doc
+    # v1.0.15: soft summary wash (not left-stroke blockquote frame)
+    assert "summary-block" in html_doc
+    assert "--summary-bg" in html_doc
+    assert "card-idx" in html_doc
     # frontmatter stripped
     assert "title: x" not in html_doc
+
+
+def test_thin_article_summary_copy(fresh_db: Path):
+    """Empty raw → readable thin copy, not bare （无摘要）."""
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """
+        INSERT INTO articles
+        (id, title, url, source, publisher, published_at, fetched_at, raw_content,
+         business_value_score, business_value_note, quality_score)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            "thin1",
+            "[某号] 短讯标题",
+            "https://e.com/t",
+            "qbitai",
+            "某号",
+            now,
+            now,
+            "",  # empty body
+            25,
+            "素材不足（正文过短），无法可靠评估业务价值。",
+            35,
+        ),
+    )
+    conn.commit()
+    html_doc = render_brief_html(str(fresh_db), ["thin1"])
+    assert "仅标题/短帖入库" in html_doc
+    assert "（无摘要）" not in html_doc
+    assert "summary-block is-thin" in html_doc or "is-thin" in html_doc
+    assert "全文未入库" in html_doc
+    # publisher prefix stripped from h2
+    assert "短讯标题" in html_doc
+    assert "[某号]" not in html_doc
 
     out = tmp_path / "out.html"
     write_brief_html(str(fresh_db), ["h1"], out)

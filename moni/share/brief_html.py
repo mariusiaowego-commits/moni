@@ -21,10 +21,14 @@ from pathlib import Path
 from typing import Any
 
 from moni.share.enrichment import (
+    THIN_CONTENT_CHARS,
     compute_heuristic_quality,
     pick_source_summary,
     _format_date,
 )
+
+# Display copy when raw body is missing / too short (aligned with PDF brief prompt v1.0.15)
+_THIN_SUMMARY_COPY = "仅标题/短帖入库，正文未抓取，无可展开摘要。"
 
 
 def _esc(s: Any) -> str:
@@ -250,16 +254,58 @@ def _quality(row: sqlite3.Row) -> int:
     return compute_heuristic_quality(row)
 
 
+def _raw_len(row: sqlite3.Row) -> int:
+    try:
+        return len((row["raw_content"] or "").strip())
+    except (KeyError, IndexError, TypeError):
+        return 0
+
+
+def _is_thin_article(row: sqlite3.Row) -> bool:
+    return _raw_len(row) < THIN_CONTENT_CHARS
+
+
 def _summary_text(row: sqlite3.Row) -> str:
+    """Prefer brief_summary → source summary; never dump bare 素材不足 into the box."""
     bs = ""
     try:
         bs = (row["brief_summary"] or "").strip()
     except (KeyError, IndexError):
         bs = ""
-    if bs:
+    if bs and bs not in ("素材不足", "（无摘要）", "无摘要"):
         return bs
     full, _ = pick_source_summary(row)
-    return full or "（无摘要）"
+    full = (full or "").strip()
+    if full and full not in ("素材不足", "（无摘要）", "无摘要"):
+        return full
+    # Thin / empty body: human-readable note (not a two-char corpse in a highlight box)
+    if _is_thin_article(row):
+        return _THIN_SUMMARY_COPY
+    return "（暂无可用摘要）"
+
+
+def _display_title(row: sqlite3.Row) -> str:
+    """Strip leading [publisher] / 【publisher】 that duplicate the meta source line."""
+    t = (row["title"] or "").replace("\n", " ").strip()
+    pub = (row["publisher"] or "").strip()
+    # [未央科技weiyangx] title → title
+    t2 = re.sub(r"^\[[^\]]{1,40}\]\s*", "", t)
+    t2 = re.sub(r"^【[^】]{1,40}】\s*", "", t2)
+    if pub and t2.startswith(pub):
+        t2 = t2[len(pub) :].lstrip(" ·:-—|")
+    return t2 or t
+
+
+def _bv_note_display(note: str | None, *, for_focus: bool = False) -> str:
+    """Shorten enrichment boilerplate for UI."""
+    n = (note or "").strip()
+    if not n:
+        return ""
+    if "素材不足" in n and ("正文过短" in n or "无法可靠" in n):
+        return "素材不足（正文过短）" if for_focus else "素材不足 · 正文过短"
+    if n == "素材不足":
+        return n
+    return n
 
 
 def _fc_items(row: sqlite3.Row) -> list[tuple[str, str]]:
@@ -353,14 +399,17 @@ def render_brief_html(
 
     focus_items: list[str] = []
     for r in rows[:3]:
-        t = (r["title"] or "").replace("\n", " ").strip()
+        t = _display_title(r)
         bv = r["business_value_score"]
-        # Full note — no ellipsis truncation. Prefer BV note; else short summary.
-        note = (r["business_value_note"] or "").strip()
-        if not note:
-            note = _summary_text(r).strip()
-        if not note:
-            note = "见正文"
+        # Prefer short BV note; avoid stuffing long 素材不足 boilerplate into focus
+        note = _bv_note_display(r["business_value_note"], for_focus=True)
+        if not note or note.startswith("素材不足"):
+            # Prefer real summary for focus action line when BV is thin-only
+            s = _summary_text(r)
+            if s and s != _THIN_SUMMARY_COPY:
+                note = s
+            elif not note:
+                note = "见正文"
         bv_s = str(bv) if bv is not None else "—"
         focus_items.append(
             f"""<li class="focus-item">
@@ -372,18 +421,21 @@ def render_brief_html(
 
     cards: list[str] = []
     for i, r in enumerate(rows, 1):
-        t = (r["title"] or "").replace("\n", " ").strip()
+        t = _display_title(r)
         # Prefer agent-laid-out markdown; fall back to raw + light MD render
         laid = ""
         try:
             laid = (r["brief_body_md"] or "").strip()
         except (KeyError, IndexError, TypeError):
             laid = ""
-        body = laid or (r["raw_content"] or "").strip() or "（无正文）"
+        raw_body = (r["raw_content"] or "").strip()
+        thin = _is_thin_article(r)
+        body = laid or raw_body or "（无正文）"
         body_html = body_to_html(body)
         summ = _summary_text(r)
+        summ_thin = summ == _THIN_SUMMARY_COPY or thin and not (r["brief_summary"] or "").strip()
         bv = r["business_value_score"]
-        bv_note = (r["business_value_note"] or "").strip()
+        bv_note = _bv_note_display(r["business_value_note"])
         q = _quality(r)
         pub_date = _format_date(r["published_at"]) or "日期不详"
         url = (r["url"] or "").strip()
@@ -409,17 +461,37 @@ def render_brief_html(
                     f"</li>"
                 )
 
+        idx = f"{i:02d}"
+        bv_s = str(bv) if bv is not None else "—"
+        bv_note_html = (
+            f'<p class="bv-note">{_esc(bv_note)}</p>' if bv_note else ""
+        )
+        sum_cls = "summary-block is-thin" if summ_thin else "summary-block"
+        fold_label = "全文未入库" if thin and not laid else "查看全文"
+        card_cls = "card is-thin" if thin and not laid else "card"
+
         cards.append(
             f"""
-<article class="card" data-id="{_esc(r['id'])}">
-  <h2>{i}. {_esc(t)}</h2>
-  <p class="meta">来源：{_esc(_source_line(r))} · 日期：{_esc(pub_date)}</p>
-  <p class="meta">质量/注意力分：{q}/100 · 业务价值：{bv if bv is not None else '—'}/100
-    {('— ' + _esc(bv_note)) if bv_note else ''}</p>
-  <h3>摘要</h3>
-  <blockquote>{_esc(summ)}</blockquote>
-  <h3>事实核查</h3>
-  <ul class="fc">{''.join(fc_lis)}</ul>
+<article class="{card_cls}" data-id="{_esc(r['id'])}">
+  <header class="card-head">
+    <span class="card-idx" aria-hidden="true">{idx}</span>
+    <h2>{_esc(t)}</h2>
+  </header>
+  <div class="meta-row">
+    <span class="chip">{_esc(_source_line(r))}</span>
+    <span class="chip">{_esc(pub_date)}</span>
+    <span class="chip score-q" title="质量/注意力分">Q {q}</span>
+    <span class="chip score-bv" title="业务价值">BV {bv_s}</span>
+  </div>
+  {bv_note_html}
+  <div class="sec">
+    <h3 class="sec-label">摘要</h3>
+    <div class="{sum_cls}">{_esc(summ)}</div>
+  </div>
+  <div class="sec">
+    <h3 class="sec-label">事实核查</h3>
+    <ul class="fc">{''.join(fc_lis)}</ul>
+  </div>
   <div class="orig-wrap">
     <button type="button" class="orig-toggle bd-root" aria-expanded="false">
       <span class="bd-pill" aria-hidden="true">
@@ -438,7 +510,7 @@ def render_brief_html(
           </g>
         </svg>
       </span>
-      <span class="bd-label" data-label="查看全文">查看全文</span>
+      <span class="bd-label" data-label="{_esc(fold_label)}">{_esc(fold_label)}</span>
     </button>
     <div class="orig-panel" aria-hidden="true">
       <div class="orig-scroll">
@@ -466,10 +538,14 @@ def render_brief_html(
     --text: #1c1917;
     --muted: #78716c;
     --border: #e7e0d4;
-    --accent: #1d4ed8;
+    /* v1.0.15: warm moni palette (align PDF navy/amber) */
+    --accent: #c2410c;
+    --accent-soft: #d97706;
+    --navy: #1a365d;
     --panel: #f0ebe3;
-    --focus-bg: #eef4ff;
-    --focus-border: #bfd0f5;
+    --summary-bg: #fff4e6;   /* soft orange wash — fill only, no frame */
+    --focus-bg: #f8f4ee;
+    --focus-border: #e8d9c4;
     --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC",
              "Noto Serif CJK SC", "Source Han Serif SC", "STSong", Georgia, serif;
     --sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
@@ -506,21 +582,21 @@ def render_brief_html(
   }}
   .focus > h2 {{
     margin: 0 0 14px; font-size: 1.05rem; font-family: var(--sans);
-    font-weight: 650; letter-spacing: 0.02em; color: #1e3a5f;
+    font-weight: 650; letter-spacing: 0.02em; color: var(--navy);
   }}
   .focus-list {{ list-style: none; margin: 0; padding: 0; counter-reset: fi; }}
   .focus-item {{
     counter-increment: fi;
     margin: 0 0 14px; padding: 12px 14px 12px 44px; position: relative;
-    background: rgba(255,255,255,0.72); border-radius: 10px;
-    border: 1px solid rgba(29,78,216,0.08);
+    background: rgba(255,255,255,0.78); border-radius: 10px;
+    border: 1px solid rgba(26,54,93,0.06);
   }}
   .focus-item:last-child {{ margin-bottom: 0; }}
   .focus-item::before {{
     content: counter(fi);
     position: absolute; left: 12px; top: 12px;
     width: 24px; height: 24px; border-radius: 999px;
-    background: #1e3a5f; color: #fff;
+    background: var(--navy); color: #fff;
     font-family: var(--sans); font-size: 12px; font-weight: 700;
     display: flex; align-items: center; justify-content: center;
   }}
@@ -531,36 +607,91 @@ def render_brief_html(
   .focus-title strong {{ font-weight: 650; font-size: 1.02rem; }}
   .focus-bv {{
     font-family: var(--sans); font-size: 11px; font-weight: 700;
-    letter-spacing: 0.04em; color: #1d4ed8;
-    background: #dbeafe; border-radius: 999px; padding: 2px 8px;
+    letter-spacing: 0.04em; color: #9a3412;
+    background: #ffedd5; border-radius: 999px; padding: 2px 8px;
   }}
   .focus-note {{
     margin: 0; color: #44403c; font-size: 0.98rem; line-height: 1.65;
-    /* no line-clamp, no ellipsis — full summary text */
   }}
 
   .card {{
     background: var(--card); border: 1px solid var(--border); border-radius: 14px;
-    padding: 22px 26px 18px; margin: 0 0 20px;
+    padding: 20px 24px 16px; margin: 0 0 18px;
     box-shadow: 0 1px 0 rgba(28,25,23,0.03);
   }}
-  .card h2 {{
-    font-size: 1.22rem; margin: 0 0 10px; line-height: 1.4;
-    font-weight: 700;
+  .card.is-thin {{ opacity: 0.96; }}
+  .card-head {{
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 10px 14px;
+    align-items: start;
+    margin: 0 0 12px;
   }}
-  .meta {{
-    color: var(--muted); font-size: 0.88rem; margin: 3px 0;
+  .card-idx {{
+    font-family: var(--sans);
+    font-size: 1.55rem; font-weight: 700; line-height: 1.1;
+    color: var(--accent-soft);
+    letter-spacing: -0.02em;
+    min-width: 1.6em;
+  }}
+  .card h2 {{
+    font-size: 1.18rem; margin: 0; line-height: 1.4;
+    font-weight: 700; color: var(--navy);
+  }}
+  .meta-row {{
+    display: flex; flex-wrap: wrap; gap: 6px 8px;
+    margin: 0 0 8px;
     font-family: var(--sans);
   }}
-  h3 {{
-    font-size: 0.82rem; margin: 16px 0 8px; color: var(--muted);
-    font-weight: 650; font-family: var(--sans); letter-spacing: 0.04em;
-    text-transform: uppercase;
+  .chip {{
+    display: inline-flex; align-items: center;
+    font-size: 0.78rem; color: var(--muted);
+    background: #f3f0ea; border-radius: 999px;
+    padding: 3px 10px; max-width: 100%;
+    line-height: 1.35;
   }}
-  blockquote {{
-    margin: 0; padding: 12px 14px; border-left: 3px solid var(--accent);
-    background: var(--panel); border-radius: 0 8px 8px 0; color: #292524;
+  .chip.score-q {{
+    color: #1e3a5f; background: #e8eef6; font-weight: 650;
+  }}
+  .chip.score-bv {{
+    color: #9a3412; background: #ffedd5; font-weight: 650;
+  }}
+  .bv-note {{
+    margin: 0 0 12px; font-size: 0.9rem; line-height: 1.55;
+    color: #57534e; font-family: var(--sans);
+  }}
+  .sec {{ margin: 14px 0 4px; }}
+  .sec-label {{
+    font-size: 0.8rem; margin: 0 0 8px; color: var(--accent-soft);
+    font-weight: 650; font-family: var(--sans); letter-spacing: 0.06em;
+  }}
+  .sec-label::before {{
+    content: "▎";
+    margin-right: 4px;
+    color: var(--accent-soft);
+  }}
+  /* v1.0.15: 摘要 = soft orange wash, NO left stroke / frame (PDF-aligned) */
+  .summary-block {{
+    margin: 0;
+    padding: 12px 14px;
+    background: var(--summary-bg);
+    border: none;
+    border-radius: 10px;
+    color: #292524;
     font-size: 1.02rem;
+    line-height: 1.65;
+  }}
+  .summary-block.is-thin {{
+    background: #f3f0ea;
+    color: var(--muted);
+    font-size: 0.95rem;
+  }}
+  /* body-of-article blockquotes keep a quiet left rule */
+  .orig-body blockquote,
+  blockquote {{
+    margin: 0.7em 0; padding: 10px 14px;
+    border-left: 3px solid #d6d3d1;
+    background: #f5f5f4; border-radius: 0 8px 8px 0; color: #44403c;
   }}
   .fc {{ list-style: none; padding: 0; margin: 0; }}
   .fc-line {{
@@ -717,8 +848,7 @@ def render_brief_html(
   .orig-body ul, .orig-body ol {{ margin: 0 0 0.85em; padding-left: 1.4em; }}
   .orig-body li {{ margin: 0.3em 0; }}
   .orig-body blockquote {{
-    margin: 0.7em 0; padding: 10px 14px; border-left: 3px solid #a8a29e;
-    background: #e7e5e4; border-radius: 0 6px 6px 0; color: #44403c;
+    /* inherits quiet rule from global blockquote */
   }}
   .orig-body hr {{ border: 0; border-top: 1px solid #d6d3d1; margin: 1.1em 0; }}
   .orig-body code {{
