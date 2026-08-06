@@ -41,6 +41,16 @@ TIMEOUT_SECONDS="${MONI_WORKER_TIMEOUT:-600}"  # 10 minutes default, override vi
 # worker's CWD.  Defaults to ${REPO_ROOT}/moni/share/prompts/.
 PROMPT_DIR="${MONI_PROMPT_DIR:-${REPO_ROOT}/moni/share/prompts}"
 
+# v1.0.14: artifacts + worker log paths.  moni.share.worker.LOG_FILE is
+# Python-only; the shell path used to reference $LOG_FILE without defining
+# it → under `set -u`, brief html_landing always failed with
+# "LOG_FILE: unbound variable" misreported as "brief_html render failed".
+ARTIFACTS_DIR="${ARTIFACTS_DIR:-${REPO_ROOT}/data/artifacts}"
+LOG_FILE="${MONI_WORKER_LOG:-${ARTIFACTS_DIR}/worker.log}"
+mkdir -p "$ARTIFACTS_DIR"
+# Touch so 2>>"$LOG_FILE" never fails if parent was just created.
+: >>"$LOG_FILE" 2>/dev/null || true
+
 # --- Env validation ---------------------------------------------------------
 if [[ ! -d "$QUEUE_DIR" ]]; then
     echo "[worker] queue dir not found: $QUEUE_DIR — nothing to do" >&2
@@ -110,6 +120,29 @@ update_progress() {
 
 log() { echo "[$(date -u +%T)] $*" ; }
 
+# v1.0.14: cooperative cancel/pause.  Returns 0 if worker should abort
+# this task (status is cancelled or paused).  Call at stage boundaries.
+task_should_abort() {
+    local task_id="$1"
+    local st
+    st=$(python3 - "$task_id" "$DB_PATH" <<'PYEOF'
+import sqlite3, sys
+task_id, db_path = sys.argv[1], sys.argv[2]
+try:
+    conn = sqlite3.connect(db_path)
+    row = conn.execute("SELECT status FROM share_tasks WHERE id=?", (task_id,)).fetchone()
+    print(row[0] if row else "")
+except Exception:
+    print("")
+PYEOF
+)
+    if [[ "$st" == "cancelled" || "$st" == "paused" ]]; then
+        log "ABORT $task_id — status is '$st' (user control)"
+        return 0
+    fi
+    return 1
+}
+
 task_status_update() {
     local task_id="$1"
     local status="$2"
@@ -131,6 +164,7 @@ cur  = conn.cursor()
 now = __import__("datetime").datetime.now().__str__()[:19]  # 'YYYY-MM-DD HH:MM:SS'
 
 if status == "done":
+    # v1.0.14: never overwrite cancelled/paused (user control wins)
     cur.execute(
         "UPDATE share_tasks SET status=?, output_path=?, finished_at=? "
         "WHERE id=? AND status IN ('pending','running')",
@@ -326,6 +360,10 @@ PYEOF
     # status state (queue position) while "fetching" is a pipeline
     # stage.  Two columns, two concepts.
     task_status_update "$task_id" "running"
+    # Claim may lose race with user cancel between SELECT and UPDATE
+    if task_should_abort "$task_id"; then
+        return 0
+    fi
     update_progress "$task_id" "fetching" 20 \
         "正在从 articles 表读 raw_content ..."
 
@@ -661,6 +699,10 @@ p = d.get('payload', {}) if isinstance(d.get('payload'), dict) else {}
 print('true' if p.get('include_business_value') else 'false')
 " "$manifest_path" 2>/dev/null || echo "false")
 
+    if task_should_abort "$task_id"; then
+        return 0
+    fi
+
     if [[ -n "$article_ids_str" ]] && \
        { [[ "$brief_val" == "true" ]] || [[ "$include_fc_val" == "true" ]] || [[ "$include_bv_val" == "true" ]]; }; then
         update_progress "$task_id" "enrich_business_value" 50 \
@@ -687,6 +729,9 @@ print('true' if p.get('include_business_value') else 'false')
     # v1.0.10: brief + html_landing → deterministic HTML (full body, collapsible
     # 原文, GSAP). Skip hermes — layout/UX must be stable for Windows offline.
     brief_val="${brief_val:-false}"
+    if task_should_abort "$task_id"; then
+        return 0
+    fi
     if [[ "$brief_val" == "true" && "$format" == "html_landing" ]]; then
         update_progress "$task_id" "writing_artifact" 90 \
             "正在生成离线 HTML 简报（含全文折叠）..."
@@ -701,11 +746,18 @@ d=json.load(open(sys.argv[1]))
 p=d.get('payload',{}) if isinstance(d.get('payload'),dict) else {}
 print(p.get('title') or ('同业简报 — ' + date.today().isoformat()))
 " "$manifest_path" 2>/dev/null || echo "同业简报")
+        # stderr → LOG_FILE (now defined above under set -u).  Also keep a
+        # temp copy so failure messages surface in share_tasks.error.
+        local brief_err
+        brief_err=$(mktemp "${TMPDIR:-/tmp}/moni_brief_XXXXXX.err")
         if python3 -m moni.share.brief_html \
             --db "$DB_PATH" \
             --article-ids "$article_ids_str" \
             --output "$output_path" \
-            --title "$brief_title" 2>>"$LOG_FILE"; then
+            --title "$brief_title" \
+            >"$brief_err" 2>&1; then
+            cat "$brief_err" >>"$LOG_FILE" 2>/dev/null || true
+            rm -f "$brief_err"
             log "BRIEF_HTML $task_id -> $output_path"
             update_progress "$task_id" "writing_artifact" 95 "HTML 已写入 $output_path"
             task_status_update "$task_id" "done" "$output_path"
@@ -715,7 +767,14 @@ print(p.get('title') or ('同业简报 — ' + date.today().isoformat()))
             log "DONE $task_id -> $output_path"
             return 0
         else
+            cat "$brief_err" >>"$LOG_FILE" 2>/dev/null || true
+            local brief_tail
+            brief_tail=$(tail -c 400 "$brief_err" 2>/dev/null | tr '\n' ' ' | head -c 300 || true)
+            rm -f "$brief_err"
             error_msg="brief_html render failed"
+            if [[ -n "${brief_tail// /}" ]]; then
+                error_msg="brief_html render failed: $brief_tail"
+            fi
             log "FAIL $task_id — $error_msg"
             task_status_update "$task_id" "failed" "" "$error_msg"
             return 0
@@ -739,6 +798,9 @@ print(json.dumps(content))
     # hand; we mark building_prompt so the UI can show "拼 prompt
     # 中" while the Python interpolator runs (typically <1s but
     # visible for big content).
+    if task_should_abort "$task_id"; then
+        return 0
+    fi
     update_progress "$task_id" "building_prompt" 40 \
         "正在拼 prompt (skill=$skill_name, content=$(printf '%d' "${#escaped_content}") 字节) ..."
 
@@ -878,6 +940,9 @@ print(p.get('generation_approach',''))
     # longest stage (typically 30s-3min for an LLM call), so we
     # write a clear message so the UI can show "正在调 LLM, 估
     # X 秒" while it runs.
+    if task_should_abort "$task_id"; then
+        return 0
+    fi
     update_progress "$task_id" "invoking_llm" 60 \
         "正在调 hermes chat (timeout=${TIMEOUT_SECONDS}s) ..."
 

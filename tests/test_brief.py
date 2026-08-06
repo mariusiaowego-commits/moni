@@ -191,6 +191,94 @@ class TestBriefApi:
                 assert payload["include_business_value"] is True
                 assert payload["include_fact_check"] is True
 
+    def test_brief_duplicate_active_409(self, client: TestClient, fresh_db: Path):
+        """v1.0.14: second brief with same pin set while pending → 409 unless force."""
+        _insert_article("d1", "A")
+        _insert_article("d2", "B")
+        _pin("d1")
+        _pin("d2")
+        conn = get_db()
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            """
+            INSERT INTO share_tasks (id, format, article_ids, status, created_at)
+            VALUES (?, 'html_landing', ?, 'pending', ?)
+            """,
+            ("dup-task-1", json.dumps(["d1", "d2"]), now),
+        )
+        conn.commit()
+
+        fake_launch = MagicMock()
+        fake_launch.started = True
+        fake_launch.already_running = False
+        fake_launch.pid = 1
+        fake_launch.error = None
+        fake_launch.log_path = "/tmp/x"
+
+        with patch("moni.web.routes.share.launch_worker", return_value=fake_launch):
+            with patch("moni.web.routes.share.write_manifest", return_value="should-not") as wm:
+                r = client.post("/api/share/brief", json={"format": "html_landing"})
+                assert r.status_code == 409, r.text
+                body = r.json()
+                assert body.get("message") == "duplicate_active_brief"
+                assert body.get("details", {}).get("share_id") == "dup-task-1"
+                wm.assert_not_called()
+
+                r2 = client.post(
+                    "/api/share/brief",
+                    json={"format": "html_landing", "force": True},
+                )
+                assert r2.status_code == 201, r2.text
+                wm.assert_called_once()
+
+
+class TestShareTaskControl:
+    """v1.0.14: pause / resume / cancel."""
+
+    def _seed_task(self, task_id: str, status: str = "pending") -> None:
+        conn = get_db()
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            """
+            INSERT INTO share_tasks (id, format, article_ids, status, created_at)
+            VALUES (?, 'markdown', ?, ?, ?)
+            """,
+            (task_id, json.dumps(["a1"]), status, now),
+        )
+        conn.commit()
+
+    def test_pause_pending(self, client: TestClient, fresh_db: Path):
+        self._seed_task("t-pause", "pending")
+        r = client.post("/api/share/tasks/t-pause/pause")
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "paused"
+
+    def test_cancel_pending(self, client: TestClient, fresh_db: Path):
+        self._seed_task("t-cancel", "pending")
+        r = client.post("/api/share/tasks/t-cancel/cancel")
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "cancelled"
+        assert "cancelled" in (r.json().get("error") or "")
+
+    def test_resume_paused(self, client: TestClient, fresh_db: Path):
+        self._seed_task("t-resume", "paused")
+        fake_launch = MagicMock()
+        fake_launch.started = True
+        fake_launch.already_running = False
+        fake_launch.pid = 9
+        fake_launch.error = None
+        fake_launch.log_path = "/tmp/x"
+        with patch("moni.web.routes.share.launch_worker", return_value=fake_launch) as lw:
+            r = client.post("/api/share/tasks/t-resume/resume")
+            assert r.status_code == 200, r.text
+            assert r.json()["status"] == "pending"
+            lw.assert_called_once()
+
+    def test_cancel_done_409(self, client: TestClient, fresh_db: Path):
+        self._seed_task("t-done", "done")
+        r = client.post("/api/share/tasks/t-done/cancel")
+        assert r.status_code == 409
+
 
 class TestEnrichment:
     def test_business_value_writeback(self, fresh_db: Path):

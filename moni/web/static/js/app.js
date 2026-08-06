@@ -2279,6 +2279,8 @@ function app() {
     // v1.0.10: one-click brief
     briefFormat: 'html_landing',  // v1.0.10: offline HTML (full body + fold)
     briefSubmitting: false,
+    // v1.0.14: cooldown after successful submit (ms epoch); blocks multi-click storms
+    briefCooldownUntil: 0,
     activeBriefId: null,
     briefError: null,
     shareProvider: '',
@@ -2387,13 +2389,39 @@ function app() {
       };
       return map[stage] || stage || '…';
     },
-    createBrief() {
+    // v1.0.14: active (pending/running) tasks in the share queue
+    shareActiveTaskCount() {
+      return (this.shareQueue || []).filter(
+        q => q.status === 'pending' || q.status === 'running'
+      ).length;
+    },
+
+    async createBrief(opts) {
+      opts = opts || {};
       if (this.briefSubmitting) return;
+      if (this.briefCooldownUntil && Date.now() < this.briefCooldownUntil) {
+        const sec = Math.ceil((this.briefCooldownUntil - Date.now()) / 1000);
+        this._notify('info', `刚提交过简报，请 ${sec}s 后再试（或等当前任务结束）`);
+        return;
+      }
       const n = this.pinnedTotal || this.pinnedArticles.length || 0;
       if (n <= 0) {
         this._notify('info', '还没有 Pin 文章。请先在「文章查阅」最左列 Pin 至少 1 篇，再生成简报。');
         return;
       }
+
+      // Second+ generation while queue has work → confirm (unless force already set)
+      let force = !!opts.force;
+      const activeN = this.shareActiveTaskCount();
+      if (!force && activeN > 0) {
+        const ok = await moniModal.confirm(
+          `队列里已有 ${activeN} 个任务在排队/运行。再生成一份会占用 LLM 额度与时间。确定继续？`,
+          { title: '再次生成简报', okLabel: '仍要生成', danger: true }
+        );
+        if (!ok) return;
+        force = true;
+      }
+
       this.briefSubmitting = true;
       this.briefError = null;
       this.workerRunning = true;
@@ -2403,12 +2431,29 @@ function app() {
         credentials: 'same-origin',
         body: JSON.stringify({
           format: this.briefFormat || 'markdown',
+          force: force,
         }),
       })
         .then(async r => {
           const text = await r.text().catch(() => '');
           let data = null;
           try { data = text ? JSON.parse(text) : null; } catch (_) { /* not json */ }
+          if (r.status === 409) {
+            // Backend duplicate guard — surface existing task, do not throw red error
+            const details = (data && data.details) || (data && data.detail && data.detail.details) || {};
+            const sid = details.share_id || '';
+            const st = details.status || '';
+            this._notify(
+              'info',
+              sid
+                ? `已有相同 Pin 的任务在跑（${sid.slice(0, 12)}… · ${st}）。可在下方队列暂停/丢弃后再生成。`
+                : ((data && (data.message || data.detail)) || '已有相同任务在排队')
+            );
+            if (sid) this.activeBriefId = sid;
+            this.loadShareQueue && this.loadShareQueue();
+            this._startSharePoll && this._startSharePoll();
+            return null;
+          }
           if (!r.ok) {
             const detail = (data && (data.detail || data.message || data.error)) || text || r.status;
             throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
@@ -2416,11 +2461,14 @@ function app() {
           return data;
         })
         .then(data => {
+          if (!data) return;
           this.activeBriefId = data.share_id;
+          // 15s client cooldown after successful enqueue
+          this.briefCooldownUntil = Date.now() + 15000;
           if (data.worker && data.worker.needs_manual_start) {
             this.briefError = '任务已入队，但 worker 未能自动启动，请点下方「立即处理队列」。';
           }
-          // Refresh queue + poll more aggressively while brief runs
+          this._notify('success', '简报任务已入队');
           this.loadShareQueue && this.loadShareQueue();
           this._startSharePoll && this._startSharePoll();
         })
@@ -2430,17 +2478,62 @@ function app() {
         })
         .finally(() => {
           this.briefSubmitting = false;
-          // workerRunning stays true until queue shows no running for this id
           setTimeout(() => {
             const t = this.activeBriefTask;
-            if (!t || t.status === 'done' || t.status === 'failed') {
+            if (!t || t.status === 'done' || t.status === 'failed' || t.status === 'cancelled' || t.status === 'paused') {
               this.workerRunning = false;
             }
           }, 2000);
         });
     },
     retryBrief() {
-      this.createBrief();
+      this.createBrief({ force: true });
+    },
+
+    // v1.0.14: queue task control (pause / resume / cancel)
+    async shareTaskPause(taskId) {
+      if (!taskId) return;
+      const ok = await moniModal.confirm('暂停该任务？排队中的不会再被 worker 领取。', {
+        title: '暂停任务', okLabel: '暂停',
+      });
+      if (!ok) return;
+      this._shareTaskAction(taskId, 'pause', '已暂停');
+    },
+    async shareTaskResume(taskId) {
+      if (!taskId) return;
+      this._shareTaskAction(taskId, 'resume', '已重新排队');
+    },
+    async shareTaskCancel(taskId) {
+      if (!taskId) return;
+      const ok = await moniModal.confirm('丢弃该任务？进行中的 LLM 调用可能仍会跑完但结果不会写入。', {
+        title: '丢弃任务', okLabel: '丢弃', danger: true,
+      });
+      if (!ok) return;
+      this._shareTaskAction(taskId, 'cancel', '已丢弃');
+    },
+    _shareTaskAction(taskId, action, okMsg) {
+      fetch(`/api/share/tasks/${encodeURIComponent(taskId)}/${action}`, {
+        method: 'POST',
+        credentials: 'same-origin',
+      })
+        .then(async r => {
+          const text = await r.text().catch(() => '');
+          let data = null;
+          try { data = text ? JSON.parse(text) : null; } catch (_) {}
+          if (!r.ok) {
+            const detail = (data && (data.message || data.detail || data.error)) || text || r.status;
+            throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+          }
+          return data;
+        })
+        .then(() => {
+          this._notify('success', okMsg || '已更新');
+          this.loadShareQueue && this.loadShareQueue();
+        })
+        .catch(err => {
+          console.error(`shareTask ${action} failed:`, err);
+          this._notify('error', err.message || String(err));
+        });
     },
 
     addToQueue() {
