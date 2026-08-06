@@ -280,13 +280,13 @@ def _has_body(row: sqlite3.Row) -> bool:
 
 
 def _usable_summary_raw(row: sqlite3.Row) -> tuple[str, str] | None:
-    """Return (text, origin) if a real summary exists. origin: ai|bb|source."""
-    try:
-        bs = (row["brief_summary"] or "").strip()
-    except (KeyError, IndexError):
-        bs = ""
-    if bs and bs not in _EMPTY_SUM_MARKERS:
-        return bs, "ai"
+    """Return (text, origin) if a real summary exists. origin: ai|bb|source.
+
+    v1.0.15: prefer *full* summaries (BB / AI / RSS) over compressed
+    ``brief_summary`` so the HTML brief card shows more substance.
+    ``brief_summary`` is a short rewrite for list/PDF density — fine as
+    fallback only.
+    """
     full, origin = pick_source_summary(row)
     full = (full or "").strip()
     if full and full not in _EMPTY_SUM_MARKERS:
@@ -296,6 +296,12 @@ def _usable_summary_raw(row: sqlite3.Row) -> tuple[str, str] | None:
         if "ai" in o or "moni" in o:
             return full, "ai"
         return full, "source"
+    try:
+        bs = (row["brief_summary"] or "").strip()
+    except (KeyError, IndexError):
+        bs = ""
+    if bs and bs not in _EMPTY_SUM_MARKERS:
+        return bs, "ai"
     return None
 
 
@@ -532,14 +538,21 @@ def render_brief_html(
             '<span class="ai-mark" title="由 moni / hermes 生成或压缩，非原文照搬">'
             "AI 生成</span>"
         )
-        bv_note_html = ""
-        if bv_note:
+        # 业务判断：与事实核查同一套 .sec + .fc 列表版式
+        bv_sec_html = ""
+        if bv is not None or bv_note:
             mark = ai_mark if (bv_is_ai or bv_score_ai) else ""
-            bv_note_html = (
-                f'<p class="bv-note"><span class="bv-note-lab">业务判断</span>'
-                f"{mark}"
-                f'<span class="bv-note-txt">{_esc(bv_note)}</span></p>'
-            )
+            note_txt = bv_note or "（无业务判断说明）"
+            bv_sec_html = f"""
+  <div class="sec">
+    <h3 class="sec-label">业务判断 {mark}</h3>
+    <ul class="fc">
+      <li class="fc-line">
+        <span class="badge bv" title="业务价值分 0–100">BV {_esc(bv_s)}</span>
+        <span class="fc-text">{_esc(note_txt)}</span>
+      </li>
+    </ul>
+  </div>"""
         sum_cls = "summary-block is-thin" if summ_thin else "summary-block"
         sum_ai = ai_mark if sum_is_ai else ""
         fc_ai = ai_mark if fc_is_ai else ""
@@ -555,6 +568,7 @@ def render_brief_html(
             "由 moni 结合正文做 AI 评估；正文过短时会标「素材不足」。"
         )
 
+        # 顺序：标题 → 标签 chips → 摘要 → 业务判断 → 事实核查 → 全文
         cards.append(
             f"""
 <article class="{card_cls}" data-id="{_esc(r['id'])}">
@@ -568,11 +582,11 @@ def render_brief_html(
     <span class="chip score" title="{_esc(q_title)}">质量分 {q}</span>
     <span class="chip score" title="{_esc(bv_title)}">业务价值 {bv_s}</span>
   </div>
-  {bv_note_html}
   <div class="sec">
     <h3 class="sec-label">摘要 {sum_ai}</h3>
     <div class="{sum_cls}">{_esc(summ)}</div>
   </div>
+  {bv_sec_html}
   <div class="sec">
     <h3 class="sec-label">事实核查 {fc_ai}</h3>
     <ul class="fc">{''.join(fc_lis)}</ul>
@@ -706,14 +720,6 @@ def render_brief_html(
     font-weight: 650; cursor: help; background: var(--tone-0);
     border-color: var(--tone-2); color: var(--navy);
   }}
-  .bv-note {{
-    display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 10px;
-    margin: 0 0 20px; padding: 14px 16px;
-    background: var(--tone-0); border-radius: 10px; border: 1px solid var(--tone-2);
-    font-size: 0.92rem; line-height: 1.65; color: #44403c; font-family: var(--sans);
-  }}
-  .bv-note-lab {{ font-weight: 650; color: var(--navy); font-size: 0.78rem; letter-spacing: 0.04em; }}
-  .bv-note-txt {{ flex: 1 1 12em; min-width: 0; }}
   .ai-mark {{
     display: inline-flex; align-items: center;
     font-family: var(--sans); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em;
@@ -752,6 +758,11 @@ def render_brief_html(
   .badge.ok {{ background: #f0ebe3; color: #3f3a34; border-color: #ddd0bc; }}
   .badge.warn {{ background: #fff4e6; color: #9a3412; border-color: #f0d9b5; }}
   .badge.bad {{ background: #f5e6e0; color: #7c2d12; border-color: #e8c4b0; }}
+  /* 业务判断 BV 分：与事实核查 badge 同结构，同暖色系 */
+  .badge.bv {{
+    background: var(--tone-1); color: var(--navy); border-color: var(--tone-2);
+    font-variant-numeric: tabular-nums; min-width: 3.6em; justify-content: center;
+  }}
   .badge svg {{ flex-shrink: 0; display: block; }}
   .badge-lab {{ letter-spacing: 0.02em; }}
   .fc-text {{ flex: 1 1 auto; min-width: 0; line-height: 1.65; color: #1c1917; }}

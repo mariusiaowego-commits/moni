@@ -76,8 +76,12 @@ def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):  # tmp_pat
     assert "<h3>" in html_doc or "<h2>" in html_doc  # ## → h3 in body
     assert "<strong>加粗</strong>" in html_doc
     assert "<ul>" in html_doc and "列表甲" in html_doc
-    assert "短摘要两句内" in html_doc
+    # Prefer full AI summary over compressed brief_summary for HTML card
+    assert "长摘要不该优先" in html_doc
     assert "极客公园" in html_doc
+    # 业务判断 uses same .fc list layout as 事实核查
+    assert "业务判断" in html_doc
+    assert 'badge bv' in html_doc or "badge bv" in html_doc
     assert "MATRIX" not in html_doc  # no exaggerated scramble
     assert "bd-root" not in html_doc
     assert 'aria-expanded="false"' in html_doc
