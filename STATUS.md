@@ -4,7 +4,31 @@
 
 ---
 
-## 当前状态: **v1.0.13.2 — audit F16 head meta + inline SVG favicon** (2026-08-06)
+## 当前状态: **v1.0.13.3 — svc-status port fallback** (2026-08-06)
+
+**主分支 tag**: **v1.0.13.3** @ c3da809 (PR #72 squash-merged)
+**Web 服务**: `127.0.0.1:8900` 经 `web.sh` 重启 (PID 见 status API); source=pidfile
+**数据库**: schema_version=22 (无 schema 变更)
+**测试**: `tests/test_service_status.py` 10 passed
+
+### v1.0.13.3 — 顶栏服务状态假「已停止」修复
+
+**根因**: `/api/service/status` 只信 `data/.web.pid`；裸 uvicorn / agent 起服不写 pidfile → UI 显示「已停止」。
+
+**修复** (PR #72):
+- `resolve_service_pid()`: pidfile 优先；失效扫 `:8900 LISTEN`（优先 lsof，psutil 次之 + AccessDenied 兜底）
+- port 发现后 heal 写回 pidfile，保证 ↻ / `web.sh stop` 杀对进程
+- status JSON 增加 `source`: pidfile | port | none
+- restart/stop 调用 web.sh 前先 heal
+
+**验收**:
+- status: `running:true, source:pidfile`
+- 删 pidfile 再 curl → `source:port` + heal，无 500
+- 5 菜单端点 200
+
+---
+
+## 历史: **v1.0.13.2 — audit F16 head meta + inline SVG favicon** (2026-08-06)
 
 **主分支 tag**: **v1.0.13.2** @ 5687a34 (PR #70 squash-merged)
 **Web 服务**: `127.0.0.1:8900` 已重启 (3.12); `8901` 可选 dev
