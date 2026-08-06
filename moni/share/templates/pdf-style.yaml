@@ -14,6 +14,7 @@ colors:
   primary: "#1a365d"      # 深蓝（标题区背景、文章标题）
   accent: "#d97706"       # 橙色（序号、强调）
   accent_light: "#fef3c7" # 浅橙（日期文字）
+  summary_bg: "#fff4e6"   # v1.0.15 摘要色块（淡橙底，无描边）
   text: "#2a3447"         # 深灰（正文）
   muted: "#6b7280"        # 辅助灰（来源、tag）
   border: "#e5e1d8"       # 边框
@@ -69,12 +70,16 @@ list:
   indent: 15
   space_after: 4
 
-# 引用块
+# 引用块 / 摘要块 (v1.0.15: 淡橙底色块，不要粗描边框)
 quote:
   border_color: accent
-  border_width: 3
-  indent: 20
-  text_color: muted
+  border_width: 0          # 无描边
+  indent: 0
+  padding: 10
+  radius: 4
+  space_before: 4
+  space_after: 10
+  text_color: text
 
 # 分隔线
 divider:

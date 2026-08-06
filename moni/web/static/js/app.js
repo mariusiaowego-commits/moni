@@ -2454,6 +2454,19 @@ function app() {
             this._startSharePoll && this._startSharePoll();
             return null;
           }
+          if (r.status === 400 && data && (data.message === 'articles_not_ready' || (data.details && data.details.articles))) {
+            // v1.0.15: pins missing both summary and body
+            const details = data.details || {};
+            const titles = details.titles || (details.articles || []).map(a => a.title || a.id);
+            const nBad = details.count || titles.length || 0;
+            const lines = (titles || []).slice(0, 8).map((t, i) => `${i + 1}. ${t}`);
+            if (titles.length > 8) lines.push(`…另有 ${titles.length - 8} 篇`);
+            const msg = (details.hint || '部分 Pin 缺少摘要与全文，无法生成有价值简报。')
+              + (lines.length ? ('\n\n需处理：\n' + lines.join('\n')) : '');
+            this.briefError = msg;
+            this._notify('error', `有 ${nBad} 篇 Pin 无摘要且无全文，已取消生成`);
+            return null;
+          }
           if (!r.ok) {
             const detail = (data && (data.detail || data.message || data.error)) || text || r.status;
             throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));

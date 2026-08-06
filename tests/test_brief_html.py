@@ -28,7 +28,7 @@ def fresh_db(tmp_path: Path) -> Path:
     conn_mod._DB_PATH = None
 
 
-def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):
+def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):  # tmp_path for write_brief_html
     conn = get_db()
     now = datetime.now(timezone.utc).isoformat()
     body = (
@@ -48,14 +48,14 @@ def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):
         """,
         (
             "h1",
-            "测试标题",
+            "测试标题足够长",
             "https://example.com/x",
             "bestblogs",
             "极客公园",
             now,
             now,
-            body,
-            "长摘要不该优先",
+            body + ("补充段落使正文超过八十个字，便于通过简报就绪校验。" * 3),
+            "长摘要不该优先，应展示完整的 AI 摘要内容，包含核心论点和关键数字说明。",
             "短摘要两句内。",
             80,
             "对我方有对标价值",
@@ -67,7 +67,7 @@ def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):
 
     html_doc = render_brief_html(str(fresh_db), ["h1"], title="同业简报 — test")
     assert "查看全文" in html_doc
-    assert "orig-toggle" in html_doc or "bd-root" in html_doc
+    assert "fold-btn" in html_doc
     assert "orig-scroll" in html_doc
     assert "max-height: 420px" in html_doc
     assert "var(--serif)" in html_doc or "serif" in html_doc
@@ -76,12 +76,26 @@ def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):
     assert "<h3>" in html_doc or "<h2>" in html_doc  # ## → h3 in body
     assert "<strong>加粗</strong>" in html_doc
     assert "<ul>" in html_doc and "列表甲" in html_doc
-    assert "短摘要两句内" in html_doc
+    # Prefer full AI summary over compressed brief_summary for HTML card
+    assert "长摘要不该优先" in html_doc
     assert "极客公园" in html_doc
-    assert "gsap" in html_doc.lower()
+    # 业务判断 uses same .fc list layout as 事实核查
+    assert "业务判断" in html_doc
+    assert "bv-score" in html_doc
+    assert "MATRIX" not in html_doc  # no exaggerated scramble
+    assert "bd-root" not in html_doc
     assert 'aria-expanded="false"' in html_doc
     assert "from moni by TQ" in html_doc
     assert "Curated by moni" in html_doc
+    # v1.0.15: soft summary wash + readable score chips + AI mark
+    assert "summary-block" in html_doc
+    assert "--summary-bg" in html_doc
+    assert "card-idx" in html_doc
+    assert "质量分" in html_doc
+    assert "业务价值" in html_doc
+    assert "bv-score" in html_doc  # score sits next to 业务判断 title
+    assert "fc-inline" in html_doc  # 已核实 inline with claim text
+    assert "ai-end" not in html_doc  # no trailing AI micro-tags
     # frontmatter stripped
     assert "title: x" not in html_doc
 
@@ -89,6 +103,75 @@ def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):
     write_brief_html(str(fresh_db), ["h1"], out)
     assert out.is_file()
     assert out.stat().st_size > 500
+
+
+def test_thin_article_goes_to_excluded_footer(fresh_db: Path):
+    """Empty raw + no summary → not in cards; listed under 未纳入本次简报."""
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """
+        INSERT INTO articles
+        (id, title, url, source, publisher, published_at, fetched_at, raw_content,
+         business_value_score, business_value_note, quality_score)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            "thin1",
+            "[某号] 短讯标题",
+            "https://e.com/t",
+            "qbitai",
+            "某号",
+            now,
+            now,
+            "",  # empty body
+            25,
+            "素材不足（正文过短），无法可靠评估业务价值。",
+            35,
+        ),
+    )
+    conn.commit()
+    html_doc = render_brief_html(str(fresh_db), ["thin1"])
+    assert "未纳入本次简报" in html_doc
+    assert "短讯标题" in html_doc
+    assert "正文未入库" in html_doc
+    # no article card for the only pin
+    assert 'class="card' not in html_doc or "data-id=\"thin1\"" not in html_doc
+
+
+def test_find_unready_articles(fresh_db: Path):
+    from moni.share.brief_html import find_unready_articles
+
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    body = "这是足够长的正文内容。" * 40
+    conn.execute(
+        """
+        INSERT INTO articles
+        (id, title, url, source, publisher, published_at, fetched_at, raw_content)
+        VALUES (?,?,?,?,?,?,?,?)
+        """,
+        ("bad1", "空文", "https://e.com/b", "s", "p", now, now, ""),
+    )
+    conn.execute(
+        """
+        INSERT INTO articles
+        (id, title, url, source, publisher, published_at, fetched_at, raw_content,
+         brief_summary, business_value_score, business_value_note, fact_check_conclusion)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            "ok1", "有摘要", "https://e.com/o", "s", "p", now, now, body,
+            "这是可用摘要，包含关键事实与数字说明，足够长。",
+            75,
+            "对支付侧产品有对标价值",
+            "无需核查",
+        ),
+    )
+    conn.commit()
+    bad = find_unready_articles(str(fresh_db), ["bad1", "ok1"])
+    assert len(bad) == 1
+    assert bad[0]["id"] == "bad1"
 
 
 def test_body_to_html_plain_paragraphs():
@@ -119,25 +202,33 @@ def test_fc_items_strip_duplicate_status_from_claim_text():
 
 
 def test_fc_badge_has_label_and_inline_claim(fresh_db: Path):
-    """badge shows icon+文字; claim sits on same line after badge."""
+    """badge shows icon+文字; claim text below badge (fc-stack)."""
     conn = get_db()
     now = datetime.now(timezone.utc).isoformat()
+    body = "正文段落足够长。" * 30
     conn.execute(
         """
         INSERT INTO articles
         (id, title, url, source, publisher, published_at, fetched_at, raw_content,
-         brief_summary, fact_check_note, quality_score, business_value_score)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+         ai_summary, fact_check_note, quality_score, business_value_score, business_value_note)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
-            "fc1", "t", "https://e.com/1", "s", "pub", now, now, "正文段落。",
-            "短摘要。", "【已核实】: 监管已发文", 70, 60,
+            "fc1", "监管文件解读标题", "https://e.com/1", "s", "pub", now, now, body,
+            "监管已发文，机构需在限期内完成整改与披露。",
+            "【已核实】: 监管已发文",
+            70,
+            65,
+            "合规动作可对标",
         ),
     )
     conn.commit()
     html_doc = render_brief_html(str(fresh_db), ["fc1"])
     assert "badge-lab" in html_doc
     assert "已核实" in html_doc
-    assert "fc-line" in html_doc
+    assert "fc-stack" in html_doc
     assert "【已核实】" not in html_doc  # stripped from claim
     assert "监管已发文" in html_doc
+    assert "65分" in html_doc
+    assert "has-tip" in html_doc
+    assert "fc-inline" in html_doc

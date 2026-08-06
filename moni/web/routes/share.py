@@ -26,8 +26,9 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from moni.db.connection import get_db
+from moni.db.connection import get_db, get_db_path
 from moni.share.artifacts import ARTIFACTS_DIR, ensure_artifact
+from moni.share.brief_html import find_unready_articles
 from moni.share.formats import validate_manifest
 from moni.share.manifest import write_manifest
 from moni.share.worker import LOG_FILE, launch_worker, tail_log
@@ -429,6 +430,24 @@ def create_brief(body: BriefCreateRequest) -> BriefCreateResponse:
                     "hint": "已有相同 Pin 集的任务在排队或运行；确认后再生成请传 force=true",
                 },
             )
+
+    # v1.0.15: if *all* pins lack usable content, refuse; partial set still
+    # enqueues — HTML render drops weak items and lists them in a footer.
+    unready = find_unready_articles(str(get_db_path()), article_ids)
+    if unready and len(unready) >= len(article_ids):
+        titles = [u["title"] for u in unready[:12]]
+        raise BadRequestError(
+            message="articles_not_ready",
+            details={
+                "articles": unready,
+                "count": len(unready),
+                "hint": (
+                    "全部 Pin 均信息不足（缺正文/摘要/业务判断/事实核查），"
+                    "无法生成有价值简报。请先补抓取或补跑增强后再试。"
+                ),
+                "titles": titles,
+            },
+        )
 
     # Default format: offline HTML brief (full body + collapsible 原文)
     format_name = (body.format or "html_landing").strip()
