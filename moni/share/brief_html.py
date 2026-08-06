@@ -717,10 +717,23 @@ def render_brief_html(
         fc_is_ai = not (
             len(fc_items) == 1 and fc_items[0][0] == "none" and "无需" in fc_items[0][1]
         )
+        # 文末小标签（不挂在 section 标题上）
+        ai_end = (
+            '<span class="ai-end has-tip" data-tip="由 moni / hermes 生成或压缩，非原文照搬">'
+            "AI</span>"
+        )
+        body_end = (
+            '<span class="ai-end has-tip" data-tip="摘要字段过短时，从正文截取导读段落">'
+            "正文节选</span>"
+        )
+
         fc_lis = []
         _fc_lab = {"ok": "已核实", "warn": "待核实", "bad": "存疑"}
         for kind, fctext in fc_items:
+            # AI 小标挂在每条核查文字末尾
+            end_tag = ai_end if fc_is_ai and kind != "none" else ""
             if kind == "none":
+                # 无需核查 — 不标 AI
                 fc_lis.append(
                     f"<li class='fc-line fc-stack'>"
                     f"<span class='fc-text fc-plain'>{_esc(fctext)}</span>"
@@ -733,7 +746,7 @@ def render_brief_html(
                     f"<span class='badge {kind}'>"
                     f"{_badge_svg(kind)}<span class='badge-lab'>{_esc(lab)}</span>"
                     f"</span>"
-                    f"<span class='fc-text'>{_esc(fctext)}</span>"
+                    f"<span class='fc-text'>{_esc(fctext)}{end_tag}</span>"
                     f"</li>"
                 )
 
@@ -741,33 +754,30 @@ def render_brief_html(
         bv_s = str(bv) if bv is not None else "—"
         bv_tier = _bv_score_tier(int(bv) if bv is not None else None)
         score_label = f"{bv_s}分" if bv is not None else "—"
-        ai_mark = (
-            '<span class="ai-mark has-tip" data-tip="由 moni / hermes 生成或压缩，非原文照搬">'
-            "AI 生成</span>"
-        )
-        sum_origin_mark = ""
-        if sum_origin == "body_lead":
-            sum_origin_mark = (
-                '<span class="ai-mark has-tip" data-tip="摘要字段过短时，从正文截取导读段落">'
-                "正文节选</span>"
-            )
+        # 业务判断：分数在标题右侧；说明正文末尾可挂 AI
         bv_sec_html = ""
         if bv is not None or bv_note:
-            mark = ai_mark if (bv_is_ai or bv_score_ai) else ""
             note_txt = bv_note or "（无业务判断说明）"
+            bv_ai = ai_end if (bv_is_ai or bv_score_ai) else ""
             bv_sec_html = f"""
   <div class="sec">
-    <h3 class="sec-label">业务判断 {mark}</h3>
+    <h3 class="sec-label sec-label-row">
+      <span class="sec-label-txt">业务判断</span>
+      <span class="badge bv {_esc(bv_tier)}">{_esc(score_label)}</span>
+    </h3>
     <ul class="fc">
       <li class="fc-line fc-stack">
-        <span class="badge bv {_esc(bv_tier)}">{_esc(score_label)}</span>
-        <span class="fc-text">{_esc(note_txt)}</span>
+        <span class="fc-text">{_esc(note_txt)}{bv_ai}</span>
       </li>
     </ul>
   </div>"""
         sum_cls = "summary-block is-thin" if summ_thin else "summary-block"
-        sum_ai = (ai_mark if sum_is_ai else "") + sum_origin_mark
-        fc_ai = ai_mark if fc_is_ai else ""
+        if sum_origin == "body_lead":
+            sum_end = body_end
+        elif sum_is_ai:
+            sum_end = ai_end
+        else:
+            sum_end = ""
         fold_open = "全文未入库" if thin and not laid else "查看全文"
         fold_close = "收起全文"
         card_cls = "card is-thin" if thin and not laid else "card"
@@ -794,12 +804,12 @@ def render_brief_html(
     <span class="chip score has-tip" data-tip="{_esc(bv_tip)}">业务价值 {bv_s}</span>
   </div>
   <div class="sec">
-    <h3 class="sec-label">摘要 {sum_ai}</h3>
-    <div class="{sum_cls}">{_esc(summ)}</div>
+    <h3 class="sec-label">摘要</h3>
+    <div class="{sum_cls}">{_esc(summ)}{sum_end}</div>
   </div>
   {bv_sec_html}
   <div class="sec">
-    <h3 class="sec-label">事实核查 {fc_ai}</h3>
+    <h3 class="sec-label">事实核查</h3>
     <ul class="fc">{''.join(fc_lis)}</ul>
   </div>
   <div class="orig-wrap">
@@ -983,11 +993,23 @@ def render_brief_html(
     opacity: 1;
     transform: translateX(-50%) translateY(0);
   }}
-  .ai-mark {{
-    display: inline-flex; align-items: center;
-    font-family: var(--sans); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em;
-    color: var(--navy); background: var(--tone-1); border: 1px solid var(--tone-2);
-    border-radius: 4px; padding: 2px 6px; vertical-align: middle; margin-left: 6px; cursor: help;
+  /* 段末小标（摘要/判断/核查正文尾）— 小于原 AI 生成标题标 */
+  .ai-end {{
+    display: inline-block;
+    margin-left: 0.45em;
+    padding: 0 4px;
+    border-radius: 3px;
+    border: 1px solid var(--tone-2);
+    background: var(--tone-0);
+    color: var(--muted);
+    font-family: var(--sans);
+    font-size: 0.62rem;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+    vertical-align: middle;
+    white-space: nowrap;
+    cursor: help;
   }}
   .sec {{ margin: 24px 0 10px; }}
   .sec + .sec {{ margin-top: 30px; }}
@@ -997,6 +1019,14 @@ def render_brief_html(
     display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
   }}
   .sec-label::before {{ content: "▎"; margin-right: 2px; color: var(--accent-soft); }}
+  /* 业务判断：标题 + 分数同行 */
+  .sec-label.sec-label-row {{
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px 12px;
+  }}
+  .sec-label-txt {{ display: inline-flex; align-items: center; }}
   .summary-block {{
     margin: 0; padding: 16px 18px; background: var(--summary-bg);
     border: none; border-radius: 10px; color: #292524; font-size: 1.02rem; line-height: 1.75;

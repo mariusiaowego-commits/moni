@@ -93,7 +93,9 @@ def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):  # tmp_pat
     assert "card-idx" in html_doc
     assert "质量分" in html_doc
     assert "业务价值" in html_doc
-    assert "AI 生成" in html_doc
+    # AI mark is end-of-text micro tag, not section-title label
+    assert 'class="ai-end' in html_doc or "ai-end" in html_doc
+    assert "sec-label-row" in html_doc  # BV score sits on 业务判断 title row
     # frontmatter stripped
     assert "title: x" not in html_doc
 
