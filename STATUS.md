@@ -4,7 +4,31 @@
 
 ---
 
-## 当前状态: **v1.0.14 — brief 防呆 + 队列 pause/resume/cancel + LOG_FILE 修复** (2026-08-06)
+## 当前状态: **v1.0.15 — share 产物 polish (PDF + HTML brief)** (2026-08-06)
+
+**主分支 tag**: **v1.0.15** @ 7707317 (PR #76 squash-merged)
+**Web 服务**: `127.0.0.1:8900` 经 `web.sh` 重启; source=pidfile
+**数据库**: schema_version=22 (无 schema 变更)
+**测试**: `tests/test_brief.py` + `test_brief_html.py` 通过
+
+### v1.0.15 — PDF / HTML 简报版式与就绪规则
+
+**PDF** (`generate_pdf.py` + `pdf-style.yaml`):
+- 摘要/引用：淡橙底色块，去掉粗描边框
+- 「优先关注」不再占文章编号 01
+
+**HTML brief** (`brief_html.py`):
+- 卡片间距、简单折叠（无 matrix 动效）
+- 质量分/业务价值 CSS tooltip；业务判断分数标题同行方框分档色
+- 已核实/待核实与正文同行段首
+- 信息不足文章撤下并在文末列表说明
+- 怪标题（URL/Apply）从正文推导
+
+**API**: 全部 Pin 不可用时 400 `articles_not_ready`；部分可用仍生成
+
+---
+
+## 历史: **v1.0.14 — brief 防呆 + 队列 pause/resume/cancel + LOG_FILE 修复** (2026-08-06)
 
 **主分支 tag**: **v1.0.14** @ c238f6a (PR #74 squash-merged)
 **Web 服务**: `127.0.0.1:8900` 经 `web.sh` 重启; source=pidfile
