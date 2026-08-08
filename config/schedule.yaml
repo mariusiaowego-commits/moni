@@ -25,3 +25,44 @@ jobs:
     func_path: moni.cron.jobs:predict_tags_pending
     func_kwargs:
       batch_size: 10
+
+  # ── 行业事件日历抽取 (每天 4 个时段) ──
+  - id: extract_events_morning
+    name: "行业事件抽取-早间"
+    trigger_type: cron
+    hour: 7
+    minute: 0
+    day_of_week: "mon-fri"
+    func_path: moni.cron.jobs:extract_events_pending
+    func_kwargs:
+      batch_size: 20
+
+  - id: extract_events_am
+    name: "行业事件抽取-上午"
+    trigger_type: cron
+    hour: 8
+    minute: 30
+    day_of_week: "mon-fri"
+    func_path: moni.cron.jobs:extract_events_pending
+    func_kwargs:
+      batch_size: 20
+
+  - id: extract_events_noon
+    name: "行业事件抽取-午间"
+    trigger_type: cron
+    hour: 12
+    minute: 0
+    day_of_week: "mon-fri"
+    func_path: moni.cron.jobs:extract_events_pending
+    func_kwargs:
+      batch_size: 20
+
+  - id: extract_events_evening
+    name: "行业事件抽取-傍晚"
+    trigger_type: cron
+    hour: 18
+    minute: 0
+    day_of_week: "mon-fri"
+    func_path: moni.cron.jobs:extract_events_pending
+    func_kwargs:
+      batch_size: 20

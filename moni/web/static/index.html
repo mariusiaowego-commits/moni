@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css?v=1785000000">
+  <link rel="stylesheet" href="css/main.css?v=20260808003">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -29,6 +29,7 @@
       <span class="topnav-brand">moni</span>
       <div class="topnav-links">
         <a href="/articles" @click.prevent="navigate('articles')" :class="{ active: currentView === 'articles' }">文章查阅</a>
+        <a href="/calendar" @click.prevent="navigate('calendar')" :class="{ active: currentView === 'calendar' }">行业日历</a>
         <a href="/crud"     @click.prevent="navigate('crud')"     :class="{ active: currentView === 'crud'     }">CRUD</a>
         <a href="/cron"     @click.prevent="navigate('cron')"     :class="{ active: currentView === 'cron'     }">跑批日志</a>
         <a href="/fetch"    @click.prevent="navigate('fetch')"    :class="{ active: currentView === 'fetch'    }">抓取管理</a>
@@ -1194,6 +1195,173 @@
           </div>
         </div>
       </div>
+
+      <!-- ══ 行业日历 (v1.0.16 F5) ════════════════════════════════ -->
+      <section x-show="currentView === 'calendar'" x-cloak>
+        <div class="panel-header cal-panel-header">
+          <h3>行业日历</h3>
+          <div class="search-box">
+            <span class="cal-stat-sub"
+                  x-text="'共 ' + Object.keys(calendarEventsByDate || {}).length + ' 天有事件'"></span>
+            <select x-model="calendarFilterType" @change="calendarOnFilterChange()"
+                    title="按事件类型筛选"
+                    class="filter-select">
+              <template x-for="t in calendarTypes" :key="t.value">
+                <option :value="t.value" x-text="t.label"></option>
+              </template>
+            </select>
+          </div>
+        </div>
+
+        <div class="cal-layout">
+          <!-- 左侧：月历网格 -->
+          <div class="cal-main">
+            <!-- 月份导航 -->
+            <div class="cal-nav">
+              <button class="btn btn-ghost btn-sm" @click="calendarPrevMonth()" title="上一月">←</button>
+              <div class="cal-nav-title" x-text="calendarMonthLabel()"></div>
+              <div class="cal-nav-actions">
+                <button class="btn btn-ghost btn-sm" @click="calendarNextMonth()" title="下一月">→</button>
+                <button class="btn btn-primary btn-sm" @click="calendarGoToday()">今天</button>
+              </div>
+            </div>
+
+            <!-- 星期头 -->
+            <div class="cal-weekdays">
+              <div class="cal-weekday">日</div>
+              <div class="cal-weekday">一</div>
+              <div class="cal-weekday">二</div>
+              <div class="cal-weekday">三</div>
+              <div class="cal-weekday">四</div>
+              <div class="cal-weekday">五</div>
+              <div class="cal-weekday">六</div>
+            </div>
+
+            <!-- 日历格子 -->
+            <div class="cal-grid">
+              <template x-for="(cell, idx) in calendarGrid()" :key="idx">
+                <div
+                  :class="{
+                    'cal-day': true,
+                    'cal-day-other': !cell.isCurrentMonth,
+                    'cal-day-today': cell.isCurrentMonth && calendarIsToday(cell.date),
+                    'is-clickable': cell.isCurrentMonth && calendarHasEvents(cell.date)
+                  }"
+                  @click="cell.isCurrentMonth && calendarHasEvents(cell.date) && calendarOpenDay($event, cell.date)"
+                >
+                  <div class="cal-day-num" x-text="cell.day"></div>
+                  <!-- 类型色点 + 计数 -->
+                  <template x-if="cell.isCurrentMonth && calendarHasEvents(cell.date)">
+                    <div class="cal-day-dots">
+                      <template x-for="(t, di) in calendarDotsForDay(cell.date)" :key="di">
+                        <span class="cal-dot" :style="{ backgroundColor: calendarTypeColor(t) }"></span>
+                      </template>
+                      <span class="cal-day-count" x-text="calendarEventCountForDay(cell.date) + ' 条'"></span>
+                    </div>
+                  </template>
+                  <!-- 摘要列表（最多3条） -->
+                  <template x-if="cell.isCurrentMonth && calendarHasEvents(cell.date)">
+                    <div class="cal-day-events">
+                      <template x-for="(evt, ei) in calendarEventsForDay(cell.date).slice(0, 3)" :key="ei">
+                        <span class="cal-day-event"
+                              :title="evt.subject + '：' + (evt.summary || '')"
+                              x-text="(evt.subject || '') + ' · ' + (evt.summary || '').slice(0, 14)"></span>
+                      </template>
+                      <template x-if="calendarEventCountForDay(cell.date) > 3">
+                        <span class="cal-day-more"
+                              x-text="'+ ' + (calendarEventCountForDay(cell.date) - 3) + ' 更多'"></span>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+
+            <!-- 加载状态 -->
+            <div x-show="calendarLoading" class="cal-loading">加载中…</div>
+          </div>
+
+          <!-- 右侧：待确认事件 + 统计 (按重要性排序: 待确认 = 行动项, 统计 = 概览) -->
+          <div class="cal-side">
+            <!-- 待确认事件 (Principle 4: 重要 → overview) -->
+            <div class="cal-pending">
+              <div class="cal-pending-head">
+                待确认事件
+                <span class="cal-pending-head-count" x-text="'(' + (calendarPending?.length || 0) + ')'"></span>
+              </div>
+              <div class="cal-pending-list">
+                <template x-for="evt in calendarPending" :key="evt.event_id">
+                  <div class="cal-pending-item">
+                    <div class="cal-pending-subj">
+                      <span x-text="evt.subject"></span>
+                      <span class="cal-type-chip"
+                            :style="calendarTypeStyle(evt.event_type)"
+                            x-text="calendarTypeLabel(evt.event_type)"></span>
+                    </div>
+                    <div class="cal-pending-summary" x-text="evt.summary || ''"></div>
+                    <div class="cal-pending-actions">
+                      <button class="btn btn-primary btn-sm" @click="calendarGoToArticle(evt.article_id)">查看原文</button>
+                    </div>
+                  </div>
+                </template>
+                <div x-show="!calendarPending || calendarPending.length === 0" class="cal-empty">
+                  暂无待确认事件
+                </div>
+              </div>
+            </div>
+
+            <!-- 统计卡片 -->
+            <div class="cal-card">
+              <div class="cal-card-title">本月统计</div>
+              <div class="cal-stat-num" x-text="calendarStats?.total || 0"></div>
+              <div class="cal-stat-sub">条事件</div>
+              <div class="cal-stat-legend">
+                <template x-for="t in calendarTypes.filter(t => t.value)" :key="t.value">
+                  <div class="cal-legend-item">
+                    <span class="cal-legend-dot" :style="{ backgroundColor: t.dot }"></span>
+                    <span x-text="t.label + ' · ' + (calendarStats?.by_type?.[t.value] || 0)"></span>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 事件 popover（fixed 定位，跟随点击的格子；display 由 x-show 控制，避免和 inline style 冲突） -->
+        <div x-show="calendarPopover.show"
+             x-cloak
+             x-transition.opacity.duration.150ms
+             @click.stop
+             :style="{ left: calendarPopover.x + 'px', top: calendarPopover.y + 'px' }"
+             class="cal-popover">
+          <div class="cal-popover-head">
+            <div class="cal-popover-date" x-text="calendarPopover.date"></div>
+            <button @click="calendarClosePopover()" class="cal-popover-close" aria-label="关闭">×</button>
+          </div>
+          <div class="cal-popover-list">
+            <template x-for="evt in calendarEventsForDay(calendarPopover.date)" :key="evt.event_id">
+              <div class="cal-popover-item">
+                <div class="cal-popover-item-head">
+                  <span class="cal-popover-dot" :style="{ backgroundColor: calendarTypeColor(evt.event_type) }"></span>
+                  <span class="cal-popover-subj" x-text="evt.subject"></span>
+                  <span class="cal-type-chip"
+                        :style="calendarTypeStyle(evt.event_type)"
+                        x-text="calendarTypeLabel(evt.event_type)"
+                        style="margin-left: auto;"></span>
+                </div>
+                <div class="cal-popover-summary" x-text="evt.summary"></div>
+                <div class="cal-popover-actions">
+                  <button class="btn btn-primary btn-sm" @click="calendarGoToArticle(evt.article_id)">查看原文 →</button>
+                </div>
+              </div>
+            </template>
+            <div x-show="!calendarPopover.date || calendarEventsForDay(calendarPopover.date).length === 0"
+                 class="cal-empty">
+              暂无事件
+            </div>
+          </div>
+        </div>
+      </section>
 
       <!-- ══ Config Management (v1.0.2-F) ════════════════════════════════ -->
       <section x-show="currentView === 'config'" x-cloak>
@@ -2388,6 +2556,7 @@
   <!-- v1.0.13: dialog-certainty helpers (must load before app.js) -->
   <script src="js/toast.js?v=1785000000"></script>
   <script src="js/modal.js?v=1785000000"></script>
+  <script src="js/calendar.js?v=20260808003"></script>
   <script src="js/app.js?v=1785000000"></script>
   <script src="js/theme.js?v=1785000000"></script>
   <script src="js/icons.js?v=1785000000"></script>

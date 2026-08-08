@@ -15,6 +15,7 @@ from moni.web.routes.config_sources import router as config_sources_router
 from moni.web.routes.config_tags import router as config_tags_router
 from moni.web.routes.cron import router as cron_router
 from moni.web.routes.crud import router as crud_router
+from moni.web.routes.events import router as events_router
 from moni.web.routes.fetch import router as fetch_router
 from moni.web.routes.llm import router as llm_router
 from moni.web.routes.llm_jobs import router as llm_jobs_router
@@ -34,6 +35,7 @@ _routers: list[APIRouter] = [
     config_tags_router,
     cron_router,
     crud_router,
+    events_router,
     fetch_router,
     llm_jobs_router,
     llm_router,
