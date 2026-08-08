@@ -4,12 +4,37 @@
 
 ---
 
-## 当前状态: **v1.0.15 — share 产物 polish (PDF + HTML brief)** (2026-08-06)
+## 当前状态: **v1.0.16 — F5 行业事件日历 + UI polish** (2026-08-08)
 
-**主分支 tag**: **v1.0.15** @ 7707317 (PR #76 squash-merged)
-**Web 服务**: `127.0.0.1:8900` 经 `web.sh` 重启; source=pidfile
-**数据库**: schema_version=22 (无 schema 变更)
-**测试**: `tests/test_brief.py` + `test_brief_html.py` 通过
+**主分支 tag**: **v1.0.16** @ faa3225 (PR #78 squash-merged)
+**Web 服务**: `127.0.0.1:8900` 手动重启 (绝对路径 `/usr/local/bin/python3`,不用 web.sh); source=port, PID 63305
+**数据库**: schema_version=23 (新增 events 表, 12 张业务表 → 19 张含 fts)
+**测试**: `tests/test_events.py` 38 passed (+ 既有 522 = 560 total, 2 skip 已知)
+
+### v1.0.16 — F5 行业事件日历 + UI/Layout polish
+
+**业务 (sprint 03)**:
+- 新增 `events` 表 (event_id / article_id / event_date / subject / event_type / summary / review_status / extraction_status)
+- 6 索引 + 5 CHECK 约束 + UNIQUE(article_id, event_date, subject, event_type)
+- `moni/events/` 三层事务管道: normalize.py (主体别名 TOP20 银行 + 日期/类型归一化) → repository.py (CRUD + 统计) → pipeline.py (extract→insert→state-transition)
+- `moni/llm/prompts/event_extraction.txt` 事件提取 prompt
+- `/api/events` 5 端点: list / get / by-article / stats / pending
+- 4 时段调度: 7:00 / 8:30 / 12:00 / 18:00 (`config/schedule.yaml` + `cron/jobs.py`)
+
+**前端 (sprint 03 + sprint 04 polish)**:
+- `moni/web/static/js/calendar.js` — 月历 Alpine 组件 (网格 / 类型筛选 / popover / 待确认)
+- `moni/web/static/css/main.css` — `.cal-*` 全套类 + `@media (max-width: 1100px)` + 600 双断点
+- `moni/web/static/index.html` — 顶栏入口 + 日历 section + popover
+- **better-ui + better-layout 整改** (sprint 04):
+  - "今天" 改 btn-primary 主按钮
+  - 右栏顺序倒过来: 待确认 → 统计 (重要在前)
+  - nav margin-bottom 24px / weekdays→grid 4px (节奏 4/8/12/16/24)
+  - popover max-width min(320, calc(100vw-32)) 边缘格子安全
+  - @media 断点 900→1100 (1100-900 区间不崩)
+  - 类型色从满饱和 hex 改 OKLCH 软色 + bg/fg chip (与 moni 中日古风调色板统一)
+  - 修 popover inline `display: none` 与 x-show 冲突 BUG
+
+**Obsidian**: sprint 03 (`sprints/sprint-03-f5-events-calendar/`) + sprint 04 (`sprints/sprint-04-f5-events-calendar-polish/`) 含 plan / sprint doc / verify (3-1-1) / decision-log 3 条 PDR
 
 ### v1.0.15 — PDF / HTML 简报版式与就绪规则
 
