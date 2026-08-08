@@ -66,6 +66,9 @@ function app() {
     // ── Theme engine (from theme.js) ──
     ...themeMixin(),
 
+    // ── Calendar module (v1.0.16 F5 行业日历) ──
+    ...calendarModule(),
+
     // ── Notification helpers (v1.0.13 dialog certainty) ──
     //    Replaces 33 native alert() calls with the moniToast stack.
     //    showToast() in themeMixin is a single-line legacy helper;
@@ -280,6 +283,7 @@ function app() {
     // pushState, and by init() to deep-link from location.pathname.
     _viewToPath: {
       articles: '/articles',
+      calendar: '/calendar',
       crud:     '/crud',
       cron:     '/cron',
       fetch:    '/fetch',
@@ -291,6 +295,7 @@ function app() {
     },
     _pathToView: {
       '/articles': 'articles',
+      '/calendar': 'calendar',
       '/crud':     'crud',
       '/cron':     'cron',
       '/fetch':    'fetch',
@@ -336,6 +341,7 @@ function app() {
       else if (view === 'llmJobs') this.loadLlmJobs();  // v1.0.5.1
       else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
+      else if (view === 'calendar') { this.initCalendarPage(); }
       else if (view === 'config') {
         this.configTab = 'sources';
         this.configLoadSources();
@@ -369,6 +375,7 @@ function app() {
       else if (view === 'llmJobs') this.loadLlmJobs();
       else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
+      else if (view === 'calendar') { this.initCalendarPage(); }
       else if (view === 'config') {
         this.configTab = 'sources';
         this.configLoadSources();
@@ -2953,6 +2960,7 @@ function app() {
       else if (view === 'fetch') this.loadSources();
       else if (view === 'llmJobs') this.loadLlmJobs();
       else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
+      else if (view === 'calendar') { this.initCalendarPage(); }
       else if (view === 'config') {
         this.configTab = 'sources';
         this.configLoadSources();

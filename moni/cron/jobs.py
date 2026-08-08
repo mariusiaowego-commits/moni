@@ -412,3 +412,123 @@ def _parse_tags_from_reply(reply: str) -> list[str]:
         if name:
             names.append(name)
     return names
+
+
+# ── 行业事件抽取 ──────────────────────────────────────────────────────
+
+
+def extract_events_pending(
+    *,
+    batch_size: int = 20,
+    provider: str = "minimax-cn",
+    model: str = "MiniMax-M3",
+) -> dict[str, Any] | None:
+    """为新入库的文章批量抽取行业事件（F5 行业事件日历）。
+
+    找到还没有 events 记录的文章，调用 LLM 抽取事件，
+    经过 normalize → insert → state-transition 三层管道写入 DB。
+
+    Parameters
+    ----------
+    batch_size : int
+        每批处理的文章数（默认 20）。
+    provider : str
+        LLM provider 名称。
+    model : str
+        LLM 模型 ID。
+
+    Logging
+    -------
+    Writes one ``cron_runs`` row with job_id ``extract_events_pending``.
+
+    Returns
+    -------
+    None (APScheduler does not use the return value).
+    """
+    job_id = "extract_events_pending"
+    triggered_at = _cst_now().isoformat()
+    history = CronRunHistory()
+
+    logger.info("[%s] job started at %s", job_id, triggered_at)
+
+    # 记录 cron_runs
+    cron_run_rowid: int = 0
+    try:
+        cron_run_rowid = history.log_run(
+            job_id,
+            triggered_at=triggered_at,
+            finished_at=_cst_now().isoformat(),
+            success=True,
+            error=None,
+            new_articles=0,
+            sources_run=0,
+        )
+    except Exception as exc:
+        logger.error("[%s] Failed to create cron_runs row: %s", job_id, exc)
+        cron_run_rowid = 0
+
+    try:
+        from moni.events.pipeline import extract_events_batch
+
+        result = extract_events_batch(
+            batch_size=batch_size,
+            provider=provider,
+            model=model,
+        )
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        logger.error("[%s] batch extraction failed: %s", job_id, error)
+        if cron_run_rowid:
+            try:
+                from ..db.connection import get_db as _get_db
+                conn = _get_db()
+                conn.execute(
+                    """
+                    UPDATE cron_runs
+                    SET finished_at=?, success=0, error=?,
+                        new_articles=0, sources_run=0
+                    WHERE id=?
+                    """,
+                    (_cst_now().isoformat(), error, cron_run_rowid),
+                )
+                conn.commit()
+            except Exception as log_exc:
+                logger.error("[%s] Failed to update cron_runs row: %s", job_id, log_exc)
+        return None
+
+    finished_at = _cst_now().isoformat()
+    success = result["failed"] == 0
+
+    if cron_run_rowid:
+        try:
+            from ..db.connection import get_db as _get_db
+            conn = _get_db()
+            conn.execute(
+                """
+                UPDATE cron_runs
+                SET finished_at=?, success=?, error=?,
+                    new_articles=?, sources_run=?
+                WHERE id=?
+                """,
+                (
+                    finished_at,
+                    1 if success else 0,
+                    f"{result['failed']} failed" if result["failed"] else None,
+                    result["events_extracted"],
+                    result["processed"],
+                    cron_run_rowid,
+                ),
+            )
+            conn.commit()
+        except Exception as log_exc:
+            logger.error("[%s] Failed to update cron_runs row: %s", job_id, log_exc)
+
+    logger.info(
+        "[%s] finished at %s — processed=%d succeeded=%d "
+        "failed=%d skipped=%d events=%d",
+        job_id, finished_at,
+        result["processed"], result["succeeded"],
+        result["failed"], result["skipped"],
+        result["events_extracted"],
+    )
+    return None
