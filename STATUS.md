@@ -4,6 +4,55 @@
 
 ---
 
+## 当前状态: **v1.0.19 — W1 量化看板** (2026-08-09)
+
+**主分支 tag**: **v1.0.19** @ 8d390be (PR #80 squash-merged)
+**Web 服务**: `127.0.0.1:8900` PID 17981 (手动重启, 绝对路径 `/usr/local/bin/python3`)
+**数据库**: schema_version=24 (无 migration)
+**测试**: `tests/test_stats.py` 29 passed (+ 既有 622 = 651 total, 2 skip 已知)
+
+### v1.0.19 — W1 量化看板 (sprint 06 W1 申报包装)
+
+**业务**:
+- 5 模块量化看板 (抓取 / LLM / 抽取 / 使用 / 效率), 顶部三卡 (基线 / 当前 / 目标 × 1.2)
+- 节省分钟数公式 (T₀ yaml 配置 30min/篇保守 + T₁ llm_jobs.duration_ms 实测)
+- 趋势图 (抓取 + LLM 双 SVG inline path) + 节省瀑布图 (按 task_type 高度比)
+- 防夸大口径: display_status='数据积累中' (N<阈值); efficiency.display_label='公式估算' + t0_source='config/savings_baseline.yaml'
+- `moni/stats/repository.py` SQL 聚合 7 张表 (articles / cron_runs / llm_jobs / share_tasks / article_pins / events / cases) — COALESCE(extracted_at, created_at) 防 v0.x pipeline 缺字段
+- `moni/stats/savings.py` 节省公式 (T₀ yaml + T₁ 实测)
+- `moni/web/routes/stats.py` 8 端点 (overview / fetch / llm / usage / savings / timeseries × 2)
+- `config/savings_baseline.yaml` T₀ 配置 (默认 30min/篇 + 反夸大三铁律注释)
+
+**前端**:
+- `moni/web/static/js/stats.js` — Alpine module, Promise.all 并行 fetch 4 端点, SVG trend path, waterfall
+- `moni/web/static/css/main.css` — `.stats-*` 全套 (+174 行) + 三断点响应式
+- `moni/web/static/index.html` — 顶栏 "量化看板" 入口 + section (158 行)
+- `moni/web/static/js/app.js` — `...statsModule()` + `statsOnEnter()` 注入
+
+**MOA 4 视角拍板** (A+A+A+A+A+(A+补丁)):
+- Q1 模块: A 全 5 模块 (DA 反方采纳 Eng 数据稀疏论据)
+- Q2 节省: A 公式估算 (T₀ yaml 不入 DB, 历史口径污染可控)
+- Q3 T₀: A 保守 30min/篇 (Brynjolfsson 新手 +34%)
+- Q4 布局: A 横排 + 三卡 + 瀑布 (申报截图强制 1440px 视窗)
+- Q5 端点: A 4 独立端点 (模块级 ETag 可省 ~60% 流量)
+- Q6 稀疏: **A+补丁** (DA 关键盲点: 默认 N<10 会同时砍 events/cases 等效 Q1=B; 修正: events/cases N<5 阈值)
+
+**修复 3 个真实 bug** (跟 brief v1.0.18 → v1.0.19 同步):
+- `cron_runs` 字段 = triggered_at / finished_at (非 started_at) — brief 假设修复
+- `llm_jobs.status` 枚举 = done (非 success)
+- `share_tasks.status` 枚举 = done (非 completed)
+- 瀑布图柱子初始显示 4px (parent 高度缺失 → bar-fill height:% 解析失败) — 加 `.stats-waterfall-bar { height: 100% }`
+
+**浏览器验证** (8900 prod):
+- 8 端点全 200 OK
+- 顶部三卡 (基线 13 / 当前 13 / 目标 16)
+- 5 模块横排: 抓取 (92.3% / 861 新文章) / LLM (100% / 29.3s 平均) / 抽取 (稀疏徽章) / 使用 / 效率 (295 分钟节省)
+- 趋势图 SVG 紫线 + 瀑布图柱子 (77px / 72px, 高度比 100% / 66%)
+
+**Obsidian**: sprint 06 W1 (`sprints/sprint-06-w1-quant-dashboard/`) 含 brief v1.0.19 (15100 字符) / research w1-reference-2026-08-08.md (6 leaf agents 调研)
+
+---
+
 ## 当前状态: **v1.0.17 — F6 同业案例库** (2026-08-08)
 
 **主分支 tag**: **v1.0.17** @ 5ac49e4 (PR #79 squash-merged)

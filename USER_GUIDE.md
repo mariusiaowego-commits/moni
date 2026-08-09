@@ -1,7 +1,7 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。**v1.0.13.1** (2026-08-05) — 504+ pytest pass + 2 skip, **11** active 源, schema v22。
-> 本次新增: xwatch (X 关键词监控) 图标 + moni-icon v3.1 (3 金环+teal 宝石, fetch modal 中心节点) + 抓取完成粒子停止修复。
+> 同业信源自动抓取与本地新闻库。**v1.0.19** (2026-08-09) — 651 pytest pass + 2 skip, **11** active 源, schema v24。
+> 本次新增: **量化看板** (5 模块 + 三卡 + 趋势 + 瀑布图) — §四.7 W1 申报包装。
 > 这份文档给**用户**（你自己）看 —— 怎么用 moni，不讲代码细节。
 
 ---
@@ -791,3 +791,71 @@ Web UI **配置管理 → 抓取源 → xwatch → fetch_config**：
 - Issue / PR → github.com/mariusiaowego-commits/moni (私)
 - 接手 agent 看 `HANDOFF.md`
 - 本项目惯例 + 收尾 workflow → `AGENTS.md`
+
+---
+
+## 14. 量化看板 (v1.0.19 W1 申报包装)
+
+> §四.7 路线图 W1 任务。**新增**: 顶栏 "量化看板" 入口 + 5 模块 + 顶部三卡 + 趋势图 + 节省瀑布图。
+> §五 评分「降本增效 + 效益提质」目标 +2-3 分。
+
+### 5 模块
+
+| 模块 | 含义 | 阈值 | 关键数字 |
+|---|---|---|---|
+| 抓取层 | cron_runs + articles 抓取 | N≥10 | 跑批次数 / 成功率 / 新增文章数 |
+| LLM 层 | llm_jobs 处理 | N≥10 | 任务数 / 成功率 / 平均耗时 / 重试 |
+| 抽取层 | events + cases 抽取 | **N≥5** (events/cases 单独) | 事件数 / 案例数 / 待确认数 |
+| 使用层 | article_pins + share_tasks | N≥10 | Pin / 分享 / 简报生成 |
+| 效率层 | (T₀ - T₁) × n 节省 | N≥10 (任务数) | 节省分钟数 / 公式估算口径 |
+
+### 顶部三卡 (基线 / 当前 / 目标)
+
+- **基线 (上一周期)**: 上一周期的抓取/LLM/新增文章
+- **当前**: 当前周期
+- **目标 (current × 1.2)**: 不是承诺值,只是"基线 + 20% 增长参考线"
+
+### 节省分钟数公式
+
+公式 = (T₀ yaml 配置 - T₁ llm_jobs 实测平均) × 任务数
+
+- **T₀ 配置**: `config/savings_baseline.yaml` 默认 30min/篇 (Brynjolfsson NBER 新手 +34% 论据; moni 业务人员 = 新手场景)
+- **T₁ 实测**: `llm_jobs.duration_ms` 平均值
+- **看板显示**: 标 `公式估算` 而非 `实测`, `t0_source` 标 yaml 路径 — 防评委抓反例 (METR 资深 -19%)
+
+### 防夸大口径 (3 个铁律)
+
+1. N<阈值 → `display_status='数据积累中'`, 不展示百分比/节省数字
+2. `efficiency.display_label='公式估算'` + `t0_source='config/savings_baseline.yaml'` (看板明示口径)
+3. 7 个 rate% 全部防 N<5 错误显示 (sparse → null 而非 0)
+
+### API 端点 (8 个)
+
+```
+GET /api/stats/overview?period=7d|30d|90d      # 三卡 + 6 类汇总
+GET /api/stats/fetch?period=7d|30d|90d         # 抓取层详情
+GET /api/stats/llm?period=7d|30d|90d           # LLM 层详情
+GET /api/stats/extract?period=7d|30d|90d       # 抽取层详情
+GET /api/stats/usage?period=7d|30d|90d         # 使用层详情
+GET /api/stats/savings?period=7d|30d|90d       # 效率层 + 节省公式
+GET /api/stats/timeseries?metric=fetch|llm|... # 趋势数据
+```
+
+并行 fetch 4 端点 < 1.5s (Etag 可省 ~60% 流量)
+
+### 浏览器使用
+
+1. 顶栏点 "量化看板"
+2. 默认显示 30 天窗口, 顶部 3 按钮切 7/30/90 天
+3. 趋势图 SVG inline path (无 chart.js 依赖)
+4. 瀑布图: 按 task_type 节省分钟数分布 (柱子高度比 = 该任务节省/最大节省)
+5. 申报截图: **强制 1440px 视窗**, 1280px 以下 5 模块会 collapse 单列
+
+### 修改 T₀ (改默认 30min/篇)
+
+直接编辑 `config/savings_baseline.yaml` 然后 `moni db seed-config` 重启看板。**yaml 不入 DB**, 可热改。
+
+### 已知限制
+
+- 趋势图无 X 轴日期标签 / Y 轴刻度 (申报场景够用; 后续可加 chart.js)
+- 瀑布图只显示前 5 个 task_type (节省 TOP-5)
