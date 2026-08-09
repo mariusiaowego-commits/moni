@@ -1,0 +1,37 @@
+# moni/savings_baseline.yaml — 量化看板节省时间公式 T₀ 配置
+#
+# v1.0.19: moni-B §四.7 路线图 W1 申报包装。
+# 看板展示的 "节省分钟数" 是 (T₀ - T₁_实测) × 任务数,
+# T₀ 在本文件配置 (人类判断的"人工基准"), T₁ 从 llm_jobs.duration_ms 实测。
+#
+# 口径防夸大三铁律 (MOA 拍板 2026-08-09):
+#   1. T₀ 是 yaml 配置的 "人工基准", 不是实测 → display_status 标 "公式估算"
+#   2. 样本 N < 阈值 → 不展示百分比/节省, 显示 "数据积累中"
+#   3. 不报年化数字, 只报期间内数字 (period=30d 即月内数字)
+#
+# 学术参考 (反夸大 4 原则 from research §二):
+#   - NBER w31161 Brynjolfsson (2023): 客服 AI 助手 +14% / 新手 +34%
+#   - arXiv:2302.06590 GitHub Copilot: ~55.8% 加速 [CI 21%, 89%]
+#   - arXiv:2507.09089 METR (2025): 资深开发者反而 +19% 耗时 (强反例)
+#
+# ⚠️  改本文件必须 bump version, 否则审计链断 (savings.py 读 t0_config_version)
+
+version: "1.0"
+updated_at: "2026-08-09"
+updated_by: "sprint 06 W1 量化看板 MOA 拍板 (Q3=A 保守 30min/篇)"
+
+# 顶部三卡 target = current × target_growth
+# 保守 +20% (Q1=A 4 视角一致: 不虚高不缩水)
+target_growth: 1.2
+
+# 人工基准时间 (单位: 分钟/任务)
+# 匹配 Brynjolfsson 新手 +34% moni 业务人员也是新手场景
+# summary / fact_check: 30 分钟 (通读 800 字 + 摘录 + 事实核查)
+# event_extract / case_extract: 25 分钟 (结构化输出略快)
+# predict_tags: 5 分钟 (简单分类)
+t0_minutes:
+  summary: 30.0
+  fact_check: 30.0
+  event_extract: 25.0
+  case_extract: 25.0
+  predict_tags: 5.0

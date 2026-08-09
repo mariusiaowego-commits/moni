@@ -31,6 +31,7 @@
         <a href="/articles" @click.prevent="navigate('articles')" :class="{ active: currentView === 'articles' }">文章查阅</a>
         <a href="/calendar" @click.prevent="navigate('calendar')" :class="{ active: currentView === 'calendar' }">行业日历</a>
         <a href="/cases"    @click.prevent="navigate('cases')"    :class="{ active: currentView === 'cases'    }">案例库</a>
+        <a href="/stats"    @click.prevent="navigate('stats')"    :class="{ active: currentView === 'stats'    }">量化看板</a>
         <a href="/crud"     @click.prevent="navigate('crud')"     :class="{ active: currentView === 'crud'     }">CRUD</a>
         <a href="/cron"     @click.prevent="navigate('cron')"     :class="{ active: currentView === 'cron'     }">跑批日志</a>
         <a href="/fetch"    @click.prevent="navigate('fetch')"    :class="{ active: currentView === 'fetch'    }">抓取管理</a>
@@ -1577,6 +1578,164 @@
         </div>
       </section>
 
+      <!-- ══ 量化看板 (v1.0.19 W1) ═════════════════════════════════ -->
+      <section x-show="currentView === 'stats'" x-cloak x-init="statsOnEnter()">
+        <div class="panel-header">
+          <h3>量化看板</h3>
+          <span class="cal-stat-sub">moni-B §四.7 W1 申报包装 · §五 评分成效 20 + 规范性 10</span>
+        </div>
+
+        <div class="stats-toolbar">
+          <span class="stats-toolbar-label">时间窗口</span>
+          <div class="stats-toolbar-period">
+            <button :class="{ active: period === '7d' }"  @click="setPeriod('7d')">7 天</button>
+            <button :class="{ active: period === '30d' }" @click="setPeriod('30d')">30 天</button>
+            <button :class="{ active: period === '90d' }" @click="setPeriod('90d')">90 天</button>
+          </div>
+          <span class="stats-toolbar-label-input" x-text="loading ? '加载中...' : ''"></span>
+        </div>
+
+        <div x-show="error" class="stats-error" x-text="error"></div>
+
+        <!-- 顶部三卡: 基线 / 当前 / 目标 -->
+        <div class="stats-cards">
+          <div class="stats-card stats-card-baseline">
+            <div class="stats-card-label">基线 (上一周期)</div>
+            <div class="stats-card-value" x-text="fmt(cards.baseline?.fetch_total || 0)"></div>
+            <div class="stats-card-sub">
+              抓取 <span x-text="fmt(cards.baseline?.fetch_total || 0)"></span> 次 ·
+              LLM <span x-text="fmt(cards.baseline?.llm_total || 0)"></span> 次 ·
+              新增 <span x-text="fmt(cards.baseline?.new_articles || 0)"></span> 篇
+            </div>
+          </div>
+          <div class="stats-card stats-card-current">
+            <div class="stats-card-label">当前</div>
+            <div class="stats-card-value" x-text="fmt(cards.current?.fetch_total || 0)"></div>
+            <div class="stats-card-sub">
+              抓取 <span x-text="fmt(cards.current?.fetch_total || 0)"></span> 次 ·
+              LLM <span x-text="fmt(cards.current?.llm_total || 0)"></span> 次 ·
+              新增 <span x-text="fmt(cards.current?.new_articles || 0)"></span> 篇
+            </div>
+          </div>
+          <div class="stats-card stats-card-target">
+            <div class="stats-card-label">目标 (current × 1.2)</div>
+            <div class="stats-card-value" x-text="fmt(cards.target?.fetch_total || 0)"></div>
+            <div class="stats-card-sub">
+              抓取 <span x-text="fmt(cards.target?.fetch_total || 0)"></span> 次 ·
+              LLM <span x-text="fmt(cards.target?.llm_total || 0)"></span> 次 ·
+              新增 <span x-text="fmt(cards.target?.new_articles || 0)"></span> 篇
+            </div>
+          </div>
+        </div>
+
+        <!-- 5 模块横排 -->
+        <div class="stats-modules">
+          <div class="stats-module">
+            <div class="stats-module-head">
+              <span class="stats-module-title">抓取层</span>
+              <span class="stats-module-status" :class="moduleStatusClass(fetch)" x-text="moduleStatusLabel(fetch)"></span>
+            </div>
+            <div class="stats-module-primary" x-text="fmt(fetch.raw?.cron_total || 0)"></div>
+            <div class="stats-module-row"><span>成功率</span><strong x-text="pct(fetch.raw?.success_rate)"></strong></div>
+            <div class="stats-module-row"><span>新增文章</span><strong x-text="fmt(fetch.raw?.new_articles_total || 0)"></strong></div>
+            <div class="stats-module-row"><span>阈值</span><strong>N ≥ <span x-text="fetch.threshold"></span></strong></div>
+          </div>
+
+          <div class="stats-module">
+            <div class="stats-module-head">
+              <span class="stats-module-title">LLM 层</span>
+              <span class="stats-module-status" :class="moduleStatusClass(llm)" x-text="moduleStatusLabel(llm)"></span>
+            </div>
+            <div class="stats-module-primary" x-text="fmt(llm.raw?.task_total || 0)"></div>
+            <div class="stats-module-row"><span>成功率</span><strong x-text="pct(llm.raw?.success_rate)"></strong></div>
+            <div class="stats-module-row"><span>平均耗时</span><strong><span x-text="fmt(llm.raw?.avg_duration_ms || 0)"></span> ms</strong></div>
+            <div class="stats-module-row"><span>重试</span><strong x-text="fmt(llm.raw?.task_retry || 0)"></strong></div>
+          </div>
+
+          <div class="stats-module">
+            <div class="stats-module-head">
+              <span class="stats-module-title">抽取层</span>
+              <span class="stats-module-status" :class="moduleStatusClass(extract)" x-text="moduleStatusLabel(extract)"></span>
+            </div>
+            <div class="stats-module-primary">
+              <span x-text="fmt(extract.raw?.events_total || 0)"></span> 事件 ·
+              <span x-text="fmt(extract.raw?.cases_total || 0)"></span> 案例
+            </div>
+            <div class="stats-module-row"><span>事件待确认</span><strong x-text="fmt(extract.raw?.events_pending || 0)"></strong></div>
+            <div class="stats-module-row"><span>案例待确认</span><strong x-text="fmt(extract.raw?.cases_pending || 0)"></strong></div>
+            <div class="stats-module-row"><span>阈值</span><strong>N ≥ <span x-text="extract.threshold"></span> (DA 关键)</strong></div>
+          </div>
+
+          <div class="stats-module">
+            <div class="stats-module-head">
+              <span class="stats-module-title">使用层</span>
+              <span class="stats-module-status" :class="moduleStatusClass(usage)" x-text="moduleStatusLabel(usage)"></span>
+            </div>
+            <div class="stats-module-primary" x-text="fmt((usage.raw?.pin_count || 0) + (usage.raw?.share_count || 0))"></div>
+            <div class="stats-module-row"><span>Pin 数</span><strong x-text="fmt(usage.raw?.pin_count || 0)"></strong></div>
+            <div class="stats-module-row"><span>分享次数</span><strong x-text="fmt(usage.raw?.share_count || 0)"></strong></div>
+            <div class="stats-module-row"><span>简报生成</span><strong x-text="fmt(usage.raw?.brief_count || 0)"></strong></div>
+          </div>
+
+          <div class="stats-module">
+            <div class="stats-module-head">
+              <span class="stats-module-title">效率层</span>
+              <span class="stats-module-status" :class="moduleStatusClass(efficiency)" x-text="moduleStatusLabel(efficiency)"></span>
+            </div>
+            <div class="stats-module-primary">
+              <span x-text="fmt(efficiency.raw?.total_savings_minutes || 0)"></span>
+              <span style="font-size:13px; color: var(--muted)">分钟</span>
+            </div>
+            <div class="stats-module-row"><span>任务数</span><strong x-text="fmt(efficiency.count || 0)"></strong></div>
+            <div class="stats-module-row"><span>口径</span><strong x-text="efficiency.display_label"></strong></div>
+            <div class="stats-module-row"><span>来源</span><strong x-text="efficiency.t0_source" style="font-size:10px"></strong></div>
+          </div>
+        </div>
+
+        <!-- 趋势图 (fetch) -->
+        <div class="stats-trend">
+          <div class="stats-trend-title">抓取趋势 (每日 · <span x-text="timeseriesFetch.total || 0"></span> 次累计)</div>
+          <svg class="stats-trend-svg" viewBox="0 0 320 80" preserveAspectRatio="none" x-show="timeseriesFetch.points && timeseriesFetch.points.length > 0">
+            <path class="stats-trend-line" :d="trendPath(timeseriesFetch.points)" />
+          </svg>
+          <div class="stats-trend-empty" x-show="!timeseriesFetch.points || timeseriesFetch.points.length === 0">
+            数据积累中 (N &lt; <span x-text="fetch.threshold"></span>)
+          </div>
+        </div>
+
+        <!-- 趋势图 (llm) -->
+        <div class="stats-trend">
+          <div class="stats-trend-title">LLM 任务趋势 (每日 · <span x-text="timeseriesLlm.total || 0"></span> 次累计)</div>
+          <svg class="stats-trend-svg" viewBox="0 0 320 80" preserveAspectRatio="none" x-show="timeseriesLlm.points && timeseriesLlm.points.length > 0">
+            <path class="stats-trend-line" :d="trendPath(timeseriesLlm.points)" stroke="#7eb86b" />
+          </svg>
+          <div class="stats-trend-empty" x-show="!timeseriesLlm.points || timeseriesLlm.points.length === 0">
+            数据积累中 (N &lt; <span x-text="llm.threshold"></span>)
+          </div>
+        </div>
+
+        <!-- 节省瀑布图 (efficiency) -->
+        <div class="stats-waterfall">
+          <div class="stats-waterfall-title">节省分钟数分布 (按任务类型 · 前 5)</div>
+          <span class="stats-waterfall-label" x-text="efficiency.display_label + ' · ' + efficiency.t0_source"></span>
+          <template x-if="efficiency.display_status === 'ok' && savingsWaterfall().length > 0">
+            <div class="stats-waterfall-bars">
+              <template x-for="bar in savingsWaterfall()" :key="bar.task_type">
+                <div class="stats-waterfall-bar">
+                  <div class="stats-waterfall-bar-label" x-text="bar.label"></div>
+                  <div class="stats-waterfall-bar-fill" :style="'height: ' + bar.height + '%;'"></div>
+                  <div class="stats-waterfall-bar-value" x-text="fmt(bar.value) + ' 分钟'"></div>
+                </div>
+              </template>
+            </div>
+          </template>
+          <div class="stats-waterfall-empty" x-show="efficiency.display_status !== 'ok' || savingsWaterfall().length === 0">
+            数据积累中 (任务数 &lt; <span x-text="efficiency.threshold"></span>)
+          </div>
+        </div>
+
+      </section>
+
       <!-- ══ Config Management (v1.0.2-F) ════════════════════════════════ -->
       <section x-show="currentView === 'config'" x-cloak>
         <div class="panel-header">
@@ -2772,6 +2931,7 @@
   <script src="js/modal.js?v=1785000000"></script>
   <script src="js/calendar.js?v=20260808004"></script>
   <script src="js/cases.js?v=20260808004"></script>
+  <script src="js/stats.js?v=20260809"></script>
   <script src="js/app.js?v=1785000000"></script>
   <script src="js/theme.js?v=1785000000"></script>
   <script src="js/icons.js?v=1785000000"></script>

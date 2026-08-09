@@ -1806,3 +1806,177 @@ label { font-size: 0.85rem; }
   .cal-day-count { display: none; }
   .cal-weekday { font-size: 10px; }
 }
+
+/* ── W1 量化看板 (v1.0.19) ─────────────────────────────────────── */
+
+.stats-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--card);
+  border: 1px solid var(--border, rgba(127,127,127,0.15));
+  border-radius: 8px;
+}
+.stats-toolbar-label { color: var(--muted); font-size: 13px; }
+.stats-toolbar-period {
+  display: inline-flex; gap: 0; border-radius: 6px; overflow: hidden;
+  border: 1px solid var(--border, rgba(127,127,127,0.2));
+}
+.stats-toolbar-period button {
+  background: transparent; border: 0; padding: 6px 14px;
+  font: inherit; cursor: pointer; color: var(--muted);
+}
+.stats-toolbar-period button.active {
+  background: var(--accent, #4a90e2); color: #fff;
+}
+.stats-toolbar-label-input {
+  margin-left: auto; color: var(--muted); font-size: 12px;
+}
+
+/* 顶部三卡 (基线 / 当前 / 目标) */
+.stats-cards {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+  margin-bottom: 16px;
+}
+.stats-card {
+  background: var(--card);
+  border: 1px solid var(--border, rgba(127,127,127,0.15));
+  border-radius: 8px; padding: 16px;
+}
+.stats-card-label {
+  color: var(--muted); font-size: 12px; text-transform: uppercase;
+  letter-spacing: 0.05em; margin-bottom: 8px;
+}
+.stats-card-value {
+  font-size: 28px; font-weight: 600; color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+.stats-card-sub {
+  font-size: 12px; color: var(--muted); margin-top: 4px;
+}
+.stats-card-baseline .stats-card-value { color: var(--muted); }
+.stats-card-current  .stats-card-value { color: var(--foreground); }
+.stats-card-target   .stats-card-value { color: var(--accent, #4a90e2); }
+
+/* 5 模块横排 */
+.stats-modules {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px; margin-bottom: 20px;
+}
+.stats-module {
+  background: var(--card);
+  border: 1px solid var(--border, rgba(127,127,127,0.15));
+  border-radius: 8px; padding: 14px;
+  position: relative;
+}
+.stats-module-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 10px;
+}
+.stats-module-title {
+  font-size: 13px; color: var(--muted); font-weight: 500;
+}
+.stats-module-status {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px;
+}
+.stats-module-status.stat-ok    { background: rgba(74,144,226,0.15); color: var(--accent, #4a90e2); }
+.stats-module-status.stat-sparse { background: rgba(127,127,127,0.15); color: var(--muted); }
+
+.stats-module-primary {
+  font-size: 22px; font-weight: 600; color: var(--foreground);
+  font-variant-numeric: tabular-nums; margin-bottom: 6px;
+}
+.stats-module-row {
+  display: flex; justify-content: space-between; font-size: 12px;
+  color: var(--muted); margin-top: 4px;
+}
+.stats-module-row strong {
+  color: var(--foreground); font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 趋势图 (inline SVG) */
+.stats-trend {
+  background: var(--card);
+  border: 1px solid var(--border, rgba(127,127,127,0.15));
+  border-radius: 8px; padding: 14px; margin-bottom: 20px;
+}
+.stats-trend-title {
+  font-size: 13px; color: var(--muted); margin-bottom: 10px;
+}
+.stats-trend-svg {
+  width: 100%; height: 80px;
+}
+.stats-trend-line {
+  fill: none; stroke: var(--accent, #4a90e2); stroke-width: 2;
+}
+.stats-trend-empty {
+  text-align: center; color: var(--muted); font-size: 13px;
+  padding: 24px 0;
+}
+
+/* 节省瀑布图 */
+.stats-waterfall {
+  background: var(--card);
+  border: 1px solid var(--border, rgba(127,127,127,0.15));
+  border-radius: 8px; padding: 14px; margin-bottom: 20px;
+}
+.stats-waterfall-title {
+  font-size: 13px; color: var(--muted); margin-bottom: 6px;
+}
+.stats-waterfall-label {
+  display: inline-block;
+  background: rgba(127,127,127,0.15); color: var(--muted);
+  font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-bottom: 12px;
+}
+.stats-waterfall-bars {
+  display: flex; gap: 12px; align-items: flex-end;
+  height: 120px;
+}
+.stats-waterfall-bar {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: flex-end; min-width: 0; height: 100%;
+}
+.stats-waterfall-bar-fill {
+  width: 100%; background: var(--accent, #4a90e2);
+  border-radius: 4px 4px 0 0; min-height: 4px;
+  margin-top: 4px;
+  transition: height 0.3s ease;
+}
+.stats-waterfall-bar-label {
+  font-size: 11px; color: var(--muted); margin-top: 6px;
+  text-align: center; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+.stats-waterfall-bar-value {
+  font-size: 11px; color: var(--foreground);
+  font-variant-numeric: tabular-nums; margin-bottom: 4px;
+}
+.stats-waterfall-empty {
+  text-align: center; color: var(--muted); font-size: 13px;
+  padding: 24px 0;
+}
+
+/* 错误状态 */
+.stats-error {
+  background: rgba(255,80,80,0.1);
+  border: 1px solid rgba(255,80,80,0.3);
+  border-radius: 6px; padding: 12px;
+  color: rgb(220,80,80); font-size: 13px;
+  margin-bottom: 16px;
+}
+
+/* 响应式 — 跟 better-ui sprint 04 一致: < 1100px collapse */
+@media (max-width: 1100px) {
+  .stats-cards { grid-template-columns: 1fr; }
+  .stats-modules { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
+  .stats-modules { grid-template-columns: 1fr; }
+  .stats-waterfall-bars { flex-direction: column; height: auto; gap: 8px; }
+  .stats-waterfall-bar { flex-direction: row; align-items: center; }
+  .stats-waterfall-bar-fill { width: 60%; min-height: 16px; }
+}
