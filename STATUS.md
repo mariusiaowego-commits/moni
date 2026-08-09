@@ -4,14 +4,40 @@
 
 ---
 
-## 当前状态: **v1.0.16 — F5 行业事件日历 + UI polish** (2026-08-08)
+## 当前状态: **v1.0.17 — F6 同业案例库** (2026-08-08)
 
-**主分支 tag**: **v1.0.16** @ faa3225 (PR #78 squash-merged)
-**Web 服务**: `127.0.0.1:8900` 手动重启 (绝对路径 `/usr/local/bin/python3`,不用 web.sh); source=port, PID 63305
-**数据库**: schema_version=23 (新增 events 表, 12 张业务表 → 19 张含 fts)
-**测试**: `tests/test_events.py` 38 passed (+ 既有 522 = 560 total, 2 skip 已知)
+**主分支 tag**: **v1.0.17** @ 5ac49e4 (PR #79 squash-merged)
+**Web 服务**: `127.0.0.1:8900` 手动重启 (绝对路径 `/usr/local/bin/python3`,不用 web.sh); source=port, PID 60389
+**数据库**: schema_version=24 (新增 cases 表 + case_tags + cases_fts, 业务表 11→12, 含 fts 19 张)
+**测试**: `tests/test_cases.py` 62 passed (+ 既有 560 = 622 total, 2 skip 已知)
 
-### v1.0.16 — F5 行业事件日历 + UI/Layout polish
+### v1.0.17 — F6 同业案例库 (sprint 05)
+
+**业务 (sprint 05)**:
+- 新增 `cases` 表 (case_id / article_id / subject / case_type / case_action / case_date / counterparty / amount / reference_value / summary / evidence_snippet / extraction_confidence / extraction_status / case_lifecycle / review_status + normalize_version + extracted_at + updated_at)
+- 8 索引 + 5 CHECK 约束 + UNIQUE(article_id, subject, case_type, case_action) 防重
+- 新增 `case_tags` 多对多表 (跟 article_tags 同模式)
+- 新增 `cases_fts` FTS5 虚拟表 (trigram tokenizer, 中文友好) + 3 trigger (INSERT/UPDATE/DELETE)
+- `moni/cases/` 三层事务管道: normalize.py (100+ 金融机构别名) → repository.py (CRUD + 状态机) → pipeline.py (extract→insert→state-transition)
+- case_id 人脑可读 `MN-<2字母分类>-<YYMM>-<4位序号>` 例 `MN-AI-2608-0042`
+- `moni/llm/prompts/case_extraction.txt` 3-shot few-shot + JSON schema
+- `/api/cases` 7 端点: list / get / by-article / retry / pending / stats / search (FTS5)
+
+**前端 (跟 sprint 04 UI polish 一致风格)**:
+- `moni/web/static/js/cases.js` — 同业案例库 Alpine 组件 (列表 + 详情 modal + 搜索 + 筛选)
+- `moni/web/static/css/main.css` — `.case-*` 全套 (210+ 行) + `@media (max-width: 1100px)` + 600 双断点
+- `moni/web/static/index.html` — 顶栏 "案例库" 入口 + cases section + case_id monospace
+- `moni/web/static/js/app.js` — casesModule 注入 + 3 处 init 分支加 cases
+
+**修复 4 个 bug** (sprint 05 过程中踩到):
+- `_CURRENT_VERSION` 23 → 24 + INSERT OR IGNORE schema_version (单 PK 不能 UPDATE 全部)
+- `_run_sql_file` 用 `executescript()` 兜底 trigger BEGIN/END 解析 (naive `split(";")` 切错)
+- `_generate_case_id` YYMM 截错 `[:6]` → `[:7]` (YYYY-MM-DD[:7] = YYYY-MM)
+- `cases_fts` trigger 改用业务主键 (case_id) 匹配而非 FTS5 'delete' command (fts rowid 跟 cases rowid 是独立 namespace, 跨表对齐脆弱)
+
+**Obsidian**: sprint 05 (`sprints/sprint-05-f6-cases-library/`) 含 plan / sprint doc / verify-2026-08-08.md (3-1-1) / research (MOA 6 leaf agents) / decision-log 7 条 PDR
+
+### v1.0.16 — F5 行业事件日历 + UI polish
 
 **业务 (sprint 03)**:
 - 新增 `events` 表 (event_id / article_id / event_date / subject / event_type / summary / review_status / extraction_status)
