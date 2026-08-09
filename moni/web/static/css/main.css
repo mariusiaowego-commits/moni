@@ -1566,6 +1566,230 @@ label { font-size: 0.85rem; }
 /* Panel-header adjustments for calendar */
 .cal-panel-header { flex-wrap: wrap; gap: 8px; }
 
+/* ═══════════════════════════════════════════════════════════════
+   Cases Library (v1.0.17 F6)
+   ═══════════════════════════════════════════════════════════════ */
+.case-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 24px;
+}
+.case-main { min-width: 0; }
+.case-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+.case-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.case-toolbar-label {
+  font-size: 12px;
+  color: var(--muted-fg);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.case-toolbar-search {
+  flex: 1;
+  min-width: 200px;
+}
+
+.case-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.case-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  transition: transform 120ms ease-out, box-shadow 120ms ease-out;
+  cursor: pointer;
+}
+.case-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+}
+.case-card:active { transform: scale(0.99); }
+
+.case-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.case-id {
+  font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted-fg);
+  background: var(--muted);
+  padding: 2px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.02em;
+}
+.case-subject {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--card-fg);
+}
+.case-summary {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--card-fg);
+  opacity: 0.85;
+  margin-bottom: 10px;
+}
+.case-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--muted-fg);
+}
+.case-meta-item { display: flex; align-items: center; gap: 4px; }
+
+.case-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+
+.case-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--muted-fg);
+  font-size: 13px;
+}
+
+/* Stats card (reuse .cal-card style by ref) */
+.case-stat-card {
+  background: var(--card);
+  border-radius: 10px;
+  padding: 16px;
+  border: 1px solid var(--border);
+}
+.case-stat-title {
+  font-size: 12px;
+  color: var(--muted-fg);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+.case-stat-num {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--card-fg);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.case-stat-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+.case-stat-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted-fg);
+}
+.case-stat-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Detail modal (reuses .cal-popover-style box) */
+.case-detail {
+  position: fixed;
+  z-index: 9999;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 560px;
+  max-width: calc(100vw - 32px);
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow:
+    0 12px 32px oklch(0 0 0 / 0.18),
+    0 2px 8px oklch(0 0 0 / 0.08);
+  padding: 24px;
+}
+.case-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.case-detail-id {
+  font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+  font-size: 12px;
+  color: var(--muted-fg);
+  background: var(--muted);
+  padding: 3px 10px;
+  border-radius: 4px;
+  letter-spacing: 0.02em;
+  display: inline-block;
+  margin-bottom: 8px;
+}
+.case-detail-subject {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--card-fg);
+}
+.case-detail-section {
+  margin-bottom: 16px;
+}
+.case-detail-label {
+  font-size: 11px;
+  color: var(--muted-fg);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.case-detail-value {
+  font-size: 13px;
+  color: var(--card-fg);
+  line-height: 1.55;
+}
+.case-detail-evidence {
+  font-size: 12px;
+  color: var(--card-fg);
+  opacity: 0.75;
+  font-style: italic;
+  padding: 10px 12px;
+  background: var(--muted);
+  border-radius: 6px;
+  line-height: 1.5;
+}
+.case-detail-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* Responsive */
+@media (max-width: 1100px) {
+  .case-layout { grid-template-columns: 1fr; gap: 16px; }
+}
+@media (max-width: 600px) {
+  .case-detail { width: calc(100vw - 16px); padding: 16px; }
+}
+
 /* Responsive — narrow viewports: stack side column under main
    断点从 900 改 1100 — 让 1100-900 区间侧栏能及早点折叠,避免左/右比例失衡 */
 @media (max-width: 1100px) {

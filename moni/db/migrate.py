@@ -7,6 +7,7 @@ guards make it idempotent.  The schema_version table tracks applied_at.
 
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
 from datetime import datetime, timezone
@@ -14,8 +15,10 @@ from pathlib import Path
 
 from .connection import get_db, get_db_path
 
+logger = logging.getLogger(__name__)
 
-_CURRENT_VERSION = 23  # v1.0.16: events calendar table (023)
+
+_CURRENT_VERSION = 24  # v1.0.17: cases library table (024)
 
 
 def current_version(conn: sqlite3.Connection) -> int:
@@ -38,6 +41,16 @@ def _run_sql_file(conn: sqlite3.Connection, path: Path) -> None:
     """
     raw = path.read_text(encoding="utf-8")
     sql = re.sub(r"--+.*", "", raw)
+    # naive split on ";" doesn't handle BEGIN..END triggers correctly.
+    # Try executescript first (handles triggers), fall back to per-stmt on failure.
+    try:
+        conn.executescript(sql)
+        return
+    except sqlite3.OperationalError as exc:
+        msg = str(exc).lower()
+        # If duplicate column (idempotent ALTER), still try per-stmt and skip
+        if "duplicate column" not in msg:
+            logger.debug("executescript failed (%s); falling back to per-stmt", exc)
     for stmt in sql.split(";"):
         stmt = stmt.strip()
         if not stmt:
@@ -45,7 +58,6 @@ def _run_sql_file(conn: sqlite3.Connection, path: Path) -> None:
         try:
             conn.execute(stmt)
         except sqlite3.OperationalError as exc:
-            # Ignore "duplicate column" errors from ALTER TABLE (idempotent)
             if "duplicate column" in str(exc).lower():
                 pass
             else:
@@ -88,10 +100,10 @@ def migrate() -> None:
         _run_sql_file(conn, mig_file)
         applied = mig_version
 
-    # 3. Record final version
+    # 3. Record final version (idempotent — migration files may also INSERT)
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+        "INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (?, ?)",
         (_CURRENT_VERSION, now),
     )
     conn.commit()
