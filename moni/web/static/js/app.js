@@ -72,6 +72,14 @@ function app() {
     // ── Cases module (v1.0.17 F6 同业案例库) ──
     ...casesModule(),
 
+    // ── Stats module (v1.0.19 W1 量化看板) ──
+    ...statsModule(),
+
+    // ── Stats view enter hook (用于 x-init="statsOnEnter()") ──
+    statsOnEnter() {
+      if (typeof this.loadAll === 'function') return this.loadAll();
+    },
+
     // ── Notification helpers (v1.0.13 dialog certainty) ──
     //    Replaces 33 native alert() calls with the moniToast stack.
     //    showToast() in themeMixin is a single-line legacy helper;
