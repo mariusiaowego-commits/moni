@@ -69,6 +69,9 @@ function app() {
     // ── Calendar module (v1.0.16 F5 行业日历) ──
     ...calendarModule(),
 
+    // ── Cases module (v1.0.17 F6 同业案例库) ──
+    ...casesModule(),
+
     // ── Notification helpers (v1.0.13 dialog certainty) ──
     //    Replaces 33 native alert() calls with the moniToast stack.
     //    showToast() in themeMixin is a single-line legacy helper;
@@ -342,6 +345,7 @@ function app() {
       else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
       else if (view === 'calendar') { this.initCalendarPage(); }
+      else if (view === 'cases')    { this.initCasesPage(); }
       else if (view === 'config') {
         this.configTab = 'sources';
         this.configLoadSources();
@@ -376,6 +380,7 @@ function app() {
       else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
       else if (view === 'calendar') { this.initCalendarPage(); }
+      else if (view === 'cases')    { this.initCasesPage(); }
       else if (view === 'config') {
         this.configTab = 'sources';
         this.configLoadSources();
@@ -2961,6 +2966,7 @@ function app() {
       else if (view === 'llmJobs') this.loadLlmJobs();
       else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
       else if (view === 'calendar') { this.initCalendarPage(); }
+      else if (view === 'cases')    { this.initCasesPage(); }
       else if (view === 'config') {
         this.configTab = 'sources';
         this.configLoadSources();

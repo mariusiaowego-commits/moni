@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css?v=20260808003">
+  <link rel="stylesheet" href="css/main.css?v=20260808004">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -30,6 +30,7 @@
       <div class="topnav-links">
         <a href="/articles" @click.prevent="navigate('articles')" :class="{ active: currentView === 'articles' }">文章查阅</a>
         <a href="/calendar" @click.prevent="navigate('calendar')" :class="{ active: currentView === 'calendar' }">行业日历</a>
+        <a href="/cases"    @click.prevent="navigate('cases')"    :class="{ active: currentView === 'cases'    }">案例库</a>
         <a href="/crud"     @click.prevent="navigate('crud')"     :class="{ active: currentView === 'crud'     }">CRUD</a>
         <a href="/cron"     @click.prevent="navigate('cron')"     :class="{ active: currentView === 'cron'     }">跑批日志</a>
         <a href="/fetch"    @click.prevent="navigate('fetch')"    :class="{ active: currentView === 'fetch'    }">抓取管理</a>
@@ -1363,6 +1364,219 @@
         </div>
       </section>
 
+      <!-- ══ 同业案例库 (v1.0.17 F6) ════════════════════════════════ -->
+      <section x-show="currentView === 'cases'" x-cloak>
+        <div class="panel-header">
+          <h3>同业案例库</h3>
+          <div class="search-box">
+            <span class="cal-stat-sub"
+                  x-text="'共 ' + (casesTotal || 0) + ' 个案例'"></span>
+          </div>
+        </div>
+
+        <div class="case-toolbar">
+          <input type="text" x-model="casesSearch" @input.debounce.300ms="loadCasesSearch()"
+                 placeholder="搜索案例主体 / 摘要 / 金额..." class="case-toolbar-search">
+
+          <span class="case-toolbar-label">类型</span>
+          <select x-model="casesFilterType" @change="casesOnFilterChange()" class="filter-select">
+            <template x-for="t in caseTypes" :key="t.value">
+              <option :value="t.value" x-text="t.label"></option>
+            </template>
+          </select>
+
+          <span class="case-toolbar-label">动作</span>
+          <select x-model="casesFilterAction" @change="casesOnFilterChange()" class="filter-select">
+            <template x-for="a in caseActions" :key="a.value">
+              <option :value="a.value" x-text="a.label"></option>
+            </template>
+          </select>
+
+          <span class="case-toolbar-label">参考价值</span>
+          <select x-model="casesFilterReference" @change="casesOnFilterChange()" class="filter-select">
+            <template x-for="r in caseReferences" :key="r.value">
+              <option :value="r.value" x-text="r.label"></option>
+            </template>
+          </select>
+        </div>
+
+        <!-- 搜索结果 (覆盖默认列表) -->
+        <template x-if="casesSearch.trim()">
+          <div>
+            <div class="cal-card-title" style="margin-bottom: 12px;">
+              搜索结果 (<span x-text="casesSearchResults.length"></span>)
+            </div>
+            <div class="case-list">
+              <template x-for="cs in casesSearchResults" :key="cs.case_id">
+                <div class="case-card" @click="casesOpenDetail(cs)">
+                  <div class="case-card-head">
+                    <span class="case-id" x-text="cs.case_id"></span>
+                    <span class="case-subject" x-text="cs.subject"></span>
+                  </div>
+                  <div class="case-summary" x-text="cs.summary"></div>
+                  <div class="case-chips">
+                    <span class="cal-type-chip"
+                          :style="{ background: caseTypeColor(cs.case_type), color: '#fff' }"
+                          x-text="caseTypeLabel(cs.case_type)"></span>
+                    <span class="cal-type-chip"
+                          :style="{ background: caseReferenceColor(cs.reference_value), color: '#fff' }"
+                          x-text="'参考价值: ' + caseReferenceLabel(cs.reference_value)"></span>
+                  </div>
+                </div>
+              </template>
+              <div x-show="casesSearchResults.length === 0" class="case-empty">
+                无搜索结果
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- 默认列表 (无搜索时显示) -->
+        <template x-if="!casesSearch.trim()">
+          <div class="case-layout">
+            <div class="case-main">
+              <div class="case-list">
+                <template x-for="cs in cases" :key="cs.case_id">
+                  <div class="case-card" @click="casesOpenDetail(cs)">
+                    <div class="case-card-head">
+                      <span class="case-id" x-text="cs.case_id"></span>
+                      <span class="case-subject" x-text="cs.subject"></span>
+                      <span class="cal-type-chip"
+                            style="margin-left: auto;"
+                            :style="{ background: caseTypeColor(cs.case_type), color: '#fff' }"
+                            x-text="caseTypeLabel(cs.case_type)"></span>
+                    </div>
+                    <div class="case-summary" x-text="cs.summary || '(无摘要)'"></div>
+                    <div class="case-meta">
+                      <span class="case-meta-item">
+                        <span x-text="caseActionLabel(cs.case_action)"></span>
+                      </span>
+                      <template x-if="cs.case_date">
+                        <span class="case-meta-item">
+                          <span x-text="cs.case_date"></span>
+                        </span>
+                      </template>
+                      <template x-if="cs.amount">
+                        <span class="case-meta-item">
+                          <strong x-text="cs.amount"></strong>
+                        </span>
+                      </template>
+                      <template x-if="cs.counterparty">
+                        <span class="case-meta-item">
+                          对手方: <span x-text="cs.counterparty"></span>
+                        </span>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+                <div x-show="!casesLoading && cases.length === 0" class="case-empty">
+                  暂无案例。手动抽取案例: 在文章详情页点"提取案例"按钮 (sprint 05 暂未实现 UI 触发, 通过 POST /api/cases/retry/{article_id} 触发)
+                </div>
+                <div x-show="casesLoading" class="case-empty">加载中…</div>
+              </div>
+            </div>
+
+            <div class="case-side">
+              <!-- 统计卡片 -->
+              <div class="case-stat-card">
+                <div class="case-stat-title">案例统计</div>
+                <div class="case-stat-num" x-text="casesStats?.total || 0"></div>
+                <div class="cal-stat-sub">个案例</div>
+                <div class="case-stat-legend">
+                  <template x-for="t in caseTypes.filter(t => t.value)" :key="t.value">
+                    <div class="case-stat-legend-row">
+                      <span class="case-stat-legend-dot" :style="{ backgroundColor: t.color }"></span>
+                      <span x-text="t.label + ' · ' + (casesStats?.by_type?.[t.value] || 0)"></span>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- 参考价值分布 -->
+              <div class="case-stat-card">
+                <div class="case-stat-title">参考价值分布</div>
+                <div class="case-stat-legend">
+                  <template x-for="r in caseReferences.filter(r => r.value)" :key="r.value">
+                    <div class="case-stat-legend-row">
+                      <span class="case-stat-legend-dot" :style="{ backgroundColor: r.color }"></span>
+                      <span x-text="r.label + ' · ' + (casesStats?.by_reference_value?.[r.value] || 0)"></span>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- 案例详情 modal -->
+        <div x-show="casesDetail" x-cloak @click.self="casesCloseDetail()"
+             x-transition.opacity.duration.150ms
+             style="position: fixed; inset: 0; background: oklch(0 0 0 / 0.4); z-index: 9998;">
+          <div x-show="casesDetail" class="case-detail" @click.stop>
+            <template x-if="casesDetail">
+              <div>
+                <div class="case-detail-head">
+                  <div>
+                    <div class="case-detail-id" x-text="casesDetail.case_id"></div>
+                    <div class="case-detail-subject" x-text="casesDetail.subject"></div>
+                  </div>
+                  <button @click="casesCloseDetail()" class="cal-popover-close" aria-label="关闭">×</button>
+                </div>
+
+                <div class="case-chips">
+                  <span class="cal-type-chip"
+                        :style="{ background: caseTypeColor(casesDetail.case_type), color: '#fff' }"
+                        x-text="caseTypeLabel(casesDetail.case_type)"></span>
+                  <span class="cal-type-chip"
+                        :style="{ background: caseReferenceColor(casesDetail.reference_value), color: '#fff' }"
+                        x-text="'参考价值: ' + caseReferenceLabel(casesDetail.reference_value)"></span>
+                  <span class="cal-type-chip"
+                        style="background: var(--muted); color: var(--card-fg);"
+                        x-text="caseActionLabel(casesDetail.case_action)"></span>
+                </div>
+
+                <div class="case-detail-section" x-show="casesDetail.summary">
+                  <div class="case-detail-label">案例摘要</div>
+                  <div class="case-detail-value" x-text="casesDetail.summary"></div>
+                </div>
+
+                <template x-if="casesDetail.reference_rationale">
+                  <div class="case-detail-section">
+                    <div class="case-detail-label">参考价值依据</div>
+                    <div class="case-detail-value" x-text="casesDetail.reference_rationale"></div>
+                  </div>
+                </template>
+
+                <div class="case-detail-section" x-show="casesDetail.case_date || casesDetail.amount || casesDetail.counterparty">
+                  <div class="case-detail-label">关键信息</div>
+                  <div class="case-detail-value">
+                    <template x-if="casesDetail.case_date">
+                      <div>时间: <span x-text="casesDetail.case_date"></span></div>
+                    </template>
+                    <template x-if="casesDetail.amount">
+                      <div>规模: <strong x-text="casesDetail.amount"></strong></div>
+                    </template>
+                    <template x-if="casesDetail.counterparty">
+                      <div>对手方: <span x-text="casesDetail.counterparty"></span></div>
+                    </template>
+                  </div>
+                </div>
+
+                <div class="case-detail-section" x-show="casesDetail.evidence_snippet">
+                  <div class="case-detail-label">原文证据</div>
+                  <div class="case-detail-evidence" x-text="casesDetail.evidence_snippet"></div>
+                </div>
+
+                <div class="case-detail-actions">
+                  <button class="btn btn-primary btn-sm" @click="casesGoToArticle(casesDetail.article_id)">查看原文</button>
+                  <button class="btn btn-ghost btn-sm" @click="casesCloseDetail()">关闭</button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </section>
+
       <!-- ══ Config Management (v1.0.2-F) ════════════════════════════════ -->
       <section x-show="currentView === 'config'" x-cloak>
         <div class="panel-header">
@@ -2556,7 +2770,8 @@
   <!-- v1.0.13: dialog-certainty helpers (must load before app.js) -->
   <script src="js/toast.js?v=1785000000"></script>
   <script src="js/modal.js?v=1785000000"></script>
-  <script src="js/calendar.js?v=20260808003"></script>
+  <script src="js/calendar.js?v=20260808004"></script>
+  <script src="js/cases.js?v=20260808004"></script>
   <script src="js/app.js?v=1785000000"></script>
   <script src="js/theme.js?v=1785000000"></script>
   <script src="js/icons.js?v=1785000000"></script>

@@ -13,6 +13,7 @@ from moni.web.routes.basket import router as basket_router
 from moni.web.routes.config_filters import router as config_filters_router
 from moni.web.routes.config_sources import router as config_sources_router
 from moni.web.routes.config_tags import router as config_tags_router
+from moni.web.routes.cases import router as cases_router
 from moni.web.routes.cron import router as cron_router
 from moni.web.routes.crud import router as crud_router
 from moni.web.routes.events import router as events_router
@@ -30,6 +31,7 @@ _routers: list[APIRouter] = [
     pins_router,  # v1.0.8: BEFORE articles_router (see above)
     articles_router,
     basket_router,
+    cases_router,  # v1.0.17: F6 同业案例库
     config_filters_router,
     config_sources_router,
     config_tags_router,
