@@ -364,6 +364,34 @@ class EventRepository:
         return [dict(r) for r in rows]
 
     @staticmethod
+    def set_review_status(
+        event_id: str,
+        review_status: str,
+    ) -> bool:
+        """人工确认/驳回单条事件 (P2-2, v1.0.20)。
+
+        Args:
+            event_id: 事件 ID
+            review_status: 新状态 (confirmed / rejected)
+
+        Returns:
+            是否更新了至少一行（False = 事件不存在）
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        conn = get_db()
+        cur = conn.execute(
+            """
+            UPDATE events
+            SET review_status = ?,
+                extracted_at = COALESCE(extracted_at, ?)
+            WHERE event_id = ?
+            """,
+            (review_status, now, event_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+    @staticmethod
     def stats() -> dict[str, Any]:
         """事件统计数据。
 
