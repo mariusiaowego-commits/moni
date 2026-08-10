@@ -199,6 +199,28 @@ function calendarModule() {
       }
     },
 
+    // 人工确认/驳回事件 (P2-2 v1.0.20)
+    async calendarReviewEvent(evt, status) {
+      if (!evt || !evt.event_id) return;
+      const url = `/api/events/${encodeURIComponent(evt.event_id)}/${status}`;
+      try {
+        const resp = await fetch(url, { method: 'POST' });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail || `HTTP ${resp.status}`);
+        }
+        // 从待确认列表移除
+        this.calendarPending = (this.calendarPending || []).filter(
+          (e) => e.event_id !== evt.event_id
+        );
+        // 刷新统计
+        this.loadCalendarStats();
+      } catch (e) {
+        console.error('事件确认失败:', e);
+        alert('操作失败: ' + e.message);
+      }
+    },
+
     async loadCalendarStats() {
       try {
         const resp = await fetch('/api/events/stats');

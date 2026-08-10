@@ -454,3 +454,34 @@ class TestEventsAPI:
     def test_retry_not_found(self, fresh_db, client):
         resp = client.post("/api/events/retry/nope")
         assert resp.status_code == 404
+
+    def test_confirm_event(self, fresh_db, client):
+        self._seed(get_db())
+        resp = client.post("/api/events/e2/confirm")
+        assert resp.status_code == 200
+        assert resp.json()["review_status"] == "confirmed"
+        # 确认后不再出现在 pending
+        resp2 = client.get("/api/events/pending")
+        ids = [i["event_id"] for i in resp2.json()["items"]]
+        assert "e2" not in ids
+        # DB 落库验证
+        row = get_db().execute(
+            "SELECT review_status FROM events WHERE event_id='e2'"
+        ).fetchone()
+        assert row["review_status"] == "confirmed"
+
+    def test_reject_event(self, fresh_db, client):
+        self._seed(get_db())
+        resp = client.post("/api/events/e5/reject")
+        assert resp.status_code == 200
+        assert resp.json()["review_status"] == "rejected"
+        row = get_db().execute(
+            "SELECT review_status FROM events WHERE event_id='e5'"
+        ).fetchone()
+        assert row["review_status"] == "rejected"
+
+    def test_review_event_not_found(self, fresh_db, client):
+        resp = client.post("/api/events/nope/confirm")
+        assert resp.status_code == 404
+        resp2 = client.post("/api/events/nope/reject")
+        assert resp2.status_code == 404

@@ -149,6 +149,22 @@ def list_pending_review(
     }
 
 
+@router.post("/{event_id}/confirm")
+def confirm_event(event_id: str) -> dict[str, Any]:
+    """人工确认事件（review_status → confirmed, P2-2 v1.0.20）。"""
+    if not EventRepository.set_review_status(event_id, "confirmed"):
+        raise NotFoundError(message=f"Event {event_id!r} not found")
+    return {"event_id": event_id, "review_status": "confirmed"}
+
+
+@router.post("/{event_id}/reject")
+def reject_event(event_id: str) -> dict[str, Any]:
+    """人工驳回事件（review_status → rejected, P2-2 v1.0.20）。"""
+    if not EventRepository.set_review_status(event_id, "rejected"):
+        raise NotFoundError(message=f"Event {event_id!r} not found")
+    return {"event_id": event_id, "review_status": "rejected"}
+
+
 @router.get("/stats")
 def get_stats() -> dict[str, Any]:
     """事件统计数据。"""
