@@ -2989,6 +2989,7 @@ function app() {
     articleDetail: null,
     summaryLoading: false,
     factCheckLoading: false,
+    caseExtractLoading: false,
 
     showArticleDetail(article) {
       // v1.0.4: sync fetch (Alpine method 中 async/await 兼容性不可靠)
@@ -3409,6 +3410,34 @@ function app() {
         })
         .catch(err => { this._notify('error', '事实核查失败: ' + err.message); })
         .finally(() => { self.factCheckLoading = false; });
+    },
+
+    // v1.0.21: 从当前文章手动提取同业案例 (F6 UI 触发, sprint 05 遗留补全)
+    extractCase() {
+      if (!this.articleDetail) return;
+      const self = this;
+      self.caseExtractLoading = true;
+      fetch(`/api/cases/retry/${encodeURIComponent(this.articleDetail.id)}`, {
+        method: 'POST',
+        credentials: 'same-origin',
+      })
+        .then(r => {
+          if (!r.ok) {
+            return r.json().catch(() => ({})).then(err => { throw new Error(err.detail || 'HTTP ' + r.status); });
+          }
+          return r.json();
+        })
+        .then(data => {
+          if (data.status === 'completed' && data.case_count > 0) {
+            this._notify('success', `提取完成: ${data.case_count} 个案例 → 案例库`);
+          } else if (data.status === 'completed' || data.status === 'no_cases') {
+            this._notify('info', '该文章没有识别到同业案例');
+          } else {
+            this._notify('error', '案例提取失败: ' + (data.error || data.status));
+          }
+        })
+        .catch(err => { this._notify('error', '提取案例失败: ' + err.message); })
+        .finally(() => { self.caseExtractLoading = false; });
     },
 
     // ── LLM jobs panel (v1.0.5.1) ─────────────────────────────────

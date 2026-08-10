@@ -1473,7 +1473,7 @@
                   </div>
                 </template>
                 <div x-show="!casesLoading && cases.length === 0" class="case-empty">
-                  暂无案例。手动抽取案例: 在文章详情页点"提取案例"按钮 (sprint 05 暂未实现 UI 触发, 通过 POST /api/cases/retry/{article_id} 触发)
+                  暂无案例。系统正在从文章中自动识别同业案例，稍后刷新即可看到；也可以打开单篇文章，在详情页点"提取案例"手动触发。
                 </div>
                 <div x-show="casesLoading" class="case-empty">加载中…</div>
               </div>
@@ -2249,6 +2249,11 @@
             <button class="btn-secondary" @click="generateFactCheck()" :disabled="factCheckLoading">
               <span x-show="!factCheckLoading">事实核查</span>
               <span x-show="factCheckLoading">核查中...</span>
+            </button>
+            <!-- v1.0.21: 从当前文章提取同业案例 (F6 UI 触发, sprint 05 遗留补全) -->
+            <button class="btn-secondary" @click="extractCase()" :disabled="caseExtractLoading">
+              <span x-show="!caseExtractLoading">提取案例</span>
+              <span x-show="caseExtractLoading">提取中...</span>
             </button>
             <a :href="articleDetail?.url" target="_blank" class="btn-secondary">查看原文</a>
             <button class="btn-secondary" @click="copyArticleUrl()" title="复制原文链接到剪贴板">

@@ -121,9 +121,9 @@ few-shot 示例：
 }
 ```
 
-文章标题：{title}
-文章来源：{source}
-发布时间：{published_at}
+文章标题：$title
+文章来源：$source
+发布时间：$published_at
 
 文章内容：
-{content}
+$content
