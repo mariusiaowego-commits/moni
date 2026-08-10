@@ -700,6 +700,27 @@ class TestCaseAPI:
 class TestPipeline:
     """extract_cases_for_article 同步流程 (mock LLM)."""
 
+    def test_prompt_placeholder_rendering(self, sample_article):
+        """回归: case_extraction.txt 占位符必须是 $var (Template 风格),
+        不能是 {var} (format 风格) — 2026-08-10 修 bug (F6 案例库一直空)。"""
+        from moni.cases.pipeline import _render_prompt
+
+        conn = get_db()
+        article = dict(conn.execute(
+            "SELECT id, title, source, raw_content FROM articles WHERE id = ?",
+            (sample_article,),
+        ).fetchone())
+        article["raw_content"] = "招商银行 2026 年 8 月 1 日正式上线 AI 智能投顾系统"
+
+        prompt = _render_prompt(article)
+        # 占位符必须被真实内容替换
+        assert "{title}" not in prompt
+        assert "{content}" not in prompt
+        assert "{source}" not in prompt
+        # 真实内容必须注入
+        assert article["title"] in prompt
+        assert "AI 智能投顾" in prompt
+
     def test_full_flow_with_mock(self, sample_article):
         from moni.cases.pipeline import extract_cases_for_article
 

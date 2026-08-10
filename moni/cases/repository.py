@@ -30,8 +30,9 @@ def _generate_case_id(case_type: str, case_date: str | None) -> str:
     Returns:
         'MN-AI-2608-0042' 风格
     """
-    if case_date and len(case_date) >= 7:
+    if case_date and len(case_date) >= 7 and case_date[:4].isdigit():
         # YYYY-MM-DD[:7] = YYYY-MM, 然后取 YYYY-MM 后 4 位 (YYMM)
+        # 只认合法日期前缀 (YYYY-...) — 'relative'/'unknown' 等非日期串走 else
         yymm = case_date[:7].replace("-", "")[-4:]
     else:
         now = datetime.now(timezone.utc)
