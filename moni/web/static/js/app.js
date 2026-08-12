@@ -2990,6 +2990,8 @@ function app() {
     summaryLoading: false,
     factCheckLoading: false,
     caseExtractLoading: false,
+    // v1.0.22: 联网核查证据链 — Alpine 必须声明 state 否则 x-for ReferenceError
+    articleEvidenceList: [],
 
     showArticleDetail(article) {
       // v1.0.4: sync fetch (Alpine method 中 async/await 兼容性不可靠)
@@ -3437,9 +3439,47 @@ function app() {
             ...self.articleDetail,
             fact_check_conclusion: '⏳ 联网核查中... (job ' + data.job_id.slice(0, 8) + ')',
           };
+          // B3 fix: poll job status, when done fetch evidence chain
+          self._pollFactCheckPlusJob(data.job_id, id);
         })
         .catch(err => { this._notify('error', '联网核查失败: ' + err.message); })
         .finally(() => { self.factCheckLoading = false; });
+    },
+
+    // v1.0.22 B3 fix: poll a single fact_check_plus job; on done pull evidence
+    _pollFactCheckPlusJob(jobId, articleId) {
+      const self = this;
+      let attempts = 0;
+      const maxAttempts = 30;          // 30 * 2s = 60s timeout
+      const tick = () => {
+        attempts += 1;
+        fetch(`/api/llm/jobs/${jobId}`, { credentials: 'same-origin' })
+          .then(r => r.json())
+          .then(job => {
+            if (job.status === 'done') {
+              self.loadArticleEvidence(articleId);
+              self._notify('success', '联网核查完成');
+              // Refresh article detail so has_web_fact_check + conclusion render
+              return fetch(`/api/articles/${articleId}`, { credentials: 'same-origin' })
+                .then(r => r.json())
+                .then(detail => { self.articleDetail = detail; });
+            }
+            if (job.status === 'failed') {
+              self._notify('error', '联网核查失败: ' + (job.error || 'unknown'));
+              return;
+            }
+            if (attempts >= maxAttempts) {
+              self._notify('warn', '联网核查超时, 请稍后手动刷新');
+              return;
+            }
+            setTimeout(tick, 2000);
+          })
+          .catch(err => {
+            if (attempts >= maxAttempts) return;
+            setTimeout(tick, 2000);
+          });
+      };
+      setTimeout(tick, 2000);
     },
 
     // v1.0.22: 拉取联网核查证据链 (后端已按 evidence_seq 升序)
