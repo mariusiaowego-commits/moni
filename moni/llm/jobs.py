@@ -547,18 +547,34 @@ def _persist_fact_check_plus(
         )
 
     note = json.dumps(valid, ensure_ascii=False)
-    conn.execute(
-        """
-        UPDATE articles
-        SET fact_check_conclusion = ?,
-            fact_check_method     = 'web_search',
-            fact_checked_at       = ?,
-            fact_check_note       = ?,
-            has_fact_check        = 1
-        WHERE id = ?
-        """,
-        (conclusion, finished_at, note, article_id),
-    )
+    try:
+        conn.execute(
+            """
+            UPDATE articles
+            SET fact_check_conclusion = ?,
+                fact_check_method     = 'web_search',
+                fact_checked_at       = ?,
+                fact_check_note       = ?,
+                has_fact_check        = 1,
+                has_web_fact_check    = 1
+            WHERE id = ?
+            """,
+            (conclusion, finished_at, note, article_id),
+        )
+    except Exception:
+        # Pre-migration 026: has_web_fact_check column may be missing.
+        conn.execute(
+            """
+            UPDATE articles
+            SET fact_check_conclusion = ?,
+                fact_check_method     = 'web_search',
+                fact_checked_at       = ?,
+                fact_check_note       = ?,
+                has_fact_check        = 1
+            WHERE id = ?
+            """,
+            (conclusion, finished_at, note, article_id),
+        )
 
     # Replace prior evidence for this article (re-run overwrite).
     conn.execute(

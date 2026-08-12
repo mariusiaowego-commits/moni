@@ -22,7 +22,9 @@ from typing import Any
 
 from moni.share.enrichment import (
     THIN_CONTENT_CHARS,
+    build_evidence_section_html,
     compute_heuristic_quality,
+    load_evidence_context,
     pick_source_summary,
     _format_date,
 )
@@ -820,6 +822,30 @@ def render_brief_html(
   </section>
 """
 
+    # v1.0.24: 事实核查证据段 (脚注式, 失败降级不阻塞) + 顶部 rollup
+    evidence_html = ""
+    evidence_rollup = ""
+    try:
+        conn_ev = sqlite3.connect(db_path)
+        conn_ev.row_factory = sqlite3.Row
+        try:
+            ctx = load_evidence_context(conn_ev, [str(r["id"]) for r in rows])
+            evidence_html = build_evidence_section_html(ctx)
+            checked = int(ctx.get("checked") or 0)
+            total_ev = int(ctx.get("total") or 0)
+            failed_ev = int(ctx.get("failed") or 0)
+            fail_bit = f"，{failed_ev} 篇未联网核查" if failed_ev else ""
+            evidence_rollup = f" · 已联网核查 {checked}/{total_ev} 篇{fail_bit}"
+        finally:
+            conn_ev.close()
+    except Exception:
+        evidence_html = (
+            '<section class="fact-check-evidence">'
+            "<h3>事实核查证据 (本简报)</h3>"
+            "<p>（未联网核查，证据解析失败，请人工复核）</p>"
+            "</section>"
+        )
+
     n_show = len(included)
     n_drop = len(excluded)
 
@@ -1177,7 +1203,7 @@ def render_brief_html(
   <h1>{_esc(title)}</h1>
   <p class="sub">from moni by TQ · {n_show} 篇文章 · 按业务价值排序 · 全文已内嵌（离线可读）{
     f' · 另有 {n_drop} 篇因信息不足未纳入' if n_drop else ''
-  }</p>
+  }{evidence_rollup}</p>
 
   <section class="focus">
     <h2>优先关注</h2>
@@ -1187,6 +1213,8 @@ def render_brief_html(
   {''.join(cards)}
 
   {excluded_html}
+
+  {evidence_html}
 
   <p class="foot">Curated by moni — a TQ project.</p>
 </div>

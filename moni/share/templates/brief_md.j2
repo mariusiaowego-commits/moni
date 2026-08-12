@@ -1,0 +1,28 @@
+{# v1.0.24 简报 Markdown — 事实核查证据段 (本简报)
+   Rendered by moni.share.enrichment.build_evidence_section_md
+   Context: total, checked, failed, method, snapshot_at, articles[]
+   article: {title, conclusion, ok, evidence[{domain,url,snippet,seq}], fail_reason}
+#}
+## 事实核查证据 (本简报)
+
+- ✅ 已联网核查: {{ checked }}/{{ total }} 篇{% if failed %} ({{ failed }} 篇失败降级){% endif %}
+- 方法: {{ method }}
+- 时效: {{ snapshot_at }} 检索快照
+
+{% for a in articles %}
+### 文章 {{ loop.index }}: {{ a.title }}
+
+{% if a.ok %}
+- 结论: {{ a.conclusion }}
+- 来源:
+{% for e in a.evidence %}
+  - [{{ loop.index }}] {{ e.domain }}: {{ e.url }}
+{% endfor %}
+{% if a.evidence %}
+- 引用片段: {{ a.evidence[0].snippet }}
+{% endif %}
+{% else %}
+- （未联网核查，{{ a.fail_reason }}）
+{% endif %}
+
+{% endfor %}
