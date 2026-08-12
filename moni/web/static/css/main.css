@@ -1790,6 +1790,63 @@ label { font-size: 0.85rem; }
   .case-detail { width: calc(100vw - 16px); padding: 16px; }
 }
 
+/* ── Fact-check-plus 证据区 (v1.0.22 sprint-07 Day 3, 基于 .case-detail-evidence 延伸) ── */
+/* 操作行 — 复用 .case-detail-actions 布局 (按钮排布 + 顶部分隔线) */
+.fact-check-plus-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+/* 证据列表容器 — 纵向堆叠, 条目间 8px 间距 */
+.evidence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+/* 单条证据卡片 — 继承 .case-detail-evidence 的 muted 底 + 圆角 + 字号 */
+.evidence-item {
+  font-size: 12px;
+  color: var(--card-fg);
+  padding: 10px 12px;
+  background: var(--muted);
+  border-radius: 6px;
+  line-height: 1.5;
+}
+/* 检索查询语句 — 复用 .case-detail-label 的标签样式 (小号 + 蟹壳灰) */
+.evidence-query {
+  font-size: 11px;
+  color: var(--muted-fg);
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+/* 证据来源 URL — 小号 + 蟹壳灰, 强制换行防长链接撑破卡片 */
+.evidence-url {
+  display: block;
+  font-size: 11px;
+  color: var(--muted-fg);
+  font-style: normal;
+  word-break: break-all;
+  margin-bottom: 4px;
+}
+/* 证据摘要片段 — 正文引用样式, 斜体 + 微降透明度 (同 .case-detail-evidence) */
+.evidence-snippet {
+  font-size: 12px;
+  color: var(--card-fg);
+  opacity: 0.85;
+  font-style: italic;
+  line-height: 1.5;
+}
+/* 证据元信息 (时间/来源) — 小号 + 蟹壳灰, 与摘要拉开间距 */
+.evidence-meta {
+  font-size: 11px;
+  color: var(--muted-fg);
+  opacity: 0.8;
+  margin-top: 6px;
+}
+
 /* Responsive — narrow viewports: stack side column under main
    断点从 900 改 1100 — 让 1100-900 区间侧栏能及早点折叠,避免左/右比例失衡 */
 @media (max-width: 1100px) {

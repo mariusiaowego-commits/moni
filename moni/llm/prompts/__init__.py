@@ -74,6 +74,22 @@ def render_fact_check(article: dict) -> str:
     )
 
 
+def render_fact_check_plus(article: dict) -> str:
+    """Render the fact-check-plus (web-search) prompt with an article dict.
+
+    v1.0.22: networked fact-check. Template is fact_check_plus.md (green-frog).
+    Uses regex _render so JSON example braces in the template do not conflict
+    (same pattern as sprint 05 / render_fact_check).
+    """
+    return _render(
+        _load("fact_check_plus"),
+        title=article.get("title", ""),
+        url=article.get("url", ""),
+        content=article.get("content") or article.get("raw_content", ""),
+        published_at=article.get("published_at", ""),
+    )
+
+
 def render_predict_tag(article: dict, available_tags: list[str]) -> str:
     """Render the tag-prediction prompt with an article dict."""
     tags_str = "\n".join(f"- {t}" for t in available_tags)

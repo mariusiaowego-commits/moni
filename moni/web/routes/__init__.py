@@ -17,6 +17,7 @@ from moni.web.routes.cases import router as cases_router
 from moni.web.routes.cron import router as cron_router
 from moni.web.routes.crud import router as crud_router
 from moni.web.routes.events import router as events_router
+from moni.web.routes.fact_check_plus import router as fact_check_plus_router  # v1.0.22
 from moni.web.routes.fetch import router as fetch_router
 from moni.web.routes.llm import router as llm_router
 from moni.web.routes.llm_jobs import router as llm_jobs_router
@@ -39,6 +40,7 @@ _routers: list[APIRouter] = [
     cron_router,
     crud_router,
     events_router,
+    fact_check_plus_router,  # v1.0.22
     fetch_router,
     llm_jobs_router,
     llm_router,

@@ -40,18 +40,31 @@ Architecture notes
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 import threading
 import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 from moni.db.connection import get_db
 from moni.llm.client import call_llm
-from moni.llm.prompts import render_fact_check, render_summary
+from moni.llm.prompts import render_fact_check, render_fact_check_plus, render_summary
+# Re-export for backwards compat (Day 1 had DOMAIN_WHITELIST defined here;
+# Day 2 moves the canonical definition to moni.web.routes.fact_check_plus).
+# Some callers (e.g. tests) import from here.  Keep the symbol.
+from moni.web.routes.fact_check_plus import (
+    DOMAIN_WHITELIST,
+    DOMAIN_WHITELIST_REGEX,
+    is_in_whitelist,
+)
 
 logger = logging.getLogger(__name__)
+
+_VALID_TASK_TYPES = ("summary", "fact_check", "fact_check_plus")
 
 #: How many times we'll try a single LLM call before giving up.
 #: 1 = no retry; 2 = original + 1 retry.  Pinned to 2 by v1.0.5.1.
@@ -77,7 +90,7 @@ def enqueue_job(
     model: str,
 ) -> str:
     """Insert a pending job row and return its id.  Starts the worker."""
-    if task_type not in ("summary", "fact_check"):
+    if task_type not in _VALID_TASK_TYPES:
         raise ValueError(f"unknown task_type {task_type!r}")
 
     job_id = uuid.uuid4().hex
@@ -268,11 +281,16 @@ def _run_job(row: dict[str, Any]) -> None:
     article_tags = [r["tag_name"] for r in tag_rows]
 
     # Pick the right prompt renderer for the job type.
+    extra_args: list[str] | None = None
     try:
         if task_type == "summary":
             prompt = render_summary(article_dict, tags=article_tags)
         elif task_type == "fact_check":
             prompt = render_fact_check(article_dict)
+        elif task_type == "fact_check_plus":
+            prompt = render_fact_check_plus(article_dict)
+            # hermes -t web agent mode (Q1=B); -Q quiet; cap turns.
+            extra_args = ["-t", "web", "-Q", "--max-turns", "8"]
         else:
             _mark_failed(job_id, f"unsupported task_type {task_type!r}", attempts=attempt)
             return
@@ -284,7 +302,7 @@ def _run_job(row: dict[str, Any]) -> None:
     # retry here so attempts are visible in the DB).
     t0 = time.monotonic()
     try:
-        result_text = call_llm(provider, model, prompt)
+        result_text = call_llm(provider, model, prompt, extra_args=extra_args)
     except Exception as exc:
         duration_ms = int((time.monotonic() - t0) * 1000)
         err_msg = f"{type(exc).__name__}: {exc}"
@@ -316,7 +334,7 @@ def _run_job(row: dict[str, Any]) -> None:
     # ``articles.summary`` / ``articles.summary_at`` so the existing UI
     # can show the result.  For fact_check we write the columns
     # ``fact_check_conclusion`` / ``fact_check_method`` /
-    # ``fact_checked_at`` so the same code path works for both.
+    # ``fact_checked_at`` + has_fact_check=1 so the same code path works.
     finished_at = datetime.now(timezone.utc).isoformat()
     try:
         if task_type == "summary":
@@ -334,10 +352,21 @@ def _run_job(row: dict[str, Any]) -> None:
                 UPDATE articles
                 SET fact_check_conclusion = ?,
                     fact_check_method     = ?,
-                    fact_checked_at       = ?
+                    fact_checked_at       = ?,
+                    has_fact_check        = 1
                 WHERE id = ?
                 """,
-                (result_text, "llm", finished_at, article_id),
+                (result_text, "llm_inference", finished_at, article_id),
+            )
+        elif task_type == "fact_check_plus":
+            _persist_fact_check_plus(
+                conn,
+                job_id=job_id,
+                article_id=article_id,
+                provider=provider,
+                model=model,
+                raw_output=result_text,
+                finished_at=finished_at,
             )
     except Exception as exc:
         _mark_failed(
@@ -378,6 +407,190 @@ def _run_job(row: dict[str, Any]) -> None:
         "[llm_jobs] job %s done (%s, %d ms, attempt %d)",
         job_id, task_type, duration_ms, attempt,
     )
+
+
+# ── fact_check_plus helpers ────────────────────────────────────────────────
+
+
+def _domain_from_url(url: str) -> str:
+    """Extract bare domain from URL (strip www.)."""
+    try:
+        host = (urlparse(url).netloc or "").lower()
+    except Exception:
+        return ""
+    if host.startswith("www."):
+        host = host[4:]
+    return host
+
+
+def _valid_url(url: str) -> bool:
+    """True if url has http(s) scheme and a netloc."""
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False
+    return p.scheme in ("http", "https") and bool(p.netloc)
+
+
+def _in_whitelist(domain: str) -> bool:
+    """Dual-gate #2: domain exact/suffix match or regex whitelist hit."""
+    d = (domain or "").lower().lstrip(".")
+    if not d:
+        return False
+    if d in DOMAIN_WHITELIST:
+        return True
+    for w in DOMAIN_WHITELIST:
+        if d == w or d.endswith("." + w):
+            return True
+    for pat in DOMAIN_WHITELIST_REGEX:
+        if re.fullmatch(pat, d):
+            return True
+    return False
+
+
+def _parse_fact_check_plus_evidence(raw: str) -> dict[str, Any] | None:
+    """Parse LLM output into {conclusion, evidence: [...]} or None.
+
+    Accepts raw JSON, fenced ```json blocks, or the first {...} object
+    that contains an ``evidence`` array (regex extraction).
+    """
+    if not raw or not str(raw).strip():
+        return None
+    text = str(raw).strip()
+    # Strip markdown fences
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```\s*$", "", text)
+    # 1) direct JSON
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, dict) and "evidence" in obj:
+            return obj
+    except json.JSONDecodeError:
+        pass
+    # 2) first JSON object containing "evidence"
+    for m in re.finditer(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL):
+        candidate = m.group(0)
+        if "evidence" not in candidate:
+            continue
+        try:
+            obj = json.loads(candidate)
+            if isinstance(obj, dict) and isinstance(obj.get("evidence"), list):
+                return obj
+        except json.JSONDecodeError:
+            continue
+    # 3) greedy outer braces from first { to last }
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            obj = json.loads(text[start : end + 1])
+            if isinstance(obj, dict) and isinstance(obj.get("evidence"), list):
+                return obj
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
+def _persist_fact_check_plus(
+    conn: Any,
+    *,
+    job_id: str,
+    article_id: str,
+    provider: str,
+    model: str,
+    raw_output: str,
+    finished_at: str,
+) -> None:
+    """Parse + dual-gate + write articles + fact_check_evidence rows.
+
+    Raises ValueError on parse / empty-evidence so caller marks job failed.
+    """
+    parsed = _parse_fact_check_plus_evidence(raw_output)
+    if not parsed:
+        raise ValueError("evidence parse failed")
+
+    raw_evidence = parsed.get("evidence") or []
+    if not isinstance(raw_evidence, list):
+        raise ValueError("evidence parse failed: evidence is not a list")
+
+    # Gate 1: drop rows without snippet / invalid URL
+    valid: list[dict[str, Any]] = []
+    for e in raw_evidence:
+        if not isinstance(e, dict):
+            continue
+        url = (e.get("url") or "").strip()
+        snippet = (e.get("snippet") or "").strip()
+        if not url or not snippet or not _valid_url(url):
+            continue
+        domain = (e.get("domain") or "").strip() or _domain_from_url(url)
+        valid.append(
+            {
+                "query": (e.get("query") or "").strip() or "",
+                "url": url,
+                "domain": domain,
+                "snippet": snippet,
+                "rationale": (e.get("rationale") or "").strip() or "",
+            }
+        )
+    if not valid:
+        raise ValueError("no evidence with snippet")
+
+    # Gate 2: whitelist required for 【已核实】
+    conclusion = str(parsed.get("conclusion") or "【待核实】").strip()
+    has_whitelist = any(is_in_whitelist(e["domain"]) for e in valid)
+    if conclusion == "【已核实】" and not has_whitelist:
+        conclusion = "【待核实】"
+        logger.info(
+            "[llm_jobs] fact_check_plus job %s: demoted 【已核实】→【待核实】 (no whitelist domain)",
+            job_id,
+        )
+
+    note = json.dumps(valid, ensure_ascii=False)
+    conn.execute(
+        """
+        UPDATE articles
+        SET fact_check_conclusion = ?,
+            fact_check_method     = 'web_search',
+            fact_checked_at       = ?,
+            fact_check_note       = ?,
+            has_fact_check        = 1
+        WHERE id = ?
+        """,
+        (conclusion, finished_at, note, article_id),
+    )
+
+    # Replace prior evidence for this article (re-run overwrite).
+    conn.execute(
+        "DELETE FROM fact_check_evidence WHERE article_id = ?",
+        (article_id,),
+    )
+    for i, e in enumerate(valid):
+        conn.execute(
+            """
+            INSERT INTO fact_check_evidence
+                (id, article_id, job_id, query, url, domain, snippet,
+                 fetched_at, model, provider, conclusion, rationale,
+                 evidence_seq, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                uuid.uuid4().hex,
+                article_id,
+                job_id,
+                e["query"],
+                e["url"],
+                e["domain"],
+                e["snippet"],
+                finished_at,
+                model,
+                provider,
+                conclusion,
+                e.get("rationale") or "",
+                i,
+                finished_at,
+            ),
+        )
 
 
 def _mark_failed(

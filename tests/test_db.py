@@ -107,7 +107,14 @@ class TestMigrate:
     def test_schema_version_recorded(self, tmp_db):
         migrate()
         conn = get_db()
-        row = conn.execute("SELECT version, applied_at FROM schema_version").fetchone()
+        # After migrate(), schema_version may contain >1 row (one per
+        # migration that uses INSERT OR IGNORE).  Current schema version
+        # is the MAX.  See docs/specs/2026-08-11-fact-check-plus-v1.0.22.md
+        # for the v25 INSERT OR IGNORE history.
+        row = conn.execute(
+            "SELECT version, applied_at FROM schema_version "
+            "ORDER BY version DESC LIMIT 1"
+        ).fetchone()
         from moni.db import migrate as _m
         assert row["version"] == _m._CURRENT_VERSION
         assert row["applied_at"] is not None
