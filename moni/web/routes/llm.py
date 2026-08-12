@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 from datetime import datetime, timezone
 
 # Default model; override with MONI_LLM_MODEL env var
@@ -15,9 +14,9 @@ from fastapi import APIRouter, HTTPException, status
 from moni.db.repository import ArticleRepository
 from moni.db.connection import get_db
 from moni.llm import ChatClient
-from moni.llm.prompts import render_fact_check, render_summary
+from moni.llm.prompts import render_summary
 from moni.web.exceptions import BadRequestError, ConflictError, NotFoundError
-from moni.web.models import ArticleSummaryRequest, FactCheckRequest
+from moni.web.models import ArticleSummaryRequest
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/llm", tags=["llm"])
@@ -81,46 +80,11 @@ def generate_summary(req: ArticleSummaryRequest) -> dict:
 
 
 # ----------------------------------------------------------------------
-# POST /llm/fact-check  (item 8)
+# POST /llm/fact-check  — removed v1.0.22 (dead code; no frontend callers;
+# model resolution ignored llm_settings; use async
+# POST /api/articles/{id}/fact-check or /fact-check-plus instead).
+# ChatClient shim kept above for /summary compatibility.
 # ----------------------------------------------------------------------
-
-
-@router.post("/fact-check")
-def fact_check(req: FactCheckRequest) -> dict:
-    """Run LLM fact-check on an article.
-
-    Writes the result back to ``articles.fact_check_*`` fields.
-    """
-    article = _repo.get_by_id(req.article_id)
-    if article is None:
-        raise NotFoundError(message=f"Article {req.article_id!r} not found")
-
-    raw = article.get("raw_content") or article.get("content") or ""
-    if not raw.strip():
-        raise BadRequestError(message="Article has no content to fact-check")
-
-    prompt = render_fact_check(article)
-
-    try:
-        client = _get_client()
-        result_text = client.chat(prompt, model=_DEFAULT_MODEL, max_tokens=1024)
-    except Exception as exc:
-        logger.error("LLM fact-check call failed for %s: %s", req.article_id, exc)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"LLM call failed: {exc}",
-        )
-
-    now = datetime.now(timezone.utc).isoformat()
-    _repo.update_fact_check(
-        req.article_id,
-        conclusion=result_text.strip(),
-        method="llm_inference",
-        checked_at=now,
-    )
-
-    logger.info("Fact-check completed for article %s", req.article_id)
-    return {"article_id": req.article_id, "result": result_text.strip(), "at": now}
 
 
 # ----------------------------------------------------------------------
