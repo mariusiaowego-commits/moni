@@ -394,6 +394,73 @@ def list_fetch_jobs(
     return {"jobs": jobs, "count": len(jobs)}
 
 
+def _db_source_url(source_name: str) -> str:
+    """Look up the live URL from the ``sources`` table (may differ from YAML)."""
+    try:
+        conn = get_db()
+        row = conn.execute(
+            "SELECT url FROM sources WHERE name = ?", (source_name,)
+        ).fetchone()
+        if row and row["url"]:
+            return str(row["url"]).strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _probe_url(url: str, timeout: float = 5.0) -> tuple[bool, str | None]:
+    """Probe a single URL/path. Returns (ok, error_message).
+
+    Handles:
+    - comma-separated multi-URL configs (try first only — used by bestblogs)
+    - local file paths (bestblog-x OPML etc.)
+    - HTTP(S): HEAD first, GET fallback (some hosts reject HEAD)
+    """
+    if not url:
+        return False, "no feed_url configured"
+
+    # Multi-URL (comma-separated) → probe the first entry
+    first = url.split(",")[0].strip()
+    if not first:
+        return False, "empty feed_url"
+
+    # Local filesystem path (absolute or relative OPML)
+    if first.startswith("/") or first.startswith("./") or first.startswith("../"):
+        p = Path(first)
+        if p.is_file():
+            return True, None
+        return False, f"local file not found: {first}"
+
+    if not first.startswith("http://") and not first.startswith("https://"):
+        return False, f"unsupported url scheme: {first[:48]}"
+
+    import urllib.error
+    import urllib.request
+
+    headers = {"User-Agent": "moni/1.0"}
+    last_err: str | None = None
+    for method in ("HEAD", "GET"):
+        try:
+            req = urllib.request.Request(first, method=method, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if 200 <= resp.status < 400:
+                    return True, None
+                last_err = f"HTTP {resp.status}"
+        except urllib.error.HTTPError as exc:
+            # 401/403 still means the host is reachable (auth token may
+            # be missing in probe but real fetch uses DB credentials).
+            if exc.code in (401, 403, 405):
+                return True, f"reachable (HTTP {exc.code})"
+            last_err = f"HTTP {exc.code}"
+            if method == "HEAD" and exc.code in (404, 405, 501):
+                continue  # try GET
+        except Exception as exc:
+            last_err = str(exc)
+            if method == "HEAD":
+                continue
+    return False, last_err
+
+
 @router.post("/sources/{name}/health", response_model=HealthResponse)
 def check_source_health(name: str) -> HealthResponse:
     """Check the health / availability of a named fetch source.
@@ -403,6 +470,9 @@ def check_source_health(name: str) -> HealthResponse:
 
     v1.0.12: ``xwatch`` uses dual-probe (syndication + DDG + passive)
     instead of HEAD on empty feed_url (which always reported degraded).
+
+    v1.0.25: use DB url when YAML feed_url is empty; support local file
+    paths and multi-URL feeds; HEAD→GET fallback; clearer degraded reason.
     """
     resolved = _resolve_source_name(name)
     if resolved is None:
@@ -433,26 +503,28 @@ def check_source_health(name: str) -> HealthResponse:
             message=result.error,
         )
 
-    source_ok = False
-    base_url = (cfg or {}).get("base_url") or (cfg or {}).get("feed_url") or ""
-    if base_url:
-        try:
-            import urllib.request
+    # Prefer DB url (live config UI edits) over YAML, then YAML feed/base.
+    yaml_url = ""
+    if cfg:
+        yaml_url = (cfg.get("base_url") or cfg.get("feed_url") or "").strip()
+    db_url = _db_source_url(resolved)
+    probe_url = db_url or yaml_url
 
-            req = urllib.request.Request(
-                base_url,
-                method="HEAD",
-                headers={"User-Agent": "moni/1.0"},
-            )
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                source_ok = 200 <= resp.status < 400
-        except Exception:
-            source_ok = False
+    source_ok, err = _probe_url(probe_url)
+    status = "ok" if (source_ok and db_connected) else "degraded"
+    msg = None
+    if not source_ok:
+        msg = err or "probe failed"
+    elif not db_connected:
+        msg = "source reachable but DB disconnected"
+    elif err:
+        msg = err  # e.g. reachable via 401
 
     return HealthResponse(
-        status="ok" if (source_ok and db_connected) else "degraded",
-        version="1.0.0",
+        status=status,
+        version="1.0.25",
         db_connected=db_connected,
+        message=msg,
     )
 
 

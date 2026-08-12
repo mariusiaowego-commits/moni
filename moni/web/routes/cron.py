@@ -101,12 +101,29 @@ def create_cron_job(body: CronJobCreate) -> CronJob:
     )
 
 
+def _duration_seconds(started: str | None, finished: str | None) -> float | None:
+    """Best-effort duration in seconds from two ISO timestamps."""
+    if not started or not finished:
+        return None
+    try:
+        s = datetime.fromisoformat(str(started).replace("Z", "+00:00"))
+        f = datetime.fromisoformat(str(finished).replace("Z", "+00:00"))
+        return round((f - s).total_seconds(), 1)
+    except Exception:
+        return None
+
+
 @router.get("/runs", response_model=list[CronRun])
 def list_cron_runs(
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
 ) -> list[CronRun]:
-    """List recent cron run records, most recent first, paginated."""
+    """List recent cron run records, most recent first, paginated.
+
+    Returns both DB-native field names (job_id / success / new_articles)
+    and legacy aliases (status / started_at / articles_fetched) so the
+    SPA no longer maps every row to ``failed`` when ``success`` is missing.
+    """
     conn = get_db()
     offset = (page - 1) * page_size
 
@@ -121,15 +138,29 @@ def list_cron_runs(
         (page_size, offset),
     ).fetchall()
 
-    return [
-        CronRun(
-            id=row["id"],
-            cron_job_id=0,  # legacy: cron_runs uses TEXT job_id, not integer
-            started_at=row["triggered_at"],
-            finished_at=row["finished_at"],
-            status="success" if row["success"] else "failed",
-            articles_fetched=row["new_articles"],
-            error_message=row["error"],
+    out: list[CronRun] = []
+    for row in rows:
+        ok = bool(row["success"])
+        triggered = row["triggered_at"]
+        finished = row["finished_at"]
+        n = int(row["new_articles"] or 0)
+        err = row["error"]
+        out.append(
+            CronRun(
+                id=row["id"],
+                job_id=row["job_id"] or "",
+                cron_job_id=0,  # no integer cron_jobs table
+                triggered_at=triggered,
+                started_at=triggered,
+                finished_at=finished,
+                status="success" if ok else "failed",
+                success=ok,
+                new_articles=n,
+                articles_fetched=n,
+                duration=_duration_seconds(triggered, finished),
+                log_url=None,
+                error_message=err,
+                error=err,
+            )
         )
-        for row in rows
-    ]
+    return out
