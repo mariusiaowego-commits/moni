@@ -489,6 +489,20 @@ def create_brief(body: BriefCreateRequest) -> BriefCreateResponse:
         format_name=format_name,
     )
 
+    # v1.0.24: stamp evidence_rendered_at for pins used in this brief
+    # (audit: which brief generation used which fact-check snapshot).
+    # Enrichment also re-stamps after actual render; API path covers enqueue-time.
+    try:
+        now_ev = datetime.now(timezone.utc).isoformat()
+        for aid in article_ids:
+            conn.execute(
+                "UPDATE articles SET evidence_rendered_at = ? WHERE id = ?",
+                (now_ev, aid),
+            )
+        conn.commit()
+    except Exception as exc:
+        logger.warning("brief: evidence_rendered_at stamp failed: %s", exc)
+
     worker = launch_worker()
     worker_info = {
         "started": worker.started,
