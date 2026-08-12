@@ -3412,6 +3412,53 @@ function app() {
         .finally(() => { self.factCheckLoading = false; });
     },
 
+    // v1.0.22: 联网核查 (web_search, 证据链写 fact_check_evidence 表)
+    enqueueLlmJobFactCheckPlus(articleId) {
+      const id = articleId || (this.articleDetail && this.articleDetail.id);
+      if (!id) return;
+      const self = this;
+      self.factCheckLoading = true;
+      fetch(`/api/articles/${id}/fact-check-plus`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({}),
+      })
+        .then(r => {
+          if (!r.ok) {
+            return r.json().catch(() => ({})).then(err => { throw new Error(err.message || 'HTTP ' + r.status); });
+          }
+          return r.json();
+        })
+        .then(data => {
+          // v1.0.22: same async treatment as generateFactCheck().
+          self.enqueueLlmJob('fact_check_plus', data.job_id, id);
+          self.articleDetail = {
+            ...self.articleDetail,
+            fact_check_conclusion: '⏳ 联网核查中... (job ' + data.job_id.slice(0, 8) + ')',
+          };
+        })
+        .catch(err => { this._notify('error', '联网核查失败: ' + err.message); })
+        .finally(() => { self.factCheckLoading = false; });
+    },
+
+    // v1.0.22: 拉取联网核查证据链 (后端已按 evidence_seq 升序)
+    loadArticleEvidence(articleId) {
+      const self = this;
+      fetch(`/api/fact-check-plus/evidence/${articleId}`, {
+        method: 'GET',
+        credentials: 'same-origin',
+      })
+        .then(r => {
+          if (!r.ok) {
+            return r.json().catch(() => ({})).then(err => { throw new Error(err.message || 'HTTP ' + r.status); });
+          }
+          return r.json();
+        })
+        .then(data => { self.articleEvidenceList = data.items; })
+        .catch(err => { this._notify('error', '加载核查证据失败: ' + err.message); });
+    },
+
     // v1.0.21: 从当前文章手动提取同业案例 (F6 UI 触发, sprint 05 遗留补全)
     extractCase() {
       if (!this.articleDetail) return;

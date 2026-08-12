@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css?v=20260808004">
+  <link rel="stylesheet" href="css/main.css?v=20260812003">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -2285,6 +2285,42 @@
             <h4>事实核查结论</h4>
             <p x-text="articleDetail?.fact_check_conclusion"></p>
           </div>
+          <!-- v1.0.22: 联网核查 + 证据链 (spec 5.1 / 5.2) -->
+          <div class="fact-check-actions">
+            <button class="btn btn-secondary"
+                    @click="enqueueLlmJob(articleDetail.id, '/summary', 'fact_check')"
+                    x-show="!articleDetail.has_fact_check">
+              事实核查
+            </button>
+            <button class="btn btn-primary"
+                    @click="enqueueLlmJobFactCheckPlus(articleDetail.id)"
+                    x-show="!articleDetail.has_web_fact_check || force">
+              联网核查
+            </button>
+          </div>
+          <div class="fact-check-evidence" x-show="articleDetail.has_web_fact_check">
+            <details>
+              <summary>
+                <span class="badge web_search">联网核查</span>
+                <span x-text="articleDetail.fact_check_conclusion"></span>
+                <small x-text="articleDetail.fact_checked_at"></small>
+              </summary>
+              <ol class="evidence-list">
+                <template x-for="(e, idx) in articleEvidenceList" :key="idx">
+                  <li class="evidence-item">
+                    <div class="evidence-query" x-text="e.query"></div>
+                    <a class="evidence-url" :href="e.url" target="_blank" x-text="e.url"></a>
+                    <div class="evidence-snippet" x-text="e.snippet"></div>
+                    <div class="evidence-meta">
+                      <span x-text="e.domain"></span>
+                      <span x-text="e.fetched_at"></span>
+                      <span x-text="e.model"></span>
+                    </div>
+                  </li>
+                </template>
+              </ol>
+            </details>
+          </div>
         </div>
       </div>
     </div>
@@ -2939,7 +2975,7 @@
   <script src="js/calendar.js?v=20260810001"></script>
   <script src="js/cases.js?v=20260808004"></script>
   <script src="js/stats.js?v=20260809"></script>
-  <script src="js/app.js?v=1785000000"></script>
+  <script src="js/app.js?v=20260812003"></script>
   <script src="js/theme.js?v=1785000000"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <script src="js/pin_anim.js?v=1785000000"></script>
