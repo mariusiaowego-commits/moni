@@ -4,14 +4,38 @@
 
 ---
 
-## 当前状态: **v1.0.19 — W1 量化看板** (2026-08-09)
+## 当前状态: **v1.0.22 — 事实核查+ (sprint-07)** (2026-08-12)
 
-**主分支 tag**: **v1.0.19** @ 8d390be (PR #80 squash-merged)
-**Web 服务**: `127.0.0.1:8900` PID 17981 (手动重启, 绝对路径 `/usr/local/bin/python3`)
-**数据库**: schema_version=24 (无 migration)
-**测试**: `tests/test_stats.py` 29 passed (+ 既有 622 = 651 total, 2 skip 已知)
+**主分支 tag**: **v1.0.22** @ 36f2069 (PR #83 squash-merged)
+**Web 服务**: `127.0.0.1:8900` PID 67958 (手动重启, 绝对路径 `/usr/local/bin/python3`)
+**数据库**: schema_version=25 (migration 025_fact_check_evidence)
+**测试**: 669 passed + 2 skip (655 baseline + 14 sprint-07)
 
-### v1.0.19 — W1 量化看板 (sprint 06 W1 申报包装)
+### v1.0.22 — 事实核查+ (sprint-07)
+
+**业务**:
+- 联网核查+ v1.0.22 升级: 从 v1.0.10 基础档 (LLM 常识推断 method=llm_inference) 扩展为**联网核查+** (实时检索 + 证据链落库 + 双闸防幻觉)
+- `fact_check_evidence` 独立表 (migration 025, 14 列 + 3 索引 + FK CASCADE), 每条结论可按文章 / URL / 检索关键词反查
+- 双闸防幻觉: 闸 1 证据片段非空 + URL 合法, 闸 2 权威域白名单 25 域 (pbc.gov.cn / cbirc.gov.cn / sse.com.cn / xinhuanet.com / 主流财经媒体) + 3 正则 (.gov.cn / .sse.com.cn / .szse.cn) 命中才允许【已核实】, 否则强制降级为【待核实】
+- 3 端点: `POST /api/articles/{id}/fact-check-plus` (202 + job_id + poll_url) / `POST /api/fact-check-plus/batch` (≤20 篇, 409 防呆) / `GET /api/fact-check-plus/evidence/{article_id}` (按 evidence_seq 升序)
+- method 收敛: 'llm' → 'llm_inference' 9 行迁移 (sprint 05 遗留 + sprint 07 配套), `llm_jobs.task_type` 加 `'fact_check_plus'` 白名单
+- 修隐债: jobs.py 写库补 `has_fact_check=1` (基础档 v1.0.10 之前漏); 删死 route `/api/llm/fact-check`
+
+**前端**:
+- 文章详情区 "事实核查" + "联网核查" 双按钮组 (`.fact-check-plus-actions` flex 布局)
+- 证据链折叠 details 视图 (`.evidence-list` ol + `.evidence-item` li, 含 query / url / snippet / domain / model / fetched_at)
+- cache-bust bump: main.css + app.js `?v=20260812003` (v1.0.16 教训, 日期+序号格式)
+- B3 poll loop: `_pollFactCheckPlusJob` 30×2s, done → 调 `loadArticleEvidence` + 刷新 articleDetail
+
+**测试 / 验证**:
+- 14/14 sprint-07 测试 PASSED (test_fact_check_plus.py)
+- 全量 pytest 669 passed (baseline 655 + sprint-07 14)
+- 浏览器手测 V1-V8 全绿 (B1 CSS 类名 / B2 Alpine state / B3 poll loop / B4 按钮 handler 4 bug 修复后 PASS)
+- 端到端 curl 6 项 PASS (cache-bust / DOM / 404 / 405 / 202 / 200)
+
+**已记录 P1**:
+- B5: 后端 `_parse_fact_check_plus_evidence` 失败时不持久化 raw_output (诊断盲区), 留 sprint08
+- 简报 enrichment `fact_check_mode: web` 模式 + 人工覆写 draft→verified 状态机 + Gemini grounding 备用
 
 **业务**:
 - 5 模块量化看板 (抓取 / LLM / 抽取 / 使用 / 效率), 顶部三卡 (基线 / 当前 / 目标 × 1.2)

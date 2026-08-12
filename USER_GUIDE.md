@@ -1,7 +1,7 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。**v1.0.19** (2026-08-09) — 651 pytest pass + 2 skip, **11** active 源, schema v24。
-> 本次新增: **量化看板** (5 模块 + 三卡 + 趋势 + 瀑布图) — §四.7 W1 申报包装。
+> 同业信源自动抓取与本地新闻库。**v1.0.22** (2026-08-12) — 669 pytest pass + 2 skip, **11** active 源, schema v25。
+> 本次新增: **事实核查+** (联网核查 + 证据链落库 + 双闸防幻觉) — sprint-07 实施。
 > 这份文档给**用户**（你自己）看 —— 怎么用 moni，不讲代码细节。
 
 ---
@@ -586,9 +586,37 @@ Rescue = 把菜篮子里的文章「救回」到正式文章库：
 3. 在详情面板展开「导入全文」，粘贴文件路径，点「导入」
 4. 导入后旧摘要自动清除，需重新点「生成摘要」
 
+### 5.4 联网核查+ (v1.0.22 事实核查+)
+
+> 基础档(§5 「事实核查」)由大模型基于常识推断,联网档升级为实时检索 + 证据链落库。每条结论可按文章 / URL / 检索关键词反查,双闸防幻觉(权威域白名单 25 域 + 证据片段非空)。
+
+**怎么用**:
+
+1. 进"文章查阅"打开任意文章详情面板
+2. 事实核查结论区下方有「事实核查」+「联网核查」两个按钮
+3. 点「联网核查」→ 202 Accepted + job_id → 跳到 LLM 任务面板
+4. 等 job done (通常 30-60 秒, 因走 hermes -t web 检索) → 详情区"联网核查"展开证据链 (来源 URL / 引用片段 / 检索关键词 / 判断模型)
+5. 点证据链里的 URL 可跳到原文 (target=_blank)
+
+**四档标签**:
+- 【已核实】— 检索到权威源 (监管机构 / 交易所 / 主流财经媒体) 支持
+- 【待核实】— 检索结果不足, 或仅自媒体命中 (无 snippet 证据丢弃)
+- 【存疑】— 数字与文内声明矛盾, 或检索结果冲突
+- 【无需核查】— 纯观点文, 无可验证的具体主张
+
+**API (高级用户)**:
+- 单篇: `curl -X POST http://127.0.0.1:8900/api/articles/{id}/fact-check-plus -H "Content-Type: application/json" -d '{}'`
+- 批量 (≤20): `curl -X POST http://127.0.0.1:8900/api/fact-check-plus/batch -H "Content-Type: application/json" -d '{"article_ids": ["a","b"]}'`
+- 查证据: `curl http://127.0.0.1:8900/api/fact-check-plus/evidence/{id}`
+
+**故障排查**:
+- 证据始终为空 → 后端 `_parse_fact_check_plus_evidence` 失败 (P1 留 sprint08, 暂记 llm_jobs.error)
+- 409 Conflict → 已有同 article 的 pending/running job, 等完成或手动取消
+- 503 Service Unavailable → 没配 active_fact_check_model_id, 进 LLM 设置页绑 model
+
 **注意**: 导入会整体替换原有正文，不合并。
 
-### 5.3 LLM 配置
+### 5.5 LLM 配置
 
 LLM 用 3 张 DB 表管理 (v1.0.2-A):
 - `llm_providers` (3 个 seed: minimax-cn / google / openrouter)
