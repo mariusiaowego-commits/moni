@@ -53,43 +53,16 @@ from urllib.parse import urlparse
 from moni.db.connection import get_db
 from moni.llm.client import call_llm
 from moni.llm.prompts import render_fact_check, render_fact_check_plus, render_summary
+# Re-export for backwards compat (Day 1 had DOMAIN_WHITELIST defined here;
+# Day 2 moves the canonical definition to moni.web.routes.fact_check_plus).
+# Some callers (e.g. tests) import from here.  Keep the symbol.
+from moni.web.routes.fact_check_plus import (
+    DOMAIN_WHITELIST,
+    DOMAIN_WHITELIST_REGEX,
+    is_in_whitelist,
+)
 
 logger = logging.getLogger(__name__)
-
-# Domain whitelist for dual-gate fact_check_plus (Day 1 temporary; Day 2 extract).
-# Spec: docs/specs/2026-08-11-fact-check-plus-v1.0.22.md §3.2
-DOMAIN_WHITELIST: set[str] = {
-    "pbc.gov.cn",
-    "cbirc.gov.cn",
-    "csrc.gov.cn",
-    "samr.gov.cn",
-    "stats.gov.cn",
-    "gov.cn",
-    "miit.gov.cn",
-    "sse.com.cn",
-    "szse.cn",
-    "hkex.com.hk",
-    "stcn.com",
-    "cs.com.cn",
-    "cnstock.com",
-    "jjckb.cn",
-    "xinhuanet.com",
-    "people.com.cn",
-    "cctv.com",
-    "china.com.cn",
-    "gmw.cn",
-    "cls.cn",
-    "yicai.com",
-    "caixin.com",
-    "21jingji.com",
-    "cnr.cn",
-    "jrj.sh.gov.cn",
-}
-DOMAIN_WHITELIST_REGEX: list[str] = [
-    r".*\.gov\.cn$",
-    r".*\.sse\.com\.cn$",
-    r".*\.szse\.cn$",
-]
 
 _VALID_TASK_TYPES = ("summary", "fact_check", "fact_check_plus")
 
@@ -565,7 +538,7 @@ def _persist_fact_check_plus(
 
     # Gate 2: whitelist required for 【已核实】
     conclusion = str(parsed.get("conclusion") or "【待核实】").strip()
-    has_whitelist = any(_in_whitelist(e["domain"]) for e in valid)
+    has_whitelist = any(is_in_whitelist(e["domain"]) for e in valid)
     if conclusion == "【已核实】" and not has_whitelist:
         conclusion = "【待核实】"
         logger.info(

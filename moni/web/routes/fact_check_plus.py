@@ -1,0 +1,317 @@
+"""routes/fact_check_plus — v1.0.22 事实核查+ (联网核查) 端点.
+
+3 endpoints, all under /api:
+
+* POST /api/articles/{id}/fact-check-plus              → 202 + job_id + poll_url
+* POST /api/fact-check-plus/batch                       → 202 + enqueued / job_ids / skipped / errors
+* GET  /api/fact-check-plus/evidence/{article_id}       → 200 + items (按 evidence_seq 排序)
+
+历史背景
+----------
+v1.0.10 的事实核查是基础档 (LLM 常识推断, 写 ``articles.fact_check_*``,
+method='llm_inference')。v1.0.22 升级到联网档:
+
+  - 检索通道: hermes -t web -Q --max-turns 8 (零新依赖, jobs.py 注入)
+  - 证据链: 独立表 ``fact_check_evidence`` 落库, 每条结论可按文章/URL/检索关键词反查
+  - 双闸防幻觉: 闸 1 证据片段非空 + URL 合法, 闸 2 权威域白名单命中才允许【已核实】
+  - method: 'web_search'
+
+Why this file exists
+--------------------
+旧 /api/llm/fact-check 同步死代码在 v1.0.22 Day 1 已删除 (moni/web/routes/llm.py:88)。
+本文件是 v1.0.22 异步新端点, 复用 articles.py:254 (summary) / articles.py:326 (fact-check) 模式。
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from datetime import datetime, timezone
+from typing import Any
+
+from fastapi import APIRouter
+from pydantic import BaseModel, ConfigDict, Field
+
+from moni.db.connection import get_db
+from moni.web.exceptions import (
+    BadRequestError,
+    NotFoundError,
+    ServiceUnavailableError,
+)
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api", tags=["fact-check-plus"])
+
+# ── Domain whitelist (服务端常量, 双闸 #2) ──────────────────────────────
+# Day 2 从 moni/llm/jobs.py 抽出到这里 (单一职责: 端点路由才拥有).
+# Spec: docs/specs/2026-08-11-fact-check-plus-v1.0.22.md §3.2
+DOMAIN_WHITELIST: set[str] = {
+    # 监管机构
+    "pbc.gov.cn",
+    "cbirc.gov.cn",
+    "csrc.gov.cn",
+    "samr.gov.cn",
+    "stats.gov.cn",
+    "gov.cn",
+    "miit.gov.cn",
+    # 交易所
+    "sse.com.cn",
+    "szse.cn",
+    "hkex.com.hk",
+    # 主流财经媒体
+    "stcn.com",
+    "cs.com.cn",
+    "cnstock.com",
+    "jjckb.cn",
+    "xinhuanet.com",
+    "people.com.cn",
+    "cctv.com",
+    "china.com.cn",
+    "gmw.cn",
+    "cls.cn",
+    "yicai.com",
+    "caixin.com",
+    "21jingji.com",
+    # 央广/财经
+    "cnr.cn",
+    "jrj.sh.gov.cn",
+}
+DOMAIN_WHITELIST_REGEX: list[str] = [
+    r".*\.gov\.cn$",
+    r".*\.sse\.com\.cn$",
+    r".*\.szse\.cn$",
+]
+
+MAX_BATCH_SIZE: int = 20
+
+
+def is_in_whitelist(domain: str) -> bool:
+    """双闸 #2 判定: 域名精确 / 后缀匹配 / 正则匹配其一即视为权威源.
+
+    Examples:
+        is_in_whitelist("pbc.gov.cn")             -> True
+        is_in_whitelist("www.pbc.gov.cn")         -> True  (后缀)
+        is_in_whitelist("sub.stats.gov.cn")       -> True  (regex .gov.cn)
+        is_in_whitelist("36kr.com")               -> False
+    """
+    d = (domain or "").lower().lstrip(".")
+    if not d:
+        return False
+    if d in DOMAIN_WHITELIST:
+        return True
+    for w in DOMAIN_WHITELIST:
+        if d == w or d.endswith("." + w):
+            return True
+    for pat in DOMAIN_WHITELIST_REGEX:
+        if re.fullmatch(pat, d):
+            return True
+    return False
+
+
+# ── Pydantic request models ──────────────────────────────────────────────
+
+
+class _ExtraForbid(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class FactCheckPlusRequest(_ExtraForbid):
+    """POST /api/articles/{id}/fact-check-plus 请求体.
+
+    provider / model 默认从 llm_settings 读 (active_fact_check_model_id).
+    force=true 时覆盖已有联网核查结果 (默认 false).
+    """
+
+    provider: str | None = Field(default=None, max_length=100)
+    model: str | None = Field(default=None, max_length=100)
+    force: bool = False
+
+
+class BatchRequest(_ExtraForbid):
+    """POST /api/fact-check-plus/batch 请求体."""
+
+    article_ids: list[str] = Field(default_factory=list)
+    reason: str = Field(default="manual", max_length=20)
+
+
+# ── helpers ──────────────────────────────────────────────────────────────
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _resolve_active_model() -> tuple[str, str]:
+    """Read llm_settings.active_fact_check_model_id → (provider, model_id).
+
+    Raises ServiceUnavailableError if not configured.
+    """
+    conn = get_db()
+    active = conn.execute(
+        "SELECT value FROM llm_settings WHERE key = 'active_fact_check_model_id'"
+    ).fetchone()
+    if active is None or not active["value"]:
+        raise ServiceUnavailableError(
+            message="No active fact_check model configured",
+            details={"hint": "set llm_settings.active_fact_check_model_id"},
+        )
+    model_row = conn.execute(
+        """
+        SELECT m.model_id, p.hermes_provider
+        FROM llm_models m
+        JOIN llm_providers p ON p.id = m.provider_id
+        WHERE m.id = ?
+        """,
+        (active["value"],),
+    ).fetchone()
+    if model_row is None:
+        raise ServiceUnavailableError(
+            message=f"Active fact_check model {active['value']!r} not found",
+        )
+    return model_row["hermes_provider"], model_row["model_id"]
+
+
+def _has_active_job(article_id: str) -> bool:
+    """409 防呆: 同 article 已有 pending/running fact-check-* job → 拒绝."""
+    conn = get_db()
+    row = conn.execute(
+        """
+        SELECT COUNT(*) FROM llm_jobs
+        WHERE article_id = ?
+          AND task_type IN ('fact_check', 'fact_check_plus')
+          AND status IN ('pending', 'running')
+        """,
+        (article_id,),
+    ).fetchone()
+    return bool(row and row[0])
+
+
+# ── endpoints ────────────────────────────────────────────────────────────
+
+
+@router.post("/articles/{article_id}/fact-check-plus", status_code=202)
+def fact_check_plus_article(
+    article_id: str,
+    body: FactCheckPlusRequest,
+) -> dict[str, Any]:
+    """Enqueue a fact_check_plus job for the given article (v1.0.22).
+
+    Same async shape as ``/summary`` and ``/fact-check`` — returns 202 + job_id;
+    the worker writes the conclusion back to ``articles.fact_check_conclusion``
+    / ``articles.fact_check_method='web_search'`` and appends evidence rows
+    to ``fact_check_evidence``.
+    """
+    conn = get_db()
+    row = conn.execute("SELECT id FROM articles WHERE id = ?", (article_id,)).fetchone()
+    if row is None:
+        raise NotFoundError(message=f"Article {article_id!r} not found")
+
+    if _has_active_job(article_id):
+        from moni.web.exceptions import ConflictError  # local import keeps top clean
+
+        raise ConflictError(
+            message=f"Article {article_id!r} already has active fact_check job",
+        )
+
+    if body.provider and body.model:
+        provider, model = body.provider, body.model
+    else:
+        provider, model = _resolve_active_model()
+
+    from moni.llm.jobs import enqueue_job
+
+    job_id = enqueue_job(
+        task_type="fact_check_plus",
+        article_id=article_id,
+        provider=provider,
+        model=model,
+    )
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "article_id": article_id,
+        "task_type": "fact_check_plus",
+        "poll_url": f"/api/llm/jobs/{job_id}",
+    }
+
+
+@router.post("/fact-check-plus/batch", status_code=202)
+def fact_check_plus_batch(body: BatchRequest) -> dict[str, Any]:
+    """Enqueue fact_check_plus jobs for up to 20 articles (v1.0.22).
+
+    Returns per-article status; ``enqueued`` is the count of jobs successfully
+    queued, ``skipped`` is the count of articles that already had an active
+    job (409 dedup), and ``errors`` is a list of {article_id, reason} for
+    articles that failed (404, etc).
+    """
+    article_ids = body.article_ids or []
+    if not article_ids:
+        raise BadRequestError(message="article_ids must not be empty")
+    if len(article_ids) > MAX_BATCH_SIZE:
+        raise BadRequestError(
+            message=f"article_ids exceeds batch limit {MAX_BATCH_SIZE}",
+            details={"received": len(article_ids), "limit": MAX_BATCH_SIZE},
+        )
+
+    provider, model = _resolve_active_model()
+
+    from moni.llm.jobs import enqueue_job
+
+    enqueued: list[str] = []
+    skipped: list[str] = []
+    errors: list[dict[str, str]] = []
+    conn = get_db()
+    for aid in article_ids:
+        row = conn.execute("SELECT id FROM articles WHERE id = ?", (aid,)).fetchone()
+        if row is None:
+            errors.append({"article_id": aid, "reason": "not_found"})
+            continue
+        if _has_active_job(aid):
+            skipped.append(aid)
+            continue
+        try:
+            jid = enqueue_job(
+                task_type="fact_check_plus",
+                article_id=aid,
+                provider=provider,
+                model=model,
+            )
+            enqueued.append(jid)
+        except Exception as exc:
+            logger.warning("fact_check_plus batch enqueue failed for %s: %s", aid, exc)
+            errors.append({"article_id": aid, "reason": str(exc)[:100]})
+
+    return {
+        "enqueued": len(enqueued),
+        "job_ids": enqueued,
+        "skipped": skipped,
+        "errors": errors,
+        "reason": body.reason,
+    }
+
+
+@router.get("/fact-check-plus/evidence/{article_id}")
+def fact_check_plus_evidence(article_id: str) -> dict[str, Any]:
+    """Return the evidence chain for an article, ordered by evidence_seq.
+
+    Always 200 — ``items=[]`` when the article has no evidence yet (not 404).
+    404 only when the article itself does not exist.
+    """
+    conn = get_db()
+    row = conn.execute("SELECT id FROM articles WHERE id = ?", (article_id,)).fetchone()
+    if row is None:
+        raise NotFoundError(message=f"Article {article_id!r} not found")
+
+    rows = conn.execute(
+        """
+        SELECT query, url, domain, snippet, fetched_at, model, provider,
+               conclusion, rationale, evidence_seq, created_at, job_id
+        FROM fact_check_evidence
+        WHERE article_id = ?
+        ORDER BY evidence_seq ASC
+        """,
+        (article_id,),
+    ).fetchall()
+    items = [dict(r) for r in rows]
+    return {"article_id": article_id, "items": items, "total": len(items)}
