@@ -6,11 +6,19 @@
 
 ## 当前状态: **v1.0.28 — 抓取页 UX (sprint-10 收尾)** (2026-08-13)
 
-**主分支**: **main** @ `23902c7` (PR #92 + #94 merge；未另打 git tag)
+**主分支**: **main** @ `40f7097` (PR #98 merge；未另打 git tag)
 **Web 服务**: `127.0.0.1:8900` 已 restart 跟 main（2026-08-13）
-**数据库**: schema_version=26（本 sprint **无** migration）
+**数据库**: schema_version=28（v1.0.28 fact_check 状态机 028）
 **Obsidian**: `tqob/…/project-moni/sprints/sprint-10-fetch-frontend-ux/` status=已完成 · verify 3-1-1
 **并行 sprint-09**: evidence 落库脱敏（另一 agent / worktree `moni-evidence-redaction`）
+
+### v1.0.29 — SQLite 线程安全修复 (2026-08-13, PR #98)
+
+- 修复 Python 3.12 间歇 SIGSEGV (5 次/天, `_pysqlite_query_execute` use-after-free 0x8)
+- 根因: `close_db()` 立即 close / GC 释放全局单例连接, 与后台 worker (llm_jobs/fetch) execute 竞争
+- 修法: connection.py — `close_db()` 改 retire 延迟关闭 (atexit) + `_CREATE_LOCK` + `_RETIRED` maxlen=8 防 fd 耗尽
+- 验证: 全量 pytest 701 passed 0 segfault (之前 2-3 次必崩); 8900/8901 已重启生效
+- PR: #98 https://github.com/mariusiaowego-commits/moni/pull/98
 
 ### v1.0.28 — sprint-10 抓取管理前端 (2026-08-13)
 
