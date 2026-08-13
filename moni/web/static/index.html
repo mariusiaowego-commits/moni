@@ -20,7 +20,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css?v=20260813017">
+  <link rel="stylesheet" href="css/main.css?v=20260813018">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -749,18 +749,18 @@
           </div>
 
           <!-- Error block — single source -->
-          <div x-show="!fetchBatchMode && fetchProgress?.error" class="fr-error" style="margin-top:14px; padding:10px; border-radius:4px; background:rgba(239,68,68,0.1);"
+          <div x-show="!fetchBatchMode && fetchProgress?.error" class="fr-error banner-error"
             x-text="fetchProgress?.error"></div>
 
           <!-- Error block — batch mode -->
-          <div x-show="fetchBatchMode && fetchProgress?.errors && fetchProgress.errors.length > 0" style="margin-top:14px; padding:10px; border-radius:4px; background:rgba(239,68,68,0.1); font-size:13px;">
+          <div x-show="fetchBatchMode && fetchProgress?.errors && fetchProgress.errors.length > 0" class="banner-error">
             <template x-for="(e, i) in (fetchProgress?.errors || [])" :key="i">
               <div class="fr-error" x-text="`${e.source}: ${e.error}`"></div>
             </template>
           </div>
 
           <!-- Final result — single source -->
-          <div x-show="!fetchBatchMode && fetchProgress?.status === 'done' && fetchProgress?.result" style="margin-top:14px; padding:10px; border-radius:4px; background:rgba(16,185,129,0.08); font-size:13px;">
+          <div x-show="!fetchBatchMode && fetchProgress?.status === 'done' && fetchProgress?.result" class="banner-success">
             <div><b x-text="fetchProgress?.result?.fetched || 0"></b> 原始 → <b x-text="fetchProgress?.result?.parsed || 0"></b> 解析 → <b x-text="fetchProgress?.result?.inserted || 0"></b> 入库</div>
             <div class="muted" style="margin-top:4px;">
               <span x-show="fetchProgress?.result?.dropped_blacklist > 0">黑名单丢弃 <b x-text="fetchProgress?.result?.dropped_blacklist"></b> · </span>
@@ -770,7 +770,7 @@
           </div>
 
           <!-- Final result — batch mode -->
-          <div x-show="fetchBatchMode && (fetchProgress?.status === 'done' || fetchProgress?.status === 'partial')" style="margin-top:14px; padding:10px; border-radius:4px; background:rgba(16,185,129,0.08); font-size:13px;">
+          <div x-show="fetchBatchMode && (fetchProgress?.status === 'done' || fetchProgress?.status === 'partial')" class="banner-success">
             <div style="display:flex; gap:20px;">
               <span>源: <b x-text="`${fetchProgress?.done_sources || 0}/${fetchProgress?.total_sources || 0}`"></b></span>
               <span>新增: <b x-text="(fetchProgress?.results || []).reduce((s, r) => s + (r.inserted || 0), 0)"></b> 篇</span>
@@ -870,7 +870,7 @@
         </div>
 
         <!-- v1.0.10: one-click brief primary path -->
-        <div class="share-section brief-panel" style="border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 16px 18px; margin-bottom: 20px; background: var(--card, #fff);">
+        <div class="share-section brief-panel" class="share-section brief-panel" style="border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 20px; background: var(--card);">
           <h4 style="margin-top:0;">一键简报</h4>
           <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
             <label style="display:flex; align-items:center; gap:6px;">
@@ -890,10 +890,10 @@
             <span class="muted" style="font-size:0.85em;"
                   x-show="(pinnedTotal || 0) === 0">先去文章流 Pin 至少 1 篇</span>
           </div>
-          <p x-show="briefError" style="color:#b91c1c; margin:10px 0 0; font-size:0.9em;" x-text="briefError"></p>
+          <p x-show="briefError" class="text-danger" style="margin:10px 0 0; font-size:0.9em;" x-text="briefError"></p>
 
           <!-- sticky current brief status -->
-          <div x-show="activeBriefTask" style="margin-top:14px; padding:12px; border-radius:8px; background:#0f172a0a; border-left:3px solid #2563eb;">
+          <div x-show="activeBriefTask" class="panel-soft">
             <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
               <strong>当前简报</strong>
               <span class="status-badge" :class="'status-' + (activeBriefTask?.status || '')"
@@ -901,9 +901,9 @@
             </div>
             <div style="font-size:0.85em; margin-top:6px;" class="muted"
                  x-text="briefStageLabel(activeBriefTask?.progress_stage) + ' · ' + (activeBriefTask?.progress_pct ?? 0) + '%' + (activeBriefTask?.progress_message ? ' — ' + activeBriefTask.progress_message : '')"></div>
-            <div style="background:#e5e7eb; border-radius:3px; height:8px; overflow:hidden; margin-top:8px;"
+            <div class="progress-track" style="margin-top:8px;"
                  x-show="activeBriefTask && (activeBriefTask.status === 'running' || activeBriefTask.status === 'pending')">
-              <div :style="'background:#2563eb; height:100%; width:' + (activeBriefTask?.progress_pct || 0) + '%; transition:width 0.4s;'"></div>
+              <div :style="'background:var(--chart-1); height:100%; width:' + (activeBriefTask?.progress_pct || 0) + '%; transition:width 0.4s;'"></div>
             </div>
             <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
               <template x-if="activeBriefTask?.output_url && activeBriefTask?.status === 'done'">
@@ -919,11 +919,11 @@
                 <button class="btn-secondary" @click="shareTaskPause(activeBriefTask.id)">暂停</button>
               </template>
               <template x-if="activeBriefTask && ['pending','running','paused','failed'].includes(activeBriefTask.status)">
-                <button class="btn-secondary" style="color:#b91c1c;" @click="shareTaskCancel(activeBriefTask.id)">丢弃</button>
+                <button class="btn-secondary" class="text-danger" @click="shareTaskCancel(activeBriefTask.id)">丢弃</button>
               </template>
               <span class="muted" style="font-size:0.8em;" x-text="'任务 ' + (activeBriefTask?.id || '')"></span>
             </div>
-            <p x-show="activeBriefTask?.error" style="color:#b91c1c; font-size:0.85em; margin:8px 0 0;"
+            <p x-show="activeBriefTask?.error" class="text-danger" style="font-size:0.85em; margin:8px 0 0;"
                x-text="activeBriefTask?.error"></p>
           </div>
         </div>
@@ -1089,7 +1089,7 @@
                happened" instead of swallowing the configuration. -->
           <p x-show="selectedArticleIds.length > 0 && shareBBIneligibleCount > 0"
              data-testid="bb-ineligible-hint"
-             style="font-size: 0.85em; margin-top: 8px; padding: 6px 10px; background: #fff7e6; border-left: 3px solid #f59e0b; border-radius: 3px; color: #92400e;">
+             class="banner-warning">
             ⚠️ 已选 <strong x-text="shareBBIneligibleCount"></strong> 篇非 bestblogs 源文章，BB 增强仅对 bestblogs / bestblog-podcast / bestblog-x / bestblog-yt 源生效（其他文章会被静默跳过，不消耗 API 额度）。
           </p>
           <p class="muted" style="font-size: 0.85em; margin-top: 4px;">
@@ -1103,7 +1103,7 @@
              exhausted.  Empty input == use the default. -->
         <div class="share-section">
           <details>
-            <summary style="cursor:pointer; color:#64748b; font-size: 0.9em;">
+            <summary style="cursor:pointer; color:var(--muted-fg); font-size: 0.9em;">
               ⚙ 高级选项 (provider / model 覆盖)
             </summary>
             <div style="margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap;">
@@ -1197,8 +1197,8 @@
                         <div style="min-width: 80px;">
                           <div style="font-size: 0.8em; margin-bottom: 2px;"
                                x-text="(q.progress_stage || '?') + ' · ' + q.progress_pct + '%'"></div>
-                          <div style="background: #e5e7eb; border-radius: 3px; height: 6px; overflow: hidden;">
-                            <div :style="'background: #2563eb; height: 100%; width: ' + q.progress_pct + '%; transition: width 0.5s;'"></div>
+                          <div class="progress-track progress-track-sm">
+                            <div :style="'background:var(--chart-1); height: 100%; width: ' + q.progress_pct + '%; transition: width 0.5s;'"></div>
                           </div>
                         </div>
                       </template>
@@ -1229,7 +1229,7 @@
                         <button class="btn-ghost btn-sm" @click="shareTaskResume(q.id)" title="继续/重试">继续</button>
                       </template>
                       <template x-if="['pending','running','paused','failed'].includes(q.status)">
-                        <button class="btn-ghost btn-sm" style="color:#b91c1c;" @click="shareTaskCancel(q.id)" title="丢弃">丢弃</button>
+                        <button class="btn-ghost btn-sm" class="text-danger" @click="shareTaskCancel(q.id)" title="丢弃">丢弃</button>
                       </template>
                       <template x-if="q.status === 'done' || q.status === 'cancelled'">
                         <span class="muted">—</span>
@@ -1730,7 +1730,7 @@
         <!-- 案例详情 modal -->
         <div x-show="casesDetail" x-cloak @click.self="casesCloseDetail()"
              x-transition.opacity.duration.150ms
-             style="position: fixed; inset: 0; background: oklch(0 0 0 / 0.4); z-index: 9998;">
+             class="modal-backdrop-dim" style="position: fixed; inset: 0; z-index: 9998;">
           <div x-show="casesDetail" class="case-detail" @click.stop>
             <template x-if="casesDetail">
               <div>
@@ -1956,7 +1956,7 @@
         <div class="stats-trend">
           <div class="stats-trend-title">LLM 任务趋势 (每日 · <span x-text="timeseriesLlm.total || 0"></span> 次累计)</div>
           <svg class="stats-trend-svg" viewBox="0 0 320 80" preserveAspectRatio="none" x-show="timeseriesLlm.points && timeseriesLlm.points.length > 0">
-            <path class="stats-trend-line" :d="trendPath(timeseriesLlm.points)" stroke="#7eb86b" />
+            <path class="stats-trend-line" :d="trendPath(timeseriesLlm.points)" stroke="var(--success)" />
           </svg>
           <div class="stats-trend-empty" x-show="!timeseriesLlm.points || timeseriesLlm.points.length === 0">
             数据积累中 (N &lt; <span x-text="llm.threshold"></span>)
@@ -2201,7 +2201,7 @@
                       <button class="btn-link" @click="openLlmProviderForm(p)">编辑</button>
                       <button class="btn-link" @click="testLlmProvider(p)"
                               :disabled="p._testing"
-                              style="color: #059669;"
+                              class="text-success"
                               x-text="p._testing ? '测试中...' : '测试'"></button>
                       <button class="btn-secondary" @click="toggleLlmProviderActive(p)"
                               x-text="p.is_active ? '停用' : '启用'"></button>
@@ -2321,15 +2321,15 @@
           <div x-show="llmUsage" style="margin-top: 16px;">
             <!-- Summary cards -->
             <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 24px;">
-              <div style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 12px 20px; min-width: 140px;">
+              <div class="surface-muted" style="min-width: 140px;">
                 <div class="muted" style="font-size: 0.85em;">总请求数</div>
                 <div style="font-size: 1.4em; font-weight: bold;" x-text="(llmUsage?.summary?.total_requests ?? 0).toLocaleString()"></div>
               </div>
-              <div style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 12px 20px; min-width: 140px;">
+              <div class="surface-muted" style="min-width: 140px;">
                 <div class="muted" style="font-size: 0.85em;">总 Token</div>
                 <div style="font-size: 1.4em; font-weight: bold;" x-text="(llmUsage?.summary?.total_tokens ?? 0).toLocaleString()"></div>
               </div>
-              <div style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 12px 20px; min-width: 140px;">
+              <div class="surface-muted" style="min-width: 140px;">
                 <div class="muted" style="font-size: 0.85em;">总费用 (估)</div>
                 <div style="font-size: 1.4em; font-weight: bold;" x-text="'$' + (llmUsage?.summary?.total_cost ?? 0).toFixed(4)"></div>
               </div>
@@ -2341,8 +2341,8 @@
               <template x-for="item in (llmUsage?.by_module || [])" :key="item.module || item.label">
                 <div style="display: flex; align-items: center; margin-bottom: 8px; gap: 12px;">
                   <span style="min-width: 120px; text-align: right; font-size: 0.9em;" x-text="item.module || item.label"></span>
-                  <div style="flex: 1; background: #e9ecef; border-radius: 4px; height: 24px; position: relative;">
-                    <div :style="'height:100%;border-radius:4px;background:#2563EB;width:' + llmBarWidth(item, 'by_module') + '%;min-width:2px;'"></div>
+                  <div class="progress-track" style="flex:1; height:24px; border-radius:4px;">
+                    <div :style="'height:100%;border-radius:4px;background:var(--chart-1);width:' + llmBarWidth(item, 'by_module') + '%;min-width:2px;'"></div>
                   </div>
                   <span style="min-width: 60px; font-size: 0.85em;" x-text="(item.total_tokens ?? item.tokens ?? 0).toLocaleString()"></span>
                 </div>
@@ -2353,8 +2353,8 @@
               <template x-for="item in (llmUsage?.by_model || [])" :key="item.model || item.label">
                 <div style="display: flex; align-items: center; margin-bottom: 8px; gap: 12px;">
                   <span style="min-width: 160px; text-align: right; font-size: 0.9em; word-break:break-all;" x-text="item.model || item.label"></span>
-                  <div style="flex: 1; background: #e9ecef; border-radius: 4px; height: 24px; position: relative;">
-                    <div :style="'height:100%;border-radius:4px;background:#16A34A;width:' + llmBarWidth(item, 'by_model') + '%;min-width:2px;'"></div>
+                  <div class="progress-track" style="flex:1; height:24px; border-radius:4px;">
+                    <div :style="'height:100%;border-radius:4px;background:var(--success);width:' + llmBarWidth(item, 'by_model') + '%;min-width:2px;'"></div>
                   </div>
                   <span style="min-width: 60px; font-size: 0.85em;" x-text="(item.total_tokens ?? item.tokens ?? 0).toLocaleString()"></span>
                 </div>
@@ -2365,8 +2365,8 @@
               <template x-for="item in (llmUsage?.by_date || [])" :key="item.date || item.label">
                 <div style="display: flex; align-items: center; margin-bottom: 8px; gap: 12px;">
                   <span style="min-width: 100px; text-align: right; font-size: 0.9em;" x-text="item.date || item.label"></span>
-                  <div style="flex: 1; background: #e9ecef; border-radius: 4px; height: 24px; position: relative;">
-                    <div :style="'height:100%;border-radius:4px;background:#8A71E8;width:' + llmBarWidth(item, 'by_date') + '%;min-width:2px;'"></div>
+                  <div class="progress-track" style="flex:1; height:24px; border-radius:4px;">
+                    <div :style="'height:100%;border-radius:4px;background:var(--chart-4);width:' + llmBarWidth(item, 'by_date') + '%;min-width:2px;'"></div>
                   </div>
                   <span style="min-width: 60px; font-size: 0.85em;" x-text="(item.total_tokens ?? item.tokens ?? 0).toLocaleString()"></span>
                 </div>
@@ -2438,7 +2438,7 @@
             <label>备注</label>
             <textarea x-model="llmProviderForm.notes" rows="2" placeholder="可选"></textarea>
           </div>
-          <p class="muted" x-show="llmProviderFormError" x-text="llmProviderFormError" style="color:#dc2626;"></p>
+          <p class="muted" x-show="llmProviderFormError" x-text="llmProviderFormError" class="text-danger"></p>
         </div>
         <div class="modal-footer">
           <button class="btn-secondary" @click="closeLlmProviderForm()">取消</button>
@@ -2488,7 +2488,7 @@
                    placeholder="e.g. summary, fact_check, share">
             <small class="muted">决定该模型可用于哪些 LLM 任务</small>
           </div>
-          <p class="muted" x-show="llmModelFormError" x-text="llmModelFormError" style="color:#dc2626;"></p>
+          <p class="muted" x-show="llmModelFormError" x-text="llmModelFormError" class="text-danger"></p>
         </div>
         <div class="modal-footer">
           <button class="btn-secondary" @click="closeLlmModelForm()">取消</button>
@@ -2544,15 +2544,15 @@
             <button class="btn-secondary" @click="copyArticleUrl()" title="复制原文链接到剪贴板">
               📋 复制链接
             </button>
-            <span x-show="copyToast" style="color:#16a34a; font-size:0.85em; margin-left:4px;">已复制 ✓</span>
+            <span x-show="copyToast" class="text-success" style="font-size:0.85em; margin-left:4px;">已复制 ✓</span>
           </div>
           <!-- v1.0.6.8: import full-text for AI analysis (all sources) -->
-          <div style="margin: 12px 0; padding: 10px; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0;">
+          <div class="surface-muted" style="margin: 12px 0; padding: 10px;">
             <details>
-              <summary style="cursor:pointer; color:#64748b; font-size:0.9em;">📥 导入全文（用于 AI 摘要/核查）</summary>
+              <summary style="cursor:pointer; color:var(--muted-fg); font-size:0.9em;">📥 导入全文（用于 AI 摘要/核查）</summary>
               <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
                 <input type="text" x-model="importFilePath" placeholder="粘贴本地 .md 文件路径"
-                       style="flex:1; font-size:0.85em; padding:6px 8px; border:1px solid #cbd5e1; border-radius:4px;">
+                       style="flex:1; font-size:0.85em; padding:6px 8px; border:1px solid var(--border); border-radius:4px;">
                 <button class="btn-primary" @click="importFulltext()" :disabled="importLoading"
                         style="white-space:nowrap; padding:6px 12px; font-size:0.85em;">
                   <span x-show="!importLoading">导入</span>
@@ -2989,10 +2989,10 @@
               <h3>抓取配置 — <span x-text="fetchConfigData.source_name"></span></h3>
             </div>
             <div class="modal-body">
-              <p class="hint" style="margin-bottom:12px; color:#64748b; font-size:0.9em;">
+              <p class="hint" style="margin-bottom:12px; color:var(--muted-fg); font-size:0.9em;">
                 每项显示<strong>中文含义</strong> + 英文 key。保存后立即写入数据库。
               </p>
-              <p class="hint" x-show="fetchConfigData.has_custom" style="color:#e67e22;">
+              <p class="hint" x-show="fetchConfigData.has_custom" class="text-warning">
                 * 当前有自定义配置（覆盖系统默认值）
               </p>
               <template x-for="key in fetchConfigSortedKeys()" :key="key">
@@ -3002,7 +3002,7 @@
                     <code class="fetch-config-key" x-text="key"></code>
                     <span class="hint"
                           x-show="fetchConfigData.defaults && fetchConfigData.defaults[key] !== undefined"
-                          style="color:#888; font-size:0.85em;">
+                          style="color:var(--muted-fg); font-size:0.85em;">
                       （默认:
                       <span x-text="typeof fetchConfigData.defaults[key] === 'object'
                         ? JSON.stringify(fetchConfigData.defaults[key])
@@ -3187,7 +3187,7 @@
             <label>raw_content</label>
             <textarea x-model="crudForm.raw_content" rows="4" placeholder="可选 — 完整正文"></textarea>
           </div>
-          <p class="muted" x-show="crudFormError" x-text="crudFormError" style="color:#dc2626;"></p>
+          <p class="muted" x-show="crudFormError" x-text="crudFormError" class="text-danger"></p>
         </div>
         <div class="modal-footer">
           <button class="btn-secondary" @click="closeCrudForm()">取消</button>
@@ -3219,11 +3219,11 @@
                   <div class="theme-item-name" x-text="(activeTheme === t.name ? '✓ ' : '') + t.name"></div>
                   <div class="theme-item-meta" x-text="Object.keys(t.light).length + ' 个变量' + (t.isDefault ? ' · 内置' : '')"></div>
                   <div class="theme-colors">
-                    <div class="theme-dot" :style="'background:' + (t.light['--background'] || '#ccc')"></div>
-                    <div class="theme-dot" :style="'background:' + (t.light['--foreground'] || '#333')"></div>
-                    <div class="theme-dot" :style="'background:' + (t.light['--accent'] || '#666')"></div>
-                    <div class="theme-dot" :style="'background:' + (t.light['--destructive'] || '#c00')"></div>
-                    <div class="theme-dot" :style="'background:' + (t.light['--border'] || '#ddd')"></div>
+                    <div class="theme-dot" :style="'background:' + (t.light['--background'] || 'var(--muted)')"></div>
+                    <div class="theme-dot" :style="'background:' + (t.light['--foreground'] || 'var(--foreground)')"></div>
+                    <div class="theme-dot" :style="'background:' + (t.light['--accent'] || 'var(--accent)')"></div>
+                    <div class="theme-dot" :style="'background:' + (t.light['--destructive'] || 'var(--destructive)')"></div>
+                    <div class="theme-dot" :style="'background:' + (t.light['--border'] || 'var(--border)')"></div>
                   </div>
                 </div>
                 <div style="display:flex;gap:4px;">
@@ -3262,8 +3262,8 @@
   <script src="js/calendar.js?v=20260810001"></script>
   <script src="js/cases.js?v=20260808004"></script>
   <script src="js/stats.js?v=20260809"></script>
-  <script src="js/app.js?v=20260813017"></script>
-  <script src="js/theme.js?v=1785000000"></script>
+  <script src="js/theme.js?v=20260813018"></script>
+  <script src="js/app.js?v=20260813018"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <script src="js/pin_anim.js?v=1785000000"></script>
 </body>
