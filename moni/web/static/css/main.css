@@ -1482,6 +1482,24 @@ label { font-size: 0.85rem; }
   margin-bottom: 8px;
   letter-spacing: 0.02em;
 }
+/* 操作区与表格 td-actions：共用系统按钮，仅控制间距与对齐 */
+.fetch-ops-head .actions-group {
+  gap: 8px;
+  align-items: center;
+}
+.fetch-ops-head .actions-group > .btn-primary,
+.fetch-ops-head .actions-group > .btn-secondary,
+.fetch-sources-section .td-actions .btn-primary,
+.fetch-sources-section .td-actions .btn-secondary {
+  /* 锁定与设计系统一致：6px 圆角，禁止 pill */
+  border-radius: 6px;
+}
+.fetch-sources-section .td-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
 @media (max-width: 720px) {
   .fetch-ops-head { flex-direction: column; align-items: stretch; }
   .fetch-ops-head .actions-group { justify-content: flex-start; }
@@ -1491,13 +1509,10 @@ label { font-size: 0.85rem; }
 /* ═══════════════════════════════════════════════════════════════
    Fetch TaskRows (v1.0.28) — multi-task capsules
    ═══════════════════════════════════════════════════════════════ */
-.fetch-running-count {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--muted-fg);
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: oklch(from var(--muted) l c h / 0.6);
+/* fetch-running-count 现为 .pixel-loader 的语义别名，样式见上方 Pixel Drive */
+.pixel-loader.fetch-running-count {
+  /* 操作区里略紧凑 */
+  max-width: min(360px, 100%);
 }
 .fetch-task-list {
   display: flex;
@@ -1529,6 +1544,12 @@ label { font-size: 0.85rem; }
   transition: background 0.12s;
 }
 .fetch-task-row:hover { background: oklch(from var(--muted) l c h / 0.55); }
+.fetch-task-reopen {
+  flex-shrink: 0;
+  margin-left: 2px;
+  font-size: 0.78rem;
+  padding: 2px 6px;
+}
 .fetch-task-badge {
   display: flex;
   width: 24px;

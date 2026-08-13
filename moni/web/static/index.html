@@ -20,7 +20,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css?v=20260813013">
+  <link rel="stylesheet" href="css/main.css?v=20260813016">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -311,21 +311,41 @@
             <div class="panel-title-row">
               <h3>抓取管理</h3>
               <p class="panel-title-hint">手动触发信源抓取，查看连通性与最近批次结果</p>
-              <button class="btn-refresh" @click="loadSources()">刷新</button>
             </div>
             <div class="actions-group">
-              <span class="fetch-running-count"
-                    x-show="runningFetchTasks.length > 0"
-                    x-cloak
-                    x-text="runningFetchTasks.length + ' 个进行中'"></span>
-              <button class="btn btn-primary" @click="fetchAllSources()" :disabled="fetchingAll || isFetchRunning">
-                <span x-show="!isFetchRunning">⚡ 全部抓取</span>
+              <!-- v1.0.28: Drive 像素 chip — 关 modal 后仍显示；点击 reopen 进度弹窗 -->
+              <button type="button"
+                      class="pixel-loader fetch-running-count"
+                      x-show="isFetchRunning"
+                      x-cloak
+                      @click="reopenFetchProgress()"
+                      title="点击重新打开进度弹窗">
+                <span class="pixel-grid" aria-hidden="true">
+                  <!-- Drive chevron wavefront delays (ms): same as reference -->
+                  <span style="--d:90ms"></span><span style="--d:180ms"></span><span style="--d:270ms"></span>
+                  <span style="--d:0ms"></span><span style="--d:90ms"></span><span style="--d:180ms"></span>
+                  <span style="--d:90ms"></span><span style="--d:180ms"></span><span style="--d:270ms"></span>
+                </span>
+                <span class="pixel-label" x-text="fetchRunningLabel()"></span>
+                <span class="pixel-elapsed" x-text="formatFetchElapsed()"></span>
+              </button>
+              <!-- 与信源表 td-actions 同一按钮体系：primary 主操作 / secondary 次操作 -->
+              <button type="button"
+                      class="btn-primary"
+                      @click="fetchAllSources()"
+                      :disabled="fetchingAll || isFetchRunning">
+                <span x-show="!isFetchRunning">全部抓取</span>
                 <span x-show="isFetchRunning">抓取中...</span>
               </button>
-              <button class="btn-secondary"
+              <button type="button"
+                      class="btn-secondary"
                       @click="openRecentBatch()"
                       :disabled="isFetchRunning"
-                      :title="isFetchRunning ? '抓取进行中，请结束后再查看上次结果' : '打开最近一次全部抓取结果'">📋 上次结果</button>
+                      :title="isFetchRunning ? '抓取进行中，请结束后再查看上次结果' : '打开最近一次全部抓取结果'">上次结果</button>
+              <button type="button"
+                      class="btn-secondary"
+                      @click="loadSources()"
+                      title="重新加载信源列表">刷新</button>
             </div>
           </div>
 
@@ -376,6 +396,12 @@
                           x-show="taskPillLabel(t)"
                           :class="'tone-' + taskPillTone(t)"
                           x-text="taskPillLabel(t)"></span>
+                    <!-- 进行中：不展开也能点回 progress modal -->
+                    <button type="button"
+                            class="fetch-task-reopen link-btn"
+                            x-show="t.status === 'running'"
+                            @click.stop="focusFetchTask(t)"
+                            title="打开进度弹窗">进度</button>
                     <span class="fetch-task-chevron" aria-hidden="true">
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
                     </span>
@@ -564,11 +590,15 @@
                     <td class="url-cell"><a :href="s.url" target="_blank" x-text="s.url"></a></td>
                     <td x-text="s.fetch_interval_min ? s.fetch_interval_min + 'min' : '-'"></td>
                     <td class="td-actions">
-                      <button class="btn-primary"
+                      <!-- 与顶部操作区同一套：primary=触发抓取 / secondary=旁路操作 -->
+                      <button type="button"
+                              class="btn-primary"
                               @click="runSource(s.id)"
                               :disabled="isSourceFetching(s)"
                               x-text="isSourceFetching(s) ? '进行中' : '立即抓取'"></button>
-                      <button class="btn-secondary" @click="pingSource(s.id)">连通性测试</button>
+                      <button type="button"
+                              class="btn-secondary"
+                              @click="pingSource(s.id)">连通性测试</button>
                     </td>
                   </tr>
                 </template>
@@ -3227,7 +3257,7 @@
   <script src="js/calendar.js?v=20260810001"></script>
   <script src="js/cases.js?v=20260808004"></script>
   <script src="js/stats.js?v=20260809"></script>
-  <script src="js/app.js?v=20260813009"></script>
+  <script src="js/app.js?v=20260813014"></script>
   <script src="js/theme.js?v=1785000000"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <script src="js/pin_anim.js?v=1785000000"></script>

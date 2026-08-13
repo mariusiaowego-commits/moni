@@ -2015,10 +2015,15 @@ function app() {
       return `${m}m ${s}s`;
     },
 
-    // 兼容旧单 chip 绑定
+    // Drive chip 文案：多任务显示数量，单任务显示源名
     fetchRunningLabel() {
-      const t = this.fetchTasks.find(x => x.status === 'running') || this.fetchTasks[0];
-      return t ? this.taskLabel(t) : '';
+      const running = this.fetchTasks.filter(t => t.status === 'running');
+      if (running.length > 1) return `${running.length} 个进行中`;
+      const t = running[0]
+        || this.fetchTasks.find(x => x.id === this.fetchProgress?.id)
+        || this.fetchTasks[0];
+      if (!t) return '抓取中';
+      return this.taskLabel(t) || '抓取中';
     },
 
     formatFetchElapsed() {
@@ -2041,14 +2046,27 @@ function app() {
       if (!t) return;
       this._focusTask(t);
       this.fetchProgressModal = true;
-      if (t.status === 'running') this._bootModalParticlesForFocus();
+      if (t.status === 'running') {
+        // 关窗再开：等 modal 显示后再挂粒子，避免 0 尺寸 stage
+        this.$nextTick(() => {
+          if (this.fetchProgressModal && this.isFetchRunning) {
+            this._bootModalParticlesForFocus();
+          }
+        });
+      }
     },
 
     reopenFetchProgress() {
-      const t = this.fetchTasks.find(x => x.id === this.fetchProgress?.id)
+      // 关 modal 后的主入口：点 Drive chip 重新打开进度
+      const t = this.fetchTasks.find(x => x.id === this.fetchProgress?.id && x.status === 'running')
         || this.fetchTasks.find(x => x.status === 'running')
+        || this.fetchTasks.find(x => x.id === this.fetchProgress?.id)
         || this.fetchTasks[0];
-      if (!t) return;
+      if (!t) {
+        if (typeof this._notify === 'function') this._notify('info', '当前没有可查看的抓取任务');
+        else if (typeof this.showToast === 'function') this.showToast('当前没有可查看的抓取任务');
+        return;
+      }
       this.focusFetchTask(t);
     },
 
