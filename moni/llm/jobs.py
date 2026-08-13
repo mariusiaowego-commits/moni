@@ -59,7 +59,9 @@ from moni.llm.prompts import render_fact_check, render_fact_check_plus, render_s
 from moni.web.routes.fact_check_plus import (
     DOMAIN_WHITELIST,
     DOMAIN_WHITELIST_REGEX,
-    classify_timeliness,
+    apply_timeliness,
+    compute_days_old,
+    compute_timeliness,
     is_in_whitelist,
 )
 
@@ -540,8 +542,8 @@ def _persist_fact_check_plus(
 ) -> None:
     """Parse + 闸 1/2/3 + write articles + fact_check_evidence rows.
 
-    闸 3 (v1.0.26): fetched_at ≥30d 标 [过期], ≥90d 标 [存疑];
-    不改 conclusion (不把【已核实】降成【待核实】).
+    闸 3 (v1.0.26): days_old 31-90 结论加 ``(已过期 30-90 天)``;
+    91+ 强制【存疑】. 取本批最大 days_old (最严).
 
     Raises ValueError on parse / empty-evidence so caller marks job failed.
     On the three parse-failure branches, logs truncated raw_output into
@@ -590,60 +592,76 @@ def _persist_fact_check_plus(
                 job_id,
             )
 
-        # Gate 3: timeliness check — annotate only, never demote conclusion
+        # Gate 3: timeliness — 31-90 加后缀, 91+ 强制【存疑】
         now_dt = datetime.now(timezone.utc)
+        worst_days: int | None = None
         for e in valid:
-            raw_fetched = e.get("fetched_at")
-            if raw_fetched:
-                tl = classify_timeliness(raw_fetched, now=now_dt)
-                e["fetched_at"] = raw_fetched
-            else:
-                # LLM 没给 fetched_at → 本次抓取时刻 (刚抓, 必 fresh)
-                tl = classify_timeliness(finished_at, now=now_dt)
-                e["fetched_at"] = finished_at
-            e["timeliness"] = tl["timeliness"]
-            e["age_days"] = tl["age_days"]
-            e["timeliness_flag"] = tl["timeliness_flag"]
-            if e["timeliness"] == "demote":
-                logger.info(
-                    "[llm_jobs] fact_check_plus job %s: evidence ≥90d, flag [存疑] (no conclusion demote)",
-                    job_id,
-                )
-            elif e["timeliness"] == "warn":
-                logger.info(
-                    "[llm_jobs] fact_check_plus job %s: evidence ≥30d, flag [过期] (no conclusion demote)",
-                    job_id,
-                )
+            raw_fetched = e.get("fetched_at") or finished_at
+            e["fetched_at"] = raw_fetched
+            days_old = compute_days_old(raw_fetched, now=now_dt)
+            e["days_old"] = days_old
+            if days_old is not None and (worst_days is None or days_old > worst_days):
+                worst_days = days_old
+        timeliness = compute_timeliness(worst_days)
+        conclusion = apply_timeliness(conclusion, worst_days)
+        if timeliness == "90d_demote":
+            logger.info(
+                "[llm_jobs] fact_check_plus job %s: evidence days_old=%s → 90d_demote 【存疑】",
+                job_id,
+                worst_days,
+            )
+        elif timeliness == "30d_warn":
+            logger.info(
+                "[llm_jobs] fact_check_plus job %s: evidence days_old=%s → 30d_warn suffix",
+                job_id,
+                worst_days,
+            )
 
         note = json.dumps(valid, ensure_ascii=False)
         try:
             conn.execute(
                 """
                 UPDATE articles
-                SET fact_check_conclusion = ?,
-                    fact_check_method     = 'web_search',
-                    fact_checked_at       = ?,
-                    fact_check_note       = ?,
-                    has_fact_check        = 1,
-                    has_web_fact_check    = 1
+                SET fact_check_conclusion  = ?,
+                    fact_check_method      = 'web_search',
+                    fact_checked_at        = ?,
+                    fact_check_note        = ?,
+                    fact_check_timeliness  = ?,
+                    has_fact_check         = 1,
+                    has_web_fact_check     = 1
                 WHERE id = ?
                 """,
-                (conclusion, finished_at, note, article_id),
+                (conclusion, finished_at, note, timeliness, article_id),
             )
         except Exception:
-            # Pre-migration 026: has_web_fact_check column may be missing.
-            conn.execute(
-                """
-                UPDATE articles
-                SET fact_check_conclusion = ?,
-                    fact_check_method     = 'web_search',
-                    fact_checked_at       = ?,
-                    fact_check_note       = ?,
-                    has_fact_check        = 1
-                WHERE id = ?
-                """,
-                (conclusion, finished_at, note, article_id),
-            )
+            # Pre-migration 026/027: optional columns may be missing.
+            try:
+                conn.execute(
+                    """
+                    UPDATE articles
+                    SET fact_check_conclusion = ?,
+                        fact_check_method     = 'web_search',
+                        fact_checked_at       = ?,
+                        fact_check_note       = ?,
+                        fact_check_timeliness = ?,
+                        has_fact_check        = 1
+                    WHERE id = ?
+                    """,
+                    (conclusion, finished_at, note, timeliness, article_id),
+                )
+            except Exception:
+                conn.execute(
+                    """
+                    UPDATE articles
+                    SET fact_check_conclusion = ?,
+                        fact_check_method     = 'web_search',
+                        fact_checked_at       = ?,
+                        fact_check_note       = ?,
+                        has_fact_check        = 1
+                    WHERE id = ?
+                    """,
+                    (conclusion, finished_at, note, article_id),
+                )
 
         # Replace prior evidence for this article (re-run overwrite).
         conn.execute(
@@ -674,18 +692,13 @@ def _persist_fact_check_plus(
                     INSERT INTO fact_check_evidence
                         (id, article_id, job_id, query, url, domain, snippet,
                          fetched_at, model, provider, conclusion, rationale,
-                         evidence_seq, created_at,
-                         timeliness, age_days, timeliness_flag)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         evidence_seq, created_at, days_old)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    vals + (
-                        e.get("timeliness") or "unknown",
-                        e.get("age_days"),
-                        e.get("timeliness_flag"),
-                    ),
+                    vals + (e.get("days_old"),),
                 )
             except Exception:
-                # Pre-migration 027: timeliness columns may be missing.
+                # Pre-migration 027: days_old column may be missing.
                 conn.execute(
                     """
                     INSERT INTO fact_check_evidence

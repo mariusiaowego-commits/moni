@@ -97,19 +97,27 @@ def _insert_job(job_id: str, article_id: str) -> None:
     conn.commit()
 
 
-def _insert_evidence(aid: str, seq: int, *, fetched_at: str | None = None) -> None:
+def _insert_evidence(
+    aid: str,
+    seq: int,
+    *,
+    fetched_at: str | None = None,
+    days_old: int | None = None,
+) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn = get_db()
     conn.execute(
         """
         INSERT INTO fact_check_evidence
             (id, article_id, job_id, query, url, domain, snippet, fetched_at,
-             model, provider, conclusion, rationale, evidence_seq, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             model, provider, conclusion, rationale, evidence_seq, created_at,
+             days_old)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (f"ev-{aid}-{seq}", aid, f"job-{seq}", f"query-{seq}",
          "https://www.pbc.gov.cn/notice", "pbc.gov.cn", f"snippet-{seq}",
-         fetched_at or now, "MiniMax-M3", "minimax-cn", "【已核实】", "rationale", seq, now),
+         fetched_at or now, "MiniMax-M3", "minimax-cn", "【已核实】", "rationale",
+         seq, now, days_old),
     )
     conn.commit()
 
@@ -483,6 +491,7 @@ def test_fact_check_plus_no_failure_log_when_parse_succeeds(fresh_db, monkeypatc
 
 # ---------------------------------------------------------------------------
 # v1.0.26 (sprint-09): evidence 时效 闸 3
+# spec: docs/specs/2026-08-13-evidence-timeliness-v1.0.26.md §3.3 / §5
 # ---------------------------------------------------------------------------
 
 
@@ -498,86 +507,79 @@ def _fc_plus_payload(fetched_at: str | None, *, conclusion: str = "【已核实�
     return json.dumps({"conclusion": conclusion, "evidence": [ev]}, ensure_ascii=False)
 
 
+def _ago(days: int) -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
 def test_evidence_timeliness_fresh_pass(fresh_db, monkeypatch):
-    """fetched_at 距今 <30 天: timeliness=fresh, 结论保留【已核实】."""
+    """days_old=5 → timeliness=fresh, 结论【已核实】不变."""
     _insert_article("a1")
     _insert_job("job-t1", "a1")
-    now = datetime.now(timezone.utc).isoformat()
-    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: _fc_plus_payload(now))
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: _fc_plus_payload(_ago(5)))
 
     _run_job({"id": "job-t1", "task_type": "fact_check_plus", "article_id": "a1",
               "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
 
     conn = get_db()
-    row = conn.execute(
-        "SELECT timeliness, age_days, timeliness_flag FROM fact_check_evidence "
-        "WHERE article_id = 'a1'"
+    ev = conn.execute(
+        "SELECT days_old FROM fact_check_evidence WHERE article_id = 'a1'"
     ).fetchone()
-    assert row["timeliness"] == "fresh"
-    assert row["age_days"] is not None and row["age_days"] < 30
-    assert row["timeliness_flag"] is None
-    assert conn.execute(
-        "SELECT fact_check_conclusion FROM articles WHERE id = 'a1'"
-    ).fetchone()["fact_check_conclusion"] == "【已核实】"
+    assert ev["days_old"] == 5
+    art = conn.execute(
+        "SELECT fact_check_conclusion, fact_check_timeliness FROM articles WHERE id = 'a1'"
+    ).fetchone()
+    assert art["fact_check_timeliness"] == "fresh"
+    assert art["fact_check_conclusion"] == "【已核实】"
 
 
 def test_evidence_timeliness_30d_warn(fresh_db, monkeypatch):
-    """fetched_at 距今 ≥30 天: timeliness=warn (阈值 30d), 标 [过期], 不降级."""
+    """days_old=60 → 30d_warn, 结论加 (已过期 30-90 天) 后缀."""
     _insert_article("a1")
     _insert_job("job-t2", "a1")
-    old = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: _fc_plus_payload(old))
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: _fc_plus_payload(_ago(60)))
 
     _run_job({"id": "job-t2", "task_type": "fact_check_plus", "article_id": "a1",
               "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
 
     conn = get_db()
-    row = conn.execute(
-        "SELECT timeliness, age_days, timeliness_flag FROM fact_check_evidence "
-        "WHERE article_id = 'a1'"
+    ev = conn.execute(
+        "SELECT days_old FROM fact_check_evidence WHERE article_id = 'a1'"
     ).fetchone()
-    assert row["timeliness"] == "warn"
-    assert row["age_days"] >= 30
-    assert row["timeliness_flag"] == "[过期]"
-    assert conn.execute(
-        "SELECT fact_check_conclusion FROM articles WHERE id = 'a1'"
-    ).fetchone()["fact_check_conclusion"] == "【已核实】"
+    assert ev["days_old"] == 60
+    art = conn.execute(
+        "SELECT fact_check_conclusion, fact_check_timeliness FROM articles WHERE id = 'a1'"
+    ).fetchone()
+    assert art["fact_check_timeliness"] == "30d_warn"
+    assert art["fact_check_conclusion"] == "【已核实】(已过期 30-90 天)"
 
 
 def test_evidence_timeliness_90d_demote(fresh_db, monkeypatch):
-    """fetched_at 距今 ≥90 天: timeliness=demote, 只标 [存疑], 结论不降级."""
+    """days_old=120 → 90d_demote, 结论强制【存疑】即使原本【已核实】."""
     _insert_article("a1")
     _insert_job("job-t3", "a1")
-    old = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
-    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: _fc_plus_payload(old))
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: _fc_plus_payload(_ago(120)))
 
     _run_job({"id": "job-t3", "task_type": "fact_check_plus", "article_id": "a1",
               "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
 
     conn = get_db()
-    row = conn.execute(
-        "SELECT timeliness, age_days, timeliness_flag FROM fact_check_evidence "
-        "WHERE article_id = 'a1'"
+    ev = conn.execute(
+        "SELECT days_old FROM fact_check_evidence WHERE article_id = 'a1'"
     ).fetchone()
-    assert row["timeliness"] == "demote"
-    assert row["age_days"] >= 90
-    assert row["timeliness_flag"] == "[存疑]"
-    # 闸 3 不降级: 【已核实】保持, 只标 [存疑]
-    assert conn.execute(
-        "SELECT fact_check_conclusion FROM articles WHERE id = 'a1'"
-    ).fetchone()["fact_check_conclusion"] == "【已核实】"
+    assert ev["days_old"] == 120
+    art = conn.execute(
+        "SELECT fact_check_conclusion, fact_check_timeliness FROM articles WHERE id = 'a1'"
+    ).fetchone()
+    assert art["fact_check_timeliness"] == "90d_demote"
+    assert art["fact_check_conclusion"] == "【存疑】"
 
 
 def test_evidence_timeliness_null_handled(fresh_db, monkeypatch):
-    """fetched_at 为 NULL / 空 / 脏值: 不抛错, 按未知时效处理."""
-    from moni.web.routes.fact_check_plus import classify_timeliness
+    """days_old=NULL → timeliness=unknown, 结论【已核实】不变."""
+    from moni.web.routes.fact_check_plus import compute_timeliness
 
-    assert classify_timeliness(None)["timeliness"] == "unknown"
-    assert classify_timeliness(None)["age_days"] is None
-    assert classify_timeliness(None)["timeliness_flag"] is None
-    assert classify_timeliness("")["timeliness"] == "unknown"
-    assert classify_timeliness("   ")["timeliness"] == "unknown"
-    assert classify_timeliness("not-a-date")["timeliness"] == "unknown"
+    assert compute_timeliness(None) == "unknown"
+    assert compute_timeliness("not-a-date") == "unknown"  # type: ignore[arg-type]
 
     _insert_article("a1")
     _insert_job("job-t4", "a1")
@@ -589,37 +591,40 @@ def test_evidence_timeliness_null_handled(fresh_db, monkeypatch):
     _run_job({"id": "job-t4", "task_type": "fact_check_plus", "article_id": "a1",
               "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
 
-    row = get_db().execute(
+    conn = get_db()
+    assert conn.execute(
         "SELECT status FROM llm_jobs WHERE id = 'job-t4'"
+    ).fetchone()["status"] == "done"
+    ev = conn.execute(
+        "SELECT days_old FROM fact_check_evidence WHERE article_id = 'a1'"
     ).fetchone()
-    assert row["status"] == "done"
-    ev = get_db().execute(
-        "SELECT timeliness, age_days, timeliness_flag FROM fact_check_evidence "
-        "WHERE article_id = 'a1'"
+    assert ev["days_old"] is None
+    art = conn.execute(
+        "SELECT fact_check_conclusion, fact_check_timeliness FROM articles WHERE id = 'a1'"
     ).fetchone()
-    assert ev["timeliness"] == "unknown"
-    assert ev["age_days"] is None
-    assert ev["timeliness_flag"] is None
+    assert art["fact_check_timeliness"] == "unknown"
+    assert art["fact_check_conclusion"] == "【已核实】"
 
 
 def test_evidence_timeliness_endpoint_returns_timeliness(fresh_db, client):
-    """GET /api/fact-check-plus/evidence/{id} 每条 item 含 timeliness 字段."""
+    """GET /api/fact-check-plus/evidence/{id} 返 timeliness, 3 种值各验一次."""
     _insert_article("a1")
-    _insert_evidence("a1", seq=0)
-    old = (datetime.now(timezone.utc) - timedelta(days=45)).isoformat()
-    _insert_evidence("a1", seq=1, fetched_at=old)
+    _insert_evidence("a1", seq=0, fetched_at=_ago(5), days_old=5)
+    _insert_evidence("a1", seq=1, fetched_at=_ago(60), days_old=60)
+    _insert_evidence("a1", seq=2, fetched_at=_ago(120), days_old=120)
 
     r = client.get("/api/fact-check-plus/evidence/a1")
 
     assert r.status_code == 200
     items = r.json()["items"]
-    assert len(items) == 2
+    assert len(items) == 3
     for it in items:
         assert "timeliness" in it
-        assert "age_days" in it
-        assert "timeliness_flag" in it
-    assert items[0]["timeliness"] == "fresh"
-    assert items[0]["timeliness_flag"] is None
-    assert items[1]["timeliness"] == "warn"
-    assert items[1]["age_days"] >= 30
-    assert items[1]["timeliness_flag"] == "[过期]"
+        assert "days_old" in it
+    by_seq = {it["evidence_seq"]: it for it in items}
+    assert by_seq[0]["timeliness"] == "fresh"
+    assert by_seq[0]["days_old"] == 5
+    assert by_seq[1]["timeliness"] == "30d_warn"
+    assert by_seq[1]["days_old"] == 60
+    assert by_seq[2]["timeliness"] == "90d_demote"
+    assert by_seq[2]["days_old"] == 120

@@ -1,42 +1,40 @@
 -- Migration 027: evidence 时效校验 (闸 3)
 -- schema_version 26 → 27
 --
--- fact_check_evidence 新加 3 字段:
---   timeliness       TEXT    fresh | warn | demote | unknown
---   age_days         INTEGER 距今天数 (fetched_at 解析失败则为 NULL)
---   timeliness_flag  TEXT    NULL | '[过期]' | '[存疑]'
+-- articles.fact_check_timeliness  TEXT     最新一次 evidence 抓取时效
+--   取值: fresh | 30d_warn | 90d_demote | unknown
+-- fact_check_evidence.days_old    INTEGER  写入时距今天数 (加速 query)
 --
--- 闸 3 规则 (不降级 articles.fact_check_conclusion):
---   age <  30  → fresh  / flag NULL
---   age >= 30  → warn   / flag '[过期]'
---   age >= 90  → demote / flag '[存疑]'   (只标, 不把【已核实】改成【待核实】)
---   fetched_at 空/不可解析 → unknown / flag NULL
+-- 闸 3:
+--   days_old  0-30  → fresh      结论不变
+--   days_old 31-90  → 30d_warn   结论加 (已过期 30-90 天) 后缀
+--   days_old  91+   → 90d_demote 结论强制【存疑】
+--   days_old  NULL  → unknown    不影响结论
 --
 -- schema_version 单 PK: INSERT OR IGNORE (sprint 05 教训)
 
-ALTER TABLE fact_check_evidence ADD COLUMN timeliness TEXT NOT NULL DEFAULT 'unknown';
-ALTER TABLE fact_check_evidence ADD COLUMN age_days INTEGER;
-ALTER TABLE fact_check_evidence ADD COLUMN timeliness_flag TEXT;
+ALTER TABLE articles ADD COLUMN fact_check_timeliness TEXT;
+ALTER TABLE fact_check_evidence ADD COLUMN days_old INTEGER;
 
-CREATE INDEX IF NOT EXISTS idx_fce_timeliness ON fact_check_evidence(timeliness);
+CREATE INDEX IF NOT EXISTS idx_fce_days_old ON fact_check_evidence(days_old);
 
--- 存量回填: 用 fetched_at 日期部分算 age (ISO8601 取前 10 位 YYYY-MM-DD)
+-- 存量回填 days_old (ISO8601 取日期部分, julianday 更稳)
 UPDATE fact_check_evidence
-SET age_days = CASE
-        WHEN fetched_at IS NULL OR trim(fetched_at) = '' THEN NULL
-        ELSE CAST(julianday('now') - julianday(substr(fetched_at, 1, 10)) AS INTEGER)
-    END,
-    timeliness = CASE
-        WHEN fetched_at IS NULL OR trim(fetched_at) = '' THEN 'unknown'
-        WHEN CAST(julianday('now') - julianday(substr(fetched_at, 1, 10)) AS INTEGER) >= 90 THEN 'demote'
-        WHEN CAST(julianday('now') - julianday(substr(fetched_at, 1, 10)) AS INTEGER) >= 30 THEN 'warn'
-        ELSE 'fresh'
-    END,
-    timeliness_flag = CASE
-        WHEN fetched_at IS NULL OR trim(fetched_at) = '' THEN NULL
-        WHEN CAST(julianday('now') - julianday(substr(fetched_at, 1, 10)) AS INTEGER) >= 90 THEN '[存疑]'
-        WHEN CAST(julianday('now') - julianday(substr(fetched_at, 1, 10)) AS INTEGER) >= 30 THEN '[过期]'
-        ELSE NULL
-    END;
+SET days_old = CAST(julianday('now') - julianday(substr(fetched_at, 1, 10)) AS INTEGER)
+WHERE fetched_at IS NOT NULL AND trim(fetched_at) != '';
+
+-- 存量回填 articles.fact_check_timeliness (按该文最大 days_old, 闸 3 最严)
+UPDATE articles
+SET fact_check_timeliness = (
+    SELECT CASE
+        WHEN MAX(e.days_old) IS NULL THEN 'unknown'
+        WHEN MAX(e.days_old) <= 30 THEN 'fresh'
+        WHEN MAX(e.days_old) <= 90 THEN '30d_warn'
+        ELSE '90d_demote'
+    END
+    FROM fact_check_evidence e
+    WHERE e.article_id = articles.id
+)
+WHERE id IN (SELECT DISTINCT article_id FROM fact_check_evidence);
 
 INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (27, datetime('now'));
