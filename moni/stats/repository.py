@@ -28,22 +28,25 @@ N_EXTRACT_THRESHOLD = 5   # 抽取层 events/cases 阈值 (避免稀疏期两模
 
 # ── 工具函数 ─────────────────────────────────────────────────────
 
-def _period_start(period: str) -> datetime:
-    """根据 period (7d/30d/90d) 返回起始时间 (UTC).
+def _period_start(period: str) -> datetime | None:
+    """根据 period (7d/30d/90d/all) 返回起始时间 (UTC).
 
     Args:
-        period: '7d' / '30d' / '90d' (其他值 fallback 30d)
+        period: '7d' / '30d' / '90d' / 'all' (其他值 fallback 30d)
 
     Returns:
-        UTC datetime
+        UTC datetime, or None when period='all' (no time filter)
     """
+    if period == "all":
+        return None
     now = datetime.now(timezone.utc)
     days = {"7d": 7, "30d": 30, "90d": 90}.get(period, 30)
     return now - timedelta(days=days)
 
 
-def _period_iso(period: str) -> str:
-    return _period_start(period).isoformat()
+def _period_iso(period: str) -> str | None:
+    start = _period_start(period)
+    return start.isoformat() if start is not None else None
 
 
 def _sparse_response(count: int, threshold: int, *, raw: dict | None = None) -> dict[str, Any]:
@@ -293,6 +296,83 @@ def usage_layer_stats(period: str = "30d") -> dict[str, Any]:
         "period": period,
         "module": "usage",
         **_sparse_response(pin_count + share_count, N_DEFAULT_THRESHOLD, raw=raw),
+    }
+
+
+# ── 事实核查 method 分布 (v1.0.25) ───────────────────────────────
+
+def fact_check_method_layer_stats(period: str = "30d") -> dict[str, Any]:
+    """聚合 articles.fact_check_method × 时间窗 (v1.0.25).
+
+    Args:
+        period: '7d' / '30d' / '90d' / 'all'
+
+    Returns:
+        {
+          period, period_start, total_articles_with_fact_check,
+          by_method: [{method, article_count, percentage}, ...],
+          unfact_checked_total, module
+        }
+
+    Notes:
+        - 仅统计 has_fact_check=1 的文章 (饼图内)
+        - NULL method → 标为 '<NULL>'
+        - unfact_checked_total = has_fact_check=0 全库 (不限 period, 供对照)
+    """
+    conn = get_db()
+    period_start = _period_iso(period)  # None when period='all'
+
+    if period_start:
+        rows = conn.execute(
+            """
+            SELECT
+                COALESCE(fact_check_method, '<NULL>') AS method,
+                COUNT(*) AS article_count
+            FROM articles
+            WHERE has_fact_check = 1
+              AND fact_checked_at IS NOT NULL
+              AND fact_checked_at >= ?
+            GROUP BY fact_check_method
+            ORDER BY article_count DESC
+            """,
+            (period_start,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT
+                COALESCE(fact_check_method, '<NULL>') AS method,
+                COUNT(*) AS article_count
+            FROM articles
+            WHERE has_fact_check = 1
+            GROUP BY fact_check_method
+            ORDER BY article_count DESC
+            """
+        ).fetchall()
+
+    total = sum(int(r["article_count"] or 0) for r in rows)
+    by_method = [
+        {
+            "method": r["method"],
+            "article_count": int(r["article_count"] or 0),
+            "percentage": (
+                round(100.0 * int(r["article_count"] or 0) / total, 1) if total else 0.0
+            ),
+        }
+        for r in rows
+    ]
+
+    unfact = conn.execute(
+        "SELECT COUNT(*) FROM articles WHERE COALESCE(has_fact_check, 0) = 0"
+    ).fetchone()[0] or 0
+
+    return {
+        "period": period,
+        "period_start": period_start,
+        "total_articles_with_fact_check": total,
+        "by_method": by_method,
+        "unfact_checked_total": int(unfact),
+        "module": "fact_check_method",
     }
 
 

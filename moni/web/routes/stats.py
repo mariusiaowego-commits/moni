@@ -6,6 +6,9 @@ v1.0.19: moni-B §四.7 路线图 W1 申报包装。
 - GET /api/stats/llm?period= — LLM 任务按 task_type 分桶
 - GET /api/stats/savings?period= — 节省时间明细 (读 T₀ yaml + 实测 T₁)
 
+v1.0.25:
+- GET /api/stats/fact-check-method?period=7d|30d|all — 事实核查 method 分布
+
 所有端点共用 moni/stats/{repository,savings}.py 聚合层。
 """
 
@@ -21,6 +24,7 @@ from moni.stats.repository import (
     llm_layer_stats,
     extract_layer_stats,
     usage_layer_stats,
+    fact_check_method_layer_stats,
     overview,
     timeseries,
 )
@@ -115,3 +119,16 @@ def get_usage_stats(
     if period not in ("7d", "30d", "90d"):
         period = "30d"
     return usage_layer_stats(period)
+
+@router.get("/fact-check-method")
+def get_fact_check_method_stats(
+    period: str = Query("30d", description="时间窗口: 7d / 30d / 90d / all"),
+) -> dict[str, Any]:
+    """事实核查 method 分布 (v1.0.25) — llm_inference / web_search / human.
+
+    供量化看板第 6 块饼图: method × 文章数 + 百分比.
+    """
+    if period not in ("7d", "30d", "90d", "all"):
+        period = "30d"
+    return fact_check_method_layer_stats(period)
+
