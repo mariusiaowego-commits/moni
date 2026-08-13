@@ -378,6 +378,39 @@ def get_fetch_job(job_id: str) -> dict[str, Any]:
     return job
 
 
+@router.post("/jobs/{job_id}/cancel")
+def cancel_fetch_job(job_id: str) -> dict[str, Any]:
+    """Cancel a running fetch job (soft). Unblocks UI + same-source re-run.
+
+    Marks the job ``cancelled``. In-flight daemon thread may still finish
+    and overwrite status if it races; intended for zombie / stuck UI cases
+    after process restart.
+    """
+    store = FetchJobStore()
+    job = store.get_raw(job_id)
+    if job is None:
+        raise NotFoundError(message=f"Fetch job {job_id!r} not found")
+    st = job.get("status")
+    if st in ("done", "failed", "timeout", "stale", "cancelled"):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "already_terminal",
+                "message": f"Job already {st!r}; cannot cancel",
+                "job_id": job_id,
+                "status": st,
+            },
+        )
+    ok = store.mark_cancelled(job_id, "cancelled by user")
+    if not ok:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "cancel_failed", "message": "Could not cancel job", "job_id": job_id},
+        )
+    updated = store.get_raw(job_id)
+    return {"job_id": job_id, "status": (updated or {}).get("status", "cancelled"), "ok": True}
+
+
 @router.get("/jobs")
 def list_fetch_jobs(
     status: str | None = None,

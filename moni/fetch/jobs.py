@@ -27,9 +27,9 @@ def _now_iso() -> str:
 # v1.0.7.6 zombie fix: jobs older than this with status=running are
 # considered dead (the daemon thread crashed or the process was killed
 # mid-fetch) and should be swept to 'stale' on the next request.
-# 2h is well above JOB_TIMEOUT_SECONDS (10min) so legitimate long fetches
-# are never incorrectly swept.
-STALE_THRESHOLD_SECONDS = 7200
+# Must be > JOB_TIMEOUT_SECONDS (10min) so in-thread timeout can finish
+# first; 15min catches post-restart zombies without waiting 2h.
+STALE_THRESHOLD_SECONDS = 900
 
 
 def _row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -163,11 +163,47 @@ class FetchJobStore:
 
     # ── queries (called from request thread) ───────────────────────────────
 
-    def get(self, job_id: str) -> dict[str, Any] | None:
+    def mark_cancelled(self, job_id: str, reason: str = "cancelled by user") -> bool:
+        """Soft-cancel a running/pending job so SPA can unblock UI."""
+        row = self.get_raw(job_id)
+        if not row:
+            return False
+        if row.get("status") not in ("running", "pending"):
+            return False
+        self._atomic_update(
+            job_id,
+            status="cancelled",
+            finished_at=_now_iso(),
+            error=(reason or "cancelled by user")[:2000],
+            current_feed=None,
+        )
+        return True
+
+    def get_raw(self, job_id: str) -> dict[str, Any] | None:
+        """Read job without sweep (cancel path; avoids recursion)."""
         row = get_db().execute(
             "SELECT * FROM fetch_jobs WHERE id = ?", (job_id,)
         ).fetchone()
         return _row_to_dict(row)
+
+    def _with_live_elapsed(self, d: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Fill elapsed_seconds for running jobs on read."""
+        if not d or d.get("status") not in ("running", "pending"):
+            return d
+        started_at = d.get("started_at")
+        if not started_at:
+            return d
+        try:
+            started = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
+            d["elapsed_seconds"] = int((datetime.now(timezone.utc) - started).total_seconds())
+        except ValueError:
+            pass
+        return d
+
+    def get(self, job_id: str) -> dict[str, Any] | None:
+        # Poll path: sweep zombies so SPA doesn't pin a dead job forever
+        self.sweep_zombies()
+        return self._with_live_elapsed(self.get_raw(job_id))
 
     def list_recent(
         self,
@@ -175,6 +211,8 @@ class FetchJobStore:
         status: str | None = None,
         source: str | None = None,
     ) -> list[dict[str, Any]]:
+        # Resume-on-load / status=running: clear post-restart zombies first
+        self.sweep_zombies()
         # v1.0.7.6-hotfix.1: optional source filter so 409 fallback can scope
         # the running_job_id to the requested source (avoids handing the
         # SPA a job_id from a different source, which would leave the
@@ -193,7 +231,7 @@ class FetchJobStore:
         rows = get_db().execute(sql, params).fetchall()
         result: list[dict[str, Any]] = []
         for r in rows:
-            d = _row_to_dict(r)
+            d = self._with_live_elapsed(_row_to_dict(r))
             if d is not None:
                 result.append(d)
         return result
