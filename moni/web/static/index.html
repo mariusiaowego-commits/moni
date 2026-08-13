@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css?v=20260813003">
+  <link rel="stylesheet" href="css/main.css?v=20260813005">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -291,157 +291,171 @@
       </section>
 
       <!-- ══ Fetch ═══════════════════════════════════════════════ -->
+      <!-- v1.0.28: 顶部「一键操作区」卡片 = 标题 + 按钮 + 状态/结果；信源表在下 -->
       <section x-show="currentView === 'fetch'" x-cloak>
-        <div class="panel-header">
-          <div class="panel-title-row">
-            <h3>抓取管理</h3>
-            <p class="panel-title-hint">手动触发信源抓取，查看连通性与最近批次结果</p>
-            <button class="btn-refresh" @click="loadSources()">刷新</button>
-          </div>
-          <div class="actions-group">
-            <!-- v1.0.28: 关 progress modal 后仍显示进行中；点击 reopen -->
-            <button type="button"
-                    class="pixel-loader"
-                    x-show="isFetchRunning || fetchChipLinger"
-                    x-cloak
-                    @click="reopenFetchProgress()"
-                    :title="isFetchRunning ? '点击查看进度' : '查看结果'"
-                    :class="{ 'pixel-loader-linger': fetchChipLinger && !isFetchRunning }">
-              <span class="pixel-grid" aria-hidden="true">
-                <span style="--d:90ms"></span><span style="--d:180ms"></span><span style="--d:270ms"></span>
-                <span style="--d:0ms"></span><span style="--d:90ms"></span><span style="--d:180ms"></span>
-                <span style="--d:90ms"></span><span style="--d:180ms"></span><span style="--d:270ms"></span>
-              </span>
-              <span class="pixel-label" x-text="fetchRunningLabel()"></span>
-              <span class="pixel-elapsed" x-text="formatFetchElapsed()"></span>
-            </button>
-            <button class="btn btn-primary" @click="fetchAllSources()" :disabled="fetchingAll || isFetchRunning">
-              <span x-show="!isFetchRunning">⚡ 全部抓取</span>
-              <span x-show="isFetchRunning">抓取中...</span>
-            </button>
-            <button class="btn-secondary"
-                    @click="openRecentBatch()"
-                    :disabled="isFetchRunning"
-                    :title="isFetchRunning ? '抓取进行中，请结束后再查看上次结果' : '打开最近一次全部抓取结果'">📋 上次结果</button>
-          </div>
-        </div>
-        <div class="table-container">
-          <table>
-            <thead>
-              <tr><th style="width:36px;"></th><th>名称</th><th>URL</th><th>间隔</th><th class="th-right">操作</th></tr>
-            </thead>
-            <tbody>
-              <template x-for="s in sources" :key="s.id">
-                <tr>
-                  <td><img :src="getSourceIcon(s.name)" style="width:24px;height:24px;border-radius:6px;display:block;object-fit:cover;" alt=""></td>
-                  <td x-text="s.display_name || s.name"></td>
-                  <td class="url-cell"><a :href="s.url" target="_blank" x-text="s.url"></a></td>
-                  <td x-text="s.fetch_interval_min ? s.fetch_interval_min + 'min' : '-'"></td>
-                  <td class="td-actions">
-                    <button class="btn-primary"
-                            @click="runSource(s.id)"
-                            :disabled="isSourceFetching(s)"
-                            x-text="isSourceFetching(s) ? '进行中' : '立即抓取'"></button>
-                    <button class="btn-secondary" @click="pingSource(s.id)">连通性测试</button>
-                  </td>
-                </tr>
-              </template>
-              <tr x-show="sources.length === 0">
-                <td colspan="5" class="empty-row">暂无数据</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <!-- v1.0.6.2: fetch all result -->
-        <div x-show="fetchAllResult" x-cloak style="margin-top: 16px;">
-          <div class="fetch-all-summary">
-            <div class="fa-header">
-              <span x-show="fetchAllResult?.status === 'done'" class="fa-status-ok">✅ 全部完成</span>
-              <span x-show="fetchAllResult?.status === 'partial'" class="fa-status-warn">⚠️ 部分失败</span>
-              <span class="fa-stat" x-text="(fetchAllResult?.sources_ok ?? '') + '/' + (fetchAllResult?.sources_total ?? '') + ' 源成功'"></span>
-              <span class="fa-stat" x-text="'新增 ' + (fetchAllResult?.total_inserted ?? 0) + ' 篇'"></span>
-              <span x-show="fetchAllResult?.date_from" class="fa-stat fa-catchup" x-text="'周末补抓: ' + (fetchAllResult?.date_from ?? '') + ' 起'"></span>
+        <div class="fetch-ops-card">
+          <div class="fetch-ops-head">
+            <div class="panel-title-row">
+              <h3>抓取管理</h3>
+              <p class="panel-title-hint">手动触发信源抓取，查看连通性与最近批次结果</p>
+              <button class="btn-refresh" @click="loadSources()">刷新</button>
             </div>
-            <div class="fa-grid">
-              <template x-for="r in (fetchAllResult?.results || [])" :key="r.source">
-                <div class="fa-row" :class="r.error ? 'fa-row-err' : 'fa-row-ok'">
-                  <span class="fa-src" x-text="r.source"></span>
-                  <span x-show="!r.error" class="fa-metrics">
-                    拉取 <b x-text="r.fetched || 0"></b> →
-                    入库 <b x-text="r.inserted || 0"></b> ·
-                    去重 <span x-text="r.deduped || 0"></span> ·
-                    过滤 <span x-text="(r.dropped_blacklist||0) + (r.dropped_whitelist||0) + (r.dropped_tag_filter||0)"></span>
-                  </span>
-                  <span x-show="r.error" class="fa-err" x-text="r.error"></span>
-                </div>
-              </template>
+            <div class="actions-group">
+              <!-- v1.0.28: 关 progress modal 后仍显示进行中；点击 reopen -->
+              <button type="button"
+                      class="pixel-loader"
+                      x-show="isFetchRunning || fetchChipLinger"
+                      x-cloak
+                      @click="reopenFetchProgress()"
+                      :title="isFetchRunning ? '点击查看进度' : '查看结果'"
+                      :class="{ 'pixel-loader-linger': fetchChipLinger && !isFetchRunning }">
+                <span class="pixel-grid" aria-hidden="true">
+                  <span style="--d:90ms"></span><span style="--d:180ms"></span><span style="--d:270ms"></span>
+                  <span style="--d:0ms"></span><span style="--d:90ms"></span><span style="--d:180ms"></span>
+                  <span style="--d:90ms"></span><span style="--d:180ms"></span><span style="--d:270ms"></span>
+                </span>
+                <span class="pixel-label" x-text="fetchRunningLabel()"></span>
+                <span class="pixel-elapsed" x-text="formatFetchElapsed()"></span>
+              </button>
+              <button class="btn btn-primary" @click="fetchAllSources()" :disabled="fetchingAll || isFetchRunning">
+                <span x-show="!isFetchRunning">⚡ 全部抓取</span>
+                <span x-show="isFetchRunning">抓取中...</span>
+              </button>
+              <button class="btn-secondary"
+                      @click="openRecentBatch()"
+                      :disabled="isFetchRunning"
+                      :title="isFetchRunning ? '抓取进行中，请结束后再查看上次结果' : '打开最近一次全部抓取结果'">📋 上次结果</button>
             </div>
           </div>
-        </div>
 
-        <!-- v1.0.6.4: tag filter dropped articles detail -->
-        <div class="drop-detail-panel" x-show="fetchAllResult && fetchAllResult.results && fetchAllResult.results.some(r => r.dropped_articles && r.dropped_articles.length > 0)" x-cloak>
-          <details>
-            <summary class="drop-detail-summary">
-              Tag 过滤丢弃明细
-              <span class="drop-detail-count" x-text="'(' + (fetchAllResult?.results || []).reduce((s, r) => s + (r.dropped_articles?.length || 0), 0) + ' 条)'"></span>
-            </summary>
-            <div class="drop-detail-body">
-              <template x-for="r in (fetchAllResult?.results || []).filter(r => r.dropped_articles && r.dropped_articles.length > 0)" :key="r.source">
-                <div class="drop-source-block">
-                  <div class="drop-source-header">
-                    <span class="drop-source-name" x-text="r.source"></span>
-                    <span class="drop-source-count" x-text="r.dropped_tag_filter + ' 条被过滤'"></span>
+          <!-- 状态 / 结果区：永远在表上方 -->
+          <div class="fetch-ops-body"
+               x-show="isFetchRunning || fetchChipLinger || fetchAllResult || fetchResult"
+               x-cloak>
+            <div class="fetch-ops-body-label">执行状态</div>
+
+            <div x-show="fetchAllResult" class="fetch-all-summary fetch-all-summary-in-ops">
+              <div class="fa-header">
+                <span x-show="fetchAllResult?.status === 'done'" class="fa-status-ok">✅ 全部完成</span>
+                <span x-show="fetchAllResult?.status === 'partial'" class="fa-status-warn">⚠️ 部分失败</span>
+                <span class="fa-stat" x-text="(fetchAllResult?.sources_ok ?? '') + '/' + (fetchAllResult?.sources_total ?? '') + ' 源成功'"></span>
+                <span class="fa-stat" x-text="'新增 ' + (fetchAllResult?.total_inserted ?? 0) + ' 篇'"></span>
+                <span x-show="fetchAllResult?.date_from" class="fa-stat fa-catchup" x-text="'周末补抓: ' + (fetchAllResult?.date_from ?? '') + ' 起'"></span>
+              </div>
+              <div class="fa-grid">
+                <template x-for="r in (fetchAllResult?.results || [])" :key="r.source">
+                  <div class="fa-row" :class="r.error ? 'fa-row-err' : 'fa-row-ok'">
+                    <span class="fa-src" x-text="r.source"></span>
+                    <span x-show="!r.error" class="fa-metrics">
+                      拉取 <b x-text="r.fetched || 0"></b> →
+                      入库 <b x-text="r.inserted || 0"></b> ·
+                      去重 <span x-text="r.deduped || 0"></span> ·
+                      过滤 <span x-text="(r.dropped_blacklist||0) + (r.dropped_whitelist||0) + (r.dropped_tag_filter||0)"></span>
+                    </span>
+                    <span x-show="r.error" class="fa-err" x-text="r.error"></span>
                   </div>
+                </template>
+              </div>
+            </div>
+
+            <div class="fetch-result-panel fetch-result-panel-in-ops" x-show="fetchResult">
+              <div class="fetch-result-explain" x-show="fetchResultObj">
+                <template x-for="(line, idx) in formatFetchResult()" :key="idx">
+                  <div>
+                    <div x-show="line.type === 'success'" class="fr-success" x-text="line.text"></div>
+                    <div x-show="line.type === 'warn'" class="fr-warn" x-text="line.text"></div>
+                    <div x-show="line.type === 'muted'" class="fr-muted" x-text="line.text"></div>
+                    <div x-show="line.type === 'error'" class="fr-error" x-text="line.text"></div>
+                    <div x-show="line.type === 'section'" class="fr-section" x-text="line.text"></div>
+                    <div x-show="line.type === 'item'" class="fr-item">
+                      <span class="fr-label" x-text="line.label"></span>
+                      <span class="fr-value" x-text="line.value"></span>
+                      <span class="fr-detail" x-text="line.detail"></span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+              <div class="result-box" x-text="fetchResult"></div>
+            </div>
+
+            <div class="drop-detail-panel" x-show="fetchAllResult && fetchAllResult.results && fetchAllResult.results.some(r => r.dropped_articles && r.dropped_articles.length > 0)">
+              <details>
+                <summary class="drop-detail-summary">
+                  Tag 过滤丢弃明细
+                  <span class="drop-detail-count" x-text="'(' + (fetchAllResult?.results || []).reduce((s, r) => s + (r.dropped_articles?.length || 0), 0) + ' 条)'"></span>
+                </summary>
+                <div class="drop-detail-body">
+                  <template x-for="r in (fetchAllResult?.results || []).filter(r => r.dropped_articles && r.dropped_articles.length > 0)" :key="r.source">
+                    <div class="drop-source-block">
+                      <div class="drop-source-header">
+                        <span class="drop-source-name" x-text="r.source"></span>
+                        <span class="drop-source-count" x-text="r.dropped_tag_filter + ' 条被过滤'"></span>
+                      </div>
+                      <div class="drop-article-list">
+                        <template x-for="(d, idx) in r.dropped_articles" :key="idx">
+                          <div class="drop-article-item" x-text="d.title"></div>
+                        </template>
+                        <div class="drop-article-more" x-show="r.dropped_tag_filter > 20" x-text="'(共 ' + r.dropped_tag_filter + ' 条，显示前 20)'"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </details>
+            </div>
+
+            <div class="drop-detail-panel" x-show="fetchResultObj && fetchResultObj.dropped_articles && fetchResultObj.dropped_articles.length > 0">
+              <details>
+                <summary class="drop-detail-summary">
+                  Tag 过滤丢弃明细
+                  <span class="drop-detail-count" x-text="'(' + (fetchResultObj?.dropped_articles?.length || 0) + ' 条)'"></span>
+                </summary>
+                <div class="drop-detail-body">
                   <div class="drop-article-list">
-                    <template x-for="(d, idx) in r.dropped_articles" :key="idx">
+                    <template x-for="(d, idx) in (fetchResultObj?.dropped_articles || [])" :key="idx">
                       <div class="drop-article-item" x-text="d.title"></div>
                     </template>
-                    <div class="drop-article-more" x-show="r.dropped_tag_filter > 20" x-text="'(共 ' + r.dropped_tag_filter + ' 条，显示前 20)'"></div>
+                    <div class="drop-article-more" x-show="(fetchResultObj?.dropped_tag_filter ?? 0) > 20" x-text="'(共 ' + (fetchResultObj?.dropped_tag_filter ?? 0) + ' 条，显示前 20)'"></div>
                   </div>
                 </div>
-              </template>
+              </details>
             </div>
-          </details>
-        </div>
-
-        <!-- v1.0.6.4: single-source dropped articles -->
-        <div class="drop-detail-panel" x-show="fetchResultObj && fetchResultObj.dropped_articles && fetchResultObj.dropped_articles.length > 0" x-cloak>
-          <details>
-            <summary class="drop-detail-summary">
-              Tag 过滤丢弃明细
-              <span class="drop-detail-count" x-text="'(' + (fetchResultObj?.dropped_articles?.length || 0) + ' 条)'"></span>
-            </summary>
-            <div class="drop-detail-body">
-              <div class="drop-article-list">
-                <template x-for="(d, idx) in (fetchResultObj?.dropped_articles || [])" :key="idx">
-                  <div class="drop-article-item" x-text="d.title"></div>
-                </template>
-                <div class="drop-article-more" x-show="(fetchResultObj?.dropped_tag_filter ?? 0) > 20" x-text="'(共 ' + (fetchResultObj?.dropped_tag_filter ?? 0) + ' 条，显示前 20)'"></div>
-              </div>
-            </div>
-          </details>
-        </div>
-
-        <!-- v1.0.6.1: fetch result — structured explanation + raw JSON -->
-        <div class="fetch-result-panel" x-show="fetchResult" x-cloak>
-          <div class="fetch-result-explain" x-show="fetchResultObj">
-            <template x-for="(line, idx) in formatFetchResult()" :key="idx">
-              <div>
-                <div x-show="line.type === 'success'" class="fr-success" x-text="line.text"></div>
-                <div x-show="line.type === 'warn'" class="fr-warn" x-text="line.text"></div>
-                <div x-show="line.type === 'muted'" class="fr-muted" x-text="line.text"></div>
-                <div x-show="line.type === 'error'" class="fr-error" x-text="line.text"></div>
-                <div x-show="line.type === 'section'" class="fr-section" x-text="line.text"></div>
-                <div x-show="line.type === 'item'" class="fr-item">
-                  <span class="fr-label" x-text="line.label"></span>
-                  <span class="fr-value" x-text="line.value"></span>
-                  <span class="fr-detail" x-text="line.detail"></span>
-                </div>
-              </div>
-            </template>
           </div>
-          <div class="result-box" x-text="fetchResult"></div>
+
+          <div class="fetch-ops-idle"
+               x-show="!isFetchRunning && !fetchChipLinger && !fetchAllResult && !fetchResult">
+            一键操作区 · 全部抓取 / 单源立即抓取后，状态与结果会出现在这里
+          </div>
+        </div>
+
+        <div class="fetch-sources-section">
+          <div class="fetch-sources-label">信源列表</div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr><th style="width:36px;"></th><th>名称</th><th>URL</th><th>间隔</th><th class="th-right">操作</th></tr>
+              </thead>
+              <tbody>
+                <template x-for="s in sources" :key="s.id">
+                  <tr>
+                    <td><img :src="getSourceIcon(s.name)" style="width:24px;height:24px;border-radius:6px;display:block;object-fit:cover;" alt=""></td>
+                    <td x-text="s.display_name || s.name"></td>
+                    <td class="url-cell"><a :href="s.url" target="_blank" x-text="s.url"></a></td>
+                    <td x-text="s.fetch_interval_min ? s.fetch_interval_min + 'min' : '-'"></td>
+                    <td class="td-actions">
+                      <button class="btn-primary"
+                              @click="runSource(s.id)"
+                              :disabled="isSourceFetching(s)"
+                              x-text="isSourceFetching(s) ? '进行中' : '立即抓取'"></button>
+                      <button class="btn-secondary" @click="pingSource(s.id)">连通性测试</button>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="sources.length === 0">
+                  <td colspan="5" class="empty-row">暂无数据</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 
@@ -3091,7 +3105,7 @@
   <script src="js/calendar.js?v=20260810001"></script>
   <script src="js/cases.js?v=20260808004"></script>
   <script src="js/stats.js?v=20260809"></script>
-  <script src="js/app.js?v=20260813004"></script>
+  <script src="js/app.js?v=20260813005"></script>
   <script src="js/theme.js?v=1785000000"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <script src="js/pin_anim.js?v=1785000000"></script>

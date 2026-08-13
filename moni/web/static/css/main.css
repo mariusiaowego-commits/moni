@@ -1182,6 +1182,81 @@ label { font-size: 0.85rem; }
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   Fetch ops card (v1.0.28) — 顶部一键操作区 + 状态/结果
+   ═══════════════════════════════════════════════════════════════ */
+.fetch-ops-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 20px 16px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 10px oklch(0 0 0 / 0.04);
+}
+.fetch-ops-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.fetch-ops-head .panel-title-row { flex: 1; min-width: 200px; }
+.fetch-ops-head .panel-title-row h3 { margin: 0; }
+.fetch-ops-body {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  max-height: min(42vh, 360px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.fetch-ops-body-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-fg);
+}
+.fetch-ops-idle {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: oklch(from var(--muted) l c h / 0.55);
+  border: 1px dashed var(--border);
+  font-size: 0.84rem;
+  color: var(--muted-fg);
+}
+.fetch-all-summary-in-ops {
+  margin: 0;
+  box-shadow: none;
+  background: oklch(from var(--muted) l c h / 0.35);
+}
+.fetch-result-panel-in-ops {
+  margin-top: 0;
+  opacity: 1;
+  transform: none;
+  animation: none;
+}
+.fetch-result-panel-in-ops .result-box {
+  margin-top: 0;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.fetch-sources-section { margin-top: 4px; }
+.fetch-sources-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted-fg);
+  margin-bottom: 8px;
+  letter-spacing: 0.02em;
+}
+@media (max-width: 720px) {
+  .fetch-ops-head { flex-direction: column; align-items: stretch; }
+  .fetch-ops-head .actions-group { justify-content: flex-start; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
    Fetch All Result Panel (v1.0.6.2)
    ═══════════════════════════════════════════════════════════════ */
 .fetch-all-summary {
