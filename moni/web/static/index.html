@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css?v=20260812007">
+  <link rel="stylesheet" href="css/main.css?v=20260813001">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -299,9 +299,25 @@
             <button class="btn-refresh" @click="loadSources()">刷新</button>
           </div>
           <div class="actions-group">
-            <button class="btn btn-primary" @click="fetchAllSources()" :disabled="fetchingAll">
-              <span x-show="!fetchingAll">⚡ 全部抓取</span>
-              <span x-show="fetchingAll">抓取中...</span>
+            <!-- v1.0.26: 关 progress modal 后仍显示进行中；点击 reopen -->
+            <button type="button"
+                    class="pixel-loader"
+                    x-show="isFetchRunning || fetchChipLinger"
+                    x-cloak
+                    @click="reopenFetchProgress()"
+                    :title="isFetchRunning ? '点击查看进度' : '查看结果'"
+                    :class="{ 'pixel-loader-linger': fetchChipLinger && !isFetchRunning }">
+              <span class="pixel-grid" aria-hidden="true">
+                <span style="--d:90ms"></span><span style="--d:180ms"></span><span style="--d:270ms"></span>
+                <span style="--d:0ms"></span><span style="--d:90ms"></span><span style="--d:180ms"></span>
+                <span style="--d:90ms"></span><span style="--d:180ms"></span><span style="--d:270ms"></span>
+              </span>
+              <span class="pixel-label" x-text="fetchRunningLabel()"></span>
+              <span class="pixel-elapsed" x-text="formatFetchElapsed()"></span>
+            </button>
+            <button class="btn btn-primary" @click="fetchAllSources()" :disabled="fetchingAll || isFetchRunning">
+              <span x-show="!isFetchRunning">⚡ 全部抓取</span>
+              <span x-show="isFetchRunning">抓取中...</span>
             </button>
             <button class="btn-secondary" @click="openRecentBatch()">📋 上次结果</button>
           </div>
@@ -319,7 +335,10 @@
                   <td class="url-cell"><a :href="s.url" target="_blank" x-text="s.url"></a></td>
                   <td x-text="s.fetch_interval_min ? s.fetch_interval_min + 'min' : '-'"></td>
                   <td class="td-actions">
-                    <button class="btn-primary" @click="runSource(s.id)">立即抓取</button>
+                    <button class="btn-primary"
+                            @click="runSource(s.id)"
+                            :disabled="isSourceFetching(s)"
+                            x-text="isSourceFetching(s) ? '进行中' : '立即抓取'"></button>
                     <button class="btn-secondary" @click="pingSource(s.id)">连通性测试</button>
                   </td>
                 </tr>
@@ -3069,7 +3088,7 @@
   <script src="js/calendar.js?v=20260810001"></script>
   <script src="js/cases.js?v=20260808004"></script>
   <script src="js/stats.js?v=20260809"></script>
-  <script src="js/app.js?v=20260812007"></script>
+  <script src="js/app.js?v=20260813001"></script>
   <script src="js/theme.js?v=1785000000"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <script src="js/pin_anim.js?v=1785000000"></script>

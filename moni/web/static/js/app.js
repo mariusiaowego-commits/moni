@@ -374,7 +374,7 @@ function app() {
         this.loadPinnedArticles();
       }
       else if (view === 'crud') this.loadCrudArticles();
-      else if (view === 'fetch') this.loadSources();
+      else if (view === 'fetch') { this.loadSources(); this.resumeRunningFetchJobs(); }
       else if (view === 'llmJobs') this.loadLlmJobs();  // v1.0.5.1
       else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
@@ -417,7 +417,7 @@ function app() {
         this.loadPinnedArticles();  // v1.0.8.4: see note above
       }
       else if (view === 'crud') this.loadCrudArticles();
-      else if (view === 'fetch') this.loadSources();
+      else if (view === 'fetch') { this.loadSources(); this.resumeRunningFetchJobs(); }
       else if (view === 'llmJobs') this.loadLlmJobs();
       else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
@@ -1324,6 +1324,12 @@ function app() {
     fetchProgress: null,
     _fetchPollTimer: null,
     fetchBatchMode: false,  // v1.0.8.9: true when "全部抓取" modal is open
+    // v1.0.26: background-running chip (poll continues after modal close)
+    fetchChipLinger: false,
+    fetchChipLingerStatus: null,
+    _fetchActiveJobId: null,
+    _fetchActiveBatchId: null,
+    _fetchChipLingerTimer: null,
     fetchDateTo: '',
     fetchDays: 7,
     // v1.0.5.24: copy URL toast
@@ -1364,6 +1370,8 @@ function app() {
       this.fetchAllResult = null;
       this.fetchResult = '';
       this.fetchResultObj = null;
+      this.fetchChipLinger = false;
+      this.fetchChipLingerStatus = null;
       this.fetchBatchMode = true;
       this.fetchProgressModal = true;
       this.fetchProgress = {
@@ -1388,11 +1396,13 @@ function app() {
           return;
         }
         this.fetchProgress.total_sources = data.sources_total || 0;
+        this._fetchActiveBatchId = data.batch_id;
         this._pollBatchJob(data.batch_id);
       } catch (err) {
         this.fetchProgress.status = 'failed';
         this.fetchProgress.error = '启动全部抓取失败: ' + err.message;
         this.fetchingAll = false;
+        this._onFetchTerminal('failed');
       }
     },
 
@@ -1423,6 +1433,8 @@ function app() {
       // Open modal, then poll /api/fetch/jobs/{job_id} every 5s until
       // terminal status (done | failed | timeout).
       this.fetchBatchMode = false;
+      this.fetchChipLinger = false;
+      this.fetchChipLingerStatus = null;
       this.fetchProgressModal = true;
       this.fetchProgress = { source: sourceRef, status: 'running', done_feeds: 0, total_feeds: 0, current_feed: '(初始化中)', articles_so_far: 0, elapsed_seconds: 0 };
 
@@ -1447,6 +1459,7 @@ function app() {
             error: data?.detail?.message || '另一个抓取任务正在进行',
           };
           if (data?.detail?.running_job_id) {
+            this._fetchActiveJobId = data.detail.running_job_id;
             this._pollFetchJob(data.detail.running_job_id);
           }
           return;
@@ -1454,14 +1467,17 @@ function app() {
         if (!r.ok || !data.job_id) {
           this.fetchProgress.status = 'failed';
           this.fetchProgress.error = data?.detail?.message || data?.error || `HTTP ${r.status}`;
+          this._onFetchTerminal('failed');
           return;
         }
-        this.fetchProgress.source = data.source;
+        this.fetchProgress.source = data.source || sourceRef;
         this.fetchProgress.job_id = data.job_id;
+        this._fetchActiveJobId = data.job_id;
         this._pollFetchJob(data.job_id);
       } catch (err) {
         this.fetchProgress.status = 'failed';
         this.fetchProgress.error = '启动抓取失败: ' + err.message;
+        this._onFetchTerminal('failed');
       }
     },
 
@@ -1512,8 +1528,8 @@ function app() {
           // ONLY while non-terminal.
           const terminal = ['done', 'failed', 'timeout', 'stale'].includes(data.status);
           if (!terminal) {
-            // v1.0.9.8: update feed info + article count (running branch only)
-            if (this.fetchBatchMode === false) {
+            // v1.0.26: 粒子/DOM 更新仅在 modal 打开时跑（关窗仍轮询写 fetchProgress）
+            if (this.fetchProgressModal && this.fetchBatchMode === false) {
               const srcName = data.source || this.fetchProgress?.source || '';
               this._updateFeedInfo(srcName, data.current_feed || '');
               this._animateArticleCount(data.articles_so_far || 0);
@@ -1529,17 +1545,22 @@ function app() {
             // completion overlay, so the modal reads "完成" against a still
             // background (no late burst leaking through). Pass true for
             // non-done statuses — done keeps _suckIntoMoni() alive below.
-            this._finishFetchAnimation(data.status !== 'done');
-            // v1.0.9.8: status flip + completion overlay
-            const labelMap = { done: '完成', failed: '失败', timeout: '超时', stale: '已中止' };
-            this._flipStatus(labelMap[data.status] || data.status);
-            if (data.status === 'done') {
-              const r2 = data.result || {};
-              const summary = `${r2.inserted || 0} 篇 · 用时 ${data.elapsed_seconds || 0}s`;
-              this._suckIntoMoni();
-              this._showCompletion(summary);
+            if (this.fetchProgressModal) {
+              this._finishFetchAnimation(data.status !== 'done');
+              const labelMap = { done: '完成', failed: '失败', timeout: '超时', stale: '已中止' };
+              this._flipStatus(labelMap[data.status] || data.status);
+              if (data.status === 'done') {
+                const r2 = data.result || {};
+                const summary = `${r2.inserted || 0} 篇 · 用时 ${data.elapsed_seconds || 0}s`;
+                this._suckIntoMoni();
+                this._showCompletion(summary);
+                this.loadSources();
+              }
+            } else if (data.status === 'done' || data.status === 'failed') {
               this.loadSources();
             }
+            // v1.0.26: 关窗后 chip linger
+            this._onFetchTerminal(data.status);
           }
         } catch (err) {
           // network blip — keep polling
@@ -1622,21 +1643,20 @@ function app() {
           // v1.0.13: stop animating the moment we see a terminal batch status.
           const terminal = ['done', 'partial', 'failed'].includes(data.status);
 
-          // v1.0.9.8: update chain focus + spawn particles from current source
-          if (!terminal && this._chainRows.length > 0) {
-            const currentSrc = data.current_source || '';
-            let idx = this._chainRows.findIndex(r => r.dbName === currentSrc);
-            if (idx >= 0) {
-              if (idx !== lastActiveSource) {
-                this._layoutChain(idx);
-                this._flipStatus(`抓取中: ${this._chainRows[idx].name}`);
-                lastActiveSource = idx;
+          // v1.0.26: 粒子仅在 modal 打开时更新
+          if (!terminal && this.fetchProgressModal) {
+            if (this._chainRows.length > 0) {
+              const currentSrc = data.current_source || '';
+              let idx = this._chainRows.findIndex(r => r.dbName === currentSrc);
+              if (idx >= 0) {
+                if (idx !== lastActiveSource) {
+                  this._layoutChain(idx);
+                  this._flipStatus(`抓取中: ${this._chainRows[idx].name}`);
+                  lastActiveSource = idx;
+                }
+                this._spawnBurst(idx, 8);
               }
-              this._spawnBurst(idx, 8);
             }
-          }
-          // v1.0.9.8: feed info + article count
-          if (!terminal) {
             this._updateFeedInfo(data.current_source || '', data.current_feed || '');
             this._animateArticleCount(data.articles_so_far || 0);
           }
@@ -1647,10 +1667,6 @@ function app() {
               this._fetchPollTimer = null;
             }
             this.fetchingAll = false;
-            // v1.0.13: stop particles + GSAP tweens BEFORE summary / overlay.
-            // Batch has no _suckIntoMoni() — safe to kill source-row tweens
-            // on every terminal status (done / partial / failed).
-            this._finishFetchAnimation(true);
             // Merge results + errors into fetchAllResult for the summary panel
             const allResults = [
               ...(data.results || []),
@@ -1665,13 +1681,16 @@ function app() {
               total_inserted: totalInserted,
               results: allResults,
             };
-            // v1.0.9.8: status flip + completion overlay
-            const labelMap = { done: '完成', partial: '部分完成', failed: '失败' };
-            this._flipStatus(labelMap[data.status] || data.status);
-            this._showCompletion(`${data.total_sources || 0} 个源 · 新增 ${totalInserted} 篇 · 用时 ${data.elapsed_seconds || 0}s`);
+            if (this.fetchProgressModal) {
+              this._finishFetchAnimation(true);
+              const labelMap = { done: '完成', partial: '部分完成', failed: '失败' };
+              this._flipStatus(labelMap[data.status] || data.status);
+              this._showCompletion(`${data.total_sources || 0} 个源 · 新增 ${totalInserted} 篇 · 用时 ${data.elapsed_seconds || 0}s`);
+            }
             if (data.status === 'done' || data.status === 'partial') {
               this.loadSources();
             }
+            this._onFetchTerminal(data.status);
           }
         } catch (err) {
           // network blip — keep polling
@@ -1681,24 +1700,153 @@ function app() {
       this._fetchPollTimer = setInterval(tick, 5000);
     },
 
+    // v1.0.26 ── Fetch running chip helpers ──────────────────────────
+    get isFetchRunning() {
+      const s = this.fetchProgress?.status;
+      if (s === 'running') return true;
+      // 全部抓取刚点下、首包未回时 status 可能尚未写入
+      if (this.fetchingAll && !['done', 'partial', 'failed', 'timeout', 'stale'].includes(s)) {
+        return true;
+      }
+      return false;
+    },
+
+    fetchRunningLabel() {
+      if (this.fetchChipLinger && !this.isFetchRunning) {
+        const map = { done: '完成', partial: '部分完成', failed: '失败', timeout: '超时', stale: '已中止' };
+        const st = map[this.fetchChipLingerStatus] || this.fetchChipLingerStatus || '完成';
+        return st;
+      }
+      if (this.fetchBatchMode || this.fetchProgress?.batchMode) {
+        const d = this.fetchProgress?.done_sources || 0;
+        const t = this.fetchProgress?.total_sources || 0;
+        return t ? `全部抓取 · ${d}/${t}` : '全部抓取中';
+      }
+      const raw = this.fetchProgress?.source || this.fetchProgress?.current_source || '…';
+      const src = (this.sources || []).find(s => s.name === raw || s.id === raw);
+      const name = src ? (src.display_name || src.name) : raw;
+      return `抓取中 · ${name}`;
+    },
+
+    formatFetchElapsed() {
+      const sec = Number(this.fetchProgress?.elapsed_seconds);
+      if (!Number.isFinite(sec) || sec < 0) return '0s';
+      if (sec < 60) return `${Math.round(sec)}s`;
+      const m = Math.floor(sec / 60);
+      const s = Math.round(sec % 60);
+      return `${m}m ${s}s`;
+    },
+
+    isSourceFetching(s) {
+      if (!this.isFetchRunning || !s) return false;
+      if (this.fetchBatchMode || this.fetchProgress?.batchMode) return true;
+      const raw = this.fetchProgress?.source || '';
+      return s.name === raw || s.id === raw || String(s.id) === String(raw);
+    },
+
+    reopenFetchProgress() {
+      if (!this.fetchProgress && !this.isFetchRunning) return;
+      this.fetchChipLinger = false;
+      this.fetchProgressModal = true;
+      // 重开时若仍在 running 且粒子未跑，补初始化（poll 下一 tick 也会更新）
+      if (this.isFetchRunning && this.fetchProgressModal) {
+        if (this.sources && this.sources.length > 0) {
+          try {
+            this._initParticleStage();
+            this._layoutChain(0, false);
+          } catch (_) { /* particle optional */ }
+        }
+      }
+    },
+
+    _onFetchTerminal(status) {
+      this.fetchingAll = false;
+      // modal 开着：沿用 modal 完成 UI，不 linger
+      if (this.fetchProgressModal) return;
+      this.fetchChipLinger = true;
+      this.fetchChipLingerStatus = status || 'done';
+      if (this._fetchChipLingerTimer) {
+        clearTimeout(this._fetchChipLingerTimer);
+        this._fetchChipLingerTimer = null;
+      }
+      this._fetchChipLingerTimer = setTimeout(() => {
+        this.fetchChipLinger = false;
+        this.fetchChipLingerStatus = null;
+        if (!this.fetchProgressModal) {
+          this.fetchProgress = null;
+          this.fetchBatchMode = false;
+          this._fetchActiveJobId = null;
+          this._fetchActiveBatchId = null;
+        }
+        this._fetchChipLingerTimer = null;
+      }, 6000);
+    },
+
+    async resumeRunningFetchJobs() {
+      // 已在轮询则不重复挂
+      if (this._fetchPollTimer && this.isFetchRunning) return;
+      try {
+        const r = await fetch('/api/fetch/jobs?status=running&limit=10', {
+          credentials: 'same-origin',
+        });
+        if (!r.ok) return;
+        const data = await r.json();
+        const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+        if (jobs.length === 0) return;
+
+        const withBatch = jobs.find(j => j.batch_id);
+        if (withBatch && withBatch.batch_id) {
+          this.fetchBatchMode = true;
+          this.fetchingAll = true;
+          this.fetchProgressModal = false;
+          this._fetchActiveBatchId = withBatch.batch_id;
+          this.fetchProgress = {
+            status: 'running',
+            batchMode: true,
+            total_sources: 0,
+            done_sources: 0,
+            current_source: withBatch.source || '',
+            articles_so_far: 0,
+            elapsed_seconds: withBatch.elapsed_seconds || 0,
+          };
+          this._pollBatchJob(withBatch.batch_id);
+          return;
+        }
+
+        const job = jobs[0];
+        this.fetchBatchMode = false;
+        this.fetchingAll = false;
+        this.fetchProgressModal = false;
+        this._fetchActiveJobId = job.id;
+        this.fetchProgress = {
+          ...job,
+          status: job.status || 'running',
+          source: job.source,
+        };
+        this._pollFetchJob(job.id);
+      } catch (err) {
+        console.error('resumeRunningFetchJobs failed:', err);
+      }
+    },
+
     closeFetchProgress() {
+      // v1.0.26: 只关 UI；若 job 仍 running 则保留 poll + fetchBatchMode
       this.fetchProgressModal = false;
-      this.fetchBatchMode = false;
-      if (this._fetchPollTimer) {
-        clearInterval(this._fetchPollTimer);
-        this._fetchPollTimer = null;
+      const stillRunning = this.isFetchRunning;
+      if (!stillRunning) {
+        this.fetchBatchMode = false;
+        if (this._fetchPollTimer) {
+          clearInterval(this._fetchPollTimer);
+          this._fetchPollTimer = null;
+        }
       }
       // v1.0.13: also clear polling error retry timer if any.
       if (this._particleInitTimer) {
         clearTimeout(this._particleInitTimer);
         this._particleInitTimer = null;
       }
-      // Close path: stop particles + GSAP tweens on rows AND moniIcon (we're
-      // not running _suckIntoMoni() here, so killing moniIcon tweens is safe
-      // and prevents a stray yoyo from animating after the modal is gone).
+      // Close path: stop particles + GSAP tweens (modal 隐藏后不再画粒子)
       this._finishFetchAnimation(true);
-      // Belt + suspenders: moniIcon is not part of _chainRows so the kill
-      // above skips it. Handle it explicitly.
       if (window.gsap) {
         try {
           const mi = document.getElementById('moniIcon');
