@@ -5,6 +5,7 @@
 * POST /api/articles/{id}/fact-check-plus              → 202 + job_id + poll_url
 * POST /api/fact-check-plus/batch                       → 202 + enqueued / job_ids / skipped / errors
 * GET  /api/fact-check-plus/evidence/{article_id}       → 200 + items (按 evidence_seq 排序)
+* PATCH /api/fact-check-plus/{article_id}/review        → 200 + state + audit (v1.0.27)
 
 历史背景
 ----------
@@ -195,6 +196,37 @@ class BatchRequest(_ExtraForbid):
 
     article_ids: list[str] = Field(default_factory=list)
     reason: str = Field(default="manual", max_length=20)
+
+
+class ReviewRequest(_ExtraForbid):
+    """PATCH /api/fact-check-plus/{article_id}/review 请求体.
+
+    reviewer 空 → 422 (pydantic min_length); reason 空 → 400 (端点校验).
+    """
+
+    state: str = Field(..., max_length=20)
+    reviewer: str = Field(..., min_length=1, max_length=100)
+    reason: str = Field(default="", max_length=2000)
+
+
+# ── 状态机 (v1.0.27, spec §3.2 / §4) ────────────────────────────────
+
+FACT_CHECK_STATES: tuple[str, ...] = (
+    "draft",
+    "verified",
+    "published",
+    "deprecated",
+    "archived",
+)
+
+# 相邻档单向; verified 可直达 deprecated/archived; draft 不能跨到 archived
+ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
+    "draft": frozenset({"verified"}),
+    "verified": frozenset({"published", "deprecated", "archived"}),
+    "published": frozenset({"deprecated", "archived"}),
+    "deprecated": frozenset({"archived"}),
+    "archived": frozenset(),
+}
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
@@ -399,3 +431,77 @@ def fact_check_plus_evidence(article_id: str) -> dict[str, Any]:
         item["timeliness"] = compute_timeliness(days_old)
         items.append(item)
     return {"article_id": article_id, "items": items, "total": len(items)}
+
+
+@router.patch("/fact-check-plus/{article_id}/review")
+def fact_check_plus_review(article_id: str, body: ReviewRequest) -> dict[str, Any]:
+    """人工覆写状态机: 单向流转 + 写 audit 字段 (v1.0.27).
+
+    body: ``{state, reason, reviewer}``. reason 空 → 400; reviewer 空 → 422.
+    跨档 / 回退 → 400; 未知 article → 404.
+    """
+    if not (body.reason or "").strip():
+        raise BadRequestError(message="reason is required")
+
+    target = (body.state or "").strip()
+    if target not in FACT_CHECK_STATES:
+        raise BadRequestError(
+            message=f"state must be one of {FACT_CHECK_STATES}",
+            details={"allowed": list(FACT_CHECK_STATES)},
+        )
+
+    reviewer = body.reviewer.strip()
+    conn = get_db()
+    try:
+        row = conn.execute(
+            """
+            SELECT id, COALESCE(fact_check_state, 'draft') AS fact_check_state
+            FROM articles WHERE id = ?
+            """,
+            (article_id,),
+        ).fetchone()
+    except Exception:
+        row = conn.execute(
+            "SELECT id FROM articles WHERE id = ?", (article_id,)
+        ).fetchone()
+        if row is None:
+            raise NotFoundError(message=f"Article {article_id!r} not found")
+        current = "draft"
+    else:
+        if row is None:
+            raise NotFoundError(message=f"Article {article_id!r} not found")
+        current = row["fact_check_state"] or "draft"
+
+    allowed = ALLOWED_TRANSITIONS.get(current, frozenset())
+    if target not in allowed:
+        raise BadRequestError(
+            message=f"Invalid transition {current!r} -> {target!r}",
+            details={
+                "from": current,
+                "to": target,
+                "allowed": sorted(allowed),
+            },
+        )
+
+    now = _now()
+    note = body.reason.strip()
+    conn.execute(
+        """
+        UPDATE articles
+        SET fact_check_state        = ?,
+            fact_check_reviewed_by  = ?,
+            fact_check_reviewed_at  = ?,
+            fact_check_review_note  = ?
+        WHERE id = ?
+        """,
+        (target, reviewer, now, note, article_id),
+    )
+    conn.commit()
+    return {
+        "article_id": article_id,
+        "state": target,
+        "previous_state": current,
+        "reviewed_by": reviewer,
+        "reviewed_at": now,
+        "review_note": note,
+    }

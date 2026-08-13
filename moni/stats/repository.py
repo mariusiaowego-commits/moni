@@ -311,6 +311,7 @@ def fact_check_method_layer_stats(period: str = "30d") -> dict[str, Any]:
         {
           period, period_start, total_articles_with_fact_check,
           by_method: [{method, article_count, percentage}, ...],
+          by_state:  [{state, article_count, percentage}, ...]  # 5 档全有
           unfact_checked_total, module
         }
 
@@ -366,11 +367,59 @@ def fact_check_method_layer_stats(period: str = "30d") -> dict[str, Any]:
         "SELECT COUNT(*) FROM articles WHERE COALESCE(has_fact_check, 0) = 0"
     ).fetchone()[0] or 0
 
+    _STATES = ("draft", "verified", "published", "deprecated", "archived")
+    counts: dict[str, int] = {s: 0 for s in _STATES}
+    try:
+        if period_start:
+            state_rows = conn.execute(
+                """
+                SELECT
+                    COALESCE(fact_check_state, 'draft') AS state,
+                    COUNT(*) AS article_count
+                FROM articles
+                WHERE has_fact_check = 1
+                  AND fact_checked_at IS NOT NULL
+                  AND fact_checked_at >= ?
+                GROUP BY fact_check_state
+                """,
+                (period_start,),
+            ).fetchall()
+        else:
+            state_rows = conn.execute(
+                """
+                SELECT
+                    COALESCE(fact_check_state, 'draft') AS state,
+                    COUNT(*) AS article_count
+                FROM articles
+                WHERE has_fact_check = 1
+                GROUP BY fact_check_state
+                """
+            ).fetchall()
+        for r in state_rows:
+            key = r["state"] if r["state"] in counts else r["state"]
+            counts[key] = int(r["article_count"] or 0)
+    except Exception:
+        # Pre-migration 028: fact_check_state column may be missing.
+        pass
+
+    state_total = sum(counts.get(s, 0) for s in _STATES)
+    by_state = [
+        {
+            "state": s,
+            "article_count": counts.get(s, 0),
+            "percentage": (
+                round(100.0 * counts.get(s, 0) / state_total, 1) if state_total else 0.0
+            ),
+        }
+        for s in _STATES
+    ]
+
     return {
         "period": period,
         "period_start": period_start,
         "total_articles_with_fact_check": total,
         "by_method": by_method,
+        "by_state": by_state,
         "unfact_checked_total": int(unfact),
         "module": "fact_check_method",
     }

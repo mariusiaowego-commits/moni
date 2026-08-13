@@ -124,9 +124,10 @@ def get_usage_stats(
 def get_fact_check_method_stats(
     period: str = Query("30d", description="时间窗口: 7d / 30d / 90d / all"),
 ) -> dict[str, Any]:
-    """事实核查 method 分布 (v1.0.25) — llm_inference / web_search / human.
+    """事实核查 method 分布 (v1.0.25) + state 维度 (v1.0.27).
 
-    供量化看板第 6 块饼图: method × 文章数 + 百分比.
+    供量化看板第 6 块饼图: method × 文章数 + 百分比;
+    ``by_state`` 为 draft/verified/published/deprecated/archived 五档全量.
     """
     if period not in ("7d", "30d", "90d", "all"):
         period = "30d"
