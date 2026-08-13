@@ -514,12 +514,17 @@ def _truncate_utf8(s: str, max_bytes: int) -> str:
 def _log_failure(conn: Any, job_id: str, raw_output: str, parse_reason: str) -> str:
     """B5: persist truncated LLM raw_output into llm_jobs.error for diagnosis.
 
+    v1.0.28: redact sensitive patterns (api_key / token / bearer / secret / password
+    / uuid_token) BEFORE truncate, to avoid credentials landing in DB.
+
     Returns the error message (also written to DB) so callers can re-raise it
     and survive the outer ``_mark_failed`` overwrite of the error column.
     """
     raw = raw_output or ""
-    truncated = _truncate_utf8(raw, 2048)
-    total_bytes = len(raw.encode("utf-8"))
+    from moni.llm.redaction import redact_text  # v1.0.28: redact before truncate
+    redacted = redact_text(raw)
+    truncated = _truncate_utf8(redacted, 2048)
+    total_bytes = len(redacted.encode("utf-8"))
     suffix = "" if total_bytes <= 2048 else f" ... [truncated {total_bytes}B total]"
     err_msg = f"RAW OUTPUT: {truncated}{suffix} | PARSE: {parse_reason}"
     conn.execute(

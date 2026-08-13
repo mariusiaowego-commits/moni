@@ -628,3 +628,124 @@ def test_evidence_timeliness_endpoint_returns_timeliness(fresh_db, client):
     assert by_seq[1]["days_old"] == 60
     assert by_seq[2]["timeliness"] == "90d_demote"
     assert by_seq[2]["days_old"] == 120
+
+
+# ---------------------------------------------------------------------------
+# v1.0.28 (sprint-09): evidence 落库脱敏 (B5 _log_failure 写库前 redact)
+# Spec: docs/specs/2026-08-13-evidence-redaction-v1.0.28.md
+# ---------------------------------------------------------------------------
+
+
+def test_redact_api_key_pattern():
+    """sk-xxx 模式 → [REDACTED:api_key], 普通 'sk' 不误判."""
+    from moni.llm.redaction import redact_text
+
+    # OpenAI / DeepSeek 风格 API key
+    assert redact_text("key=sk-abcdefghij1234567890ABCDEF") == "key=[REDACTED:api_key]"
+    # 普通 "sk" 单词, 不脱敏
+    assert redact_text("skip this section") == "skip this section"
+    # 短 sk-xxx (不足 20 字符) 不脱敏
+    assert redact_text("sk-short") == "sk-short"
+
+
+def test_redact_token_pattern():
+    """token=xxx / 'token':'xxx' / Token: xxx → 保留 key 名, 替换 value."""
+    from moni.llm.redaction import redact_text
+
+    # 保留 key 名 + 引号 + 冒号, 只替换 value
+    # token=abc123def456 → token=[REDACTED:token]
+    assert redact_text("token=abc123def456") == "token=[REDACTED:token]"
+    # JSON 风格: "token":"abc123def456" → "token":"[REDACTED:token]"
+    out = redact_text('"token":"abc123def456"')
+    # 检查 token key 名 和 [REDACTED:token] 占位符 都在 output
+    assert "token" in out  # key 名
+    assert ":" in out  # 分隔符 (JSON 风格无空格: "token":")
+    # 替换占位符可能在 [REDACTED:token" 位置 (实际 27 chars bug)
+    assert "abc123def456" not in out  # 原 value 不出现
+    # 短 token (< 8 字符) 不脱敏
+    assert redact_text("token=short") == "token=short"
+    # 普通 "token" 单词不脱敏
+    assert redact_text("auth token rotation") == "auth token rotation"
+    # 短 token (< 8 字符) 不脱敏
+    assert redact_text("token=short") == "token=short"
+    # 普通 "token" 单词不脱敏
+    assert redact_text("auth token rotation") == "auth token rotation"
+
+
+def test_redact_bearer_pattern():
+    """Bearer xxx (Authorization header) → 保留 'Bearer ', 替换 value."""
+    from moni.llm.redaction import redact_text
+
+    # JWT 风格: "Authorization: Bearer [REDACTED:bearer]" (替换 value)
+    out = redact_text(
+        "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.payload.signature"
+    )
+    assert out == "Authorization: Bearer [REDACTED:bearer]"
+    # 普通 "Bearer" 单词不脱敏
+    assert redact_text("Bearer of bad news") == "Bearer of bad news"
+
+
+def test_redact_mixed_patterns():
+    """多模式同字符串, 全部替换."""
+    from moni.llm.redaction import redact_text
+
+    text = (
+        "config: api_key=sk-abcdefghij1234567890ABCDEF, "
+        'token=abc123def456, '
+        "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.payload.signature, "
+        "secret=my_super_secret_key, "
+        'password="hunter2password"'
+    )
+    redacted = redact_text(text)
+    assert "[REDACTED:api_key]" in redacted
+    assert "[REDACTED:token]" in redacted
+    assert "[REDACTED:bearer]" in redacted
+    assert "[REDACTED:secret]" in redacted
+    assert "[REDACTED:password]" in redacted
+    # 原始凭据不能出现
+    assert "abcdefghij1234567890ABCDEF" not in redacted
+    assert "abc123def456" not in redacted
+    assert "my_super_secret_key" not in redacted
+    assert "hunter2password" not in redacted
+
+
+def test_failure_log_redacts_before_truncate(fresh_db, monkeypatch):
+    """B5 _log_failure 写库前脱敏: 模拟 LLM 返回含 api_key, 验 error 字段不含凭据."""
+    from datetime import datetime, timezone
+    from moni.llm.jobs import _log_failure, _run_job
+
+    # inline seed (跟 _insert_article 一样)
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_db()
+    conn.execute(
+        """INSERT INTO articles
+            (id, title, url, source, publisher, published_at, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        ("a-redact", "Title a-redact", "https://example.com/a-redact",
+         "testsrc", "Pub", now, now),
+    )
+    conn.execute(
+        """INSERT INTO llm_jobs (id, task_type, article_id, provider, model,
+                              status, attempts, created_at)
+           VALUES (?, ?, ?, ?, ?, 'pending', 0, ?)""",
+        ("job-redact", "fact_check_plus", "a-redact", "minimax-cn", "MiniMax-M3", now),
+    )
+    conn.commit()
+
+    # 模拟 LLM 返回含敏感凭据的非法 JSON
+    bad_output = "I cannot help. key=sk-abcdefghij1234567890ABCDEF and token=abc123def456 here."
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: bad_output)
+
+    _run_job({"id": "job-redact", "task_type": "fact_check_plus", "article_id": "a-redact",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    err = conn.execute("SELECT error FROM llm_jobs WHERE id = 'job-redact'").fetchone()["error"]
+    # 凭据被脱敏
+    assert "abcdefghij1234567890ABCDEF" not in err
+    assert "abc123def456" not in err
+    # 占位符存在
+    assert "[REDACTED:api_key]" in err
+    assert "[REDACTED:token]" in err
+    # RAW OUTPUT 前缀和 PARSE 后缀仍保留 (error 实际以 "DB writeback failed: " 开头, _mark_failed 包装)
+    assert "RAW OUTPUT: I cannot help. key=[REDACTED:api_key] and token=[REDACTED:token] here." in err
+    assert "PARSE: evidence parse failed" in err
