@@ -492,6 +492,41 @@ def _parse_fact_check_plus_evidence(raw: str) -> dict[str, Any] | None:
     return None
 
 
+# B5 parse-failure reasons that get raw_output logged into llm_jobs.error.
+_FACT_CHECK_PLUS_PARSE_REASONS = frozenset(
+    {
+        "evidence parse failed",
+        "evidence parse failed: evidence is not a list",
+        "no evidence with snippet",
+    }
+)
+
+
+def _truncate_utf8(s: str, max_bytes: int) -> str:
+    """Truncate string to max_bytes without splitting a multi-byte UTF-8 char."""
+    encoded = (s or "").encode("utf-8")[:max_bytes]
+    return encoded.decode("utf-8", errors="ignore")
+
+
+def _log_failure(conn: Any, job_id: str, raw_output: str, parse_reason: str) -> str:
+    """B5: persist truncated LLM raw_output into llm_jobs.error for diagnosis.
+
+    Returns the error message (also written to DB) so callers can re-raise it
+    and survive the outer ``_mark_failed`` overwrite of the error column.
+    """
+    raw = raw_output or ""
+    truncated = _truncate_utf8(raw, 2048)
+    total_bytes = len(raw.encode("utf-8"))
+    suffix = "" if total_bytes <= 2048 else f" ... [truncated {total_bytes}B total]"
+    err_msg = f"RAW OUTPUT: {truncated}{suffix} | PARSE: {parse_reason}"
+    conn.execute(
+        "UPDATE llm_jobs SET error = ? WHERE id = ?",
+        (err_msg, job_id),
+    )
+    conn.commit()
+    return err_msg
+
+
 def _persist_fact_check_plus(
     conn: Any,
     *,
@@ -505,92 +540,119 @@ def _persist_fact_check_plus(
     """Parse + dual-gate + write articles + fact_check_evidence rows.
 
     Raises ValueError on parse / empty-evidence so caller marks job failed.
+    On the three parse-failure branches, logs truncated raw_output into
+    llm_jobs.error (B5) before re-raising.
     """
-    parsed = _parse_fact_check_plus_evidence(raw_output)
-    if not parsed:
-        raise ValueError("evidence parse failed")
+    try:
+        parsed = _parse_fact_check_plus_evidence(raw_output)
+        if not parsed:
+            raise ValueError("evidence parse failed")
 
-    raw_evidence = parsed.get("evidence") or []
-    if not isinstance(raw_evidence, list):
-        raise ValueError("evidence parse failed: evidence is not a list")
+        raw_evidence = parsed.get("evidence") or []
+        if not isinstance(raw_evidence, list):
+            raise ValueError("evidence parse failed: evidence is not a list")
 
-    # Gate 1: drop rows without snippet / invalid URL
-    valid: list[dict[str, Any]] = []
-    for e in raw_evidence:
-        if not isinstance(e, dict):
-            continue
-        url = (e.get("url") or "").strip()
-        snippet = (e.get("snippet") or "").strip()
-        if not url or not snippet or not _valid_url(url):
-            continue
-        domain = (e.get("domain") or "").strip() or _domain_from_url(url)
-        valid.append(
-            {
-                "query": (e.get("query") or "").strip() or "",
-                "url": url,
-                "domain": domain,
-                "snippet": snippet,
-                "rationale": (e.get("rationale") or "").strip() or "",
-            }
-        )
-    if not valid:
-        raise ValueError("no evidence with snippet")
+        # Gate 1: drop rows without snippet / invalid URL
+        valid: list[dict[str, Any]] = []
+        for e in raw_evidence:
+            if not isinstance(e, dict):
+                continue
+            url = (e.get("url") or "").strip()
+            snippet = (e.get("snippet") or "").strip()
+            if not url or not snippet or not _valid_url(url):
+                continue
+            domain = (e.get("domain") or "").strip() or _domain_from_url(url)
+            valid.append(
+                {
+                    "query": (e.get("query") or "").strip() or "",
+                    "url": url,
+                    "domain": domain,
+                    "snippet": snippet,
+                    "rationale": (e.get("rationale") or "").strip() or "",
+                }
+            )
+        if not valid:
+            raise ValueError("no evidence with snippet")
 
-    # Gate 2: whitelist required for 【已核实】
-    conclusion = str(parsed.get("conclusion") or "【待核实】").strip()
-    has_whitelist = any(is_in_whitelist(e["domain"]) for e in valid)
-    if conclusion == "【已核实】" and not has_whitelist:
-        conclusion = "【待核实】"
-        logger.info(
-            "[llm_jobs] fact_check_plus job %s: demoted 【已核实】→【待核实】 (no whitelist domain)",
-            job_id,
-        )
-
-    note = json.dumps(valid, ensure_ascii=False)
-    conn.execute(
-        """
-        UPDATE articles
-        SET fact_check_conclusion = ?,
-            fact_check_method     = 'web_search',
-            fact_checked_at       = ?,
-            fact_check_note       = ?,
-            has_fact_check        = 1
-        WHERE id = ?
-        """,
-        (conclusion, finished_at, note, article_id),
-    )
-
-    # Replace prior evidence for this article (re-run overwrite).
-    conn.execute(
-        "DELETE FROM fact_check_evidence WHERE article_id = ?",
-        (article_id,),
-    )
-    for i, e in enumerate(valid):
-        conn.execute(
-            """
-            INSERT INTO fact_check_evidence
-                (id, article_id, job_id, query, url, domain, snippet,
-                 fetched_at, model, provider, conclusion, rationale,
-                 evidence_seq, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                uuid.uuid4().hex,
-                article_id,
+        # Gate 2: whitelist required for 【已核实】
+        conclusion = str(parsed.get("conclusion") or "【待核实】").strip()
+        has_whitelist = any(is_in_whitelist(e["domain"]) for e in valid)
+        if conclusion == "【已核实】" and not has_whitelist:
+            conclusion = "【待核实】"
+            logger.info(
+                "[llm_jobs] fact_check_plus job %s: demoted 【已核实】→【待核实】 (no whitelist domain)",
                 job_id,
-                e["query"],
-                e["url"],
-                e["domain"],
-                e["snippet"],
-                finished_at,
-                model,
-                provider,
-                conclusion,
-                e.get("rationale") or "",
-                i,
-                finished_at,
-            ),
+            )
+
+        note = json.dumps(valid, ensure_ascii=False)
+        try:
+            conn.execute(
+                """
+                UPDATE articles
+                SET fact_check_conclusion = ?,
+                    fact_check_method     = 'web_search',
+                    fact_checked_at       = ?,
+                    fact_check_note       = ?,
+                    has_fact_check        = 1,
+                    has_web_fact_check    = 1
+                WHERE id = ?
+                """,
+                (conclusion, finished_at, note, article_id),
+            )
+        except Exception:
+            # Pre-migration 026: has_web_fact_check column may be missing.
+            conn.execute(
+                """
+                UPDATE articles
+                SET fact_check_conclusion = ?,
+                    fact_check_method     = 'web_search',
+                    fact_checked_at       = ?,
+                    fact_check_note       = ?,
+                    has_fact_check        = 1
+                WHERE id = ?
+                """,
+                (conclusion, finished_at, note, article_id),
+            )
+
+        # Replace prior evidence for this article (re-run overwrite).
+        conn.execute(
+            "DELETE FROM fact_check_evidence WHERE article_id = ?",
+            (article_id,),
         )
+        for i, e in enumerate(valid):
+            conn.execute(
+                """
+                INSERT INTO fact_check_evidence
+                    (id, article_id, job_id, query, url, domain, snippet,
+                     fetched_at, model, provider, conclusion, rationale,
+                     evidence_seq, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    uuid.uuid4().hex,
+                    article_id,
+                    job_id,
+                    e["query"],
+                    e["url"],
+                    e["domain"],
+                    e["snippet"],
+                    finished_at,
+                    model,
+                    provider,
+                    conclusion,
+                    e.get("rationale") or "",
+                    i,
+                    finished_at,
+                ),
+            )
+    except ValueError as exc:
+        # B5: log truncated raw_output into llm_jobs.error for the 3 parse
+        # failure branches; re-raise with full message so outer _mark_failed
+        # does not clobber the diagnostic payload.
+        if str(exc) in _FACT_CHECK_PLUS_PARSE_REASONS:
+            msg = _log_failure(conn, job_id, raw_output, str(exc))
+            raise ValueError(msg) from None
+        raise
 
 
 def _mark_failed(

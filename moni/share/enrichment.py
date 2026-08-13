@@ -6,11 +6,17 @@ v1.0.10 one-click brief pipeline (per article, skip if already present):
 3. business_value_*    (score 0-100 + note)
 4. quality_score       (only if bb_score missing and flag on)
 
+v1.0.24 brief web mode (non-blocking):
+5. missing has_web_fact_check → enqueue fact_check_plus (async, no wait)
+6. stamp articles.evidence_rendered_at after brief enrich
+7. rebuild / HTML templates embed 事实核查证据 section + rollup
+
 Also rebuilds article content blocks for the format prompt (re-read after enrich).
 """
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import logging
 import os
@@ -18,11 +24,14 @@ import re
 import sqlite3
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from moni.share.summary_gen import _invoke_hermes, generate_and_writeback
 
 log = logging.getLogger(__name__)
+
+_TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 
 # Wall-clock budget for all enrichment hermes calls on one task (seconds).
 # Body layout adds hermes calls; default budget covers ~10 articles offline HTML.
@@ -128,6 +137,396 @@ ID: {article_id}
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# ── v1.0.24 brief web mode: evidence enqueue + render ─────────────────────
+
+
+def _article_has_web_fact_check(conn: sqlite3.Connection, article_id: str) -> bool:
+    """True if article already has web-search fact check (column / method / evidence)."""
+    try:
+        row = conn.execute(
+            "SELECT fact_check_method, has_web_fact_check FROM articles WHERE id = ?",
+            (article_id,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        row = conn.execute(
+            "SELECT fact_check_method FROM articles WHERE id = ?",
+            (article_id,),
+        ).fetchone()
+    if row is None:
+        return False
+    try:
+        if int(row["has_web_fact_check"] or 0) == 1:
+            return True
+    except (KeyError, IndexError, TypeError, ValueError):
+        pass
+    if (row["fact_check_method"] or "") == "web_search":
+        return True
+    try:
+        ev = conn.execute(
+            "SELECT 1 FROM fact_check_evidence WHERE article_id = ? LIMIT 1",
+            (article_id,),
+        ).fetchone()
+        return ev is not None
+    except sqlite3.OperationalError:
+        return False
+
+
+def _has_active_fact_check_job(conn: sqlite3.Connection, article_id: str) -> bool:
+    try:
+        row = conn.execute(
+            """
+            SELECT 1 FROM llm_jobs
+            WHERE article_id = ?
+              AND task_type IN ('fact_check', 'fact_check_plus')
+              AND status IN ('pending', 'running')
+            LIMIT 1
+            """,
+            (article_id,),
+        ).fetchone()
+        return row is not None
+    except sqlite3.OperationalError:
+        return False
+
+
+def _resolve_fact_check_provider_model(
+    conn: sqlite3.Connection,
+    *,
+    extra_args: list[str] | None = None,
+    manifest_path: str | None = None,
+) -> tuple[str, str]:
+    """Resolve (provider, model) for fact_check_plus enqueue.
+
+    Priority: manifest payload → extra_args → llm_settings → safe default.
+    """
+    provider: str | None = None
+    model: str | None = None
+    if manifest_path:
+        try:
+            with open(manifest_path, encoding="utf-8") as f:
+                p = json.load(f).get("payload") or {}
+            if p.get("provider"):
+                provider = str(p["provider"])
+            if p.get("model"):
+                model = str(p["model"])
+        except Exception:
+            pass
+    args = extra_args or []
+    if not provider and "--provider" in args:
+        i = args.index("--provider")
+        if i + 1 < len(args):
+            provider = args[i + 1]
+    if not model and "--model" in args:
+        i = args.index("--model")
+        if i + 1 < len(args):
+            model = args[i + 1]
+    if not provider or not model:
+        try:
+            active = conn.execute(
+                "SELECT value FROM llm_settings WHERE key = 'active_fact_check_model_id'"
+            ).fetchone()
+            if active and active["value"]:
+                mrow = conn.execute(
+                    """
+                    SELECT m.model_id, p.hermes_provider
+                    FROM llm_models m
+                    JOIN llm_providers p ON p.id = m.provider_id
+                    WHERE m.id = ?
+                    """,
+                    (active["value"],),
+                ).fetchone()
+                if mrow:
+                    provider = provider or mrow["hermes_provider"]
+                    model = model or mrow["model_id"]
+        except sqlite3.OperationalError:
+            pass
+    return provider or "minimax-cn", model or "MiniMax-M3"
+
+
+def _enqueue_missing_web_fact_checks(
+    conn: sqlite3.Connection,
+    article_ids: list[str],
+    *,
+    db_path: str,
+    provider: str,
+    model: str,
+) -> int:
+    """Enqueue fact_check_plus for articles lacking web check. Non-blocking.
+
+    Inserts ``llm_jobs`` rows via the enrichment connection (same db_path).
+    Does **not** start the llm worker thread here — avoids races with test
+    teardown / subprocess lifecycle; the web process worker drains pending
+    jobs. Never waits for job completion (Q1=B).
+
+    Returns number of jobs enqueued.
+    """
+    if not article_ids:
+        return 0
+    import uuid
+
+    n = 0
+    now = _now()
+    for aid in article_ids:
+        if _article_has_web_fact_check(conn, aid):
+            continue
+        if _has_active_fact_check_job(conn, aid):
+            continue
+        try:
+            job_id = uuid.uuid4().hex
+            conn.execute(
+                """
+                INSERT INTO llm_jobs
+                    (id, task_type, article_id, provider, model,
+                     status, attempts, created_at)
+                VALUES (?, 'fact_check_plus', ?, ?, ?, 'pending', 0, ?)
+                """,
+                (job_id, aid, provider, model, now),
+            )
+            n += 1
+        except Exception as exc:
+            log.warning(
+                "enrichment: fact_check_plus enqueue failed for %s: %s", aid, exc
+            )
+    if n:
+        try:
+            conn.commit()
+        except Exception as exc:
+            log.warning("enrichment: commit fact_check_plus jobs failed: %s", exc)
+        # Best-effort: nudge worker if moni web process is live. Swallow errors
+        # so brief generation never blocks (and tests don't start a thread).
+        try:
+            from moni.db.connection import set_db_path
+            from moni.llm.jobs import ensure_worker_started
+
+            set_db_path(Path(db_path))
+            # Only start when env opts in — default off for test isolation.
+            if os.environ.get("MONI_ENRICH_START_WORKER", "").strip() in (
+                "1",
+                "true",
+                "yes",
+            ):
+                ensure_worker_started()
+        except Exception:
+            pass
+    return n
+
+
+def _write_evidence_rendered_at(
+    conn: sqlite3.Connection, article_ids: list[str]
+) -> None:
+    """Stamp evidence_rendered_at for articles used in this brief (v1.0.24)."""
+    if not article_ids:
+        return
+    now = _now()
+    for aid in article_ids:
+        try:
+            conn.execute(
+                "UPDATE articles SET evidence_rendered_at = ? WHERE id = ?",
+                (now, aid),
+            )
+        except sqlite3.OperationalError as exc:
+            log.warning("enrichment: evidence_rendered_at write failed (mig 026?): %s", exc)
+            return
+    conn.commit()
+
+
+def load_evidence_context(
+    conn: sqlite3.Connection, article_ids: list[str]
+) -> dict[str, Any]:
+    """Build evidence rollup + per-article evidence for brief templates (v1.0.24).
+
+    Failure degradation (Q4): article without usable evidence rows is marked
+    unverified; brief still renders.
+    """
+    articles_out: list[dict[str, Any]] = []
+    checked = 0
+    failed = 0
+    if not article_ids:
+        return {
+            "total": 0,
+            "checked": 0,
+            "failed": 0,
+            "method": "web_search (hermes -t web 实时检索)",
+            "snapshot_at": _now(),
+            "articles": [],
+        }
+
+    ph = ",".join("?" * len(article_ids))
+    order = " ".join(f"WHEN ? THEN {i}" for i in range(len(article_ids)))
+    try:
+        rows = list(
+            conn.execute(
+                f"""
+                SELECT id, title, fact_check_conclusion, fact_check_method,
+                       has_web_fact_check
+                FROM articles WHERE id IN ({ph})
+                ORDER BY CASE id {order} END
+                """,
+                (*article_ids, *article_ids),
+            ).fetchall()
+        )
+    except sqlite3.OperationalError:
+        rows = list(
+            conn.execute(
+                f"""
+                SELECT id, title, fact_check_conclusion, fact_check_method,
+                       0 as has_web_fact_check
+                FROM articles WHERE id IN ({ph})
+                ORDER BY CASE id {order} END
+                """,
+                (*article_ids, *article_ids),
+            ).fetchall()
+        )
+
+    for row in rows:
+        aid = row["id"]
+        title = (row["title"] or "").strip() or aid
+        conclusion = (row["fact_check_conclusion"] or "").strip() or "【待核实】"
+        evidence: list[dict[str, Any]] = []
+        try:
+            ev_rows = conn.execute(
+                """
+                SELECT url, domain, snippet, evidence_seq, conclusion
+                FROM fact_check_evidence
+                WHERE article_id = ?
+                ORDER BY evidence_seq ASC
+                """,
+                (aid,),
+            ).fetchall()
+            for e in ev_rows:
+                evidence.append(
+                    {
+                        "url": (e["url"] or "").strip(),
+                        "domain": (e["domain"] or "").strip() or "source",
+                        "snippet": (e["snippet"] or "").strip(),
+                        "seq": int(e["evidence_seq"] or 0),
+                        "conclusion": (e["conclusion"] or "").strip(),
+                    }
+                )
+        except sqlite3.OperationalError:
+            evidence = []
+
+        usable = [e for e in evidence if e.get("url") and e.get("snippet")]
+        if usable:
+            checked += 1
+            articles_out.append(
+                {
+                    "id": aid,
+                    "title": title,
+                    "conclusion": conclusion,
+                    "ok": True,
+                    "evidence": usable,
+                    "fail_reason": "",
+                }
+            )
+        else:
+            failed += 1
+            # Q4: parse/empty failure → 未联网核查, brief continues
+            reason = "证据解析失败，请人工复核" if evidence else "证据解析失败，请人工复核"
+            articles_out.append(
+                {
+                    "id": aid,
+                    "title": title,
+                    "conclusion": conclusion,
+                    "ok": False,
+                    "evidence": [],
+                    "fail_reason": reason,
+                }
+            )
+
+    return {
+        "total": len(articles_out),
+        "checked": checked,
+        "failed": failed,
+        "method": "web_search (hermes -t web 实时检索)",
+        "snapshot_at": _now(),
+        "articles": articles_out,
+    }
+
+
+def build_evidence_section_md(ctx: dict[str, Any]) -> str:
+    """Render 事实核查证据 MD section (mirrors templates/brief_md.j2)."""
+    total = int(ctx.get("total") or 0)
+    checked = int(ctx.get("checked") or 0)
+    failed = int(ctx.get("failed") or 0)
+    method = str(ctx.get("method") or "web_search")
+    snapshot = str(ctx.get("snapshot_at") or _now())
+    fail_bit = f" ({failed} 篇失败降级)" if failed else ""
+    lines = [
+        "## 事实核查证据 (本简报)",
+        "",
+        f"- ✅ 已联网核查: {checked}/{total} 篇{fail_bit}",
+        f"- 方法: {method}",
+        f"- 时效: {snapshot} 检索快照",
+        "",
+    ]
+    for i, a in enumerate(ctx.get("articles") or [], 1):
+        title = a.get("title") or a.get("id") or f"文章{i}"
+        lines.append(f"### 文章 {i}: {title}")
+        lines.append("")
+        if a.get("ok"):
+            lines.append(f"- 结论: {a.get('conclusion') or '【待核实】'}")
+            lines.append("- 来源:")
+            for j, e in enumerate(a.get("evidence") or [], 1):
+                lines.append(f"  - [{j}] {e.get('domain') or 'source'}: {e.get('url') or ''}")
+            ev0 = (a.get("evidence") or [{}])[0]
+            snip = (ev0.get("snippet") or "").strip()
+            if snip:
+                lines.append(f"- 引用片段: {snip}")
+        else:
+            reason = a.get("fail_reason") or "证据解析失败，请人工复核"
+            lines.append(f"- （未联网核查，{reason}）")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def build_evidence_section_html(ctx: dict[str, Any]) -> str:
+    """Render 事实核查证据 HTML section (mirrors templates/brief_html.j2)."""
+    def esc(s: Any) -> str:
+        return html.escape("" if s is None else str(s), quote=True)
+
+    total = int(ctx.get("total") or 0)
+    checked = int(ctx.get("checked") or 0)
+    failed = int(ctx.get("failed") or 0)
+    method = esc(ctx.get("method") or "web_search")
+    snapshot = esc(ctx.get("snapshot_at") or _now())
+    fail_bit = f" ({failed} 篇失败降级)" if failed else ""
+    items: list[str] = []
+    for a in ctx.get("articles") or []:
+        title = esc(a.get("title") or a.get("id") or "")
+        if a.get("ok"):
+            lis = []
+            for j, e in enumerate(a.get("evidence") or [], 1):
+                url = esc(e.get("url") or "#")
+                domain = esc(e.get("domain") or "source")
+                snip = esc(e.get("snippet") or "")
+                lis.append(
+                    f'<li><a href="{url}" target="_blank" rel="noopener">'
+                    f"[{j}] {domain}</a>"
+                    f'<p class="snippet">{snip}</p></li>'
+                )
+            items.append(
+                f"<li><h4>{title}</h4>"
+                f'<p class="conclusion">{esc(a.get("conclusion") or "")}</p>'
+                f'<ol class="evidence-list">{"".join(lis)}</ol></li>'
+            )
+        else:
+            reason = esc(a.get("fail_reason") or "证据解析失败，请人工复核")
+            items.append(
+                f"<li><h4>{title}</h4>"
+                f'<p class="unverified">（未联网核查，{reason}）</p></li>'
+            )
+    return (
+        '<section class="fact-check-evidence" aria-label="事实核查证据">'
+        "<h3>事实核查证据 (本简报)</h3>"
+        '<div class="rollup">'
+        f'<span class="badge web_search">已联网核查: {checked}/{total} 篇{fail_bit}</span>'
+        f'<span class="meta">方法: {method} · 时效: {snapshot}</span>'
+        "</div>"
+        f'<ol class="evidence-articles">{"".join(items)}</ol>'
+        "</section>"
+    )
 
 
 def _parse_json_obj(output: str) -> dict[str, Any] | None:
@@ -891,6 +1290,7 @@ def run_enrichment(
         "quality": 0,
         "brief_summary": 0,
         "brief_body": 0,
+        "fact_check_plus_enqueued": 0,
         "failed": [],
         "flags": flags,
     }
@@ -1003,6 +1403,32 @@ def run_enrichment(
                 else:
                     stats["failed"].append(f"brief_body:{row['id']}")
 
+        # 7) v1.0.24 brief web mode: enqueue missing fact_check_plus (non-blocking)
+        #    then stamp evidence_rendered_at. Never wait for job completion.
+        if flags.get("brief"):
+            _update_progress(
+                conn, task_id, "enrich_fact_check", 66, "检查联网核查覆盖 ..."
+            )
+            provider, model = _resolve_fact_check_provider_model(
+                conn, extra_args=extra_args, manifest_path=manifest_path
+            )
+            try:
+                enq = _enqueue_missing_web_fact_checks(
+                    conn,
+                    article_ids,
+                    db_path=db_path,
+                    provider=provider,
+                    model=model,
+                )
+                stats["fact_check_plus_enqueued"] = enq
+            except Exception as exc:
+                log.warning("enrichment: web fact_check enqueue step failed: %s", exc)
+                stats["failed"].append(f"fact_check_plus_enqueue:{exc}")
+            try:
+                _write_evidence_rendered_at(conn, article_ids)
+            except Exception as exc:
+                log.warning("enrichment: evidence_rendered_at stamp failed: %s", exc)
+
         _update_progress(conn, task_id, "building_prompt", 65, "富化完成，准备拼装简报 ...")
     finally:
         conn.close()
@@ -1023,11 +1449,24 @@ def rebuild_article_content(
     """Re-read articles and build prompt body blocks (post-enrichment).
 
     Brief mode: sort by business_value_score DESC, then original order.
+    v1.0.24: append 事实核查证据 section (MD) when brief=True.
     """
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         rows = _article_rows(conn, article_ids)
+        evidence_md = ""
+        if brief and article_ids:
+            try:
+                ctx = load_evidence_context(conn, article_ids)
+                evidence_md = build_evidence_section_md(ctx)
+            except Exception as exc:
+                log.warning("enrichment: evidence section build failed: %s", exc)
+                evidence_md = (
+                    "## 事实核查证据 (本简报)\n\n"
+                    "- ✅ 已联网核查: 0/0 篇\n"
+                    "- （未联网核查，证据解析失败，请人工复核）\n"
+                )
     finally:
         conn.close()
 
@@ -1116,7 +1555,14 @@ def rebuild_article_content(
 
         parts.append(block)
 
-    return "\n\n---\n\n".join(parts)
+    body = "\n\n---\n\n".join(parts)
+    if brief and evidence_md:
+        # v1.0.24: 文末脚注式「事实核查证据」段 (银行 PDF 阅读习惯, Q2=A)
+        if body:
+            body = body + "\n\n---\n\n" + evidence_md
+        else:
+            body = evidence_md
+    return body
 
 
 def main(argv: list[str] | None = None) -> int:

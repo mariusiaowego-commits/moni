@@ -393,3 +393,89 @@ def test_jobs_task_type_whitelist_includes_plus(fresh_db, monkeypatch):
     with pytest.raises(ValueError):
         enqueue_job(task_type="not_a_task", article_id="a1",
                     provider="minimax-cn", model="MiniMax-M3")
+
+
+# ---------------------------------------------------------------------------
+# B5 (v1.0.23): 解析失败 raw_output 落库诊断 (spec §3/§5)
+# ---------------------------------------------------------------------------
+
+
+def test_fact_check_plus_failure_log_writes_raw_output(fresh_db, monkeypatch):
+    """LLM 返回无效 JSON -> llm_jobs.error 含 RAW OUTPUT + PARSE 原因."""
+    _insert_article("a1")
+    _insert_job("job-f1", "a1")
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: "not json")
+
+    _run_job({"id": "job-f1", "task_type": "fact_check_plus", "article_id": "a1",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    row = get_db().execute(
+        "SELECT status, error FROM llm_jobs WHERE id = 'job-f1'"
+    ).fetchone()
+    assert row["status"] == "failed"
+    assert "RAW OUTPUT: not json" in row["error"]
+    assert "| PARSE: evidence parse failed" in row["error"]
+
+
+def test_fact_check_plus_failure_log_truncates_at_2kb(fresh_db, monkeypatch):
+    """LLM 返回 5KB -> raw 部分 ≤2048 字节 + [truncated 5120B total]."""
+    _insert_article("a1")
+    _insert_job("job-f2", "a1")
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: "x" * 5120)
+
+    _run_job({"id": "job-f2", "task_type": "fact_check_plus", "article_id": "a1",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    row = get_db().execute(
+        "SELECT status, error FROM llm_jobs WHERE id = 'job-f2'"
+    ).fetchone()
+    assert row["status"] == "failed"
+    error = row["error"]
+    assert "[truncated 5120B total]" in error
+    raw_part = error.split("RAW OUTPUT: ", 1)[1].split(" | PARSE:", 1)[0]
+    raw_part = raw_part.split(" ... [truncated", 1)[0]
+    assert len(raw_part.encode("utf-8")) <= 2048
+
+
+def test_fact_check_plus_failure_log_preserves_unicode(fresh_db, monkeypatch):
+    """LLM 返回中文 + emoji -> UTF-8 边界截断不破字, 中文可读."""
+    _insert_article("a1")
+    _insert_job("job-f3", "a1")
+    raw = "好的，让我查一下。😊" + "金融数据" * 800
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: raw)
+
+    _run_job({"id": "job-f3", "task_type": "fact_check_plus", "article_id": "a1",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    row = get_db().execute(
+        "SELECT status, error FROM llm_jobs WHERE id = 'job-f3'"
+    ).fetchone()
+    assert row["status"] == "failed"
+    error = row["error"]
+    assert "| PARSE: evidence parse failed" in error
+    raw_part = error.split("RAW OUTPUT: ", 1)[1].split(" | PARSE:", 1)[0]
+    raw_part = raw_part.split(" ... [truncated", 1)[0]
+    assert raw_part.encode("utf-8").decode("utf-8") == raw_part
+    assert "\ufffd" not in raw_part
+    assert "好的，让我查一下" in raw_part
+
+
+def test_fact_check_plus_no_failure_log_when_parse_succeeds(fresh_db, monkeypatch):
+    """解析成功 -> llm_jobs.error 不含 RAW OUTPUT 前缀 (不污染成功路径)."""
+    _insert_article("a1")
+    _insert_job("job-f4", "a1")
+    payload = json.dumps({
+        "conclusion": "【已核实】",
+        "evidence": [{"query": "央行", "url": "https://www.pbc.gov.cn/notice/1",
+                      "snippet": "央行发布 1 月金融数据", "rationale": "官方公告"}],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-f4", "task_type": "fact_check_plus", "article_id": "a1",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    row = get_db().execute(
+        "SELECT status, error FROM llm_jobs WHERE id = 'job-f4'"
+    ).fetchone()
+    assert row["status"] == "done"
+    assert row["error"] is None or "RAW OUTPUT:" not in row["error"]

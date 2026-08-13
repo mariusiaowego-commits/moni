@@ -18,7 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 25  # v1.0.22: fact_check_evidence table (025)
+_CURRENT_VERSION = 26  # v1.0.24: brief web mode evidence_rendered_at (026)
 
 
 def current_version(conn: sqlite3.Connection) -> int:

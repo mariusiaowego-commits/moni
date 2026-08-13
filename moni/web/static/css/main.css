@@ -128,10 +128,23 @@ body {
    ═══════════════════════════════════════════════════════════════ */
 .panel-header {
   display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 24px;
+  margin-bottom: 24px; gap: 12px; flex-wrap: wrap;
 }
 .panel-header h3 {
   font-size: 1.15rem; font-weight: 600; letter-spacing: -0.01em;
+  margin: 0; flex-shrink: 0;
+}
+/* h3 + 启示性说明（分享页模式：标题右侧 10px） */
+.panel-title-row {
+  display: flex; align-items: baseline; gap: 10px;
+  min-width: 0; flex: 1;
+}
+.panel-title-hint {
+  margin: 0;
+  color: var(--muted-fg);
+  font-size: 0.9em;
+  font-weight: 400;
+  line-height: 1.4;
 }
 .actions-group {
   display: flex; align-items: center; gap: 12px;
@@ -1876,20 +1889,21 @@ label { font-size: 0.85rem; }
   border: 1px solid var(--border, rgba(127,127,127,0.15));
   border-radius: 8px;
 }
-.stats-toolbar-label { color: var(--muted); font-size: 13px; }
+/* NOTE: --muted is a BACKGROUND token; text must use --muted-fg */
+.stats-toolbar-label { color: var(--muted-fg); font-size: 13px; }
 .stats-toolbar-period {
   display: inline-flex; gap: 0; border-radius: 6px; overflow: hidden;
   border: 1px solid var(--border, rgba(127,127,127,0.2));
 }
 .stats-toolbar-period button {
   background: transparent; border: 0; padding: 6px 14px;
-  font: inherit; cursor: pointer; color: var(--muted);
+  font: inherit; cursor: pointer; color: var(--muted-fg);
 }
 .stats-toolbar-period button.active {
   background: var(--accent, #4a90e2); color: #fff;
 }
 .stats-toolbar-label-input {
-  margin-left: auto; color: var(--muted); font-size: 12px;
+  margin-left: auto; color: var(--muted-fg); font-size: 12px;
 }
 
 /* 顶部三卡 (基线 / 当前 / 目标) */
@@ -1903,7 +1917,7 @@ label { font-size: 0.85rem; }
   border-radius: 8px; padding: 16px;
 }
 .stats-card-label {
-  color: var(--muted); font-size: 12px; text-transform: uppercase;
+  color: var(--muted-fg); font-size: 12px; text-transform: uppercase;
   letter-spacing: 0.05em; margin-bottom: 8px;
 }
 .stats-card-value {
@@ -1911,9 +1925,9 @@ label { font-size: 0.85rem; }
   font-variant-numeric: tabular-nums;
 }
 .stats-card-sub {
-  font-size: 12px; color: var(--muted); margin-top: 4px;
+  font-size: 12px; color: var(--muted-fg); margin-top: 4px;
 }
-.stats-card-baseline .stats-card-value { color: var(--muted); }
+.stats-card-baseline .stats-card-value { color: var(--muted-fg); }
 .stats-card-current  .stats-card-value { color: var(--foreground); }
 .stats-card-target   .stats-card-value { color: var(--accent, #4a90e2); }
 
@@ -1974,13 +1988,13 @@ label { font-size: 0.85rem; }
   margin-bottom: 10px;
 }
 .stats-module-title {
-  font-size: 13px; color: var(--muted); font-weight: 500;
+  font-size: 13px; color: var(--muted-fg); font-weight: 500;
 }
 .stats-module-status {
   font-size: 11px; padding: 2px 8px; border-radius: 999px;
 }
 .stats-module-status.stat-ok    { background: rgba(74,144,226,0.15); color: var(--accent, #4a90e2); }
-.stats-module-status.stat-sparse { background: rgba(127,127,127,0.15); color: var(--muted); }
+.stats-module-status.stat-sparse { background: rgba(127,127,127,0.15); color: var(--muted-fg); }
 
 .stats-module-primary {
   font-size: 22px; font-weight: 600; color: var(--foreground);
@@ -1988,7 +2002,7 @@ label { font-size: 0.85rem; }
 }
 .stats-module-row {
   display: flex; justify-content: space-between; font-size: 12px;
-  color: var(--muted); margin-top: 4px;
+  color: var(--muted-fg); margin-top: 4px;
 }
 .stats-module-row strong {
   color: var(--foreground); font-weight: 500;
@@ -2002,7 +2016,7 @@ label { font-size: 0.85rem; }
   border-radius: 8px; padding: 14px; margin-bottom: 20px;
 }
 .stats-trend-title {
-  font-size: 13px; color: var(--muted); margin-bottom: 10px;
+  font-size: 13px; color: var(--muted-fg); margin-bottom: 10px;
 }
 .stats-trend-svg {
   width: 100%; height: 80px;
@@ -2011,7 +2025,7 @@ label { font-size: 0.85rem; }
   fill: none; stroke: var(--accent, #4a90e2); stroke-width: 2;
 }
 .stats-trend-empty {
-  text-align: center; color: var(--muted); font-size: 13px;
+  text-align: center; color: var(--muted-fg); font-size: 13px;
   padding: 24px 0;
 }
 
@@ -2022,11 +2036,11 @@ label { font-size: 0.85rem; }
   border-radius: 8px; padding: 14px; margin-bottom: 20px;
 }
 .stats-waterfall-title {
-  font-size: 13px; color: var(--muted); margin-bottom: 6px;
+  font-size: 13px; color: var(--muted-fg); margin-bottom: 6px;
 }
 .stats-waterfall-label {
   display: inline-block;
-  background: rgba(127,127,127,0.15); color: var(--muted);
+  background: rgba(127,127,127,0.15); color: var(--muted-fg);
   font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-bottom: 12px;
 }
 .stats-waterfall-bars {
@@ -2044,7 +2058,7 @@ label { font-size: 0.85rem; }
   transition: height 0.3s ease;
 }
 .stats-waterfall-bar-label {
-  font-size: 11px; color: var(--muted); margin-top: 6px;
+  font-size: 11px; color: var(--muted-fg); margin-top: 6px;
   text-align: center; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
@@ -2053,7 +2067,7 @@ label { font-size: 0.85rem; }
   font-variant-numeric: tabular-nums; margin-bottom: 4px;
 }
 .stats-waterfall-empty {
-  text-align: center; color: var(--muted); font-size: 13px;
+  text-align: center; color: var(--muted-fg); font-size: 13px;
   padding: 24px 0;
 }
 

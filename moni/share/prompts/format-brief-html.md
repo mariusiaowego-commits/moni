@@ -4,7 +4,7 @@
 
 ### 页眉 / 页脚
 - 标题：`同业简报 — YYYY-MM-DD`
-- 副标题：`from moni by TQ · N 篇文章 · 按业务价值排序`
+- 副标题：`from moni by TQ · N 篇文章 · 按业务价值排序 · 已联网核查 K/N 篇`
 - 页脚：`Curated by moni — a TQ project.`
 
 ### 原文 vs AI
@@ -26,6 +26,13 @@
 
 ### 元数据
 - 来源 = 发布方 +（采集通道）；日期 YYYY-MM-DD；质量分必有数字
+
+### 事实核查证据 (v1.0.24, 文末脚注)
+- 顶部副标题 rollup：`已联网核查 K/N 篇`
+- 文末 `<section class="fact-check-evidence">`：
+  - rollup badge：`已联网核查: K/N 篇`（失败降级写「M 篇失败降级」）
+  - 每篇：结论 + evidence URL 列表 + snippet
+  - 无 evidence：`（未联网核查，证据解析失败，请人工复核）`，**不阻塞**整份简报
 
 ### 输出
 完整 HTML 从 `<!DOCTYPE html>` 起，stdout 全文，不要 markdown 围栏，不要元叙述。

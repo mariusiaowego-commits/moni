@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css?v=20260812003">
+  <link rel="stylesheet" href="css/main.css?v=20260812007">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -28,22 +28,20 @@
     <nav class="topnav">
       <span class="topnav-brand">moni</span>
       <div class="topnav-links">
+        <a href="/fetch"    @click.prevent="navigate('fetch')"    :class="{ active: currentView === 'fetch'    }">抓取管理</a>
         <a href="/articles" @click.prevent="navigate('articles')" :class="{ active: currentView === 'articles' }">文章查阅</a>
         <a href="/calendar" @click.prevent="navigate('calendar')" :class="{ active: currentView === 'calendar' }">行业日历</a>
         <a href="/cases"    @click.prevent="navigate('cases')"    :class="{ active: currentView === 'cases'    }">案例库</a>
         <a href="/stats"    @click.prevent="navigate('stats')"    :class="{ active: currentView === 'stats'    }">量化看板</a>
-        <a href="/crud"     @click.prevent="navigate('crud')"     :class="{ active: currentView === 'crud'     }">CRUD</a>
-        <a href="/cron"     @click.prevent="navigate('cron')"     :class="{ active: currentView === 'cron'     }">跑批日志</a>
-        <a href="/fetch"    @click.prevent="navigate('fetch')"    :class="{ active: currentView === 'fetch'    }">抓取管理</a>
+        <a href="/crud"     @click.prevent="navigate('crud')"     :class="{ active: currentView === 'crud'     }">数据维护</a>
         <a href="/llmJobs"  @click.prevent="navigate('llmJobs')"  :class="{ active: currentView === 'llmJobs'  }">
-          LLM 任务
+          大模型任务
           <span class="nav-chip" x-show="llmJobsStats.pending + llmJobsStats.running > 0"
                 x-text="llmJobsStats.pending + llmJobsStats.running"></span>
         </a>
         <a href="/share"    @click.prevent="navigate('share')"    :class="{ active: currentView === 'share'    }">分享</a>
         <a href="/basket"   @click.prevent="navigate('basket')"   :class="{ active: currentView === 'basket'   }">菜篮子</a>
-        <a href="/config"   @click.prevent="navigate('config')"   :class="{ active: currentView === 'config'   }">配置管理</a>
-        <a href="/llmSettings" @click.prevent="navigate('llmSettings')" :class="{ active: currentView === 'llmSettings' }">LLM 设置</a>
+        <a href="/config"   @click.prevent="navigate('config')"   :class="{ active: currentView === 'config' || currentView === 'llmSettings' || currentView === 'cron' }">配置管理</a>
       </div>
       <div class="topnav-right">
         <div class="svc-status" @click="loadServiceStatus()" title="点击刷新状态">
@@ -63,7 +61,10 @@
       <!-- v1.0.8: 子 tab [全部] [Pin (N)] — Pin 模式切到 article_pins 数据源 -->
       <section x-show="currentView === 'articles'" x-cloak>
         <div class="panel-header">
-          <h3>文章查阅</h3>
+          <div class="panel-title-row">
+            <h3>文章查阅</h3>
+            <p class="panel-title-hint">浏览本地新闻库，Pin 收藏后可一键生成简报</p>
+          </div>
           <div class="search-box">
             <input type="text" x-model="articlesSearch"
                    @input.debounce.300ms="loadArticles()"
@@ -212,10 +213,13 @@
           </div>
         </div>
       </section>
-      <!-- ══ CRUD (v1.0.5.11: + edit/create buttons + form modal) ══ -->
+      <!-- ══ 数据维护 (原 CRUD; v1.0.5.11: + edit/create buttons + form modal) ══ -->
       <section x-show="currentView === 'crud'" x-cloak>
         <div class="panel-header">
-          <h3>CRUD 管理</h3>
+          <div class="panel-title-row">
+            <h3>数据维护</h3>
+            <p class="panel-title-hint">对文章记录做新建、编辑与删除</p>
+          </div>
           <!-- v1.0.5.11: opens the create form modal.  Backend POST
                /api/articles was added in v1.0.5.10, this wires the UI. -->
           <button class="btn-primary" @click="openCrudForm(null)">+ 新建文章</button>
@@ -246,10 +250,13 @@
         </div>
       </section>
 
-      <!-- ══ Cron ════════════════════════════════════════════════ -->
+      <!-- ══ Cron standalone view kept for deep-link /cron → redirects into config ══ -->
       <section x-show="currentView === 'cron'" x-cloak>
         <div class="panel-header">
-          <h3>跑批日志</h3>
+          <div class="panel-title-row">
+            <h3>跑批日志</h3>
+            <p class="panel-title-hint">定时任务执行历史</p>
+          </div>
           <button class="btn-refresh" @click="loadCronRuns()">刷新</button>
         </div>
         <div class="table-container">
@@ -260,11 +267,15 @@
             <tbody>
               <template x-for="run in cronRuns" :key="run.id">
                 <tr>
-                  <td x-text="run.job_id"></td>
-                  <td x-text="formatTime(run.triggered_at)"></td>
-                  <td><span class="status-badge" :class="run.success ? 'status-success' : 'status-failed'" x-text="run.success ? 'success' : 'failed'"></span></td>
-                  <td x-text="run.new_articles || 0"></td>
-                  <td x-text="run.duration ? run.duration + 's' : '-'"></td>
+                  <td x-text="run.job_id || ('#' + (run.cron_job_id || run.id))"></td>
+                  <td x-text="formatTime(run.triggered_at || run.started_at)"></td>
+                  <td>
+                    <span class="status-badge"
+                          :class="(run.success === true || run.status === 'success') ? 'status-success' : 'status-failed'"
+                          x-text="(run.success === true || run.status === 'success') ? 'success' : (run.status || 'failed')"></span>
+                  </td>
+                  <td x-text="run.new_articles ?? run.articles_fetched ?? 0"></td>
+                  <td x-text="run.duration != null ? run.duration + 's' : '-'"></td>
                   <td>
                     <a x-show="run.log_url" :href="run.log_url" target="_blank" class="link-btn">查看日志</a>
                     <span x-show="!run.log_url">-</span>
@@ -282,8 +293,9 @@
       <!-- ══ Fetch ═══════════════════════════════════════════════ -->
       <section x-show="currentView === 'fetch'" x-cloak>
         <div class="panel-header">
-          <div style="display:flex; align-items:center; gap:12px;">
+          <div class="panel-title-row">
             <h3>抓取管理</h3>
+            <p class="panel-title-hint">手动触发信源抓取，查看连通性与最近批次结果</p>
             <button class="btn-refresh" @click="loadSources()">刷新</button>
           </div>
           <div class="actions-group">
@@ -584,14 +596,15 @@
         </div>
       </div>
 
-      <!-- ══ LLM 任务 (v1.0.5.1) ══════════════════════════════════════════════ -->
+      <!-- ══ 大模型任务 (v1.0.5.1) ══════════════════════════════════════════════ -->
       <section x-show="currentView === 'llmJobs'" x-cloak>
-        <h3>LLM 任务
-          <small class="muted" x-text="' · 自动轮询中 (' + (llmJobsLastFetched ? Math.round((Date.now() - llmJobsLastFetched) / 1000) : 0) + 's 前)'"></small>
-        </h3>
-        <p class="muted">
-          摘要生成 / 事实核查的异步任务面板。点击文章里的"生成摘要"或"事实核查"按钮后,任务会出现在这里,每 1s 自动刷新状态。
-        </p>
+        <div class="panel-header">
+          <div class="panel-title-row">
+            <h3>大模型任务</h3>
+            <p class="panel-title-hint">摘要 / 事实核查等异步任务的排队与执行状态</p>
+          </div>
+          <button class="link-btn" @click="loadLlmJobs()">刷新</button>
+        </div>
         <div class="llm-stats">
           <span class="llm-stat"><span class="dot dot-pending"></span>排队 <b x-text="llmJobsStats.pending"></b></span>
           <span class="llm-stat"><span class="dot dot-running"></span>运行 <b x-text="llmJobsStats.running"></b></span>
@@ -656,14 +669,16 @@
 
       <!-- ══ Share (v1.0.5.11: article picker is now a card grid) ══ -->
       <section x-show="currentView === 'share'" x-cloak>
-        <div class="panel-header"><h3>分享</h3></div>
+        <div class="panel-header">
+          <div class="panel-title-row">
+            <h3>分享</h3>
+            <p class="panel-title-hint">用当前全部 Pin 生成简报 · 默认含 AI 摘要、事实核查、业务价值评判 · 不调用 BestBlogs</p>
+          </div>
+        </div>
 
         <!-- v1.0.10: one-click brief primary path -->
         <div class="share-section brief-panel" style="border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 16px 18px; margin-bottom: 20px; background: var(--card, #fff);">
           <h4 style="margin-top:0;">一键简报</h4>
-          <p class="muted" style="margin: 0 0 12px; font-size: 0.9em;">
-            用当前全部 Pin 生成简报 · 默认含 AI 摘要、事实核查、业务价值评判 · 不调用 BestBlogs
-          </p>
           <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
             <label style="display:flex; align-items:center; gap:6px;">
               格式
@@ -1041,9 +1056,11 @@
       <!-- ══ Basket (v1.0.6.9: 菜篮子) ════════════════════════════════ -->
       <section x-show="currentView === 'basket'" x-cloak>
         <div class="panel-header">
-          <h3>菜篮子</h3>
+          <div class="panel-title-row">
+            <h3>菜篮子</h3>
+            <p class="panel-title-hint">拉到篮子里就是菜，但还是有希望能再次被选中</p>
+          </div>
           <div class="search-box">
-            <span class="muted" style="margin-right: 12px;">拉到篮子里就是菜，但还是有希望能再次被选中</span>
             <select x-model="basketSource" @change="loadBasket()" title="按来源筛选" style="margin-left: 8px; padding: 4px 8px;">
               <option value="">所有来源</option>
               <template x-for="s in basketSources" :key="s">
@@ -1201,7 +1218,10 @@
       <!-- ══ 行业日历 (v1.0.16 F5) ════════════════════════════════ -->
       <section x-show="currentView === 'calendar'" x-cloak>
         <div class="panel-header cal-panel-header">
-          <h3>行业日历</h3>
+          <div class="panel-title-row">
+            <h3>行业日历</h3>
+            <p class="panel-title-hint">从文章中抽取的行业事件时间线</p>
+          </div>
           <div class="search-box">
             <span class="cal-stat-sub"
                   x-text="'共 ' + Object.keys(calendarEventsByDate || {}).length + ' 天有事件'"></span>
@@ -1370,7 +1390,10 @@
       <!-- ══ 同业案例库 (v1.0.17 F6) ════════════════════════════════ -->
       <section x-show="currentView === 'cases'" x-cloak>
         <div class="panel-header">
-          <h3>同业案例库</h3>
+          <div class="panel-title-row">
+            <h3>同业案例库</h3>
+            <p class="panel-title-hint">同业案例沉淀，便于横向对比与检索</p>
+          </div>
           <div class="search-box">
             <span class="cal-stat-sub"
                   x-text="'共 ' + (casesTotal || 0) + ' 个案例'"></span>
@@ -1583,8 +1606,10 @@
       <!-- ══ 量化看板 (v1.0.19 W1) ═════════════════════════════════ -->
       <section x-show="currentView === 'stats'" x-cloak x-init="statsOnEnter()">
         <div class="panel-header">
-          <h3>量化看板</h3>
-          <span class="cal-stat-sub">moni-B §四.7 W1 申报包装 · §五 评分成效 20 + 规范性 10</span>
+          <div class="panel-title-row">
+            <h3>量化看板</h3>
+            <p class="panel-title-hint">抓取 / 大模型 / 使用效率的数据成效一览</p>
+          </div>
         </div>
 
         <div class="stats-toolbar">
@@ -1686,7 +1711,7 @@
             </div>
             <div class="stats-module-primary">
               <span x-text="fmt(efficiency.raw?.total_savings_minutes || 0)"></span>
-              <span style="font-size:13px; color: var(--muted)">分钟</span>
+              <span style="font-size:13px; color: var(--muted-fg)">分钟</span>
             </div>
             <div class="stats-module-row"><span>任务数</span><strong x-text="fmt(efficiency.count || 0)"></strong></div>
             <div class="stats-module-row"><span>口径</span><strong x-text="efficiency.display_label"></strong></div>
@@ -1767,14 +1792,19 @@
 
       </section>
 
-      <!-- ══ Config Management (v1.0.2-F) ════════════════════════════════ -->
+      <!-- ══ Config Management (v1.0.2-F; v1.0.25: +大模型设置 / 跑批日志) ═ -->
       <section x-show="currentView === 'config'" x-cloak>
         <div class="panel-header">
-          <h3>配置管理</h3>
+          <div class="panel-title-row">
+            <h3>配置管理</h3>
+            <p class="panel-title-hint">管理抓取源、业务标签、过滤规则与系统设置</p>
+          </div>
           <div class="config-tabs">
             <button class="tab-btn" :class="{ active: configTab === 'sources' }" @click="switchConfigTab('sources')">抓取源</button>
             <button class="tab-btn" :class="{ active: configTab === 'tags' }"    @click="switchConfigTab('tags')">业务 tag</button>
             <button class="tab-btn" :class="{ active: configTab === 'filters' }" @click="switchConfigTab('filters')">关键词过滤</button>
+            <button class="tab-btn" :class="{ active: configTab === 'llm' }"     @click="switchConfigTab('llm')">大模型设置</button>
+            <button class="tab-btn" :class="{ active: configTab === 'cron' }"    @click="switchConfigTab('cron')">跑批日志</button>
           </div>
         </div>
 
@@ -1938,18 +1968,14 @@
             </table>
           </div>
         </div>
-      </section>
 
-      <!-- ══ LLM Settings ══════════════════════════════════════════ -->
-      <section x-show="currentView === 'llmSettings'" x-cloak>
-        <div class="panel-header">
-          <h3>LLM 设置</h3>
-          <div class="config-tabs">
+        <!-- ── Tab 4: 大模型设置 (原 LLM 设置 一级菜单) ── -->
+        <div x-show="configTab === 'llm'">
+          <div class="config-tabs" style="margin-bottom: 16px;">
             <button class="tab-btn" :class="{ active: llmTab === 'providers' }" @click="switchLlmTab('providers')">Provider 绑定</button>
             <button class="tab-btn" :class="{ active: llmTab === 'models' }"    @click="switchLlmTab('models')">Model 选择</button>
             <button class="tab-btn" :class="{ active: llmTab === 'usage' }"     @click="switchLlmTab('usage')">用量统计</button>
           </div>
-        </div>
 
         <!-- ── Sub-tab 1: Provider 绑定 ── -->
         <div x-show="llmTab === 'providers'">
@@ -2154,6 +2180,43 @@
               </template>
               <div x-show="!llmUsage?.by_date || llmUsage.by_date.length === 0" class="muted">暂无数据</div>
             </div>
+          </div>
+        </div>
+        </div><!-- /configTab === llm -->
+
+        <!-- ── Tab 5: 跑批日志 (原一级菜单) ── -->
+        <div x-show="configTab === 'cron'">
+          <div class="toolbar">
+            <button class="btn-refresh" @click="loadCronRuns()">刷新</button>
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr><th>任务名</th><th>触发时间</th><th>状态</th><th>新增文章</th><th>耗时</th><th>日志链接</th></tr>
+              </thead>
+              <tbody>
+                <template x-for="run in cronRuns" :key="'cfg-cron-' + run.id">
+                  <tr>
+                    <td x-text="run.job_id || ('#' + (run.cron_job_id || run.id))"></td>
+                    <td x-text="formatTime(run.triggered_at || run.started_at)"></td>
+                    <td>
+                      <span class="status-badge"
+                            :class="(run.success === true || run.status === 'success') ? 'status-success' : 'status-failed'"
+                            x-text="(run.success === true || run.status === 'success') ? 'success' : (run.status || 'failed')"></span>
+                    </td>
+                    <td x-text="run.new_articles ?? run.articles_fetched ?? 0"></td>
+                    <td x-text="run.duration != null ? run.duration + 's' : '-'"></td>
+                    <td>
+                      <a x-show="run.log_url" :href="run.log_url" target="_blank" class="link-btn">查看日志</a>
+                      <span x-show="!run.log_url">-</span>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="cronRuns.length === 0">
+                  <td colspan="6" class="empty-row">暂无数据</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </section>
@@ -3006,7 +3069,7 @@
   <script src="js/calendar.js?v=20260810001"></script>
   <script src="js/cases.js?v=20260808004"></script>
   <script src="js/stats.js?v=20260809"></script>
-  <script src="js/app.js?v=20260812003"></script>
+  <script src="js/app.js?v=20260812007"></script>
   <script src="js/theme.js?v=1785000000"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <script src="js/pin_anim.js?v=1785000000"></script>

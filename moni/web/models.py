@@ -149,15 +149,31 @@ class CronJobCreate(BaseModel):
 
 
 class CronRun(BaseModel):
-    """A single execution instance of a cron job."""
+    """A single execution instance of a cron job.
+
+    Schema mirrors ``cron_runs`` rows plus SPA-friendly aliases:
+    - DB: job_id / triggered_at / success / new_articles
+    - legacy SPA: cron_job_id / started_at / status / articles_fetched
+    """
 
     id: int
-    cron_job_id: int
-    started_at: datetime
-    finished_at: datetime | None = None
-    status: str = Field(default="running")  # running | success | failed
+    # Real APScheduler job id (e.g. "nightly_fetch"); preferred by the SPA.
+    job_id: str = ""
+    # Legacy integer placeholder (no cron_jobs table); keep for old clients.
+    cron_job_id: int = 0
+    triggered_at: datetime | str | None = None
+    started_at: datetime | str | None = None
+    finished_at: datetime | str | None = None
+    # "success" | "failed" | "running"
+    status: str = Field(default="running")
+    # True when status == "success" (SPA historically checked run.success)
+    success: bool = False
+    new_articles: int = 0
     articles_fetched: int = 0
+    duration: float | None = None  # seconds
+    log_url: str | None = None
     error_message: str | None = None
+    error: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

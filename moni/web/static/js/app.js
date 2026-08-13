@@ -318,6 +318,33 @@ function app() {
     },
 
     navigate(view) {
+      // v1.0.25: 跑批日志 / 大模型设置 收进「配置管理」二级菜单
+      if (view === 'cron') {
+        this.currentView = 'config';
+        this.configTab = 'cron';
+        this.loadCronRuns();
+        const path = '/config';
+        if (window.location.pathname !== path) {
+          try { window.history.pushState({ view: 'config', configTab: 'cron' }, '', path); }
+          catch (e) { window.history.replaceState({ view: 'config', configTab: 'cron' }, '', path); }
+        }
+        return;
+      }
+      if (view === 'llmSettings') {
+        this.currentView = 'config';
+        this.configTab = 'llm';
+        this.llmTab = 'providers';
+        this.loadLlmProviders();
+        this.loadLlmModels();
+        this.loadLlmSettings();
+        const path = '/config';
+        if (window.location.pathname !== path) {
+          try { window.history.pushState({ view: 'config', configTab: 'llm' }, '', path); }
+          catch (e) { window.history.replaceState({ view: 'config', configTab: 'llm' }, '', path); }
+        }
+        return;
+      }
+
       this.currentView = view;
       // v1.0.13 (audit fix F3): tear down the share-queue poll if leaving /share.
       if (view !== 'share' && this._sharePollInterval) {
@@ -347,7 +374,6 @@ function app() {
         this.loadPinnedArticles();
       }
       else if (view === 'crud') this.loadCrudArticles();
-      else if (view === 'cron') this.loadCronRuns();
       else if (view === 'fetch') this.loadSources();
       else if (view === 'llmJobs') this.loadLlmJobs();  // v1.0.5.1
       else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
@@ -355,26 +381,35 @@ function app() {
       else if (view === 'calendar') { this.initCalendarPage(); }
       else if (view === 'cases')    { this.initCasesPage(); }
       else if (view === 'config') {
-        this.configTab = 'sources';
-        this.configLoadSources();
-        this.configLoadTags();
-        this.configLoadFilters();
-      }
-      else if (view === 'llmSettings') {
-        this.llmTab = 'providers';
-        this.loadLlmProviders();
-        this.loadLlmModels();
-        this.loadLlmSettings();
+        if (!this.configTab) this.configTab = 'sources';
+        this.switchConfigTab(this.configTab);
       }
     },
 
     // v1.0.5.10: handle browser back/forward.  We only update state, not the
     // URL (the URL already changed via the browser's own history machinery).
     onPopState(event) {
-      const view = (event.state && event.state.view) || this._pathToView[window.location.pathname] || 'articles';
+      let view = (event.state && event.state.view) || this._pathToView[window.location.pathname] || 'articles';
+      // v1.0.25: legacy deep links /cron /llmSettings → config subtabs
+      if (view === 'cron') {
+        this.currentView = 'config';
+        this.configTab = 'cron';
+        this.loadCronRuns();
+        return;
+      }
+      if (view === 'llmSettings') {
+        this.currentView = 'config';
+        this.configTab = 'llm';
+        this.llmTab = 'providers';
+        this.loadLlmProviders();
+        this.loadLlmModels();
+        this.loadLlmSettings();
+        return;
+      }
       // v1.0.13 (audit fix F3): same teardown on back/forward.
       if (this.currentView === 'share' && view !== 'share') this._stopSharePoll();
       this.currentView = view;
+      if (event.state && event.state.configTab) this.configTab = event.state.configTab;
       // Re-run the loaders for the target view.
       if (view === 'articles') {
         this._loadArticlesWithPaging();
@@ -382,7 +417,6 @@ function app() {
         this.loadPinnedArticles();  // v1.0.8.4: see note above
       }
       else if (view === 'crud') this.loadCrudArticles();
-      else if (view === 'cron') this.loadCronRuns();
       else if (view === 'fetch') this.loadSources();
       else if (view === 'llmJobs') this.loadLlmJobs();
       else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
@@ -390,21 +424,13 @@ function app() {
       else if (view === 'calendar') { this.initCalendarPage(); }
       else if (view === 'cases')    { this.initCasesPage(); }
       else if (view === 'config') {
-        this.configTab = 'sources';
-        this.configLoadSources();
-        this.configLoadTags();
-        this.configLoadFilters();
-      }
-      else if (view === 'llmSettings') {
-        this.llmTab = 'providers';
-        this.loadLlmProviders();
-        this.loadLlmModels();
-        this.loadLlmSettings();
+        this.switchConfigTab(this.configTab || 'sources');
       }
     },
 
     // ── Config panel (v1.0.2-F) ────────────────────────────────────
-    configTab: 'sources',   // 'sources' | 'tags' | 'filters'
+    // v1.0.25: 'sources' | 'tags' | 'filters' | 'llm' | 'cron'
+    configTab: 'sources',
     configTags: [],
     configSources: [],
     configFilters: [],
@@ -539,7 +565,24 @@ function app() {
     tagTooltipMap: {},
 
     switchConfigTab(tab) {
-      this.configTab = tab;
+      this.configTab = tab || 'sources';
+      // Lazy-load data for each config sub-tab
+      if (this.configTab === 'sources') {
+        this.configLoadSources();
+      } else if (this.configTab === 'tags') {
+        this.configLoadTags();
+      } else if (this.configTab === 'filters') {
+        this.configLoadSources();
+        this.configLoadFilters();
+      } else if (this.configTab === 'llm') {
+        if (!this.llmTab) this.llmTab = 'providers';
+        this.loadLlmProviders();
+        this.loadLlmModels();
+        this.loadLlmSettings();
+        if (this.llmTab === 'usage') this.loadLlmUsage();
+      } else if (this.configTab === 'cron') {
+        this.loadCronRuns();
+      }
     },
 
     // v1.0.5.10: build the tooltip text for a given tag name.
@@ -2178,13 +2221,17 @@ function app() {
     },
 
     pingSource(id) {
+      // Prefer YAML source_name when available (id may be DB src-xxx).
+      const src = (this.sources || []).find(s => s.id === id || s.name === id);
+      const ref = (src && src.name) ? src.name : id;
       this.fetchResult = '正在测试连通性...';
-      fetch(`/api/fetch/sources/${id}/ping`, { method: 'POST', credentials: 'same-origin' })
+      fetch(`/api/fetch/sources/${encodeURIComponent(ref)}/ping`, { method: 'POST', credentials: 'same-origin' })
         .then(async r => {
           let body = null;
           try { body = await r.json(); } catch (_) { /* ignore */ }
           if (!r.ok) {
-            this.fetchResult = 'FAIL - ' + r.status;
+            const detail = (body && (body.message || body.detail)) || r.status;
+            this.fetchResult = 'FAIL - ' + detail;
             return;
           }
           const st = (body && body.status) || 'ok';
@@ -2204,7 +2251,7 @@ function app() {
             return;
           }
           this.fetchResult = st === 'ok'
-            ? 'OK - 连通性正常'
+            ? ('OK - 连通性正常' + (msg ? ` (${msg})` : ''))
             : `DEGRADED${msg ? ' — ' + msg : ''}`;
         })
         .catch(err => { this.fetchResult = 'FAIL - ' + err.message; });
@@ -2950,37 +2997,21 @@ function app() {
       this.loadServiceStatus();
       // v1.0.5.10: deep-link from current URL — visiting /crud opens
       // the CRUD tab directly.  Falls back to /articles for unknown paths.
+      // v1.0.25: /cron /llmSettings redirect into 配置管理 subtabs via navigate().
       const view = this._pathToView[window.location.pathname] || 'articles';
-      this.currentView = view;
-      // Replace the history entry so the URL the user landed on is the
-      // current one (prevents an extra back-button step).
-      const path = this._viewToPath[view] || '/articles';
-      try {
-        window.history.replaceState({ view }, '', path);
-      } catch (e) { /* ignore — older browsers */ }
-      // v1.0.5.10: refresh source/tag filter option lists at boot
-      // (cheap; safe to call even when we land on /crud — keeps the
-      // article-list filters warm for when the user navigates back).
+      // Warm article filters at boot (cheap)
       this.loadArticlesFilters();
-      // v1.0.5.10: also load the data for the current view, otherwise
-      // /crud /cron /fetch /llmJobs /share /config land on an empty panel.
-      // navigate() already calls the right loader; we can reuse it.
-      // But we already set currentView above, so navigate() will just
-      // re-load.  The cheapest path: call only the loader for the boot view.
-      if (view === 'articles') this._loadArticlesWithPaging();
-      else if (view === 'crud') this.loadCrudArticles();
-      else if (view === 'cron') this.loadCronRuns();
-      else if (view === 'fetch') this.loadSources();
-      else if (view === 'llmJobs') this.loadLlmJobs();
-      else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
-      else if (view === 'calendar') { this.initCalendarPage(); }
-      else if (view === 'cases')    { this.initCasesPage(); }
-      else if (view === 'config') {
-        this.configTab = 'sources';
-        this.configLoadSources();
-        this.configLoadTags();
-        this.configLoadFilters();
-      }
+      // Use navigate() so loaders + legacy redirects stay in one place
+      this.navigate(view);
+      // Replace history entry after navigate so deep-link is the current entry
+      try {
+        const path = window.location.pathname;
+        window.history.replaceState(
+          { view: this.currentView, configTab: this.configTab },
+          '',
+          path,
+        );
+      } catch (e) { /* ignore — older browsers */ }
       // v1.0.5.10: listen for browser back/forward so the SPA follows.
       window.addEventListener('popstate', (e) => this.onPopState(e));
     },
