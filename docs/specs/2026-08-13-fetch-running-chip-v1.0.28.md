@@ -1,9 +1,9 @@
-# Sprint 09 — Fetch 进行中 chip + 像素 loading (v1.0.26)
+# Sprint 09 — Fetch 进行中 chip + 像素 loading (v1.0.28)
 
 > **状态**: 进行中  
 > **作者**: coding agent  
 > **日期**: 2026-08-13  
-> **分支**: `feature/v1.0.26-frontend-delight-ui`  
+> **分支**: `feature/v1.0.28-frontend-delight-ui`  
 > **关联**: v1.0.9.8 fetch modal 粒子 / v1.0.7.6 fetch_jobs 异步轮询
 
 ---
@@ -30,7 +30,7 @@
 
 ## 1. 范围
 
-### 1.1 IN (v1.0.26 ship)
+### 1.1 IN (v1.0.28 ship)
 
 1. **状态机**：轮询与 modal 解耦；`status===running` 时关窗不停 poll  
 2. **`actions-group` 左侧 chip**：Drive 像素格 + shimmer label + elapsed；点击 reopen modal  
@@ -61,7 +61,7 @@
 | `moni/web/static/js/app.js` | close/poll/reopen/resume + getters |
 | `moni/web/static/index.html` | actions-group chip + 行按钮状态 |
 | `moni/web/static/css/main.css` | `.pixel-loader` / keyframes / reduced-motion |
-| `docs/specs/2026-08-13-fetch-running-chip-v1.0.26.md` | 本 spec |
+| `docs/specs/2026-08-13-fetch-running-chip-v1.0.28.md` | 本 spec |
 
 ---
 
@@ -135,5 +135,5 @@ _fetchActiveBatchId  // 当前 batch id
 
 ## 7. 版本
 
-- **版本号**: v1.0.26  
-- **PR 标题建议**: `feat(fetch): v1.0.26 关窗后进行中 chip + Drive 像素 loading`
+- **版本号**: v1.0.28  
+- **PR 标题建议**: `feat(fetch): v1.0.28 关窗后进行中 chip + Drive 像素 loading`

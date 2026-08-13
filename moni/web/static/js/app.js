@@ -1324,7 +1324,7 @@ function app() {
     fetchProgress: null,
     _fetchPollTimer: null,
     fetchBatchMode: false,  // v1.0.8.9: true when "全部抓取" modal is open
-    // v1.0.26: background-running chip (poll continues after modal close)
+    // v1.0.28: background-running chip (poll continues after modal close)
     fetchChipLinger: false,
     fetchChipLingerStatus: null,
     _fetchActiveJobId: null,
@@ -1528,7 +1528,7 @@ function app() {
           // ONLY while non-terminal.
           const terminal = ['done', 'failed', 'timeout', 'stale'].includes(data.status);
           if (!terminal) {
-            // v1.0.26: 粒子/DOM 更新仅在 modal 打开时跑（关窗仍轮询写 fetchProgress）
+            // v1.0.28: 粒子/DOM 更新仅在 modal 打开时跑（关窗仍轮询写 fetchProgress）
             if (this.fetchProgressModal && this.fetchBatchMode === false) {
               const srcName = data.source || this.fetchProgress?.source || '';
               this._updateFeedInfo(srcName, data.current_feed || '');
@@ -1559,7 +1559,7 @@ function app() {
             } else if (data.status === 'done' || data.status === 'failed') {
               this.loadSources();
             }
-            // v1.0.26: 关窗后 chip linger
+            // v1.0.28: 关窗后 chip linger
             this._onFetchTerminal(data.status);
           }
         } catch (err) {
@@ -1643,7 +1643,7 @@ function app() {
           // v1.0.13: stop animating the moment we see a terminal batch status.
           const terminal = ['done', 'partial', 'failed'].includes(data.status);
 
-          // v1.0.26: 粒子仅在 modal 打开时更新
+          // v1.0.28: 粒子仅在 modal 打开时更新
           if (!terminal && this.fetchProgressModal) {
             if (this._chainRows.length > 0) {
               const currentSrc = data.current_source || '';
@@ -1700,7 +1700,7 @@ function app() {
       this._fetchPollTimer = setInterval(tick, 5000);
     },
 
-    // v1.0.26 ── Fetch running chip helpers ──────────────────────────
+    // v1.0.28 ── Fetch running chip helpers ──────────────────────────
     get isFetchRunning() {
       const s = this.fetchProgress?.status;
       if (s === 'running') return true;
@@ -1830,7 +1830,7 @@ function app() {
     },
 
     closeFetchProgress() {
-      // v1.0.26: 只关 UI；若 job 仍 running 则保留 poll + fetchBatchMode
+      // v1.0.28: 只关 UI；若 job 仍 running 则保留 poll + fetchBatchMode
       this.fetchProgressModal = false;
       const stillRunning = this.isFetchRunning;
       if (!stillRunning) {
