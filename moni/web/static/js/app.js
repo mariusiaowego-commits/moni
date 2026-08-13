@@ -1574,6 +1574,11 @@ function app() {
     async openRecentBatch() {
       // Re-open the batch progress modal for the most recent batch
       // fetch.  Called from the "📋 上次结果" button on the fetch panel.
+      // v1.0.28: 进行中禁止打开 — 会 clearInterval 当前 poll，前端像「打断抓取」
+      if (this.isFetchRunning) {
+        this._notify('info', '抓取进行中，结束后再查看上次结果');
+        return;
+      }
       try {
         const r = await fetch('/api/fetch/jobs/batch/recent', { credentials: 'same-origin' });
         if (!r.ok) {

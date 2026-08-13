@@ -319,7 +319,10 @@
               <span x-show="!isFetchRunning">⚡ 全部抓取</span>
               <span x-show="isFetchRunning">抓取中...</span>
             </button>
-            <button class="btn-secondary" @click="openRecentBatch()">📋 上次结果</button>
+            <button class="btn-secondary"
+                    @click="openRecentBatch()"
+                    :disabled="isFetchRunning"
+                    :title="isFetchRunning ? '抓取进行中，请结束后再查看上次结果' : '打开最近一次全部抓取结果'">📋 上次结果</button>
           </div>
         </div>
         <div class="table-container">
@@ -3088,7 +3091,7 @@
   <script src="js/calendar.js?v=20260810001"></script>
   <script src="js/cases.js?v=20260808004"></script>
   <script src="js/stats.js?v=20260809"></script>
-  <script src="js/app.js?v=20260813003"></script>
+  <script src="js/app.js?v=20260813004"></script>
   <script src="js/theme.js?v=1785000000"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <script src="js/pin_anim.js?v=1785000000"></script>
