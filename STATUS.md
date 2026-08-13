@@ -4,14 +4,45 @@
 
 ---
 
-## 当前状态: **v1.0.22 — 事实核查+ (sprint-07)** (2026-08-12)
+## 当前状态: **v1.0.25 — 看板 fact_check method 分布 (sprint-08 收尾)** (2026-08-12)
 
-**主分支 tag**: **v1.0.22** @ 36f2069 (PR #83 squash-merged)
-**Web 服务**: `127.0.0.1:8900` PID 67958 (手动重启, 绝对路径 `/usr/local/bin/python3`)
-**数据库**: schema_version=25 (migration 025_fact_check_evidence)
-**测试**: 669 passed + 2 skip (655 baseline + 14 sprint-07)
+**主分支 tag**: **v1.0.25** @ 313ffa1 (PR #88 squash-merged, **force push 待 dad 拍板**)
+**Web 服务**: `127.0.0.1:8900` PID 67958 (sprint-07 重启后, sprint-08 3 ship docs 改动, 不需重启)
+**数据库**: schema_version=26 (migration 025_fact_check_evidence + 026_brief_evidence_rendered)
+**测试**: 685 passed + 2 skip (655 baseline + v1.0.22 14 + v1.0.23 4 + v1.0.24 7 + v1.0.25 5 = 685)
 
-### v1.0.22 — 事实核查+ (sprint-07)
+### v1.0.23 / v1.0.24 / v1.0.25 — sprint-08 3 sub-ships
+
+**v1.0.23 — B5 失败 raw_output 落库** (P0 诊断盲区修复):
+- `moni/llm/jobs.py` 新增 `_truncate_utf8` + `_log_failure` (UTF-8 边界保护, 截断 2KB + `... [truncated N B total]` 提示)
+- `_persist_fact_check_plus` 3 个解析失败子分支 (`evidence parse failed` / `evidence is not a list` / `no evidence with snippet`) 各落 `RAW OUTPUT: <truncated> | PARSE: <reason>`
+- 触发 sprint-07 4 个 fact_check_plus jobs failed 诊断盲区, 修 LLM 回复格式时一眼能看 LLM 实际输出
+- 4 新测试 (`test_fact_check_plus_failure_log_*`)
+
+**v1.0.24 — 简报 web 模式** (银行业合规刚需):
+- 简报生成时检查 `has_web_fact_check`, 缺则 enqueue fact_check_plus (异步, 不阻塞)
+- 模板 (`moni/share/prompts/format-brief-{markdown,html}.md`) 加 "事实核查证据" 段 + 顶部 rollup 计数
+- 失败降级不阻塞: 该篇 evidence 标"未联网核查, 证据解析失败" + 简报仍生成
+- migration 026: `articles.evidence_rendered_at` (审计) + `has_web_fact_check` (v1.0.22 隐债补)
+- 7 新测试 (`test_brief_web_mode.py`)
+
+**v1.0.25 — 看板 fact_check method 分布** (申报书量化数据源):
+- `moni/stats/repository.py` 新增 `fact_check_method_layer_stats(period)` SQL 聚合 (7d/30d/90d/all)
+- 新端点 `GET /api/stats/fact-check-method?period=...`
+- 量化看板第 6 块 SVG 饼图 (3 色: llm_inference=蓝 / web_search=绿 / human=灰)
+- 5 新测试 (`test_stats_method.py`)
+- 0 篇 web_search 现状下饼图只有蓝色, 待 sprint-08 v1.0.24 简报 web 模式增长后丰富
+
+**已记录 P1** (sprint-09 候选):
+- evidence 落库脱敏 (LLM 返回含 api key 等敏感信息)
+- 简报 worker 改用 LLM 检索 (v1.0.24 简报 web 模式同步性升级)
+- evidence 按 URL 去重 (跨文章同 URL 合并)
+- evidence 时效校验 (证据时间 > 文章发布时间则提示过期)
+- method × 来源交叉分析 (llm_inference 多 vs web_search 多 哪个信源)
+- 按 method 分的 token 成本估算
+- 状态机 (人工覆写 draft→verified, 与 cases 库同构)
+
+### v1.0.22 — 事实核查+ (sprint-07 历史)
 
 **业务**:
 - 联网核查+ v1.0.22 升级: 从 v1.0.10 基础档 (LLM 常识推断 method=llm_inference) 扩展为**联网核查+** (实时检索 + 证据链落库 + 双闸防幻觉)

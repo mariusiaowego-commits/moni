@@ -1,7 +1,7 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。**v1.0.22** (2026-08-12) — 669 pytest pass + 2 skip, **11** active 源, schema v25。
-> 本次新增: **事实核查+** (联网核查 + 证据链落库 + 双闸防幻觉) — sprint-07 实施。
+> 同业信源自动抓取与本地新闻库。**v1.0.25** (2026-08-12) — 685 pytest pass + 2 skip, **11** active 源, schema v26。
+> 本次新增: **sprint-08 3 sub-ships** — B5 失败诊断 (v1.0.23) + 简报 web 模式 (v1.0.24) + 看板 method 分布 (v1.0.25)。
 > 这份文档给**用户**（你自己）看 —— 怎么用 moni，不讲代码细节。
 
 ---
@@ -616,7 +616,72 @@ Rescue = 把菜篮子里的文章「救回」到正式文章库：
 
 **注意**: 导入会整体替换原有正文，不合并。
 
-### 5.5 LLM 配置
+### 5.6 B5 失败诊断 (v1.0.23)
+
+> 联网核查+ (v1.0.22) 实施后, 4 个 fact_check_plus jobs 失败但 LLM 实际回什么都看不到 — B5 修这个诊断盲区。失败时把 LLM 原始回复前 2KB 落到 `llm_jobs.error` 字段, 跟 `evidence parse failed` 原因并列, 后续修 prompt 时一眼能看。
+
+**怎么看诊断信息**:
+
+1. 进 "LLM 任务" 面板, 找 fact_check_plus task 标红 (failed)
+2. 点 "查看" 打开详情 modal, 滚动到 "错误信息" 段
+3. 看到格式: `RAW OUTPUT: <truncated 2KB> | PARSE: <reason>`
+4. `<reason>` 是 3 种之一: `evidence parse failed` / `evidence parse failed: evidence is not a list` / `no evidence with snippet`
+5. 截断后附 `... [truncated N B total]` 提示原始大小
+
+**故障排查**:
+- 看到 `evidence parse failed` 通常是 LLM 返回了非 JSON 文本 (思考过程混出) → 修 prompt 加 "严格 JSON 输出"
+- 看到 `no evidence with snippet` 是 LLM 返回了 JSON 但 evidence 列表里没 snippet 字段 → 修 prompt 强调 "每条 evidence 必须含 snippet"
+- 看到 `evidence is not a list` 是 JSON 格式对了但 `evidence` 字段类型错 (string 而非 array) → 修 prompt 加 example 示范
+
+**API 调试**:
+```bash
+sqlite3 data/news.db "SELECT id, error FROM llm_jobs WHERE task_type='fact_check_plus' AND status='failed' ORDER BY finished_at DESC LIMIT 5"
+```
+
+### 5.7 简报 web 模式 (v1.0.24)
+
+> 简报生成时自动整合事实核查+ 证据链 — 对每篇文章检查 `has_web_fact_check`, 缺则 enqueue fact_check_plus (异步不阻塞), 简报 markdown / HTML 模板底部加 "事实核查证据" 段 + 顶部 rollup 计数。
+
+**怎么看**:
+
+1. 一键简报生成时, 简报顶部 rollup 显示 "已联网核查: N/M 篇"
+2. 简报底部 "事实核查证据" 段: 每篇文章结论 + 来源 URL + 引用片段 + 检索关键词
+3. 失败的篇标 "（未联网核查, 证据解析失败, 请人工复核）" — 简报仍生成, 不阻塞
+4. 简报生成时自动 enqueue fact_check_plus, 缺证据的文章下次简报会补全
+
+**故障排查**:
+- 简报 rollup 标 0/M (没联网核查) → 缺事实核查模型 (进 LLM 设置绑 active_fact_check_model_id)
+- 简报 evidence 段空 → fact_check_plus jobs 还在跑 (等 30-60s) 或 evidence 解析失败
+- 简报 footer 没 "事实核查证据" 段 → moni 旧版本, 升级到 v1.0.24
+
+**审计字段**:
+- `articles.evidence_rendered_at` — 简报生成时实际使用核查结果的时刻 (审计: 哪次简报用了哪次核查)
+- `articles.has_web_fact_check` — 是否已完成联网核查 (简报生成前判断)
+
+### 5.8 量化看板 method 分布 (v1.0.25)
+
+> 量化看板 (sprint 06 W1 5 模块) 加第 6 块 "事实核查 method 分布" — 按 `articles.fact_check_method` (llm_inference 基础档 / web_search 联网档+ / human 人工) × 7d/30d/90d/all 时间窗聚合, 饼图 3 色展示。
+
+**怎么看**:
+
+1. 进 "量化看板" 页面
+2. 滚动到第 6 块 "事实核查 method 分布"
+3. 饼图显示 3 段: 蓝色 (llm_inference 基础档) / 绿色 (web_search 联网档+) / 灰色 (human 人工)
+4. 顶部下拉切时间窗: 7d / 30d / 90d / all
+5. 数字含义: "已联网核查: N/M 篇" — M 是 `has_fact_check=1` 总数, N 是 M 中已联网核查的数量
+
+**API 调试**:
+```bash
+curl "http://127.0.0.1:8900/api/stats/fact-check-method?period=30d" | python3 -m json.tool
+# 返 { "by_method": [{"method": "llm_inference", "article_count": 28, "percentage": 87.5}, ...] }
+```
+
+**用途**:
+- 看团队工作流: 多少文章走轻量基础档 vs 重量联网档
+- 评估 token 成本: 联网档比基础档贵 10-20 倍
+- 申报书量化数据: 饼图比例直接放 §5.1 证据段
+
+### 5.9 LLM 配置
 
 LLM 用 3 张 DB 表管理 (v1.0.2-A):
 - `llm_providers` (3 个 seed: minimax-cn / google / openrouter)
