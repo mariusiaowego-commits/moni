@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css?v=20260813006">
+  <link rel="stylesheet" href="css/main.css?v=20260813007">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -418,24 +418,36 @@
               </div>
             </div>
 
+            <!-- v1.0.28: 人读摘要为主 + 原始 JSON 默认折叠 -->
             <div class="fetch-result-panel fetch-result-panel-in-ops" x-show="fetchResult">
               <div class="fetch-result-explain" x-show="fetchResultObj">
                 <template x-for="(line, idx) in formatFetchResult()" :key="idx">
-                  <div>
+                  <div class="fr-line">
                     <div x-show="line.type === 'success'" class="fr-success" x-text="line.text"></div>
                     <div x-show="line.type === 'warn'" class="fr-warn" x-text="line.text"></div>
                     <div x-show="line.type === 'muted'" class="fr-muted" x-text="line.text"></div>
                     <div x-show="line.type === 'error'" class="fr-error" x-text="line.text"></div>
                     <div x-show="line.type === 'section'" class="fr-section" x-text="line.text"></div>
                     <div x-show="line.type === 'item'" class="fr-item">
-                      <span class="fr-label" x-text="line.label"></span>
-                      <span class="fr-value" x-text="line.value"></span>
-                      <span class="fr-detail" x-text="line.detail"></span>
+                      <div class="fr-item-main">
+                        <span class="fr-label" x-text="line.label"></span>
+                        <span class="fr-value" x-show="line.value" x-text="line.value"></span>
+                      </div>
+                      <div class="fr-detail" x-show="line.detail" x-text="line.detail"></div>
                     </div>
                   </div>
                 </template>
               </div>
-              <div class="result-box" x-text="fetchResult"></div>
+              <!-- 无结构化解释时：直接展示文案（如连通性 FAIL） -->
+              <div class="fetch-result-plain" x-show="!fetchResultObj && fetchResult" x-text="fetchResult"></div>
+              <!-- 原始 JSON / 全文：默认折叠 -->
+              <details class="fetch-raw-details" x-show="fetchResult">
+                <summary class="fetch-raw-summary">
+                  <span>原始响应</span>
+                  <span class="fetch-raw-hint">JSON · 点击展开</span>
+                </summary>
+                <pre class="result-box" x-text="fetchResult"></pre>
+              </details>
             </div>
 
             <div class="drop-detail-panel" x-show="fetchAllResult && fetchAllResult.results && fetchAllResult.results.some(r => r.dropped_articles && r.dropped_articles.length > 0)">
@@ -3165,7 +3177,7 @@
   <script src="js/calendar.js?v=20260810001"></script>
   <script src="js/cases.js?v=20260808004"></script>
   <script src="js/stats.js?v=20260809"></script>
-  <script src="js/app.js?v=20260813006"></script>
+  <script src="js/app.js?v=20260813007"></script>
   <script src="js/theme.js?v=1785000000"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <script src="js/pin_anim.js?v=1785000000"></script>
