@@ -59,6 +59,7 @@ from moni.llm.prompts import render_fact_check, render_fact_check_plus, render_s
 from moni.web.routes.fact_check_plus import (
     DOMAIN_WHITELIST,
     DOMAIN_WHITELIST_REGEX,
+    classify_timeliness,
     is_in_whitelist,
 )
 
@@ -537,7 +538,10 @@ def _persist_fact_check_plus(
     raw_output: str,
     finished_at: str,
 ) -> None:
-    """Parse + dual-gate + write articles + fact_check_evidence rows.
+    """Parse + 闸 1/2/3 + write articles + fact_check_evidence rows.
+
+    闸 3 (v1.0.26): fetched_at ≥30d 标 [过期], ≥90d 标 [存疑];
+    不改 conclusion (不把【已核实】降成【待核实】).
 
     Raises ValueError on parse / empty-evidence so caller marks job failed.
     On the three parse-failure branches, logs truncated raw_output into
@@ -562,6 +566,7 @@ def _persist_fact_check_plus(
             if not url or not snippet or not _valid_url(url):
                 continue
             domain = (e.get("domain") or "").strip() or _domain_from_url(url)
+            ev_fetched = (e.get("fetched_at") or "").strip() or None
             valid.append(
                 {
                     "query": (e.get("query") or "").strip() or "",
@@ -569,6 +574,7 @@ def _persist_fact_check_plus(
                     "domain": domain,
                     "snippet": snippet,
                     "rationale": (e.get("rationale") or "").strip() or "",
+                    "fetched_at": ev_fetched,
                 }
             )
         if not valid:
@@ -583,6 +589,31 @@ def _persist_fact_check_plus(
                 "[llm_jobs] fact_check_plus job %s: demoted 【已核实】→【待核实】 (no whitelist domain)",
                 job_id,
             )
+
+        # Gate 3: timeliness check — annotate only, never demote conclusion
+        now_dt = datetime.now(timezone.utc)
+        for e in valid:
+            raw_fetched = e.get("fetched_at")
+            if raw_fetched:
+                tl = classify_timeliness(raw_fetched, now=now_dt)
+                e["fetched_at"] = raw_fetched
+            else:
+                # LLM 没给 fetched_at → 本次抓取时刻 (刚抓, 必 fresh)
+                tl = classify_timeliness(finished_at, now=now_dt)
+                e["fetched_at"] = finished_at
+            e["timeliness"] = tl["timeliness"]
+            e["age_days"] = tl["age_days"]
+            e["timeliness_flag"] = tl["timeliness_flag"]
+            if e["timeliness"] == "demote":
+                logger.info(
+                    "[llm_jobs] fact_check_plus job %s: evidence ≥90d, flag [存疑] (no conclusion demote)",
+                    job_id,
+                )
+            elif e["timeliness"] == "warn":
+                logger.info(
+                    "[llm_jobs] fact_check_plus job %s: evidence ≥30d, flag [过期] (no conclusion demote)",
+                    job_id,
+                )
 
         note = json.dumps(valid, ensure_ascii=False)
         try:
@@ -620,31 +651,51 @@ def _persist_fact_check_plus(
             (article_id,),
         )
         for i, e in enumerate(valid):
-            conn.execute(
-                """
-                INSERT INTO fact_check_evidence
-                    (id, article_id, job_id, query, url, domain, snippet,
-                     fetched_at, model, provider, conclusion, rationale,
-                     evidence_seq, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    uuid.uuid4().hex,
-                    article_id,
-                    job_id,
-                    e["query"],
-                    e["url"],
-                    e["domain"],
-                    e["snippet"],
-                    finished_at,
-                    model,
-                    provider,
-                    conclusion,
-                    e.get("rationale") or "",
-                    i,
-                    finished_at,
-                ),
+            row_id = uuid.uuid4().hex
+            vals = (
+                row_id,
+                article_id,
+                job_id,
+                e["query"],
+                e["url"],
+                e["domain"],
+                e["snippet"],
+                e.get("fetched_at") or finished_at,
+                model,
+                provider,
+                conclusion,
+                e.get("rationale") or "",
+                i,
+                finished_at,
             )
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO fact_check_evidence
+                        (id, article_id, job_id, query, url, domain, snippet,
+                         fetched_at, model, provider, conclusion, rationale,
+                         evidence_seq, created_at,
+                         timeliness, age_days, timeliness_flag)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    vals + (
+                        e.get("timeliness") or "unknown",
+                        e.get("age_days"),
+                        e.get("timeliness_flag"),
+                    ),
+                )
+            except Exception:
+                # Pre-migration 027: timeliness columns may be missing.
+                conn.execute(
+                    """
+                    INSERT INTO fact_check_evidence
+                        (id, article_id, job_id, query, url, domain, snippet,
+                         fetched_at, model, provider, conclusion, rationale,
+                         evidence_seq, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    vals,
+                )
     except ValueError as exc:
         # B5: log truncated raw_output into llm_jobs.error for the 3 parse
         # failure branches; re-raise with full message so outer _mark_failed

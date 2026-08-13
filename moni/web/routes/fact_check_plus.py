@@ -14,6 +14,7 @@ method='llm_inference')。v1.0.22 升级到联网档:
   - 检索通道: hermes -t web -Q --max-turns 8 (零新依赖, jobs.py 注入)
   - 证据链: 独立表 ``fact_check_evidence`` 落库, 每条结论可按文章/URL/检索关键词反查
   - 双闸防幻觉: 闸 1 证据片段非空 + URL 合法, 闸 2 权威域白名单命中才允许【已核实】
+  - 闸 3 时效: fetched_at ≥30d 标 [过期](warn); ≥90d 标 [存疑](demote); 不降级结论
   - method: 'web_search'
 
 Why this file exists
@@ -84,6 +85,54 @@ DOMAIN_WHITELIST_REGEX: list[str] = [
 ]
 
 MAX_BATCH_SIZE: int = 20
+
+# 闸 3 时效阈值 (v1.0.26)
+TIMELINESS_WARN_DAYS: int = 30
+TIMELINESS_DEMOTE_DAYS: int = 90
+
+
+def classify_timeliness(
+    fetched_at: str | None,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """闸 3: 按 evidence.fetched_at 距今天数打时效标.
+
+    返回 ``{timeliness, age_days, timeliness_flag}``.
+    不改 conclusion — 过期只标 ``[过期]`` / ``[存疑]``, 不把【已核实】降成【待核实】.
+
+    * age < 30        → fresh  / flag None
+    * 30 ≤ age < 90   → warn   / flag ``[过期]``
+    * age ≥ 90        → demote / flag ``[存疑]``
+    * 空 / 不可解析   → unknown / flag None, age_days None
+    """
+    now = now or datetime.now(timezone.utc)
+    dt = _parse_fetched_at(fetched_at)
+    if dt is None:
+        return {"timeliness": "unknown", "age_days": None, "timeliness_flag": None}
+    age = max(0, (now - dt).days)
+    if age >= TIMELINESS_DEMOTE_DAYS:
+        return {"timeliness": "demote", "age_days": age, "timeliness_flag": "[存疑]"}
+    if age >= TIMELINESS_WARN_DAYS:
+        return {"timeliness": "warn", "age_days": age, "timeliness_flag": "[过期]"}
+    return {"timeliness": "fresh", "age_days": age, "timeliness_flag": None}
+
+
+def _parse_fetched_at(fetched_at: str | None) -> datetime | None:
+    """Parse ISO8601 fetched_at; None / blank / garbage → None (unknown)."""
+    if fetched_at is None:
+        return None
+    text = str(fetched_at).strip()
+    if not text:
+        return None
+    text = text.replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def is_in_whitelist(domain: str) -> bool:
@@ -303,15 +352,37 @@ def fact_check_plus_evidence(article_id: str) -> dict[str, Any]:
     if row is None:
         raise NotFoundError(message=f"Article {article_id!r} not found")
 
-    rows = conn.execute(
-        """
-        SELECT query, url, domain, snippet, fetched_at, model, provider,
-               conclusion, rationale, evidence_seq, created_at, job_id
-        FROM fact_check_evidence
-        WHERE article_id = ?
-        ORDER BY evidence_seq ASC
-        """,
-        (article_id,),
-    ).fetchall()
-    items = [dict(r) for r in rows]
+    try:
+        rows = conn.execute(
+            """
+            SELECT query, url, domain, snippet, fetched_at, model, provider,
+                   conclusion, rationale, evidence_seq, created_at, job_id,
+                   timeliness, age_days, timeliness_flag
+            FROM fact_check_evidence
+            WHERE article_id = ?
+            ORDER BY evidence_seq ASC
+            """,
+            (article_id,),
+        ).fetchall()
+    except Exception:
+        # Pre-migration 027: timeliness columns may be missing.
+        rows = conn.execute(
+            """
+            SELECT query, url, domain, snippet, fetched_at, model, provider,
+                   conclusion, rationale, evidence_seq, created_at, job_id
+            FROM fact_check_evidence
+            WHERE article_id = ?
+            ORDER BY evidence_seq ASC
+            """,
+            (article_id,),
+        ).fetchall()
+    # Live recompute so 30d/90d 窗口随时间前进, 不依赖落库快照
+    items: list[dict[str, Any]] = []
+    for r in rows:
+        item = dict(r)
+        tl = classify_timeliness(item.get("fetched_at"))
+        item["timeliness"] = tl["timeliness"]
+        item["age_days"] = tl["age_days"]
+        item["timeliness_flag"] = tl["timeliness_flag"]
+        items.append(item)
     return {"article_id": article_id, "items": items, "total": len(items)}
