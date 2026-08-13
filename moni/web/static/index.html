@@ -20,7 +20,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css?v=20260813016">
+  <link rel="stylesheet" href="css/main.css?v=20260813017">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -363,7 +363,7 @@
                        'is-open': t.open,
                        'is-running': t.status === 'running',
                        'is-done': t.status === 'done' || t.status === 'partial',
-                       'is-failed': t.status === 'failed' || t.status === 'timeout' || t.status === 'stale'
+                       'is-failed': t.status === 'failed' || t.status === 'timeout' || t.status === 'stale' || t.status === 'cancelled'
                      }"
                      :style="'animation-delay: ' + (ti * 80) + 'ms'">
                   <button type="button"
@@ -386,7 +386,7 @@
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
                       </span>
                       <span class="fetch-status-dot tone-red" aria-hidden="true"
-                            x-show="t.status === 'failed' || t.status === 'timeout' || t.status === 'stale'">
+                            x-show="t.status === 'failed' || t.status === 'timeout' || t.status === 'stale' || t.status === 'cancelled'">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
                       </span>
                     </span>
@@ -396,12 +396,17 @@
                           x-show="taskPillLabel(t)"
                           :class="'tone-' + taskPillTone(t)"
                           x-text="taskPillLabel(t)"></span>
-                    <!-- 进行中：不展开也能点回 progress modal -->
+                    <!-- 进行中：进度 / 停止（僵尸任务可解除） -->
                     <button type="button"
                             class="fetch-task-reopen link-btn"
                             x-show="t.status === 'running'"
                             @click.stop="focusFetchTask(t)"
                             title="打开进度弹窗">进度</button>
+                    <button type="button"
+                            class="fetch-task-reopen link-btn fetch-task-stop"
+                            x-show="t.status === 'running'"
+                            @click.stop="cancelFetchTask(t)"
+                            title="停止此抓取（解除卡住）">停止</button>
                     <span class="fetch-task-chevron" aria-hidden="true">
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
                     </span>
@@ -3257,7 +3262,7 @@
   <script src="js/calendar.js?v=20260810001"></script>
   <script src="js/cases.js?v=20260808004"></script>
   <script src="js/stats.js?v=20260809"></script>
-  <script src="js/app.js?v=20260813014"></script>
+  <script src="js/app.js?v=20260813017"></script>
   <script src="js/theme.js?v=1785000000"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <script src="js/pin_anim.js?v=1785000000"></script>

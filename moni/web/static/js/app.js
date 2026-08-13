@@ -1555,7 +1555,7 @@ function app() {
         });
         this._upsertFetchTask({ ...t });
 
-        const terminal = ['done', 'failed', 'timeout', 'stale'].includes(data.status);
+        const terminal = ['done', 'failed', 'timeout', 'stale', 'cancelled'].includes(data.status);
         if (!terminal) {
           if (this.fetchProgressModal && this.fetchProgress?.id === t.id && this.fetchBatchMode === false) {
             this._updateFeedInfo(data.source || t.source || '', data.current_feed || '');
@@ -1884,11 +1884,12 @@ function app() {
       if (!t) return '';
       if (t.status === 'running') return '';
       const map = {
-        done: 'Completed',
-        partial: 'Partial',
-        failed: 'Failed',
-        timeout: 'Timeout',
-        stale: 'Stale',
+        done: '完成',
+        partial: '部分完成',
+        failed: '失败',
+        timeout: '超时',
+        stale: '已中止',
+        cancelled: '已停止',
       };
       return map[t.status] || t.status;
     },
@@ -1897,7 +1898,7 @@ function app() {
       if (!t) return '';
       if (t.status === 'done') return 'green';
       if (t.status === 'partial') return 'amber';
-      if (['failed', 'timeout', 'stale'].includes(t.status)) return 'red';
+      if (['failed', 'timeout', 'stale', 'cancelled'].includes(t.status)) return 'red';
       return '';
     },
 
@@ -2068,6 +2069,50 @@ function app() {
         return;
       }
       this.focusFetchTask(t);
+    },
+
+    async cancelFetchTask(t) {
+      // Soft-cancel running job (zombie after restart / hang). Unblocks 立即抓取.
+      if (!t) return;
+      const jid = t.job_id || (t.kind === 'single' ? t.id : null);
+      if (!jid || t.kind === 'batch') {
+        // batch: cancel each? For now only single-source cancel is wired.
+        if (t.kind === 'batch' && t.batch_id) {
+          this._notify('info', '全部抓取暂不支持一键停止，请等超时或刷新后重试');
+          return;
+        }
+        this._notify('info', '无法停止：缺少 job id');
+        return;
+      }
+      const ok = await moniModal.confirm(
+        `停止「${this.taskLabel(t)}」的抓取？\n卡住的僵尸任务可立即解除；若线程仍在跑，结束后可能仍会写回结果。`,
+        { title: '停止抓取', okLabel: '停止', danger: true }
+      );
+      if (!ok) return;
+      try {
+        const r = await fetch(`/api/fetch/jobs/${encodeURIComponent(jid)}/cancel`, {
+          method: 'POST',
+          credentials: 'same-origin',
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          const msg = data?.detail?.message || data?.message || `HTTP ${r.status}`;
+          this._notify('error', '停止失败: ' + msg);
+          return;
+        }
+        this._upsertFetchTask({
+          ...t,
+          status: 'cancelled',
+          error: 'cancelled by user',
+        });
+        this._scheduleTaskLinger({ ...t, status: 'cancelled' }, 'cancelled');
+        this._notify('info', '已停止抓取');
+        if (this.fetchProgress?.id === t.id) {
+          this.fetchProgress = { ...this.fetchProgress, status: 'cancelled' };
+        }
+      } catch (err) {
+        this._notify('error', '停止失败: ' + (err?.message || err));
+      }
     },
 
     async resumeRunningFetchJobs() {
