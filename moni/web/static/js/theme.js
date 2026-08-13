@@ -1,10 +1,11 @@
-// theme.js — Theme engine for moni frontend
-// Manages CSS variable themes, dark mode, and localStorage persistence.
+// theme.js — Theme engine for moni frontend (v1.0.30)
+// CSS variables, dark mode, localStorage, import merge with DEFAULT.
 
 const THEME_STORAGE_KEY = 'moni-themes';
 const THEME_ACTIVE_KEY = 'moni-active-theme';
 const THEME_DARK_KEY = 'moni-dark-mode';
 
+/** Full default palette — import merge fills missing keys from here. */
 const DEFAULT_THEME = {
   name: '中国传统色 · 纯衣',
   isDefault: true,
@@ -23,13 +24,28 @@ const DEFAULT_THEME = {
     '--border': 'oklch(0.848 0.030 75.6)',
     '--input': 'oklch(0.848 0.030 75.6)',
     '--ring': 'oklch(0.963 0.013 97.4)',
+    '--success': 'oklch(0.48 0.12 150)',
+    '--success-fg': 'oklch(0.99 0.01 150)',
+    '--success-muted': 'oklch(0.92 0.05 150)',
+    '--success-muted-fg': 'oklch(0.32 0.08 150)',
+    '--warning': 'oklch(0.72 0.14 75)',
+    '--warning-fg': 'oklch(0.25 0.06 75)',
+    '--warning-muted': 'oklch(0.94 0.06 85)',
+    '--warning-muted-fg': 'oklch(0.40 0.10 70)',
+    '--info': 'oklch(0.55 0.12 250)',
+    '--info-fg': 'oklch(0.99 0.01 250)',
+    '--info-muted': 'oklch(0.93 0.04 250)',
+    '--info-muted-fg': 'oklch(0.35 0.10 250)',
+    '--chart-1': 'oklch(0.55 0.14 250)',
     '--chart-2': 'oklch(0.853 0.045 187.6)',
     '--chart-3': 'oklch(0.894 0.031 191.5)',
     '--chart-4': 'oklch(0.832 0.029 322.2)',
     '--chart-5': 'oklch(0.805 0.071 326.2)',
     '--shadow': '0 1px 3px oklch(0.218 0.000 89.9 / 0.06)',
+    '--shadow-lg': '0 4px 12px oklch(0.218 0.000 89.9 / 0.08)',
   },
   dark: {
+    '--radius': '0.375rem',
     '--background': 'oklch(0.170 0.004 164.5)',
     '--foreground': 'oklch(0.928 0.034 84.6)',
     '--card': 'oklch(0.218 0.000 89.9)',
@@ -43,9 +59,48 @@ const DEFAULT_THEME = {
     '--border': 'oklch(0.337 0.007 84.6)',
     '--input': 'oklch(0.337 0.007 84.6)',
     '--ring': 'oklch(0.967 0.015 90.2)',
+    '--success': 'oklch(0.70 0.14 150)',
+    '--success-fg': 'oklch(0.15 0.03 150)',
+    '--success-muted': 'oklch(0.28 0.05 150)',
+    '--success-muted-fg': 'oklch(0.85 0.08 150)',
+    '--warning': 'oklch(0.78 0.12 80)',
+    '--warning-fg': 'oklch(0.18 0.04 80)',
+    '--warning-muted': 'oklch(0.30 0.05 80)',
+    '--warning-muted-fg': 'oklch(0.88 0.06 85)',
+    '--info': 'oklch(0.72 0.12 250)',
+    '--info-fg': 'oklch(0.15 0.04 250)',
+    '--info-muted': 'oklch(0.28 0.05 250)',
+    '--info-muted-fg': 'oklch(0.85 0.06 250)',
+    '--chart-1': 'oklch(0.70 0.14 250)',
+    '--chart-2': 'oklch(0.75 0.08 187)',
+    '--chart-3': 'oklch(0.78 0.06 191)',
+    '--chart-4': 'oklch(0.75 0.08 322)',
+    '--chart-5': 'oklch(0.72 0.10 326)',
     '--shadow': '0 1px 3px oklch(0 0 0 / 0.2)',
-  }
+    '--shadow-lg': '0 4px 12px oklch(0 0 0 / 0.3)',
+  },
 };
+
+/** Deep-merge palette: user keys win; missing keys filled from DEFAULT. */
+function mergeThemeVars(mode, partial) {
+  const base = { ...(DEFAULT_THEME[mode] || {}) };
+  const src = partial && typeof partial === 'object' ? partial : {};
+  for (const [k, v] of Object.entries(src)) {
+    if (v != null && String(v).trim() !== '') base[k] = String(v).trim();
+  }
+  return base;
+}
+
+function normalizeThemeRecord(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const name = String(raw.name || '').trim() || '自定义主题';
+  return {
+    name,
+    isDefault: !!raw.isDefault,
+    light: mergeThemeVars('light', raw.light || {}),
+    dark: mergeThemeVars('dark', raw.dark || {}),
+  };
+}
 
 // ── Parse CSS variables from pasted globals.css ──
 function parseGlobalsCSS(cssText) {
@@ -70,21 +125,16 @@ function parseGlobalsCSS(cssText) {
       if (prop && val) result.dark[prop] = val;
     }
   }
-  if (Object.keys(result.dark).length === 0 && Object.keys(result.light).length > 0) {
-    result.dark = { ...result.light };
-  }
+  // v1.0.30: do NOT copy light→dark wholesale; mergeThemeVars fills dark from DEFAULT
   return result;
 }
 
-// ── Detect theme name from CSS content ──
 function detectThemeName(cssText) {
-  // Strategy 1: comment with name
   const commentMatch = cssText.match(/\/\*\s*(?:Theme|主题)?[:\s]*([^*\/]{2,40})\s*\*\//i);
   if (commentMatch) {
     let name = commentMatch[1].replace(/[═─\s]+$/g, '').replace(/^[═─\s]+/g, '').trim();
     if (name.length >= 2 && name.length <= 30) return name;
   }
-  // Strategy 2: infer from hue
   const light = parseGlobalsCSS(cssText).light;
   if (light['--background']) {
     const hueMatch = light['--background'].match(/oklch\([\d.]+\s+[\d.]+\s+([\d.]+)/);
@@ -103,27 +153,32 @@ function detectThemeName(cssText) {
   return '自定义主题 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 }
 
-// ── Alpine.js theme data + methods (merged into app()) ──
 function themeMixin() {
   return {
-    // State
     themeModalOpen: false,
     themeTab: 'apply',
     themeCssInput: '',
     themeImportStatus: '',
     activeTheme: localStorage.getItem(THEME_ACTIVE_KEY) || DEFAULT_THEME.name,
     isDarkMode: localStorage.getItem(THEME_DARK_KEY) === 'true',
-    customThemes: JSON.parse(localStorage.getItem(THEME_STORAGE_KEY) || '[]'),
+    customThemes: (() => {
+      try {
+        const raw = JSON.parse(localStorage.getItem(THEME_STORAGE_KEY) || '[]');
+        return (Array.isArray(raw) ? raw : [])
+          .map(normalizeThemeRecord)
+          .filter(Boolean);
+      } catch (_) {
+        return [];
+      }
+    })(),
     toastVisible: false,
     toastMessage: '',
     _toastTimer: null,
 
-    // Computed
     get themeList() {
       return [DEFAULT_THEME, ...this.customThemes];
     },
 
-    // Methods
     openThemeManager() {
       this.themeModalOpen = true;
       this.themeTab = 'apply';
@@ -136,14 +191,27 @@ function themeMixin() {
 
     applyTheme(name) {
       const all = [DEFAULT_THEME, ...this.customThemes];
-      const theme = all.find(t => t.name === name) || DEFAULT_THEME;
+      let theme = all.find(t => t.name === name) || DEFAULT_THEME;
+      // ensure full palette even if stored theme is partial
+      theme = {
+        ...theme,
+        light: mergeThemeVars('light', theme.light),
+        dark: mergeThemeVars('dark', theme.dark),
+      };
       const vars = this.isDarkMode ? theme.dark : theme.light;
       let css = ':root {\n';
       for (const [k, v] of Object.entries(vars)) {
         css += `  ${k}: ${v};\n`;
       }
       css += '}\n';
-      // Inject into <style id="theme-override"> or create one
+      // also set .dark block so components under .dark get dark vars when toggled
+      if (this.isDarkMode) {
+        css += '.dark {\n';
+        for (const [k, v] of Object.entries(theme.dark)) {
+          css += `  ${k}: ${v};\n`;
+        }
+        css += '}\n';
+      }
       let styleEl = document.getElementById('theme-override');
       if (!styleEl) {
         styleEl = document.createElement('style');
@@ -171,8 +239,13 @@ function themeMixin() {
         return;
       }
       const name = detectThemeName(css);
+      const newTheme = normalizeThemeRecord({
+        name,
+        isDefault: false,
+        light: parsed.light,
+        dark: Object.keys(parsed.dark).length ? parsed.dark : {},
+      });
       const existing = this.customThemes.findIndex(t => t.name === name);
-      const newTheme = { name, isDefault: false, light: parsed.light, dark: parsed.dark };
       if (existing >= 0) {
         this.customThemes[existing] = newTheme;
       } else {
@@ -180,7 +253,7 @@ function themeMixin() {
       }
       localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(this.customThemes));
       this.applyTheme(name);
-      this.themeImportStatus = `✅ 「${name}」已保存并应用`;
+      this.themeImportStatus = `✅ 「${name}」已保存并应用（缺省 token 已从默认补齐）`;
       this.themeCssInput = '';
       this.showToast(`主题「${name}」已导入`);
     },
@@ -199,7 +272,6 @@ function themeMixin() {
       this._toastTimer = setTimeout(() => { this.toastVisible = false; }, 2500);
     },
 
-    // Init: apply saved theme on load
     initTheme() {
       this.applyTheme(this.activeTheme);
     },
