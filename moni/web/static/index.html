@@ -1692,6 +1692,35 @@
             <div class="stats-module-row"><span>口径</span><strong x-text="efficiency.display_label"></strong></div>
             <div class="stats-module-row"><span>来源</span><strong x-text="efficiency.t0_source" style="font-size:10px"></strong></div>
           </div>
+
+          <!-- v1.0.25: 事实核查 method 分布 (第 6 块) -->
+          <div class="stats-module" id="stats-fact-check-method">
+            <div class="stats-module-head">
+              <span class="stats-module-title">事实核查 method 分布</span>
+              <span class="stats-module-status"
+                    :class="(factCheckMethod.total_articles_with_fact_check || 0) > 0 ? 'stat-ok' : 'stat-sparse'"
+                    x-text="(factCheckMethod.total_articles_with_fact_check || 0) > 0 ? '展示中' : '数据积累中'"></span>
+            </div>
+            <div class="stats-module-primary" x-text="fmt(factCheckMethod.total_articles_with_fact_check || 0)"></div>
+            <div class="stats-method-pie-wrap" x-show="(factCheckMethod.by_method || []).length > 0">
+              <svg class="stats-method-pie" viewBox="0 0 120 120" width="120" height="120" aria-label="method 饼图">
+                <template x-for="(slice, i) in methodPieSlices()" :key="slice.method + '-' + i">
+                  <path :d="slice.d" :fill="slice.color" :class="'stats-method-color stats-method-' + slice.method"></path>
+                </template>
+              </svg>
+              <ul class="stats-method-legend">
+                <template x-for="(item, i) in (factCheckMethod.by_method || [])" :key="item.method + '-' + i">
+                  <li>
+                    <span class="stats-method-color" :class="'stats-method-' + item.method"></span>
+                    <span x-text="methodLabel(item.method)"></span>
+                    <strong x-text="fmt(item.article_count) + ' (' + (item.percentage ?? 0) + '%)'"></strong>
+                  </li>
+                </template>
+              </ul>
+            </div>
+            <div class="stats-module-row"><span>未核查文章</span><strong x-text="fmt(factCheckMethod.unfact_checked_total || 0)"></strong></div>
+            <div class="stats-module-row"><span>窗口</span><strong x-text="period"></strong></div>
+          </div>
         </div>
 
         <!-- 趋势图 (fetch) -->

@@ -1,17 +1,19 @@
-/* stats.js — W1 量化看板 Alpine 组件 (v1.0.19)
+/* stats.js — W1 量化看板 Alpine 组件 (v1.0.19 + v1.0.25 method 饼图)
  *
  * MOA 4 视角拍板组合 A+A+A+A+A+(A+补丁):
  * - 5 模块横排 + 顶部三卡 + 节省瀑布图
+ * - v1.0.25: 第 6 块「事实核查 method 分布」饼图
  * - 数据稀疏: display_status='数据积累中' 时不展示百分比/节省
  * - 抽取层 (events/cases) 阈值 N_EXTRACT_THRESHOLD=5 (其他模块 N_DEFAULT_THRESHOLD=10)
  * - 节省公式: display_label='公式估算' (防评委误读为实测)
  *
- * 4 个端点 + 2 个补充端点 (单模块拉取避免一次拉全):
+ * 端点:
  * - GET /api/stats/overview
  * - GET /api/stats/timeseries?metric=&granularity=
  * - GET /api/stats/llm
  * - GET /api/stats/savings
  * - GET /api/stats/fetch / extract / usage (单模块, 按需)
+ * - GET /api/stats/fact-check-method?period=7d|30d|all  (v1.0.25)
  */
 function statsModule() {
   return {
@@ -30,6 +32,16 @@ function statsModule() {
     usage:  { display_status: '数据积累中', raw: {}, count: 0, threshold: 10 },
     efficiency: { display_status: '数据积累中', raw: {}, count: 0, threshold: 10,
                   display_label: '公式估算', t0_source: '', t0_config_version: '' },
+
+    // v1.0.25: 事实核查 method 分布
+    factCheckMethod: {
+      period: '30d',
+      period_start: null,
+      total_articles_with_fact_check: 0,
+      by_method: [],
+      unfact_checked_total: 0,
+      module: 'fact_check_method',
+    },
 
     // 趋势图 (默认显示 fetch + llm)
     timeseriesFetch: { points: [], total: 0, display_status: 'ok' },
@@ -51,6 +63,7 @@ function statsModule() {
           this.loadOverview(),
           this.loadTimeseries('fetch'),
           this.loadTimeseries('llm'),
+          this.loadFactCheckMethod(),
         ]);
       } catch (e) {
         this.error = String(e);
@@ -81,6 +94,14 @@ function statsModule() {
       const d = await r.json();
       if (metric === 'fetch') this.timeseriesFetch = d;
       if (metric === 'llm')   this.timeseriesLlm   = d;
+    },
+
+    async loadFactCheckMethod() {
+      // toolbar 用 7d/30d/90d; 端点额外支持 all (spec §3.3)
+      const p = this.period === '90d' ? '90d' : this.period;
+      const r = await fetch(`/api/stats/fact-check-method?period=${p}`);
+      if (!r.ok) throw new Error(`fact-check-method ${r.status}`);
+      this.factCheckMethod = await r.json();
     },
 
     // ── 周期切换 ──────────────────────────────────────────
@@ -139,6 +160,66 @@ function statsModule() {
         label: points[i].bucket,
         count: c,
       }));
+    },
+
+    // ── v1.0.25 method 饼图 (native SVG, 3 色) ────────────
+    methodColor(method) {
+      return ({
+        llm_inference: '#3B82F6',  // blue-500
+        web_search:    '#10B981',  // emerald-500
+        human:         '#6B7280',  // gray-500
+      })[method] || '#9CA3AF';
+    },
+
+    methodLabel(method) {
+      return ({
+        llm_inference: '基础档 (LLM)',
+        web_search:    '联网档',
+        human:         '人工',
+        '<NULL>':      '未标注',
+      })[method] || method;
+    },
+
+    methodPieSlices(size = 120) {
+      const items = (this.factCheckMethod.by_method || []).filter(
+        (x) => (x.article_count || 0) > 0
+      );
+      const total = items.reduce((s, x) => s + (x.article_count || 0), 0);
+      if (!total) return [];
+
+      const cx = size / 2;
+      const cy = size / 2;
+      const r = size / 2 - 2;
+      let angle = -Math.PI / 2; // start at 12 o'clock
+      const slices = [];
+
+      for (const item of items) {
+        const frac = (item.article_count || 0) / total;
+        const sweep = frac * Math.PI * 2;
+        // full circle → two semicircles
+        if (frac >= 0.999) {
+          slices.push({
+            method: item.method,
+            color: this.methodColor(item.method),
+            d: `M ${cx} ${cy - r} A ${r} ${r} 0 1 1 ${cx} ${cy + r} ` +
+               `A ${r} ${r} 0 1 1 ${cx} ${cy - r} Z`,
+          });
+          break;
+        }
+        const x1 = cx + r * Math.cos(angle);
+        const y1 = cy + r * Math.sin(angle);
+        const x2 = cx + r * Math.cos(angle + sweep);
+        const y2 = cy + r * Math.sin(angle + sweep);
+        const large = sweep > Math.PI ? 1 : 0;
+        slices.push({
+          method: item.method,
+          color: this.methodColor(item.method),
+          d: `M ${cx} ${cy} L ${x1.toFixed(2)} ${y1.toFixed(2)} ` +
+             `A ${r} ${r} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z`,
+        });
+        angle += sweep;
+      }
+      return slices;
     },
 
     // ── 标签/枚举 ────────────────────────────────────────

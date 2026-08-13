@@ -243,7 +243,8 @@ def test_fact_check_plus_method_migration_llm_to_llm_inference(fresh_db):
     conn = get_db()
     conn.executescript((db_root / "schema.sql").read_text(encoding="utf-8"))
     for mig in sorted((db_root / "migrations").glob("*.sql")):
-        if mig.name.startswith("025_"):
+        # v1.0.23: skip 025 + 026 (test only models pre-025 schema)
+        if mig.name.startswith(("025_", "026_")):
             continue
         conn.executescript(mig.read_text(encoding="utf-8"))
     now = datetime.now(timezone.utc).isoformat()

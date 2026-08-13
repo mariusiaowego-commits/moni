@@ -1917,11 +1917,51 @@ label { font-size: 0.85rem; }
 .stats-card-current  .stats-card-value { color: var(--foreground); }
 .stats-card-target   .stats-card-value { color: var(--accent, #4a90e2); }
 
-/* 5 模块横排 */
+/* 5+1 模块横排 (v1.0.25 加 method 分布) */
 .stats-modules {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px; margin-bottom: 20px;
+}
+
+/* v1.0.25: 事实核查 method 饼图 3 色 */
+.stats-method-color {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 2px;
+  margin-right: 6px;
+  vertical-align: middle;
+  background: #9CA3AF;
+}
+.stats-method-color.stats-method-llm_inference,
+.stats-method-llm_inference { background: #3B82F6; fill: #3B82F6; } /* blue */
+.stats-method-color.stats-method-web_search,
+.stats-method-web_search    { background: #10B981; fill: #10B981; } /* green */
+.stats-method-color.stats-method-human,
+.stats-method-human         { background: #6B7280; fill: #6B7280; } /* gray */
+
+.stats-method-pie-wrap {
+  display: flex; gap: 12px; align-items: center;
+  margin: 8px 0 10px;
+}
+.stats-method-pie {
+  flex: 0 0 120px;
+  width: 120px; height: 120px;
+}
+.stats-method-legend {
+  list-style: none; margin: 0; padding: 0;
+  font-size: 12px; color: var(--muted);
+  display: flex; flex-direction: column; gap: 4px;
+  min-width: 0;
+}
+.stats-method-legend li {
+  display: flex; align-items: center; gap: 4px;
+  white-space: nowrap;
+}
+.stats-method-legend strong {
+  margin-left: auto; padding-left: 8px;
+  color: var(--foreground); font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 .stats-module {
   background: var(--card);
