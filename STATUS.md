@@ -4,14 +4,15 @@
 
 ---
 
-## 当前状态: **v1.0.28 — 抓取页 UX (sprint-09 收尾)** (2026-08-13)
+## 当前状态: **v1.0.28 — 抓取页 UX (sprint-10 收尾)** (2026-08-13)
 
 **主分支**: **main** @ `23902c7` (PR #92 + #94 merge；未另打 git tag)
 **Web 服务**: `127.0.0.1:8900` 已 restart 跟 main（2026-08-13）
 **数据库**: schema_version=26（本 sprint **无** migration）
-**Obsidian**: `tqob/…/project-moni/sprints/sprint-09-fetch-running-chip/` status=已完成 · verify 3-1-1
+**Obsidian**: `tqob/…/project-moni/sprints/sprint-10-fetch-frontend-ux/` status=已完成 · verify 3-1-1
+**并行 sprint-09**: evidence 落库脱敏（另一 agent / worktree `moni-evidence-redaction`）
 
-### v1.0.28 — sprint-09 抓取管理前端 (2026-08-13)
+### v1.0.28 — sprint-10 抓取管理前端 (2026-08-13)
 
 - 关 progress modal 后 Drive 像素 chip 持续显示，点击 reopen；任务行「进度」入口
 - 多任务并行 TaskRows + poll 与 modal 解耦
