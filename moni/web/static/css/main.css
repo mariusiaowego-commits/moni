@@ -1256,6 +1256,216 @@ label { font-size: 0.85rem; }
   .fetch-ops-head .actions-group { justify-content: flex-start; }
 }
 
+
+/* ═══════════════════════════════════════════════════════════════
+   Fetch TaskRows (v1.0.28) — multi-task capsules
+   ═══════════════════════════════════════════════════════════════ */
+.fetch-running-count {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted-fg);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: oklch(from var(--muted) l c h / 0.6);
+}
+.fetch-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fetch-task-card {
+  background: oklch(from var(--muted) l c h / 0.35);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  overflow: hidden;
+  transition: border-radius 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+  animation: fetch-task-fade-up 450ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.fetch-task-card.is-open { border-radius: 14px; }
+.fetch-task-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.fetch-task-row:hover { background: oklch(from var(--muted) l c h / 0.55); }
+.fetch-task-badge {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+.fetch-spinner-ring {
+  position: relative;
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+}
+.fetch-spinner-ring svg { position: absolute; inset: 0; }
+.fetch-spinner-arc {
+  transform-origin: 12px 12px;
+  animation: fetch-spin 1.1s linear infinite;
+}
+.fetch-spinner-num {
+  position: relative;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+.fetch-status-dot {
+  display: flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #fff;
+  animation: fetch-pop-in 300ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.fetch-status-dot.tone-green { background: oklch(0.55 0.14 150); }
+.fetch-status-dot.tone-red { background: oklch(0.55 0.18 25); }
+.fetch-task-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+}
+.fetch-task-amount {
+  font-size: 12.5px;
+  color: var(--muted-fg);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.fetch-task-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  flex-shrink: 0;
+  animation: fetch-fade-in 200ms ease-out both;
+}
+.fetch-task-pill.tone-green {
+  background: oklch(0.55 0.14 150 / 0.15);
+  color: oklch(0.42 0.12 150);
+}
+.fetch-task-pill.tone-red {
+  background: oklch(0.55 0.18 25 / 0.15);
+  color: oklch(0.45 0.16 25);
+}
+.fetch-task-pill.tone-amber {
+  background: oklch(0.75 0.12 80 / 0.2);
+  color: oklch(0.45 0.1 80);
+}
+.fetch-task-chevron {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-fg);
+}
+.fetch-task-chevron svg {
+  transition: transform 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+}
+.fetch-task-card.is-open .fetch-task-chevron svg { transform: rotate(180deg); }
+
+.fetch-task-detail {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 0.3s cubic-bezier(0.23, 1, 0.32, 1),
+              opacity 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+}
+.fetch-task-detail.open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.fetch-task-detail-inner { overflow: hidden; }
+.fetch-task-detail-grid {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 10px;
+  padding: 0 10px 12px;
+}
+.fetch-task-rail {
+  width: 1px;
+  margin: 0 auto;
+  background: var(--border);
+  min-height: 100%;
+}
+.fetch-task-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fetch-task-step {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.fetch-task-step-label {
+  font-size: 12px;
+  color: var(--muted-fg);
+}
+.fetch-task-step-meta {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--muted-fg);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fetch-task-step-actions {
+  margin-top: 4px;
+  display: flex;
+  gap: 12px;
+}
+@keyframes fetch-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes fetch-pop-in {
+  from { transform: scale(0.6); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+@keyframes fetch-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fetch-task-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fetch-spinner-arc { animation: none; }
+  .fetch-task-card { animation: none; }
+  .fetch-status-dot, .fetch-task-pill { animation: none; }
+}
+
 /* ═══════════════════════════════════════════════════════════════
    Fetch All Result Panel (v1.0.6.2)
    ═══════════════════════════════════════════════════════════════ */
