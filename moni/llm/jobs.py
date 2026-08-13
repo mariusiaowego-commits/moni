@@ -59,6 +59,9 @@ from moni.llm.prompts import render_fact_check, render_fact_check_plus, render_s
 from moni.web.routes.fact_check_plus import (
     DOMAIN_WHITELIST,
     DOMAIN_WHITELIST_REGEX,
+    apply_timeliness,
+    compute_days_old,
+    compute_timeliness,
     is_in_whitelist,
 )
 
@@ -537,7 +540,10 @@ def _persist_fact_check_plus(
     raw_output: str,
     finished_at: str,
 ) -> None:
-    """Parse + dual-gate + write articles + fact_check_evidence rows.
+    """Parse + 闸 1/2/3 + write articles + fact_check_evidence rows.
+
+    闸 3 (v1.0.26): days_old 31-90 结论加 ``(已过期 30-90 天)``;
+    91+ 强制【存疑】. 取本批最大 days_old (最严).
 
     Raises ValueError on parse / empty-evidence so caller marks job failed.
     On the three parse-failure branches, logs truncated raw_output into
@@ -562,6 +568,7 @@ def _persist_fact_check_plus(
             if not url or not snippet or not _valid_url(url):
                 continue
             domain = (e.get("domain") or "").strip() or _domain_from_url(url)
+            ev_fetched = (e.get("fetched_at") or "").strip() or None
             valid.append(
                 {
                     "query": (e.get("query") or "").strip() or "",
@@ -569,6 +576,7 @@ def _persist_fact_check_plus(
                     "domain": domain,
                     "snippet": snippet,
                     "rationale": (e.get("rationale") or "").strip() or "",
+                    "fetched_at": ev_fetched,
                 }
             )
         if not valid:
@@ -584,35 +592,76 @@ def _persist_fact_check_plus(
                 job_id,
             )
 
+        # Gate 3: timeliness — 31-90 加后缀, 91+ 强制【存疑】
+        now_dt = datetime.now(timezone.utc)
+        worst_days: int | None = None
+        for e in valid:
+            raw_fetched = e.get("fetched_at") or finished_at
+            e["fetched_at"] = raw_fetched
+            days_old = compute_days_old(raw_fetched, now=now_dt)
+            e["days_old"] = days_old
+            if days_old is not None and (worst_days is None or days_old > worst_days):
+                worst_days = days_old
+        timeliness = compute_timeliness(worst_days)
+        conclusion = apply_timeliness(conclusion, worst_days)
+        if timeliness == "90d_demote":
+            logger.info(
+                "[llm_jobs] fact_check_plus job %s: evidence days_old=%s → 90d_demote 【存疑】",
+                job_id,
+                worst_days,
+            )
+        elif timeliness == "30d_warn":
+            logger.info(
+                "[llm_jobs] fact_check_plus job %s: evidence days_old=%s → 30d_warn suffix",
+                job_id,
+                worst_days,
+            )
+
         note = json.dumps(valid, ensure_ascii=False)
         try:
             conn.execute(
                 """
                 UPDATE articles
-                SET fact_check_conclusion = ?,
-                    fact_check_method     = 'web_search',
-                    fact_checked_at       = ?,
-                    fact_check_note       = ?,
-                    has_fact_check        = 1,
-                    has_web_fact_check    = 1
+                SET fact_check_conclusion  = ?,
+                    fact_check_method      = 'web_search',
+                    fact_checked_at        = ?,
+                    fact_check_note        = ?,
+                    fact_check_timeliness  = ?,
+                    has_fact_check         = 1,
+                    has_web_fact_check     = 1
                 WHERE id = ?
                 """,
-                (conclusion, finished_at, note, article_id),
+                (conclusion, finished_at, note, timeliness, article_id),
             )
         except Exception:
-            # Pre-migration 026: has_web_fact_check column may be missing.
-            conn.execute(
-                """
-                UPDATE articles
-                SET fact_check_conclusion = ?,
-                    fact_check_method     = 'web_search',
-                    fact_checked_at       = ?,
-                    fact_check_note       = ?,
-                    has_fact_check        = 1
-                WHERE id = ?
-                """,
-                (conclusion, finished_at, note, article_id),
-            )
+            # Pre-migration 026/027: optional columns may be missing.
+            try:
+                conn.execute(
+                    """
+                    UPDATE articles
+                    SET fact_check_conclusion = ?,
+                        fact_check_method     = 'web_search',
+                        fact_checked_at       = ?,
+                        fact_check_note       = ?,
+                        fact_check_timeliness = ?,
+                        has_fact_check        = 1
+                    WHERE id = ?
+                    """,
+                    (conclusion, finished_at, note, timeliness, article_id),
+                )
+            except Exception:
+                conn.execute(
+                    """
+                    UPDATE articles
+                    SET fact_check_conclusion = ?,
+                        fact_check_method     = 'web_search',
+                        fact_checked_at       = ?,
+                        fact_check_note       = ?,
+                        has_fact_check        = 1
+                    WHERE id = ?
+                    """,
+                    (conclusion, finished_at, note, article_id),
+                )
 
         # Replace prior evidence for this article (re-run overwrite).
         conn.execute(
@@ -620,31 +669,46 @@ def _persist_fact_check_plus(
             (article_id,),
         )
         for i, e in enumerate(valid):
-            conn.execute(
-                """
-                INSERT INTO fact_check_evidence
-                    (id, article_id, job_id, query, url, domain, snippet,
-                     fetched_at, model, provider, conclusion, rationale,
-                     evidence_seq, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    uuid.uuid4().hex,
-                    article_id,
-                    job_id,
-                    e["query"],
-                    e["url"],
-                    e["domain"],
-                    e["snippet"],
-                    finished_at,
-                    model,
-                    provider,
-                    conclusion,
-                    e.get("rationale") or "",
-                    i,
-                    finished_at,
-                ),
+            row_id = uuid.uuid4().hex
+            vals = (
+                row_id,
+                article_id,
+                job_id,
+                e["query"],
+                e["url"],
+                e["domain"],
+                e["snippet"],
+                e.get("fetched_at") or finished_at,
+                model,
+                provider,
+                conclusion,
+                e.get("rationale") or "",
+                i,
+                finished_at,
             )
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO fact_check_evidence
+                        (id, article_id, job_id, query, url, domain, snippet,
+                         fetched_at, model, provider, conclusion, rationale,
+                         evidence_seq, created_at, days_old)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    vals + (e.get("days_old"),),
+                )
+            except Exception:
+                # Pre-migration 027: days_old column may be missing.
+                conn.execute(
+                    """
+                    INSERT INTO fact_check_evidence
+                        (id, article_id, job_id, query, url, domain, snippet,
+                         fetched_at, model, provider, conclusion, rationale,
+                         evidence_seq, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    vals,
+                )
     except ValueError as exc:
         # B5: log truncated raw_output into llm_jobs.error for the 3 parse
         # failure branches; re-raise with full message so outer _mark_failed

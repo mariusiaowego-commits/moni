@@ -14,6 +14,7 @@ method='llm_inference')。v1.0.22 升级到联网档:
   - 检索通道: hermes -t web -Q --max-turns 8 (零新依赖, jobs.py 注入)
   - 证据链: 独立表 ``fact_check_evidence`` 落库, 每条结论可按文章/URL/检索关键词反查
   - 双闸防幻觉: 闸 1 证据片段非空 + URL 合法, 闸 2 权威域白名单命中才允许【已核实】
+  - 闸 3 时效: days_old 0-30 fresh; 31-90 30d_warn 加后缀; 91+ 90d_demote 强制【存疑】
   - method: 'web_search'
 
 Why this file exists
@@ -84,6 +85,67 @@ DOMAIN_WHITELIST_REGEX: list[str] = [
 ]
 
 MAX_BATCH_SIZE: int = 20
+
+# 闸 3 时效阈值 (v1.0.26) — spec §3.3
+TIMELINESS_FRESH_MAX_DAYS: int = 30
+TIMELINESS_WARN_MAX_DAYS: int = 90
+TIMELINESS_STALE_SUFFIX: str = "(已过期 30-90 天)"
+
+
+def parse_fetched_at(fetched_at: str | None) -> datetime | None:
+    """Parse ISO8601 fetched_at; None / blank / garbage → None (unknown)."""
+    if fetched_at is None:
+        return None
+    text = str(fetched_at).strip()
+    if not text:
+        return None
+    text = text.replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def compute_days_old(
+    fetched_at: str | None,
+    *,
+    now: datetime | None = None,
+) -> int | None:
+    """距今天数; fetched_at 空/不可解析 → None."""
+    dt = parse_fetched_at(fetched_at)
+    if dt is None:
+        return None
+    now = now or datetime.now(timezone.utc)
+    return max(0, (now - dt).days)
+
+
+def compute_timeliness(days_old: int | None) -> str:
+    """Map days_old → fresh | 30d_warn | 90d_demote | unknown."""
+    if days_old is None:
+        return "unknown"
+    try:
+        d = int(days_old)
+    except (TypeError, ValueError):
+        return "unknown"
+    if d <= TIMELINESS_FRESH_MAX_DAYS:
+        return "fresh"
+    if d <= TIMELINESS_WARN_MAX_DAYS:
+        return "30d_warn"
+    return "90d_demote"
+
+
+def apply_timeliness(conclusion: str, days_old: int | None) -> str:
+    """闸 3: 31-90 天加后缀, 91+ 强降级为【存疑】. NULL/≤30 不动."""
+    if days_old is None or days_old <= TIMELINESS_FRESH_MAX_DAYS:
+        return conclusion
+    if days_old <= TIMELINESS_WARN_MAX_DAYS:
+        if TIMELINESS_STALE_SUFFIX in (conclusion or ""):
+            return conclusion
+        return f"{conclusion}{TIMELINESS_STALE_SUFFIX}"
+    return "【存疑】"
 
 
 def is_in_whitelist(domain: str) -> bool:
@@ -303,15 +365,37 @@ def fact_check_plus_evidence(article_id: str) -> dict[str, Any]:
     if row is None:
         raise NotFoundError(message=f"Article {article_id!r} not found")
 
-    rows = conn.execute(
-        """
-        SELECT query, url, domain, snippet, fetched_at, model, provider,
-               conclusion, rationale, evidence_seq, created_at, job_id
-        FROM fact_check_evidence
-        WHERE article_id = ?
-        ORDER BY evidence_seq ASC
-        """,
-        (article_id,),
-    ).fetchall()
-    items = [dict(r) for r in rows]
+    try:
+        rows = conn.execute(
+            """
+            SELECT query, url, domain, snippet, fetched_at, model, provider,
+                   conclusion, rationale, evidence_seq, created_at, job_id,
+                   days_old
+            FROM fact_check_evidence
+            WHERE article_id = ?
+            ORDER BY evidence_seq ASC
+            """,
+            (article_id,),
+        ).fetchall()
+    except Exception:
+        # Pre-migration 027: days_old column may be missing.
+        rows = conn.execute(
+            """
+            SELECT query, url, domain, snippet, fetched_at, model, provider,
+                   conclusion, rationale, evidence_seq, created_at, job_id
+            FROM fact_check_evidence
+            WHERE article_id = ?
+            ORDER BY evidence_seq ASC
+            """,
+            (article_id,),
+        ).fetchall()
+    items: list[dict[str, Any]] = []
+    for r in rows:
+        item = dict(r)
+        days_old = item.get("days_old")
+        if days_old is None:
+            days_old = compute_days_old(item.get("fetched_at"))
+            item["days_old"] = days_old
+        item["timeliness"] = compute_timeliness(days_old)
+        items.append(item)
     return {"article_id": article_id, "items": items, "total": len(items)}
