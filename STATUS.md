@@ -4,7 +4,27 @@
 
 ---
 
-## 当前状态: **v1.0.25 — 看板 fact_check method 分布 (sprint-08 收尾)** (2026-08-12)
+## 当前状态: **v1.0.28 — 抓取页 UX (sprint-09 收尾)** (2026-08-13)
+
+**主分支**: **main** @ `23902c7` (PR #92 + #94 merge；未另打 git tag)
+**Web 服务**: `127.0.0.1:8900` 已 restart 跟 main（2026-08-13）
+**数据库**: schema_version=26（本 sprint **无** migration）
+**Obsidian**: `tqob/…/project-moni/sprints/sprint-09-fetch-running-chip/` status=已完成 · verify 3-1-1
+
+### v1.0.28 — sprint-09 抓取管理前端 (2026-08-13)
+
+- 关 progress modal 后 Drive 像素 chip 持续显示，点击 reopen；任务行「进度」入口
+- 多任务并行 TaskRows + poll 与 modal 解耦
+- 抓取结果（摘要/JSON/分源）默认折叠
+- 品牌：瞭望 + MONI + Koboyo lighthouse-beam logo/favicon
+- 顶部操作钮与表内「立即抓取/连通性」统一 btn-primary / btn-secondary
+- PR: #92 https://github.com/mariusiaowego-commits/moni/pull/92 · #94 https://github.com/mariusiaowego-commits/moni/pull/94
+
+**并行支线（未 ship）**: evidence 落库脱敏 @ worktree `moni-evidence-redaction`
+
+---
+
+## 历史: **v1.0.25 — 看板 fact_check method 分布 (sprint-08 收尾)** (2026-08-12)
 
 **主分支 tag**: **v1.0.25** @ 313ffa1 (PR #88 squash-merged, **force push 待 dad 拍板**)
 **Web 服务**: `127.0.0.1:8900` PID 67958 (sprint-07 重启后, sprint-08 3 ship docs 改动, 不需重启)
