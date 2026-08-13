@@ -1748,15 +1748,50 @@ function app() {
       if (!this.fetchProgress && !this.isFetchRunning) return;
       this.fetchChipLinger = false;
       this.fetchProgressModal = true;
-      // 重开时若仍在 running 且粒子未跑，补初始化（poll 下一 tick 也会更新）
-      if (this.isFetchRunning && this.fetchProgressModal) {
-        if (this.sources && this.sources.length > 0) {
-          try {
-            this._initParticleStage();
-            this._layoutChain(0, false);
-          } catch (_) { /* particle optional */ }
+      // 仅 running 时重挂粒子；终态 linger 点开只看结果面板即可
+      if (!this.isFetchRunning) return;
+
+      // v1.0.28 fix: Alpine x-show 尚未 paint 时立刻 getBoundingClientRect
+      // 会得到 0 宽高 → moni/chain 挤到左上角、canvas 空、动画假死。
+      // 等两帧布局完成后再 _initParticleStage；若仍为 0 则由 _init 内重试兜底。
+      const bootParticles = () => {
+        if (!this.fetchProgressModal || !this.isFetchRunning) return;
+        if (!this.sources || this.sources.length === 0) {
+          this.loadSources();
         }
-      }
+        try {
+          this._initParticleStage();
+          // 若 stage 仍未就绪，_init 已 schedule 重试，勿再 layout
+          const stage = document.getElementById('particleStage');
+          const rect = stage ? stage.getBoundingClientRect() : null;
+          if (!rect || rect.width < 10 || rect.height < 10) return;
+
+          let idx = 0;
+          if (this.fetchBatchMode || this.fetchProgress?.batchMode) {
+            const cur = this.fetchProgress?.current_source || '';
+            const found = this._chainRows.findIndex(r => r.dbName === cur);
+            if (found >= 0) idx = found;
+          }
+          this._layoutChain(idx, false);
+          this._spawnBurst(idx, 6);
+
+          const p = this.fetchProgress || {};
+          if (this.fetchBatchMode || p.batchMode) {
+            this._updateFeedInfo(p.current_source || '', p.current_feed || '');
+            this._flipStatus(p.current_source ? `抓取中: ${p.current_source}` : '抓取中...');
+          } else {
+            this._updateFeedInfo(p.source || '', p.current_feed || '');
+            this._flipStatus('抓取中...');
+          }
+          this._animateArticleCount(p.articles_so_far || 0);
+        } catch (err) {
+          console.error('reopenFetchProgress particle reinit failed:', err);
+        }
+      };
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(bootParticles);
+      });
     },
 
     _onFetchTerminal(status) {
@@ -1875,6 +1910,31 @@ function app() {
       const moniIcon = document.getElementById('moniIcon');
       const canvas = document.getElementById('particleCanvas');
       if (!stage || !chain || !moniIcon || !canvas) return;
+
+      // v1.0.28: modal 刚 x-show 时 stage 可能仍是 0×0（关窗重开常见）。
+      // 此时定位 moni/chain 会挤到左上角且 canvas 无有效尺寸 → 粒子「没了」。
+      const rect0 = stage.getBoundingClientRect();
+      if (rect0.width < 10 || rect0.height < 10) {
+        if (this._particleInitTimer) clearTimeout(this._particleInitTimer);
+        this._particleInitTimer = setTimeout(() => {
+          this._particleInitTimer = null;
+          if (this.fetchProgressModal) {
+            this._initParticleStage();
+            // 补一次 chain focus（重开路径）
+            if (this._chainRows && this._chainRows.length) {
+              let idx = 0;
+              if (this.fetchBatchMode || this.fetchProgress?.batchMode) {
+                const cur = this.fetchProgress?.current_source || '';
+                const found = this._chainRows.findIndex(r => r.dbName === cur);
+                if (found >= 0) idx = found;
+              }
+              this._layoutChain(idx, false);
+              this._spawnBurst(idx, 4);
+            }
+          }
+        }, 50);
+        return;
+      }
 
       // Stop any prior animation (also clears _particleRunning + timers)
       this._stopParticleAnimation();
