@@ -75,10 +75,56 @@ body {
   box-shadow: 0 1px 4px oklch(0 0 0 / 0.05);
 }
 .topnav-brand {
-  font-size: 1.05rem; font-weight: 700;
-  letter-spacing: -0.02em; margin-right: 32px;
-  color: var(--foreground); flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 28px;
+  flex-shrink: 0;
+  color: var(--foreground);
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.15s ease, transform 0.1s cubic-bezier(0.22, 1, 0.36, 1);
 }
+.topnav-brand:hover { opacity: 0.88; }
+.topnav-brand:active { transform: scale(0.98); }
+.topnav-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 34px;
+  flex-shrink: 0;
+  color: var(--foreground);
+}
+.topnav-brand-mark svg {
+  width: 36px;
+  height: 31px;
+  display: block;
+}
+.topnav-brand-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center; /* MONI 与「瞭望」水平居中对齐 */
+  justify-content: center;
+  line-height: 1.12;
+  gap: 1px;
+}
+.topnav-brand-cn {
+  font-size: 1.02rem;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+}
+.topnav-brand-en {
+  font-family: inherit; /* 与正文一致，非衬线 */
+  font-size: 0.66rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted-fg);
+  font-style: normal;
+  margin-top: 1px; /* 相对「瞭望」略下移 */
+}
+/* dark favicon twin for prefers-color-scheme handled via fixed soft bg */
 .topnav-links {
   display: flex; gap: 2px; overflow-x: auto;
   scrollbar-width: none; -ms-overflow-style: none;
@@ -1219,6 +1265,9 @@ label { font-size: 0.85rem; }
   color: var(--muted-fg);
 }
 .fetch-ops-idle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-top: 12px;
   padding: 10px 12px;
   border-radius: 8px;
@@ -1227,10 +1276,22 @@ label { font-size: 0.85rem; }
   font-size: 0.84rem;
   color: var(--muted-fg);
 }
+.fetch-ops-idle-mark {
+  flex-shrink: 0;
+  width: 22px;
+  height: 19px;
+  background: currentColor;
+  opacity: 0.55;
+  -webkit-mask: url(../icons/liaowang-mark.svg) center / contain no-repeat;
+  mask: url(../icons/liaowang-mark.svg) center / contain no-repeat;
+}
 .fetch-all-summary-in-ops {
   margin: 0;
   box-shadow: none;
-  background: oklch(from var(--muted) l c h / 0.35);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 4px 14px 14px;
 }
 /* 操作卡内：单列堆叠 — 人读摘要在上，原始 JSON 折叠在下 */
 .fetch-result-panel-in-ops {
@@ -1244,11 +1305,111 @@ label { font-size: 0.85rem; }
 }
 .fetch-result-panel-in-ops .fetch-result-explain {
   margin: 0;
-  background: oklch(from var(--card) l c h);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 4px 14px 14px;
+  box-shadow: none;
+}
+/* 摘要 / 原始响应：统一 details 折叠条 */
+.fetch-summary-details,
+.fetch-raw-details,
+.fa-row-details {
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 14px 16px;
-  box-shadow: none;
+  background: oklch(from var(--muted) l c h / 0.35);
+  overflow: hidden;
+}
+/* belt: closed details never leak body (x-show 场景下偶发残留) */
+.fetch-ops-body details:not([open]) > :not(summary) {
+  display: none !important;
+}
+.fetch-summary-summary,
+.fetch-raw-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--foreground);
+  list-style: none;
+  user-select: none;
+}
+.fetch-summary-summary::-webkit-details-marker,
+.fetch-raw-summary::-webkit-details-marker { display: none; }
+.fetch-summary-summary::after,
+.fetch-raw-summary::after {
+  content: '▸';
+  margin-left: auto;
+  color: var(--muted-fg);
+  font-size: 0.75rem;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+.fetch-summary-details[open] > .fetch-summary-summary::after,
+.fetch-raw-details[open] > .fetch-raw-summary::after,
+.fa-row-details[open] > .fa-row-summary::after {
+  transform: rotate(90deg);
+}
+.fa-row-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.82rem;
+  user-select: none;
+}
+.fa-row-summary::-webkit-details-marker { display: none; }
+.fa-row-summary::after {
+  content: '▸';
+  margin-left: auto;
+  color: var(--muted-fg);
+  font-size: 0.72rem;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+.fa-row-body {
+  padding: 4px 12px 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+  font-size: 0.8rem;
+  color: var(--muted-fg);
+}
+.fa-row-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.fa-row-kv b { color: var(--foreground); font-variant-numeric: tabular-nums; }
+.fa-row-body-err {
+  display: block;
+  color: var(--destructive);
+  grid-template-columns: 1fr;
+}
+.fa-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fa-row-details.fa-row-ok {
+  background: oklch(0.96 0.01 150 / 0.3);
+}
+.fa-row-details.fa-row-err {
+  background: oklch(0.96 0.01 25 / 0.3);
+}
+.fetch-summary-title {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 70%;
 }
 .fetch-result-panel-in-ops .fr-item {
   display: flex;
@@ -1295,41 +1456,11 @@ label { font-size: 0.85rem; }
   white-space: pre-wrap;
   word-break: break-word;
 }
-.fetch-raw-details {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: oklch(from var(--muted) l c h / 0.35);
-  overflow: hidden;
-}
-.fetch-raw-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 14px;
-  cursor: pointer;
-  font-size: 0.84rem;
-  font-weight: 500;
-  color: var(--foreground);
-  list-style: none;
-  user-select: none;
-}
-.fetch-raw-summary::-webkit-details-marker { display: none; }
-.fetch-raw-summary::after {
-  content: '▸';
-  color: var(--muted-fg);
-  font-size: 0.75rem;
-  transition: transform 0.15s;
-}
-.fetch-raw-details[open] > .fetch-raw-summary::after {
-  transform: rotate(90deg);
-}
 .fetch-raw-hint {
   font-size: 0.76rem;
   font-weight: 400;
   color: var(--muted-fg);
-  margin-right: auto;
-  margin-left: 8px;
+  flex-shrink: 0;
 }
 .fetch-result-panel-in-ops .result-box {
   margin: 0;

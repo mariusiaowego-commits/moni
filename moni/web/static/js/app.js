@@ -1246,6 +1246,8 @@ function app() {
     sources: [],
     fetchResult: '',
     fetchResultObj: null,
+    fetchResultKey: 0,  // remount result details via x-for :key (force collapsed)
+    fetchAllResultKey: 0,  // remount all-result details (force collapsed)
     fetchAllResult: null,
     fetchingAll: false,
     // v1.0.6.1: structured explanation of fetch result
@@ -1347,7 +1349,7 @@ function app() {
         .then(data => {
           this.sources = Array.isArray(data) ? data : (data.sources || []);
         })
-        .catch(err => { console.error('loadSources failed:', err); this.fetchResult = '加载失败: ' + err.message; });
+        .catch(err => { console.error('loadSources failed:', err); this.setFetchResult('加载失败: ' + err.message, null); });
     },
 
     runSource(id) {
@@ -1378,10 +1380,8 @@ function app() {
         if (parts.length) params = '?' + parts.join('&');
       }
       // auto: no params, fetcher uses last_run
-      const srcName = this.sources.find(s => s.id === this.fetchTargetSource)?.name || '';
-      this.fetchResult = `正在抓取 ${srcName}...`;
-      this.fetchResultObj = null;
       // v1.0.7.6: async fetch with progress modal + 5s polling
+      // 不在启动时刷「正在抓取…」到结果区，避免未折叠的中间态占位
       this.startAsyncFetch(this.fetchTargetSource, params);
     },
 
@@ -1409,7 +1409,7 @@ function app() {
         next[i] = merged;
         this.fetchTasks = next;
       } else {
-        if (task.open === undefined) task.open = task.status === 'running';
+        if (task.open === undefined) task.open = false;
         this.fetchTasks = [task, ...this.fetchTasks];
       }
     },
@@ -1519,14 +1519,14 @@ function app() {
             ...(data.errors || []).map(e => ({ source: e.source, error: e.error })),
           ];
           const totalInserted = (data.results || []).reduce((s, r) => s + (r.inserted || 0), 0);
-          this.fetchAllResult = {
+          this.setFetchAllResult({
             status: data.status === 'failed' ? 'partial' : data.status,
             sources_total: data.total_sources,
             sources_ok: data.total_sources - (data.failed_sources || 0),
             sources_failed: data.failed_sources || 0,
             total_inserted: totalInserted,
             results: allResults,
-          };
+          });
           if (this.fetchProgressModal && this.fetchProgress?.id === t.id) {
             this._finishFetchAnimation(true);
             const labelMap = { done: '完成', partial: '部分完成', failed: '失败' };
@@ -1579,14 +1579,14 @@ function app() {
         } else if (data.status === 'done' || data.status === 'failed') {
           this.loadSources();
         }
-        // surface last single result into result panel
+        // surface last single result into result panel（默认折叠）
         if (data.status === 'done' && data.result) {
-          this.fetchResultObj = data.result;
-          this.fetchResult = typeof data.result === 'string'
+          const text = typeof data.result === 'string'
             ? data.result
             : JSON.stringify(data.result, null, 2);
+          this.setFetchResult(text, typeof data.result === 'object' ? data.result : null);
         } else if (data.error) {
-          this.fetchResult = String(data.error);
+          this.setFetchResult(String(data.error), null);
         }
         this._scheduleTaskLinger(t, data.status);
       } catch (err) {
@@ -1672,7 +1672,7 @@ function app() {
         current_feed: '(初始化中)',
         articles_so_far: 0,
         elapsed_seconds: 0,
-        open: true,
+        open: false,
       };
       this._upsertFetchTask(pending);
       this._focusTask(pending);
@@ -1713,8 +1713,9 @@ function app() {
         }
         if (!r.ok || !data.job_id) {
           this._removeFetchTask(pending.id);
-          this.fetchResult = data?.detail?.message || data?.error || `HTTP ${r.status}`;
-          this._notify('error', this.fetchResult);
+          const msg = data?.detail?.message || data?.error || `HTTP ${r.status}`;
+          this.setFetchResult(msg, null);
+          this._notify('error', msg);
           return;
         }
         this._removeFetchTask(pending.id);
@@ -1729,15 +1730,16 @@ function app() {
           current_feed: '(初始化中)',
           articles_so_far: 0,
           elapsed_seconds: 0,
-          open: true,
+          open: false,
         };
         this._upsertFetchTask(task);
         this._focusTask(task);
         this._ensureFetchPoll();
       } catch (err) {
         this._removeFetchTask(pending.id);
-        this.fetchResult = '启动抓取失败: ' + err.message;
-        this._notify('error', this.fetchResult);
+        const msg = '启动抓取失败: ' + err.message;
+        this.setFetchResult(msg, null);
+        this._notify('error', msg);
       }
     },
 
@@ -1748,8 +1750,10 @@ function app() {
       }
       this.fetchingAll = true;
       this.fetchAllResult = null;
+      this.fetchAllResultKey = (this.fetchAllResultKey || 0) + 1;
       this.fetchResult = '';
       this.fetchResultObj = null;
+      this.fetchResultKey = (this.fetchResultKey || 0) + 1;
       this.fetchBatchMode = true;
       this.fetchProgressModal = true;
       const pending = {
@@ -1776,8 +1780,9 @@ function app() {
         if (!r.ok || !data.batch_id) {
           this._removeFetchTask(pending.id);
           this.fetchingAll = false;
-          this.fetchResult = data?.detail?.message || data?.error || `HTTP ${r.status}`;
-          this._notify('error', this.fetchResult);
+          const msg = data?.detail?.message || data?.error || `HTTP ${r.status}`;
+          this.setFetchResult(msg, null);
+          this._notify('error', msg);
           return;
         }
         this._removeFetchTask(pending.id);
@@ -1801,8 +1806,9 @@ function app() {
       } catch (err) {
         this._removeFetchTask(pending.id);
         this.fetchingAll = false;
-        this.fetchResult = '启动全部抓取失败: ' + err.message;
-        this._notify('error', this.fetchResult);
+        const msg = '启动全部抓取失败: ' + err.message;
+        this.setFetchResult(msg, null);
+        this._notify('error', msg);
       }
     },
 
@@ -1941,6 +1947,63 @@ function app() {
       // 1-based index among current list for spinner ring number
       const i = this.fetchTasks.findIndex(x => x.id === t.id);
       return i >= 0 ? i + 1 : 1;
+    },
+
+
+    fetchResultHeadline() {
+      // 折叠条上一行结论
+      if (this.fetchResultObj) {
+        try {
+          const lines = this.formatFetchResult() || [];
+          const head = lines.find(l => l && (l.type === 'success' || l.type === 'warn' || l.type === 'error' || l.type === 'muted'));
+          if (head && head.text) return head.text;
+          const src = this.fetchResultObj.source || '';
+          const ins = this.fetchResultObj.inserted;
+          if (src) return `${src} · 入库 ${ins ?? '—'}`;
+        } catch (_) { /* ignore */ }
+      }
+      const s = String(this.fetchResult || '').trim();
+      if (!s) return '抓取结果';
+      const one = s.split(/\n/)[0];
+      return one.length > 72 ? one.slice(0, 72) + '…' : one;
+    },
+
+    setFetchResult(text, obj = null) {
+      // 递增 key → x-for remount 出全新 details（无 open）= 默认折叠
+      this.fetchResultObj = (obj && typeof obj === 'object') ? obj : null;
+      this.fetchResult = text == null ? '' : String(text);
+      this.fetchResultKey = (this.fetchResultKey || 0) + 1;
+      this._forceCloseFetchDetails();
+    },
+
+    setFetchAllResult(payload) {
+      this.fetchAllResult = payload || null;
+      this.fetchAllResultKey = (this.fetchAllResultKey || 0) + 1;
+      this._forceCloseFetchDetails();
+    },
+
+    _forceCloseFetchDetails() {
+      const closeAll = () => {
+        try {
+          document.querySelectorAll(
+            '.fetch-ops-body details.fetch-summary-details, '
+            + '.fetch-ops-body details.fetch-raw-details, '
+            + '.fetch-ops-body details.fa-row-details, '
+            + '.fetch-ops-body details.fetch-all-details'
+          ).forEach((d) => { d.removeAttribute('open'); d.open = false; });
+        } catch (_) { /* ignore */ }
+      };
+      queueMicrotask(closeAll);
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => requestAnimationFrame(closeAll));
+      } else {
+        setTimeout(closeAll, 16);
+      }
+    },
+
+    _collapseFetchResultPanels() {
+      // 兼容旧调用点：仅强制关闭当前 DOM 中的 details
+      this._forceCloseFetchDetails();
     },
 
     formatTaskElapsed(t) {
@@ -2605,14 +2668,14 @@ function app() {
       // Prefer YAML source_name when available (id may be DB src-xxx).
       const src = (this.sources || []).find(s => s.id === id || s.name === id);
       const ref = (src && src.name) ? src.name : id;
-      this.fetchResult = '正在测试连通性...';
+      this.setFetchResult('正在测试连通性...', null);
       fetch(`/api/fetch/sources/${encodeURIComponent(ref)}/ping`, { method: 'POST', credentials: 'same-origin' })
         .then(async r => {
           let body = null;
           try { body = await r.json(); } catch (_) { /* ignore */ }
           if (!r.ok) {
             const detail = (body && (body.message || body.detail)) || r.status;
-            this.fetchResult = 'FAIL - ' + detail;
+            this.setFetchResult('FAIL - ' + detail, null);
             return;
           }
           const st = (body && body.status) || 'ok';
@@ -2627,15 +2690,20 @@ function app() {
             const arts = d.passive
               ? ` arts=${d.passive.article_count ?? '-'} 48h=${d.passive.articles_last_48h ?? '-'}`
               : '';
-            this.fetchResult = `${st.toUpperCase()} ${synd}${ddg}${arts}`
-              + (msg ? ` — ${msg}` : '');
+            this.setFetchResult(
+              `${st.toUpperCase()} ${synd}${ddg}${arts}` + (msg ? ` — ${msg}` : ''),
+              null,
+            );
             return;
           }
-          this.fetchResult = st === 'ok'
-            ? ('OK - 连通性正常' + (msg ? ` (${msg})` : ''))
-            : `DEGRADED${msg ? ' — ' + msg : ''}`;
+          this.setFetchResult(
+            st === 'ok'
+              ? ('OK - 连通性正常' + (msg ? ` (${msg})` : ''))
+              : `DEGRADED${msg ? ' — ' + msg : ''}`,
+            null,
+          );
         })
-        .catch(err => { this.fetchResult = 'FAIL - ' + err.message; });
+        .catch(err => { this.setFetchResult('FAIL - ' + err.message, null); });
     },
 
     // ── Share panel ────────────────────────────────────────────────
