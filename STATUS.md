@@ -35,7 +35,7 @@
 
 ## 历史: **v1.0.25 — 看板 fact_check method 分布 (sprint-08 收尾)** (2026-08-12)
 
-**主分支 tag**: **v1.0.25** @ 313ffa1 (PR #88 squash-merged, **force push 待 dad 拍板**)
+**主分支 tag**: **v1.0.25** @ 59bc328 (PR #88 squash-merged, **tag 已修复** — 2026-08-13 删旧推新, 远端 = 59bc3282)
 **Web 服务**: `127.0.0.1:8900` PID 67958 (sprint-07 重启后, sprint-08 3 ship docs 改动, 不需重启)
 **数据库**: schema_version=26 (migration 025_fact_check_evidence + 026_brief_evidence_rendered)
 **测试**: 685 passed + 2 skip (655 baseline + v1.0.22 14 + v1.0.23 4 + v1.0.24 7 + v1.0.25 5 = 685)
@@ -62,14 +62,34 @@
 - 5 新测试 (`test_stats_method.py`)
 - 0 篇 web_search 现状下饼图只有蓝色, 待 sprint-08 v1.0.24 简报 web 模式增长后丰富
 
-**已记录 P1** (sprint-09 候选):
-- evidence 落库脱敏 (LLM 返回含 api key 等敏感信息)
-- 简报 worker 改用 LLM 检索 (v1.0.24 简报 web 模式同步性升级)
-- evidence 按 URL 去重 (跨文章同 URL 合并)
-- evidence 时效校验 (证据时间 > 文章发布时间则提示过期)
-- method × 来源交叉分析 (llm_inference 多 vs web_search 多 哪个信源)
-- 按 method 分的 token 成本估算
-- 状态机 (人工覆写 draft→verified, 与 cases 库同构)
+**已记录 P1** (sprint-09 已完成, 见下方 v1.0.26-28 段):
+- ✅ evidence 落库脱敏 (v1.0.28 已做)
+- 简报 worker 改用 LLM 检索 (v1.0.24 简报 web 模式同步性升级, P1 留)
+- evidence 按 URL 去重 (跨文章同 URL 合并, P1 留)
+- ✅ evidence 时效校验 (v1.0.26 已做)
+- method × 来源交叉分析 (P1 留)
+- 按 method 分的 token 成本估算 (P1 留)
+- ✅ 状态机 (v1.0.27 已做)
+
+### v1.0.27 — 事实核查+ 状态机 (sprint-09, 2026-08-13, PR #93)
+
+**业务**:
+- 联网核查+ 结论是 LLM 自动生成, 业务人员需能"确认/驳回"留痕 — v1.0.27 加 5 档状态机 (draft → verified → published → deprecated → archived), 单向流转, 复核人 + 备注落库审计
+- `articles` 新加 4 字段 (migration 028): `fact_check_state` / `reviewed_by` / `reviewed_at` / `review_note`
+- 新端点 `PATCH /api/fact-check-plus/{id}/review` (state + reason + reviewer, 跨档跳转 400)
+- 看板 method 分布端点扩 by_state 维度
+- 6 新测试 (`test_fact_check_state.py`), 全量 696 passed
+- 合规审计: 每条核查结论有"谁最终确认"记录 → 申报书 §4.5 人机协同 + 留痕审计
+
+### v1.0.26 — evidence 时效校验 (sprint-09, 2026-08-13, PR #91)
+
+**业务**:
+- 证据链落库后是抓取时刻的检索结果, 时间久了失效 — v1.0.26 加时效校验 (闸 3 timeliness)
+- `fact_check_evidence` 新加 3 字段 (migration 027): `timeliness` / `age_days` / `timeliness_flag`
+- 规则: < 30 天正常 / 30-90 天标「已过期 30-90 天」/ > 90 天结论强制降级【存疑】
+- 端点 GET evidence 返 timeliness + age_days 字段
+- 5 新测试, 全量 690 passed
+- 银行业合规刚需: 防止引用过时政策/数据
 
 ### v1.0.22 — 事实核查+ (sprint-07 历史)
 
