@@ -129,7 +129,8 @@ class TestChatClientLogCreation:
                 args, kwargs = mock_run.call_args
                 cmd = args[0]
                 assert cmd[0] == "hermes"
-                assert cmd[1] == "chat"
+                # v1.0.32: hermes -z one-shot (chat 模式不支持 --usage-file)
+                assert cmd[1] == "-z"
                 assert "--provider" in cmd
                 assert "minimax-cn" in cmd
                 assert "-m" in cmd

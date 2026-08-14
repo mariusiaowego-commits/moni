@@ -14,6 +14,7 @@
  * - GET /api/stats/savings
  * - GET /api/stats/fetch / extract / usage (单模块, 按需)
  * - GET /api/stats/fact-check-method?period=7d|30d|all  (v1.0.25)
+ * - GET /api/stats/llm-usage?period=7d|30d|90d  (v1.0.32 LLM 用量)
  */
 function statsModule() {
   return {
@@ -43,6 +44,15 @@ function statsModule() {
       module: 'fact_check_method',
     },
 
+    // v1.0.32: Q4 LLM 用量 (token/cost by model)
+    llmUsage: {
+      period: '30d',
+      period_start: null,
+      totals: { calls: 0, input_tokens: 0, output_tokens: 0, cost_usd: 0 },
+      by_model: [],
+      module: 'llm_usage',
+    },
+
     // 趋势图 (默认显示 fetch + llm)
     timeseriesFetch: { points: [], total: 0, display_status: 'ok' },
     timeseriesLlm:   { points: [], total: 0, display_status: 'ok' },
@@ -64,6 +74,7 @@ function statsModule() {
           this.loadTimeseries('fetch'),
           this.loadTimeseries('llm'),
           this.loadFactCheckMethod(),
+          this.loadLlmUsage(),
         ]);
       } catch (e) {
         this.error = String(e);
@@ -102,6 +113,12 @@ function statsModule() {
       const r = await fetch(`/api/stats/fact-check-method?period=${p}`);
       if (!r.ok) throw new Error(`fact-check-method ${r.status}`);
       this.factCheckMethod = await r.json();
+    },
+
+    async loadLlmUsage() {
+      const r = await fetch(`/api/stats/llm-usage?period=${this.period}`);
+      if (!r.ok) throw new Error(`llm-usage ${r.status}`);
+      this.llmUsage = await r.json();
     },
 
     // ── 周期切换 ──────────────────────────────────────────
@@ -222,7 +239,41 @@ function statsModule() {
       return slices;
     },
 
+    // v1.0.32 fix: SVG path attribute reactivity quirk in Alpine — render
+    // via x-html on <g> instead of :d binding. Returns SVG fragment
+    // (path elements + <text> percentage label for single-method case).
+    methodPieSvg(size = 120) {
+      const slices = this.methodPieSlices(size);
+      const cx = size / 2;
+      const cy = size / 2;
+      if (slices.length === 0) return '';
+      const paths = slices.map((s) =>
+        `<path d="${s.d}" fill="${s.color}" class="stats-method-color stats-method-${s.method}"></path>`
+      ).join('');
+      // single-method 空状态提示: 显示百分比文字在圆中央
+      const items = (this.factCheckMethod.by_method || []).filter(
+        (x) => (x.article_count || 0) > 0
+      );
+      let centerText = '';
+      if (items.length === 1 && items[0].percentage != null) {
+        const pct = items[0].percentage.toFixed(0);
+        const label = this.methodLabel(items[0].method);
+        centerText =
+          `<text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="20" font-weight="700" fill="#3B82F6">${pct}%</text>` +
+          `<text x="${cx}" y="${cy + 14}" text-anchor="middle" font-size="9" fill="#6B7280">${label}</text>`;
+      }
+      return paths + centerText;
+    },
+
     // ── 标签/枚举 ────────────────────────────────────────
+    costFmt(n) {
+      if (n == null || isNaN(n)) return '$0';
+      const v = Number(n);
+      if (v === 0) return '$0';
+      if (v < 0.01) return '$' + v.toFixed(6);
+      return '$' + v.toFixed(4);
+    },
+
     taskTypeLabel(t) {
       return ({
         'summary': '摘要',
