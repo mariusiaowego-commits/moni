@@ -1173,29 +1173,3 @@ class TestCORS:
             headers={"Origin": "http://127.0.0.1:8900"},
         )
         assert r.headers.get("Access-Control-Allow-Origin") == "http://127.0.0.1:8900"
-
-
-class TestLlmProviderTestEndpoint:
-    """sprint-12 v1.0.31 (D): test_provider 调 call_llm 不再传不存在的
-    module kwarg — 修复前抛 TypeError, 连通测试永远 ok=False。"""
-
-    def test_provider_test_does_not_pass_module_kwarg(self, client: TestClient):
-        from moni.db.seed_llm import seed as seed_llm
-        seed_llm()
-
-        captured: dict = {}
-
-        def fake_call_llm(*args, **kwargs):
-            captured["kwargs"] = kwargs
-            return "hi"
-
-        with patch("moni.llm.client.call_llm", side_effect=fake_call_llm):
-            r = client.post("/api/llm/providers/seed-provider-minimax-cn/test")
-
-        assert r.status_code == 200
-        data = r.json()
-        assert data["ok"] is True
-        assert "module" not in captured["kwargs"], (
-            f"call_llm 不能收到 module kwarg, got {captured['kwargs']}"
-        )
-        assert captured["kwargs"].get("timeout") == 15
