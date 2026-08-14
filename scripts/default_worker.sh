@@ -307,7 +307,9 @@ process_manifest() {
     # Skip lock file and hidden files
     [[ "$basename" == .* ]] && return 0
 
-    local task_id format article_ids_str output_path skill_name error_msg
+    local task_id format article_ids_str output_path skill_name error_msg artifacts_dir
+    artifacts_dir="${ARTIFACTS_DIR:-$REPO_ROOT/data/artifacts}"
+    mkdir -p "$artifacts_dir"
     # Support both 'id' and 'share_id' as the primary key field
     task_id=$(python3 -c "import json; d=json.load(open('$manifest_path')); print(d.get('id','') or d.get('share_id',''))" 2>/dev/null || echo "")
     format=$(python3 -c "import json; d=json.load(open('$manifest_path')); print(d.get('format',''))" 2>/dev/null || echo "")
@@ -735,8 +737,6 @@ print('true' if p.get('include_business_value') else 'false')
     if [[ "$brief_val" == "true" && "$format" == "html_landing" ]]; then
         update_progress "$task_id" "writing_artifact" 90 \
             "正在生成离线 HTML 简报（含全文折叠）..."
-        local artifacts_dir="${ARTIFACTS_DIR:-$REPO_ROOT/data/artifacts}"
-        mkdir -p "$artifacts_dir"
         output_path="$artifacts_dir/${task_id}-html_landing.html"
         local brief_title
         brief_title=$(python3 -c "
@@ -946,63 +946,32 @@ print(p.get('generation_approach',''))
     update_progress "$task_id" "invoking_llm" 60 \
         "正在调 hermes chat (timeout=${TIMEOUT_SECONDS}s) ..."
 
-    # Invoke hermes agent with 5-minute timeout (Python, works on macOS + Linux).
-    # v1.0.5.18: pass through optional --provider / --model flags from
-    # the manifest payload, so the user can override the default
-    # hermes profile's choice when one provider's quota is exhausted.
+    # v1.0.31 (sprint-12): hermes invocation moved to moni/share/worker_llm.py
+    # — a dedicated Python module.  It:
+    #   A1. reads provider/model from DB (llm_settings.active_summary_model_id
+    #       → llm_models → llm_providers) and passes explicit
+    #       `--provider X -m Y`, so the user's default hermes provider no
+    #       longer decides what moni uses.  Manifest payload overrides
+    #       ($provider_override / $model_override) still win.
+    #   A2. scans stdout for LLM failure keywords (API call failed / HTTP 4xx
+    #       / HTTP 5xx / rate limit / insufficient credits) and returns 1 so
+    #       the task goes to failed instead of "假 done".
+    #   A3. stdout is written to a file ($hermes_out_file) so the worker can
+    #       both inspect it and hand remote fal.media URLs to curl below.
     local hermes_exit=0
-    local hermes_output
+    local hermes_out_file="$artifacts_dir/${task_id}-hermes-output.txt"
+    local hermes_output=""
+    local llm_args=("--db" "$DB_PATH" "--timeout" "$TIMEOUT_SECONDS")
+    [[ -n "$effective_skill" ]] && llm_args+=("--skill" "$effective_skill")
+    [[ -n "$provider_override" ]] && llm_args+=("--provider" "$provider_override")
+    [[ -n "$model_override" ]] && llm_args+=("--model" "$model_override")
+    llm_args+=("--output" "$hermes_out_file" "--" "$prompt")
 
-    # Build the hermes argv.  Python's Popen needs a list, not a
-    # shell string, so we can't use bash arrays directly across the
-    # pipe boundary.  We encode the optional flags as positional
-    # arguments after the timeout and prompt.
-    local extra_args=""
-    [[ -n "$provider_override" ]] && extra_args+=" --provider $provider_override"
-    [[ -n "$model_override" ]] && extra_args+=" --model $model_override"
-
-    hermes_output=$(python3 - "$TIMEOUT_SECONDS" "$prompt" "$extra_args" "$effective_skill" <<'PYEOF'
-import os, subprocess, sys, signal, shlex
-
-timeout_sec = int(sys.argv[1])
-prompt_text = sys.argv[2]
-extra_args_str = sys.argv[3] if len(sys.argv) > 3 else ""
-skill_name = sys.argv[4] if len(sys.argv) > 4 else ""
-
-# Base argv: hermes -z <prompt> --profile <MONI_HERMES_PROFILE or default>
-# v1.0.10: default was "moni" (xiaomi MiMo) → 401 after key retired;
-# align with summary_gen / llm.client (default profile = MiniMax etc.)
-profile = os.environ.get("MONI_HERMES_PROFILE", "default")
-argv = ["hermes", "-z", prompt_text, "--profile", profile]
-# Append skill if specified
-if skill_name.strip():
-    argv.extend(["-s", skill_name.strip()])
-# Append the user-supplied --provider / --model flags if any.
-# We use shlex.split so values with spaces are quoted correctly.
-if extra_args_str.strip():
-    argv.extend(shlex.split(extra_args_str))
-
-proc = subprocess.Popen(
-    argv,  # v1.0.5.18 bug fix: was missing the args positional
-            # parameter (the Popen call only had kwargs, so the
-            # interpreter raised "missing 1 required positional
-            # argument: 'args'" and the worker reported exit 1).
-    stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
-    text=True,
-)
-
-try:
-    stdout, _ = proc.communicate(timeout=timeout_sec)
-    sys.stdout.write(stdout)
-    sys.exit(proc.returncode)
-except subprocess.TimeoutExpired:
-    proc.kill()
-    proc.wait()
-    sys.stderr.write(f"timeout after {timeout_sec}s\n")
-    sys.exit(124)
-PYEOF
-) || hermes_exit=$?
+    python3 "$REPO_ROOT/moni/share/worker_llm.py" "${llm_args[@]}" >/dev/null 2>&1 \
+        || hermes_exit=$?
+    # hermes 输出已经由 worker_llm.py 写到 hermes_out_file; 超时/失败时
+    # 文件可能不存在, 所以 read 前先兜底。
+    hermes_output=$(cat "$hermes_out_file" 2>/dev/null) || true
 
     if [[ $hermes_exit -eq 124 ]]; then
         error_msg="timeout after ${TIMEOUT_SECONDS}s"
@@ -1021,31 +990,65 @@ PYEOF
     # (e.g. infographic.png, report.png) and return a text description
     # with the file path.  Detect the real file and copy it to the
     # artifact location instead of saving the text output.
-    local artifacts_dir="${ARTIFACTS_DIR:-$REPO_ROOT/data/artifacts}"
-    mkdir -p "$artifacts_dir"
-
     if [[ "$format" == "info_graphic_png" || "$format" == "report_png" ]]; then
-        # sprint-11 v1.0.30 fix: hermes writes real PNGs to data/briefings/
-        # (or data/artifacts/) and prints a *text description* + fal.media URL
-        # to stdout — the old `grep '/path/*.png'` matched the URL segment,
-        # failed `-f`, and fell back to saving the text reply (UTF-8 text,
-        # not a real PNG).  Now we find PNGs written in the last 30 min
-        # (hermes runs within this window) and copy all real ones.
-        local real_pngs=""
-        real_pngs=$(find "${ARTIFACTS_DIR:-$REPO_ROOT/data/artifacts}" "$REPO_ROOT/data/briefings" -name '*.png' -mmin -30 -type f 2>/dev/null | head -5)
+        # v1.0.31 (sprint-12) A3: 远程 PNG (fal.media 等) 下载 + magic
+        # bytes 校验, 不再把文本描述冒充成 PNG。 校验失败 → 报 FAIL,
+        # 不是 done。 保留 v1.0.30 的本地文件兜底 (hermes 直接写本地
+        # PNG 的场景)。
+        local png_urls=""
+        png_urls=$(/usr/local/bin/python3 - "$hermes_out_file" <<'PYEOF'
+import re, sys
+urls = re.findall(r"https?://[^\s<>\"']+?\.png(?:\?[^\s<>\"']*)?", open(sys.argv[1], encoding="utf-8", errors="replace").read())
+seen = []
+for u in urls:
+    u = u.rstrip(".,;:!?)]}>\"'")
+    if u not in seen:
+        seen.append(u)
+print("\n".join(seen))
+PYEOF
+) || true
         local png_count=0
-        for cand in $real_pngs; do
-            if [[ -f "$cand" && $(file -b "$cand") == *"PNG"* ]]; then
-                local out_png="$artifacts_dir/${task_id}-${format}-${png_count}.png"
-                cp "$cand" "$out_png"
-                log "PNG artifact copied from $cand -> $out_png"
+        local png_url
+        local png_fail_reason=""
+        for png_url in $png_urls; do
+            local out_png="$artifacts_dir/${task_id}-${format}-${png_count}.png"
+            if curl -fsSL --max-time 120 -o "$out_png" "$png_url" 2>/dev/null \
+                && [[ "$(head -c 8 "$out_png" | od -An -tx1 | tr -d ' \n')" == "89504e470d0a1a0a" ]]; then
+                log "PNG artifact downloaded $png_url -> $out_png"
                 output_path="$out_png"
                 png_count=$((png_count + 1))
+            else
+                rm -f "$out_png"
+                png_fail_reason="remote PNG download/validation failed: $png_url"
+                log "FAIL $task_id — remote PNG download/validation failed: $png_url"
             fi
         done
+        if [[ $png_count -eq 0 ]]; then
+            # v1.0.30 本地文件兜底: hermes 直接写本地 PNG 的场景。
+            local real_pngs=""
+            real_pngs=$(find "${ARTIFACTS_DIR:-$REPO_ROOT/data/artifacts}" "$REPO_ROOT/data/briefings" -name '*.png' -mmin -30 -type f 2>/dev/null | head -5)
+            for cand in $real_pngs; do
+                if [[ -f "$cand" && $(file -b "$cand") == *"PNG"* ]]; then
+                    local out_png="$artifacts_dir/${task_id}-${format}-${png_count}.png"
+                    cp "$cand" "$out_png"
+                    log "PNG artifact copied from $cand -> $out_png"
+                    output_path="$out_png"
+                    png_count=$((png_count + 1))
+                fi
+            done
+        fi
         if [[ $png_count -gt 0 ]]; then
             # keep last copied as primary output_path (UI shows one link)
             output_path="$artifacts_dir/${task_id}-${format}-$((png_count - 1)).png"
+        else
+            # v1.0.31: 产物不是真 PNG 时标记 FAIL 而不是 done —
+            # 防静默降级 (文本冒充 PNG / 远程 URL 下载失败)。
+            if [[ -z "$png_fail_reason" ]]; then
+                png_fail_reason="no real PNG artifact produced (no valid remote/local PNG)"
+            fi
+            log "FAIL $task_id — $png_fail_reason"
+            task_status_update "$task_id" "failed" "" "$png_fail_reason"
+            return 0
         fi
     elif [[ "$format" == "html_landing" ]]; then
         # Extract HTML file path from hermes output (look for /path/to/*.html)
