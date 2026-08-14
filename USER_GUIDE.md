@@ -681,6 +681,80 @@ curl "http://127.0.0.1:8900/api/stats/fact-check-method?period=30d" | python3 -m
 - 评估 token 成本: 联网档比基础档贵 10-20 倍
 - 申报书量化数据: 饼图比例直接放 §5.1 证据段
 
+### 5.8b evidence 时效校验 (v1.0.26)
+
+> 联网核查+ 的证据链落库后, 证据是**抓取时刻**的检索结果 — 时间久了可能失效 (监管政策变了 / 数字过时)。v1.0.26 加证据时效校验: 抓取超过 30 天标「已过期」, 超过 90 天强降级为「存疑」, 防止把旧证据当新事实用。
+
+**怎么看**:
+
+1. 进"文章查阅"打开文章详情 → 展开"联网核查"证据链
+2. 每条证据旁边显示 `age_days` (证据年龄天数) + `timeliness` 标记:
+   - `< 30 天`: 正常 (无标记)
+   - `30-90 天`: 标「已过期 30-90 天」黄色
+   - `> 90 天`: 结论自动降级为【存疑】, 证据标红色
+3. 证据链顶部整体结论受时效影响: 只要有过期证据支撑, 结论不升级为【已核实】
+
+**API 调试**:
+```bash
+curl "http://127.0.0.1:8900/api/fact-check-plus/evidence/{article_id}" | python3 -m json.tool
+# 每条 evidence 含 "timeliness": "ok" | "stale" | "expired" + "age_days": N
+```
+
+**用途**:
+- 防止引用过时政策/数据 (银行业合规刚需)
+- 申报书: 证明系统有"证据新鲜度"意识
+
+### 5.8c 状态机人工复核 (v1.0.27)
+
+> 联网核查+ 的结论是 LLM 自动生成的 — 业务人员需要能"确认/驳回"留痕。v1.0.27 加状态机: 每篇文章的核查结论有 5 档状态 (draft → verified → published → deprecated → archived), 单向流转, 复核人 + 备注落库审计。
+
+**怎么用**:
+
+1. 进"文章查阅"打开文章详情 → 事实核查结论区下方
+2. 看到当前状态 (默认 draft) + 5 档状态流转按钮
+3. 点「verified」→ 弹复核表单: 输入复核人 + 备注 → 确认
+4. 状态单向流转 (不能回退), 跨档跳转返 400
+5. 看板 method 分布可加 by_state 维度看各状态分布
+
+**审计字段** (谁审的 + 何时 + 为什么):
+- `articles.fact_check_state` — 当前状态
+- `articles.reviewed_by` + `reviewed_at` + `review_note` — 复核留痕
+
+**API 调试**:
+```bash
+curl -X PATCH http://127.0.0.1:8900/api/fact-check-plus/{id}/review \
+  -H "Content-Type: application/json" \
+  -d '{"state":"verified","reason":"人工核对原文一致","reviewer":"张三"}'
+```
+
+**用途**:
+- 合规审计: 每条核查结论有"谁最终确认"记录
+- 申报书 §4.5: 人机协同确认/驳回 + 留痕审计
+
+### 5.8d 落库脱敏 (v1.0.28)
+
+> B5 失败诊断 (v1.0.23) 把 LLM 原始输出前 2KB 落 `llm_jobs.error` — 但 LLM 可能把 api_key / token 等凭据写进输出, 落库即泄露。v1.0.28 加写库前脱敏: 6 种模式 (sk-xxx / token / Bearer / secret / password / UUID) 替换为 `[REDACTED:type]` 占位符。
+
+**怎么看**:
+
+1. 进 "LLM 任务" → 失败任务 → 查看错误
+2. 看到 `RAW OUTPUT: I cannot help. key=[REDACTED:api_key] and token=[REDACTED:token] here.`
+3. 敏感凭据全部变 `[REDACTED:类型]`, 诊断信息 (失败原因/截断内容) 保留
+
+**覆盖模式**:
+| 模式 | 示例 | 替换为 |
+|------|------|--------|
+| API key | `sk-abcdef...` | `[REDACTED:api_key]` |
+| token | `token=abc123` / `"token":"..."` | `[REDACTED:token]` |
+| Bearer | `Authorization: Bearer eyJ...` | `[REDACTED:bearer]` |
+| secret | `secret=xyz` | `[REDACTED:secret]` |
+| password | `password=hunter2` | `[REDACTED:password]` |
+| UUID | `8-4-4-4-12` | `[REDACTED:uuid_token]` |
+
+**用途**:
+- 数据安全: 凭据不落库, 日志可分享给第三方排查
+- 申报书 §4.5: 数据安全设计
+
 ### 5.9 LLM 配置
 
 LLM 用 3 张 DB 表管理 (v1.0.2-A):
