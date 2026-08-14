@@ -18,7 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 28  # v1.0.27: fact_check 状态机 (028)
+_CURRENT_VERSION = 29  # v1.0.32: LLM 用量统计列 (029)
 
 
 def current_version(conn: sqlite3.Connection) -> int:

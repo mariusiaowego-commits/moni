@@ -22,6 +22,7 @@ from fastapi import APIRouter, Query
 from moni.stats.repository import (
     fetch_layer_stats,
     llm_layer_stats,
+    llm_usage_layer_stats,
     extract_layer_stats,
     usage_layer_stats,
     fact_check_method_layer_stats,
@@ -79,6 +80,19 @@ def get_llm_stats(
     return llm_layer_stats(period)
 
 
+@router.get("/llm-usage")
+def get_llm_usage_stats(
+    period: str = Query("30d", description="时间窗口: 7d / 30d / 90d"),
+) -> dict[str, Any]:
+    """Q4 LLM 用量统计 (v1.0.32): token/cost 按 model 聚合.
+
+    返回 {totals, by_model} 供看板「LLM 用量」模块表格。
+    """
+    if period not in ("7d", "30d", "90d"):
+        period = "30d"
+    return llm_usage_layer_stats(period)
+
+
 @router.get("/savings")
 def get_savings(
     period: str = Query("30d", description="时间窗口: 7d / 30d / 90d"),
@@ -132,4 +146,3 @@ def get_fact_check_method_stats(
     if period not in ("7d", "30d", "90d", "all"):
         period = "30d"
     return fact_check_method_layer_stats(period)
-

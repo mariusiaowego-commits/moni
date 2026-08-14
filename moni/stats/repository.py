@@ -207,6 +207,87 @@ def llm_layer_stats(period: str = "30d") -> dict[str, Any]:
     }
 
 
+# ── LLM 用量 (llm_jobs token/cost, v1.0.32) ───────────────────
+
+def llm_usage_layer_stats(period: str = "30d") -> dict[str, Any]:
+    """Q4 LLM 用量统计: 按 model 聚合 token/cost。
+
+    Schema: llm_jobs.model, llm_jobs.started_at, llm_jobs.input_tokens,
+            llm_jobs.output_tokens, llm_jobs.cost_usd (migration 029).
+
+    Returns:
+        {
+          period, period_start,
+          totals: {calls, input_tokens, output_tokens, cost_usd},
+          by_model: [{model, calls, input_tokens, output_tokens, cost_usd}, ...],
+          module: 'llm_usage',
+        }
+
+    period: '7d' / '30d' / '90d' (其他值 fallback 30d).
+    """
+    conn = get_db()
+    since = _period_iso(period)
+
+    if since:
+        where = "WHERE started_at >= ?"
+        params: tuple = (since,)
+    else:
+        where = ""
+        params = ()
+
+    totals_row = conn.execute(
+        f"""
+        SELECT COUNT(*) AS calls,
+               COALESCE(SUM(input_tokens), 0)  AS input_tokens,
+               COALESCE(SUM(output_tokens), 0) AS output_tokens,
+               COALESCE(SUM(cost_usd), 0)      AS cost_usd
+        FROM llm_jobs
+        {where}
+        """,
+        params,
+    ).fetchone()
+
+    by_model_rows = conn.execute(
+        f"""
+        SELECT COALESCE(model, '<unknown>') AS model,
+               COUNT(*) AS calls,
+               COALESCE(SUM(input_tokens), 0)  AS input_tokens,
+               COALESCE(SUM(output_tokens), 0) AS output_tokens,
+               COALESCE(SUM(cost_usd), 0)      AS cost_usd
+        FROM llm_jobs
+        {where}
+        GROUP BY COALESCE(model, '<unknown>')
+        ORDER BY calls DESC
+        """,
+        params,
+    ).fetchall()
+
+    totals = {
+        "calls": int(totals_row["calls"] or 0),
+        "input_tokens": int(totals_row["input_tokens"] or 0),
+        "output_tokens": int(totals_row["output_tokens"] or 0),
+        "cost_usd": round(float(totals_row["cost_usd"] or 0.0), 6),
+    }
+    by_model = [
+        {
+            "model": r["model"],
+            "calls": int(r["calls"] or 0),
+            "input_tokens": int(r["input_tokens"] or 0),
+            "output_tokens": int(r["output_tokens"] or 0),
+            "cost_usd": round(float(r["cost_usd"] or 0.0), 6),
+        }
+        for r in by_model_rows
+    ]
+
+    return {
+        "period": period,
+        "period_start": since,
+        "totals": totals,
+        "by_model": by_model,
+        "module": "llm_usage",
+    }
+
+
 # ── 抽取层 (events / cases) — N_EXTRACT_THRESHOLD ──────────────
 
 def extract_layer_stats(period: str = "30d") -> dict[str, Any]:
