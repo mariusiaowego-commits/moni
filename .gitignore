@@ -51,6 +51,7 @@ demo-v2.html
 # per-format subdirs.  They're run artifacts, not source — gitignore
 # them so they don't accidentally end up in PRs.
 infographic/
+infographics/
 share_output/
 # Root-level share outputs (historical pattern: scripts dump to cwd)
 /*_infographic.png
