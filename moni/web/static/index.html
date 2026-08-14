@@ -1939,6 +1939,47 @@
             <div class="stats-module-row"><span>未核查文章</span><strong x-text="fmt(factCheckMethod.unfact_checked_total || 0)"></strong></div>
             <div class="stats-module-row"><span>窗口</span><strong x-text="period"></strong></div>
           </div>
+
+          <!-- v1.0.32: LLM 用量 (Q4, token/cost by model) -->
+          <div class="stats-module" id="stats-llm-usage">
+            <div class="stats-module-head">
+              <span class="stats-module-title">LLM 用量</span>
+              <span class="stats-module-status"
+                    :class="(llmUsage.totals?.calls || 0) > 0 ? 'stat-ok' : 'stat-sparse'"
+                    x-text="(llmUsage.totals?.calls || 0) > 0 ? '展示中' : '数据积累中'"></span>
+            </div>
+            <div class="stats-module-primary" x-text="fmt(llmUsage.totals?.calls || 0) + ' 次调用'"></div>
+            <div class="stats-module-row"><span>输入 tokens</span><strong x-text="fmt(llmUsage.totals?.input_tokens || 0)"></strong></div>
+            <div class="stats-module-row"><span>输出 tokens</span><strong x-text="fmt(llmUsage.totals?.output_tokens || 0)"></strong></div>
+            <div class="stats-module-row"><span>花费</span><strong x-text="costFmt(llmUsage.totals?.cost_usd)"></strong></div>
+            <div class="stats-module-row"><span>窗口</span><strong x-text="period"></strong></div>
+
+            <table class="stats-usage-table" x-show="(llmUsage.by_model || []).length > 0">
+              <thead>
+                <tr>
+                  <th>模型</th>
+                  <th>调用</th>
+                  <th>输入</th>
+                  <th>输出</th>
+                  <th>花费</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="(item, i) in (llmUsage.by_model || [])" :key="item.model + '-' + i">
+                  <tr>
+                    <td x-text="item.model"></td>
+                    <td x-text="fmt(item.calls)"></td>
+                    <td x-text="fmt(item.input_tokens)"></td>
+                    <td x-text="fmt(item.output_tokens)"></td>
+                    <td x-text="costFmt(item.cost_usd)"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <div class="stats-usage-empty" x-show="!(llmUsage.by_model || []).length">
+              数据积累中 (还没有带 token 统计的 LLM 任务)
+            </div>
+          </div>
         </div>
 
         <!-- 趋势图 (fetch) -->

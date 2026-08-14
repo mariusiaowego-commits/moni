@@ -2649,6 +2649,39 @@ label { font-size: 0.85rem; }
   color: var(--foreground); font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
+
+/* v1.0.32: LLM 用量模块 by_model 表格 (Q4) */
+.stats-usage-table {
+  width: 100%;
+  margin: 10px 0 4px;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: var(--muted-fg);
+}
+.stats-usage-table th,
+.stats-usage-table td {
+  text-align: right;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border, rgba(127,127,127,0.12));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.stats-usage-table th:first-child,
+.stats-usage-table td:first-child {
+  text-align: left;
+}
+.stats-usage-table th {
+  color: var(--muted-fg);
+  font-weight: 500;
+}
+.stats-usage-table td {
+  color: var(--foreground);
+}
+.stats-usage-empty {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted-fg);
+}
 .stats-module {
   background: var(--card);
   border: 1px solid var(--border, rgba(127,127,127,0.15));

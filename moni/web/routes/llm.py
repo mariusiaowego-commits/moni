@@ -139,7 +139,7 @@ class _ExtraForbid(BaseModel):
 class ProviderCreate(_ExtraForbid):
     name: str = Field(..., min_length=1, max_length=100)
     hermes_provider: str = Field(..., min_length=1, max_length=100)
-    notes: str = Field(default="")
+    notes: str | None = Field(default=None)
 
 
 class ProviderUpdate(_ExtraForbid):
@@ -312,7 +312,7 @@ def test_provider(provider_id: str) -> dict:
         # 没有这个参数 (修复前 TypeError → 连通测试永远 ok=False)。
         reply = call_llm(
             hermes_provider, model_id, "hi",
-            timeout=15,
+            timeout=60,
         )
         duration_ms = int((_time.monotonic() - t0) * 1000)
         return {

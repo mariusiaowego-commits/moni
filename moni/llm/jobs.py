@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -304,11 +305,35 @@ def _run_job(row: dict[str, Any]) -> None:
     # Make the LLM call (already retried internally? No — we do our own
     # retry here so attempts are visible in the DB).
     t0 = time.monotonic()
+    # v1.0.32: hermes -z --usage-file 落盘 token/cost, 成功后写回 llm_jobs。
+    usage_file = f"/tmp/moni-llm-usage-{job_id}-{int(time.time())}.json"
     try:
-        result_text = call_llm(provider, model, prompt, extra_args=extra_args)
+        call_result = call_llm(
+            provider, model, prompt,
+            extra_args=extra_args,
+            usage_file=usage_file,
+            usage=True,
+        )
+        if isinstance(call_result, tuple):
+            result_text, usage = call_result
+        else:
+            # 兼容: 外部 mock / 旧实现可能仍返回纯 str (usage 记 0)。
+            result_text = call_result
+            usage = {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
     except Exception as exc:
         duration_ms = int((time.monotonic() - t0) * 1000)
         err_msg = f"{type(exc).__name__}: {exc}"
+        input_tokens = output_tokens = 0
+        cost_usd = 0.0
+        try:
+            if os.path.isfile(usage_file):
+                with open(usage_file, encoding="utf-8") as fh:
+                    data = json.load(fh)
+                input_tokens = int(data.get("input_tokens") or 0)
+                output_tokens = int(data.get("output_tokens") or 0)
+                cost_usd = float(data.get("estimated_cost_usd") or 0.0)
+        except Exception:  # noqa: BLE001 — 记账失败不影响失败处理
+            pass
         if attempt < MAX_ATTEMPTS:
             # Re-queue for a retry.
             logger.warning(
@@ -321,17 +346,34 @@ def _run_job(row: dict[str, Any]) -> None:
                 SET status = 'pending',
                     attempts = ?,
                     error = ?,
-                    duration_ms = ?
+                    duration_ms = ?,
+                    input_tokens = ?,
+                    output_tokens = ?,
+                    cost_usd = ?
                 WHERE id = ?
                 """,
-                (attempt, err_msg, duration_ms, job_id),
+                (
+                    attempt, err_msg, duration_ms,
+                    input_tokens, output_tokens, cost_usd, job_id,
+                ),
             )
             conn.commit()
         else:
-            _mark_failed(job_id, err_msg, attempts=attempt, duration_ms=duration_ms)
+            _mark_failed(
+                job_id, err_msg,
+                attempts=attempt, duration_ms=duration_ms,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cost_usd=cost_usd,
+            )
+        _cleanup_usage_file(usage_file)
         return
 
     duration_ms = int((time.monotonic() - t0) * 1000)
+    input_tokens = int(usage.get("input_tokens") or 0)
+    output_tokens = int(usage.get("output_tokens") or 0)
+    cost_usd = float(usage.get("cost_usd") or 0.0)
+    _cleanup_usage_file(usage_file)
 
     # Persist the LLM output.  For summary jobs we write back into
     # ``articles.summary`` / ``articles.summary_at`` so the existing UI
@@ -400,10 +442,16 @@ def _run_job(row: dict[str, Any]) -> None:
             result      = ?,
             attempts    = ?,
             duration_ms = ?,
+            input_tokens = ?,
+            output_tokens = ?,
+            cost_usd    = ?,
             finished_at = ?
         WHERE id = ?
         """,
-        (result_text, attempt, duration_ms, finished_at, job_id),
+        (
+            result_text, attempt, duration_ms,
+            input_tokens, output_tokens, cost_usd, finished_at, job_id,
+        ),
     )
     conn.commit()
     logger.info(
@@ -730,6 +778,9 @@ def _mark_failed(
     *,
     attempts: int,
     duration_ms: int | None = None,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cost_usd: float = 0.0,
 ) -> None:
     """Mark a job as failed with the given error message."""
     conn = get_db()
@@ -741,10 +792,24 @@ def _mark_failed(
             error       = ?,
             attempts    = ?,
             duration_ms = COALESCE(?, duration_ms),
+            input_tokens = ?,
+            output_tokens = ?,
+            cost_usd    = ?,
             finished_at = ?
         WHERE id = ?
         """,
-        (error_msg, attempts, duration_ms, finished_at, job_id),
+        (
+            error_msg, attempts, duration_ms,
+            input_tokens, output_tokens, cost_usd, finished_at, job_id,
+        ),
     )
     conn.commit()
     logger.warning("[llm_jobs] job %s failed: %s", job_id, error_msg)
+
+
+def _cleanup_usage_file(path: str) -> None:
+    """Remove the temp hermes usage JSON (best-effort)."""
+    try:
+        os.unlink(path)
+    except OSError:
+        pass

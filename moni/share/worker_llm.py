@@ -31,13 +31,14 @@ CLI 由 ``scripts/default_worker.sh`` 以 subprocess 调用,避免 bash
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sqlite3
 import subprocess
 import sys
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 #: 默认 profile —— 与 summary_gen / llm.client 保持一致。
 DEFAULT_PROFILE = os.environ.get("MONI_HERMES_PROFILE", "default")
@@ -140,13 +141,64 @@ def _build_argv(
     *,
     profile: str = DEFAULT_PROFILE,
     skill: str | None = None,
+    usage_file: str | os.PathLike[str] | None = None,
 ) -> list[str]:
     """Build hermes argv — 显式 --provider / -m,不依赖用户默认配置。"""
     argv = ["hermes", "-z", prompt, "--profile", profile]
     if skill and skill.strip():
         argv.extend(["-s", skill.strip()])
     argv.extend(["--provider", provider, "-m", model])
+    # v1.0.32: hermes -z 支持 --usage-file (one-shot 模式), 失败也写文件。
+    if usage_file:
+        argv.extend(["--usage-file", str(usage_file)])
     return argv
+
+
+def parse_usage_file(
+    usage_file: str | os.PathLike[str] | None,
+) -> dict[str, int | float | None]:
+    """Parse hermes --usage-file JSON into usage counters.
+
+    Returns keys: input_tokens / output_tokens / cost_usd (missing or
+    null → 0).  Also keeps the raw dict under 'raw' for debugging.
+    """
+    empty: dict[str, int | float | None] = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cost_usd": 0.0,
+        "raw": {},
+    }
+    if not usage_file:
+        return empty
+    path = Path(usage_file)
+    if not path.is_file():
+        return empty
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return empty
+    if not isinstance(data, dict):
+        return empty
+    def _num(key: str) -> int | float | None:
+        val = data.get(key)
+        try:
+            return int(val) if val is not None else 0
+        except (TypeError, ValueError):
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                return 0
+    cost = data.get("estimated_cost_usd")
+    try:
+        cost_f = float(cost) if cost is not None else 0.0
+    except (TypeError, ValueError):
+        cost_f = 0.0
+    return {
+        "input_tokens": _num("input_tokens"),
+        "output_tokens": _num("output_tokens"),
+        "cost_usd": cost_f,
+        "raw": data,
+    }
 
 
 def run_hermes(
@@ -157,8 +209,19 @@ def run_hermes(
     skill: str | None = None,
     provider_override: str | None = None,
     model_override: str | None = None,
-) -> tuple[str, int]:
-    """Invoke hermes and return ``(stdout, exit_code)``.
+    usage_file: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    """Invoke hermes and return a dict with output + usage counters.
+
+    Returns::
+        {
+            "stdout": str,
+            "exit_code": 0 | 1 | 124 | rc,
+            "input_tokens": int,
+            "output_tokens": int,
+            "cost_usd": float,
+            "usage": dict,   # parse_usage_file() result incl. raw
+        }
 
     Exit codes mirror the old worker semantics:
       0   — hermes 成功且 stdout 无失败关键字
@@ -170,7 +233,18 @@ def run_hermes(
         provider_override=provider_override,
         model_override=model_override,
     )
-    argv = _build_argv(prompt, provider, model, skill=skill)
+    argv = _build_argv(prompt, provider, model, skill=skill, usage_file=usage_file)
+
+    def _result(stdout: str, code: int) -> dict[str, Any]:
+        usage = parse_usage_file(usage_file)
+        return {
+            "stdout": stdout,
+            "exit_code": code,
+            "input_tokens": usage["input_tokens"],
+            "output_tokens": usage["output_tokens"],
+            "cost_usd": usage["cost_usd"],
+            "usage": usage,
+        }
 
     proc: subprocess.Popen[str] | None = None
     try:
@@ -185,20 +259,21 @@ def run_hermes(
         if proc is not None:
             proc.kill()
             proc.wait()
-        return "", 124
+        return _result("", 124)
     except FileNotFoundError:
-        return "hermes CLI not found on PATH — install Hermes Agent or fix $PATH.\n", 1
+        return _result(
+            "hermes CLI not found on PATH — install Hermes Agent or fix $PATH.\n", 1
+        )
     except Exception as exc:  # noqa: BLE001 — worker 不能因运行期异常挂掉
-        return f"worker_llm run_hermes error: {exc!r}\n", 1
+        return _result(f"worker_llm run_hermes error: {exc!r}\n", 1)
 
     if proc.returncode != 0:
-        return stdout, proc.returncode
+        return _result(stdout, proc.returncode)
 
     hit = detect_llm_failure(stdout or "")
     if hit:
-        # 前缀区分: worker 的 failed 分支会把它落 DB error。
-        return stdout, 1
-    return stdout, 0
+        return _result(stdout, 1)
+    return _result(stdout, 0)
 
 
 def extract_remote_png_urls(output: str) -> list[str]:
@@ -270,17 +345,23 @@ def cli(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--provider", default=None, help="provider override (manifest payload)")
     parser.add_argument("--model", default=None, help="model override (manifest payload)")
     parser.add_argument("--output", default=None, help="write stdout here instead of stdout")
+    parser.add_argument(
+        "--usage-file",
+        default=None,
+        help="hermes --usage-file path (JSON usage report)",
+    )
     parser.add_argument("prompt", help="the prompt text")
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     try:
-        stdout, code = run_hermes(
+        result = run_hermes(
             args.prompt,
             db_path=args.db,
             timeout_sec=args.timeout,
             skill=args.skill,
             provider_override=args.provider,
             model_override=args.model,
+            usage_file=args.usage_file,
         )
     except KeyboardInterrupt:
         return 130
@@ -288,8 +369,8 @@ def cli(argv: Iterable[str] | None = None) -> int:
         _write_output(f"worker_llm error: {exc!r}\n", args.output)
         return 1
 
-    _write_output(stdout, args.output)
-    return code
+    _write_output(result["stdout"], args.output)
+    return int(result["exit_code"])
 
 
 if __name__ == "__main__":

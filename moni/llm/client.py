@@ -9,6 +9,7 @@ PRD §4.4 / §4.7 薄壳模式。
 from __future__ import annotations
 
 import logging
+import json
 import os
 import re
 import subprocess
@@ -53,8 +54,17 @@ def call_llm(
     *,
     timeout: int = _TIMEOUT_SECONDS,
     extra_args: list[str] | None = None,
-) -> str:
-    """Call Hermes chat CLI and return the text reply.
+    usage_file: str | None = None,
+    usage: bool = False,
+) -> str | tuple[str, dict]:
+    """Call Hermes CLI and return the reply text (plus usage when asked).
+
+    v1.0.32 (sprint-13): invocation switched from ``hermes chat -q`` to
+    ``hermes -z`` one-shot mode.  ``-z`` supports ``--usage-file PATH``
+    (chat mode does not — verified against hermes --help), which writes a
+    JSON report with input/output tokens + estimated cost even on failure.
+    The usage dict mirrors parse_usage_file(): input_tokens / output_tokens
+    / cost_usd / raw.
 
     Args:
         provider: hermes provider name (e.g. "google", "openrouter", "minimax-cn").
@@ -62,23 +72,35 @@ def call_llm(
         prompt: full prompt text.
         timeout: subprocess timeout in seconds.
         extra_args: optional additional CLI flags.
+        usage_file: optional path for hermes --usage-file JSON report.
 
     Returns:
-        Reply text (stripped). Strips the leading "session_id: ..." line.
+        reply_text (stripped) — 或当 ``usage=True`` 时返回
+        ``(reply_text, usage_dict)``.  usage 有 input_tokens /
+        output_tokens / cost_usd 计数器 (不可用时为 0) + ``raw`` JSON。
 
     Raises:
-        RuntimeError: if hermes chat exits non-zero or times out.
+        RuntimeError: if hermes exits non-zero or times out.
     """
     cmd = [
-        "hermes", "chat",
-        "-q", prompt,
+        "hermes", "-z", prompt,
         "--provider", provider,
         "-m", model,
         "--profile", os.environ.get("MONI_HERMES_PROFILE", "default"),
-        "-Q",
     ]
     if extra_args:
         cmd.extend(extra_args)
+    if usage_file:
+        cmd.extend(["--usage-file", usage_file])
+
+    # usage 兜底: usage_file 缺失时从 stderr 关键字行解析
+    # (tokens.*input.*output / cost), 尽力而为, 解析失败返回 0。
+    usage_info: dict = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cost_usd": 0.0,
+        "raw": {},
+    }
 
     try:
         result = subprocess.run(
@@ -89,7 +111,7 @@ def call_llm(
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
-            f"hermes chat timeout after {timeout}s (provider={provider} model={model})"
+            f"hermes timeout after {timeout}s (provider={provider} model={model})"
         ) from exc
     except FileNotFoundError as exc:
         raise RuntimeError(
@@ -99,8 +121,26 @@ def call_llm(
     if result.returncode != 0:
         err = (result.stderr or "").strip()[:300]
         raise RuntimeError(
-            f"hermes chat failed (rc={result.returncode}): {err}"
+            f"hermes failed (rc={result.returncode}): {err}"
         )
+
+    # 主路径: --usage-file JSON (hermes -z one-shot, 支持且失败也写)。
+    if usage_file and os.path.isfile(usage_file):
+        try:
+            with open(usage_file, encoding="utf-8") as fh:
+                data = json.load(fh)
+            if isinstance(data, dict):
+                usage_info = {
+                    "input_tokens": int(data.get("input_tokens") or 0),
+                    "output_tokens": int(data.get("output_tokens") or 0),
+                    "cost_usd": float(data.get("estimated_cost_usd") or 0.0),
+                    "raw": data,
+                }
+        except (OSError, ValueError, TypeError):
+            logger.debug("call_llm: usage file parse failed: %s", usage_file)
+    else:
+        # fallback: stderr 关键字行 (约束要求; chat 模式无 token 统计, 0).
+        _parse_usage_from_text(usage_info, (result.stderr or "") + (result.stdout or ""))
 
     # Parse stdout: first line is "session_id: <id>", remainder is content
     lines = (result.stdout or "").splitlines()
@@ -118,7 +158,26 @@ def call_llm(
     except Exception as exc:  # logging must not fail the call
         logger.debug("TokenLogger.log failed: %s", exc)
 
+    if usage:
+        return reply, usage_info
     return reply
+
+
+def _parse_usage_from_text(usage: dict, text: str) -> None:
+    """Best-effort stderr/stdout usage parse (fallback path)."""
+    for line in text.splitlines():
+        low = line.lower()
+        if "tokens" in low and ("input" in low or "output" in low):
+            for key in ("input_tokens", "output_tokens"):
+                m = re.search(rf"{key}[\s:=]+(\d+)", low)
+                if m:
+                    usage[key] = int(m.group(1))
+        m = re.search(r"(?:cost|cost_usd)[\s:=]+\$?([\d.]+)", low)
+        if m:
+            try:
+                usage["cost_usd"] = float(m.group(1))
+            except ValueError:
+                pass
 
 
 def call_llm_json(
