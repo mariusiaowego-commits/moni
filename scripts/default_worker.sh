@@ -953,56 +953,88 @@ print(p.get('generation_approach',''))
     local hermes_exit=0
     local hermes_output
 
-    # Build the hermes argv.  Python's Popen needs a list, not a
-    # shell string, so we can't use bash arrays directly across the
-    # pipe boundary.  We encode the optional flags as positional
+    # Build the hermes argv.  We encode the optional flags as positional
     # arguments after the timeout and prompt.
-    local extra_args=""
-    [[ -n "$provider_override" ]] && extra_args+=" --provider $provider_override"
-    [[ -n "$model_override" ]] && extra_args+=" --model $model_override"
+    #
+    # v1.0.31 (sprint-12 A): always pass --provider + -m explicitly so
+    # moni does NOT depend on whatever hermes' default profile happens
+    # to be.  Precedence:
+    #   1. user override (manifest payload `provider` / `model`)
+    #   2. DB active_summary_model_id -> llm_models -> llm_providers.hermes_provider
+    #   3. (none — caller fallback will hit minimax-cn via hermes chain)
+    #
+    # A single inline Python pass emits `extra_args="..."` (shell-safe
+    # quoting) that we then `eval`.  Mirrors the style of the manifest
+    # reader above (L821-841).
+    eval "$(python3 - "$DB_PATH" "$provider_override" "$model_override" <<'PYEOF'
+import sqlite3, sys
+from sqlite3 import Error
 
-    hermes_output=$(python3 - "$TIMEOUT_SECONDS" "$prompt" "$extra_args" "$effective_skill" <<'PYEOF'
-import os, subprocess, sys, signal, shlex
+db_path, prov_override, mod_override = sys.argv[1], sys.argv[2], sys.argv[3]
 
-timeout_sec = int(sys.argv[1])
-prompt_text = sys.argv[2]
-extra_args_str = sys.argv[3] if len(sys.argv) > 3 else ""
-skill_name = sys.argv[4] if len(sys.argv) > 4 else ""
+def sq(s):
+    return "'" + str(s).replace("'", "'\"'\"'") + "'"
 
-# Base argv: hermes -z <prompt> --profile <MONI_HERMES_PROFILE or default>
-# v1.0.10: default was "moni" (xiaomi MiMo) → 401 after key retired;
-# align with summary_gen / llm.client (default profile = MiniMax etc.)
-profile = os.environ.get("MONI_HERMES_PROFILE", "default")
-argv = ["hermes", "-z", prompt_text, "--profile", profile]
-# Append skill if specified
-if skill_name.strip():
-    argv.extend(["-s", skill_name.strip()])
-# Append the user-supplied --provider / --model flags if any.
-# We use shlex.split so values with spaces are quoted correctly.
-if extra_args_str.strip():
-    argv.extend(shlex.split(extra_args_str))
+def shell_quote_arg(s):
+    # single-quote-wrap for shell argv; safe for shlex.split later.
+    return "'" + s.replace("'", "'\"'\"'") + "'"
 
-proc = subprocess.Popen(
-    argv,  # v1.0.5.18 bug fix: was missing the args positional
-            # parameter (the Popen call only had kwargs, so the
-            # interpreter raised "missing 1 required positional
-            # argument: 'args'" and the worker reported exit 1).
-    stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
-    text=True,
-)
+parts = []
+# Precedence 1: user manifest override
+if prov_override:
+    parts.append("--provider")
+    parts.append(prov_override)
+if mod_override:
+    parts.append("-m")
+    parts.append(mod_override)
 
-try:
-    stdout, _ = proc.communicate(timeout=timeout_sec)
-    sys.stdout.write(stdout)
-    sys.exit(proc.returncode)
-except subprocess.TimeoutExpired:
-    proc.kill()
-    proc.wait()
-    sys.stderr.write(f"timeout after {timeout_sec}s\n")
-    sys.exit(124)
+# Precedence 2: DB default (only if either override was missing)
+if not prov_override or not mod_override:
+    try:
+        conn = sqlite3.connect(db_path)
+        try:
+            cur = conn.cursor()
+            row = cur.execute(
+                "SELECT value FROM llm_settings WHERE key='active_summary_model_id'"
+            ).fetchone()
+            default_model_id = row[0] if row else None
+            if default_model_id:
+                join = cur.execute(
+                    """
+                    SELECT pm.hermes_provider, m.model_id
+                      FROM llm_models m
+                      JOIN llm_providers pm ON pm.id = m.provider_id
+                     WHERE m.id = ? AND m.enabled = 1 AND pm.is_active = 1
+                    """,
+                    (default_model_id,),
+                ).fetchone()
+                if join:
+                    db_provider, db_model = join
+                    if not prov_override:
+                        parts.append("--provider")
+                        parts.append(db_provider)
+                    if not mod_override:
+                        parts.append("-m")
+                        parts.append(db_model)
+        finally:
+            conn.close()
+    except Error as exc:
+        # DB missing/unreadable — log to stderr, fall through with what
+        # we have (user override or empty extra_args).
+        print(f"worker_llm_default_lookup failed: {exc}", file=sys.stderr)
+
+# Serialize: shell-quoted, space-joined.  worker_llm.py shlex.split()s it.
+extra_args_value = " ".join(shell_quote_arg(p) for p in parts)
+print(f"extra_args={sq(extra_args_value)}")
 PYEOF
-) || hermes_exit=$?
+)"
+    local extra_args="$extra_args"
+
+    # v1.0.31 (sprint-12 B): hermes 调用抽到 moni/share/worker_llm.py,
+    # 便于 pytest mock subprocess.Popen 验证 fail/done 路径。模块在
+    # stdout 命中失败关键字 (API call failed / HTTP 4xx/5xx / rate limit /
+    # insufficient credits) 时退出 1, 走下面的非零退出码 → failed 分支。
+    hermes_output=$(python3 -m moni.share.worker_llm "$TIMEOUT_SECONDS" "$prompt" "$extra_args" "$effective_skill") || hermes_exit=$?
 
     if [[ $hermes_exit -eq 124 ]]; then
         error_msg="timeout after ${TIMEOUT_SECONDS}s"
