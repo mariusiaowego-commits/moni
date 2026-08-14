@@ -1025,13 +1025,27 @@ PYEOF
     mkdir -p "$artifacts_dir"
 
     if [[ "$format" == "info_graphic_png" || "$format" == "report_png" ]]; then
-        # Extract PNG file path from hermes output (look for /path/to/*.png)
-        local real_png=""
-        real_png=$(echo "$hermes_output" | grep -oE '/[^ ]+\.png' | head -1)
-        if [[ -n "$real_png" && -f "$real_png" && $(file -b "$real_png") == *"PNG"* ]]; then
-            output_path="$artifacts_dir/${task_id}-${format}.png"
-            cp "$real_png" "$output_path"
-            log "PNG artifact copied from $real_png -> $output_path"
+        # sprint-11 v1.0.30 fix: hermes writes real PNGs to data/briefings/
+        # (or data/artifacts/) and prints a *text description* + fal.media URL
+        # to stdout — the old `grep '/path/*.png'` matched the URL segment,
+        # failed `-f`, and fell back to saving the text reply (UTF-8 text,
+        # not a real PNG).  Now we find PNGs written in the last 30 min
+        # (hermes runs within this window) and copy all real ones.
+        local real_pngs=""
+        real_pngs=$(find "${ARTIFACTS_DIR:-$REPO_ROOT/data/artifacts}" "$REPO_ROOT/data/briefings" -name '*.png' -mmin -30 -type f 2>/dev/null | head -5)
+        local png_count=0
+        for cand in $real_pngs; do
+            if [[ -f "$cand" && $(file -b "$cand") == *"PNG"* ]]; then
+                local out_png="$artifacts_dir/${task_id}-${format}-${png_count}.png"
+                cp "$cand" "$out_png"
+                log "PNG artifact copied from $cand -> $out_png"
+                output_path="$out_png"
+                png_count=$((png_count + 1))
+            fi
+        done
+        if [[ $png_count -gt 0 ]]; then
+            # keep last copied as primary output_path (UI shows one link)
+            output_path="$artifacts_dir/${task_id}-${format}-$((png_count - 1)).png"
         fi
     elif [[ "$format" == "html_landing" ]]; then
         # Extract HTML file path from hermes output (look for /path/to/*.html)

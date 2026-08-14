@@ -251,13 +251,22 @@ def _enqueue_missing_web_fact_checks(
     db_path: str,
     provider: str,
     model: str,
+    wait: bool = True,
+    timeout: float = 120.0,
+    max_concurrent: int = 3,
 ) -> int:
-    """Enqueue fact_check_plus for articles lacking web check. Non-blocking.
+    """Enqueue fact_check_plus for articles lacking web check. Non-blocking by
+    default unless ``wait=True`` (sprint-11 v1.0.30).
 
     Inserts ``llm_jobs`` rows via the enrichment connection (same db_path).
     Does **not** start the llm worker thread here — avoids races with test
     teardown / subprocess lifecycle; the web process worker drains pending
-    jobs. Never waits for job completion (Q1=B).
+    jobs.
+
+    With ``wait=True``: after enqueue, poll ``llm_jobs.status`` every 2s
+    (bounded by ``timeout``, at most ``max_concurrent`` jobs concurrently)
+    until each job is done/failed — so the brief can render fresh evidence.
+    On timeout the caller degrades per-article (does not block brief).
 
     Returns number of jobs enqueued.
     """
@@ -267,6 +276,7 @@ def _enqueue_missing_web_fact_checks(
 
     n = 0
     now = _now()
+    job_ids: list[str] = []
     for aid in article_ids:
         if _article_has_web_fact_check(conn, aid):
             continue
@@ -284,6 +294,7 @@ def _enqueue_missing_web_fact_checks(
                 (job_id, aid, provider, model, now),
             )
             n += 1
+            job_ids.append(job_id)
         except Exception as exc:
             log.warning(
                 "enrichment: fact_check_plus enqueue failed for %s: %s", aid, exc
@@ -309,7 +320,94 @@ def _enqueue_missing_web_fact_checks(
                 ensure_worker_started()
         except Exception:
             pass
+        if wait and job_ids:
+            result = _wait_for_jobs(conn, job_ids, timeout=timeout, max_concurrent=max_concurrent)
+            _apply_wait_results(conn, job_ids, result)
     return n
+
+
+def _apply_wait_results(
+    conn: sqlite3.Connection,
+    job_ids: list[str],
+    result: dict[str, str],
+) -> None:
+    """Write per-article degrade notes after sync wait (sprint-11 v1.0.30).
+
+    Contract (tests/test_brief_web_mode.py): failed → article.fact_check_note
+    contains "核查失败"; timeout → "核查超时".  Never raises — brief
+    generation must not block on these best-effort writes.
+    """
+    try:
+        placeholders = ",".join("?" for _ in job_ids)
+        rows = conn.execute(
+            f"SELECT id, article_id FROM llm_jobs WHERE id IN ({placeholders})",
+            job_ids,
+        ).fetchall()
+        for row in rows:
+            status = result.get(row["id"])
+            if status == "timeout":
+                mark = "核查超时, 未含证据, 请人工复核"
+            elif status == "failed":
+                mark = "核查失败, 证据解析失败, 请人工复核"
+            else:
+                continue
+            try:
+                conn.execute(
+                    "UPDATE articles SET fact_check_note = ? WHERE id = ?",
+                    (mark, row["article_id"]),
+                )
+            except Exception as exc:
+                log.warning("enrichment: fact_check_note degrade write failed: %s", exc)
+        conn.commit()
+    except Exception as exc:
+        log.warning("enrichment: _apply_wait_results failed: %s", exc)
+
+
+def _wait_for_jobs(
+    conn: sqlite3.Connection,
+    job_ids: list[str],
+    *,
+    timeout: float = 120.0,
+    max_concurrent: int = 3,
+    poll_interval: float = 2.0,
+) -> dict[str, str]:
+    """Poll llm_jobs.status until done/failed or timeout (sprint-11 v1.0.30).
+
+    Watches at most ``max_concurrent`` jobs concurrently; returns a mapping
+    {job_id: "done" | "failed" | "timeout"} for the caller to degrade per
+    article. Never raises — brief generation must not block on LLM.
+    """
+    import time as _time
+
+    remaining = dict.fromkeys(job_ids, "pending")
+    done_ids: set[str] = set()
+    deadline = _time.monotonic() + timeout
+    while remaining and _time.monotonic() < deadline:
+        _time.sleep(poll_interval)
+        try:
+            placeholders = ",".join("?" for _ in remaining)
+            rows = conn.execute(
+                f"SELECT id, status FROM llm_jobs WHERE id IN ({placeholders})",
+                list(remaining.keys()),
+            ).fetchall()
+        except Exception as exc:
+            log.warning("enrichment: _wait_for_jobs query failed: %s", exc)
+            break
+        for row in rows:
+            status = row["status"]
+            if status in ("done", "failed", "cancelled"):
+                remaining.pop(row["id"], None)
+                if status == "done":
+                    done_ids.add(row["id"])
+    result: dict[str, str] = {}
+    for jid in job_ids:
+        if jid in remaining:
+            result[jid] = "timeout"
+        elif jid in done_ids:
+            result[jid] = "done"
+        else:
+            result[jid] = "failed"
+    return result
 
 
 def _write_evidence_rendered_at(
