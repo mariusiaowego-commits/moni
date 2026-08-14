@@ -27,7 +27,11 @@ from moni.db.migrate import migrate
 import moni.web.routes.fact_check_plus  # noqa: F401,E402
 
 from moni.share.brief_html import render_brief_html
-from moni.share.enrichment import rebuild_article_content, run_enrichment
+from moni.share.enrichment import (
+    _enqueue_missing_web_fact_checks,
+    rebuild_article_content,
+    run_enrichment,
+)
 from moni.web.server import create_app
 
 
@@ -145,7 +149,7 @@ def _fake_hermes(prompt: str, **kwargs) -> tuple[str, int]:
     return ("{}", 0)
 
 
-def _run_brief_enrichment(fresh_db: Path, article_ids: list[str]) -> dict:
+def _run_brief_enrichment(fresh_db: Path, article_ids: list[str], monkeypatch=None) -> dict:
     manifest = fresh_db.parent / "brief-web-mode-manifest.json"
     manifest.write_text(
         json.dumps({"payload": {
@@ -156,6 +160,13 @@ def _run_brief_enrichment(fresh_db: Path, article_ids: list[str]) -> dict:
         }}),
         encoding="utf-8",
     )
+    # sprint-11 v1.0.30: sync wait is the new default; these legacy tests
+    # assert the *enqueue* contract (not the wait), so short-circuit the
+    # poll loop to avoid a real 120s wait in tests.
+    import moni.share.enrichment as _enr
+
+    if monkeypatch is not None:
+        monkeypatch.setattr(_enr, "_wait_for_jobs", lambda *a, **k: {})
     return run_enrichment(
         str(fresh_db),
         article_ids,
@@ -176,7 +187,7 @@ def test_brief_web_mode_enqueues_missing_fact_check_plus(fresh_db, monkeypatch):
     _insert_article("a2", web_checked=False)
     monkeypatch.setattr("moni.llm.jobs.ensure_worker_started", lambda: None)
 
-    _run_brief_enrichment(fresh_db, ["a1", "a2"])
+    _run_brief_enrichment(fresh_db, ["a1", "a2"], monkeypatch)
 
     rows = get_db().execute(
         "SELECT article_id, status FROM llm_jobs WHERE task_type = 'fact_check_plus'"
@@ -194,7 +205,7 @@ def test_brief_web_mode_skips_articles_already_checked(fresh_db, monkeypatch):
     _insert_evidence("a2", seq=0)
     monkeypatch.setattr("moni.llm.jobs.ensure_worker_started", lambda: None)
 
-    _run_brief_enrichment(fresh_db, ["a1", "a2"])
+    _run_brief_enrichment(fresh_db, ["a1", "a2"], monkeypatch)
 
     count = get_db().execute(
         "SELECT COUNT(*) FROM llm_jobs WHERE task_type = 'fact_check_plus'"
@@ -274,7 +285,7 @@ def test_brief_web_mode_does_not_block_on_fact_check_plus_pending(fresh_db, monk
     _insert_article("a1", web_checked=False)
     monkeypatch.setattr("moni.llm.jobs.ensure_worker_started", lambda: None)
 
-    stats = _run_brief_enrichment(fresh_db, ["a1"])
+    stats = _run_brief_enrichment(fresh_db, ["a1"], monkeypatch)
 
     assert isinstance(stats, dict)
     row = get_db().execute(
@@ -282,3 +293,121 @@ def test_brief_web_mode_does_not_block_on_fact_check_plus_pending(fresh_db, monk
     ).fetchone()
     assert row is not None
     assert row["status"] == "pending"
+
+
+# ---------------------------------------------------------------------------
+# Sprint-11 (v1.0.30): 简报 worker 同步化 — 同步等待 job 完成 (spec: PLAN §验收)
+# 契约: wait=True 时 enqueue 后轮询 llm_jobs.status (2s/次, 总超时 120s);
+#       done → evidence 就绪; failed → 该篇 articles.fact_check_note 标'核查失败';
+#       超时 → 该篇 articles.fact_check_note 标'核查超时'。三种情况都不阻塞简报。
+# 测试不真调 LLM: unittest.mock 替换 time.sleep (完成/失败副作用) 与
+# time.monotonic (推进超时), 加速轮询.
+# ---------------------------------------------------------------------------
+
+
+def test_sync_wait_job_done(fresh_db, monkeypatch):
+    """wait=True 轮询到 job done: 简报生成时 evidence 就绪 (非下次补全)."""
+    _insert_article("a1", web_checked=False)
+    monkeypatch.setattr("moni.llm.jobs.ensure_worker_started", lambda: None)
+
+    def _complete_job(_secs: float) -> None:
+        # 模拟 worker 完成: 第一次轮询 sleep 时把 job 置 done + 落 evidence.
+        conn = get_db()
+        row = conn.execute(
+            "SELECT id FROM llm_jobs "
+            "WHERE article_id = 'a1' AND task_type = 'fact_check_plus'"
+        ).fetchone()
+        jid = row["id"]
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute("UPDATE llm_jobs SET status = 'done' WHERE id = ?", (jid,))
+        conn.execute(
+            """
+            INSERT INTO fact_check_evidence
+                (id, article_id, job_id, query, url, domain, snippet, fetched_at,
+                 model, provider, conclusion, rationale, evidence_seq, created_at)
+            VALUES (?, 'a1', ?, '央行 金融数据', 'https://www.pbc.gov.cn/notice/1',
+                    'pbc.gov.cn', '央行发布 7 月金融统计数据', ?, 'MiniMax-M3',
+                    'minimax-cn', '【已核实】', '官方公告', 0, ?)
+            """,
+            ("ev-sync-done", jid, now, now),
+        )
+        conn.commit()
+
+    monkeypatch.setattr("time.sleep", _complete_job)
+
+    n = _enqueue_missing_web_fact_checks(
+        get_db(), ["a1"],
+        db_path=str(fresh_db), provider="minimax-cn", model="MiniMax-M3",
+        wait=True,
+    )
+
+    assert n == 1
+    job = get_db().execute(
+        "SELECT status FROM llm_jobs WHERE article_id = 'a1' "
+        "AND task_type = 'fact_check_plus'"
+    ).fetchone()
+    assert job["status"] == "done"
+    evidence = get_db().execute(
+        "SELECT COUNT(*) FROM fact_check_evidence WHERE article_id = 'a1'"
+    ).fetchone()[0]
+    assert evidence == 1
+
+
+def test_sync_job_failed_degrades(fresh_db, monkeypatch):
+    """wait=True 且 job failed: 该篇标'核查失败', 简报生成不阻塞."""
+    _insert_article("a1", web_checked=False)
+    monkeypatch.setattr("moni.llm.jobs.ensure_worker_started", lambda: None)
+
+    def _fail_job(_secs: float) -> None:
+        # 模拟 worker 失败: 第一次轮询 sleep 时把 job 置 failed.
+        conn = get_db()
+        conn.execute(
+            "UPDATE llm_jobs SET status = 'failed', error = 'llm error' "
+            "WHERE article_id = 'a1' AND task_type = 'fact_check_plus'"
+        )
+        conn.commit()
+
+    monkeypatch.setattr("time.sleep", _fail_job)
+
+    n = _enqueue_missing_web_fact_checks(
+        get_db(), ["a1"],
+        db_path=str(fresh_db), provider="minimax-cn", model="MiniMax-M3",
+        wait=True,
+    )
+
+    assert n == 1  # 调用返回 = 不阻塞简报
+    job = get_db().execute(
+        "SELECT status, error FROM llm_jobs WHERE article_id = 'a1' "
+        "AND task_type = 'fact_check_plus'"
+    ).fetchone()
+    assert job["status"] == "failed"
+    note = get_db().execute(
+        "SELECT fact_check_note FROM articles WHERE id = 'a1'"
+    ).fetchone()["fact_check_note"]
+    assert note and "核查失败" in note  # 契约: 该篇标'核查失败'
+
+
+def test_sync_timeout_degrades(fresh_db, monkeypatch):
+    """wait=True 轮询超过 120s: 该篇标'核查超时', 简报生成不阻塞."""
+    _insert_article("a1", web_checked=False)
+    monkeypatch.setattr("moni.llm.jobs.ensure_worker_started", lambda: None)
+    monkeypatch.setattr("time.sleep", lambda _secs: None)
+    ticks = iter([0.0, 0.0, 0.0, 121.0])  # deadline=120, 第 3 轮越过
+    monkeypatch.setattr("time.monotonic", lambda: next(ticks))
+
+    n = _enqueue_missing_web_fact_checks(
+        get_db(), ["a1"],
+        db_path=str(fresh_db), provider="minimax-cn", model="MiniMax-M3",
+        wait=True,
+    )
+
+    assert n == 1  # 调用返回 = 不阻塞简报
+    job = get_db().execute(
+        "SELECT status FROM llm_jobs WHERE article_id = 'a1' "
+        "AND task_type = 'fact_check_plus'"
+    ).fetchone()
+    assert job["status"] == "pending"  # job 未完成, 单篇降级
+    note = get_db().execute(
+        "SELECT fact_check_note FROM articles WHERE id = 'a1'"
+    ).fetchone()["fact_check_note"]
+    assert note and "核查超时" in note  # 契约: 该篇标'核查超时'
