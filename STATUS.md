@@ -4,10 +4,31 @@
 
 ---
 
-## 当前状态: **v1.0.28 — 抓取页 UX (sprint-10 收尾)** (2026-08-13)
+## 当前状态: **v1.0.31 — PNG 生图重新设计 (sprint-12)** (2026-08-14)
 
-**主分支**: **main** @ `40f7097` (PR #98 merge；未另打 git tag)
-**Web 服务**: `127.0.0.1:8900` 已 restart 跟 main（2026-08-13）
+**主分支**: **main** @ `1ad7bd5` (PR #106 merge, tag v1.0.31 `b324514` push)
+**Web 服务**: `127.0.0.1:8900` PID 7323 已 restart 跟 main（2026-08-14）
+
+### v1.0.31 核心改动
+
+- **A1 显式传 provider/model**: `moni/share/worker_llm.py` 新模块, 从 DB `llm_settings.active_summary_model_id` 读, 拼 `--provider X -m Y` 显式传, 不依赖 `~/.hermes/config.yaml` 默认
+- **A2 LLM 失败检测**: `detect_llm_failure()` 6 关键字 (API call failed / HTTP 4 / HTTP 5 / rate limit / insufficient credits / requires available credits), 子进程退出 0 但 stdout 命中 → 返回退出码 1
+- **A3 远程 fal.media URL 下载**: `scripts/default_worker.sh` PNG 分支, curl 下载 + PNG magic `89504e470d0a1a0a` 校验, 失败报 FAIL 不再存 `.out` 假 done
+- **C hermes fallback**: `scripts/setup-hermes-fallback.sh` (YAML 编辑绕交互 picker, 幂等)
+- **D call_llm kwarg**: `moni/web/routes/llm.py` 去 `module=` kwarg, 5 provider 测连通都通
+- **测试**: `tests/test_worker_llm_failure.py` 26 测试新加, **730 passed / 2 skipped / 0 failed**
+
+### 关联
+
+- PLAN: `moni/docs/plans/2026-08-14-sprint-12-png-redesign.md`
+- closeout: `tqob/05-Coding/project-moni/sprints/sprint-12-png-redesign/`
+- 修复 skill reference: `share-task-info-graphic-blank-artifact-triage.md`
+
+---
+
+## 历史: **v1.0.30 — 简报 worker 同步化 + PNG 生图流程修复 (sprint-11)** (2026-08-14)
+
+**主分支 tag**: **v1.0.30** @ `817bb5f` (PR #104 squash-merged, 已 push)
 **数据库**: schema_version=28（v1.0.28 fact_check 状态机 028）
 **Obsidian**: `tqob/…/project-moni/sprints/sprint-10-fetch-frontend-ux/` status=已完成 · verify 3-1-1
 **并行 sprint-09**: evidence 落库脱敏（另一 agent / worktree `moni-evidence-redaction`）
