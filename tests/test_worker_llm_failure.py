@@ -182,14 +182,18 @@ def test_run_hermes_failure_keyword_returns_1(monkeypatch, tmp_path):
         stdout="API call failed: 401 Unauthorized",
         returncode=0,
     )
-    stdout, code = run_hermes("make a png", db_path=db, skill="baoyu-infographic")
-    assert code == 1
-    assert "API call failed" in stdout
+    result = run_hermes("make a png", db_path=db, skill="baoyu-infographic")
+    assert result["exit_code"] == 1
+    assert "API call failed" in result["stdout"]
     # 显式 provider/model 必须出现在 argv (A1)
     assert "--provider" in argv[0]
     assert "google" in argv[0]
     assert "-m" in argv[0]
     assert "gemini-2.5-flash-lite" in argv[0]
+    # v1.0.32: usage 字段默认 0
+    assert result["input_tokens"] == 0
+    assert result["output_tokens"] == 0
+    assert result["cost_usd"] == 0.0
 
 
 def test_run_hermes_normal_output_returns_0(monkeypatch, tmp_path):
@@ -200,18 +204,18 @@ def test_run_hermes_normal_output_returns_0(monkeypatch, tmp_path):
         stdout="PNG done: https://v3b.fal.media/files/b/ok.png",
         returncode=0,
     )
-    stdout, code = run_hermes("make a png", db_path=db)
-    assert code == 0
-    assert "fal.media" in stdout
+    result = run_hermes("make a png", db_path=db)
+    assert result["exit_code"] == 0
+    assert "fal.media" in result["stdout"]
 
 
 def test_run_hermes_nonzero_returns_rc(monkeypatch, tmp_path):
     db = tmp_path / "test.db"
     _seed_llm_db(db)
     _patch_popen(monkeypatch, stdout="boom", returncode=3)
-    stdout, code = run_hermes("make a png", db_path=db)
-    assert code == 3
-    assert "boom" in stdout
+    result = run_hermes("make a png", db_path=db)
+    assert result["exit_code"] == 3
+    assert "boom" in result["stdout"]
 
 
 def test_run_hermes_override_in_argv(monkeypatch, tmp_path):
@@ -222,13 +226,13 @@ def test_run_hermes_override_in_argv(monkeypatch, tmp_path):
         stdout="ok",
         returncode=0,
     )
-    _, code = run_hermes(
+    result = run_hermes(
         "make a png",
         db_path=db,
         provider_override="minimax-cn",
         model_override="MiniMax-M3",
     )
-    assert code == 0
+    assert result["exit_code"] == 0
     assert argv[0][argv[0].index("--provider") + 1] == "minimax-cn"
     assert argv[0][argv[0].index("-m") + 1] == "MiniMax-M3"
 

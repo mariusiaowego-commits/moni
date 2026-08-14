@@ -1922,9 +1922,7 @@
             <div class="stats-module-primary" x-text="fmt(factCheckMethod.total_articles_with_fact_check || 0)"></div>
             <div class="stats-method-pie-wrap" x-show="(factCheckMethod.by_method || []).length > 0">
               <svg class="stats-method-pie" viewBox="0 0 120 120" width="120" height="120" aria-label="method 饼图">
-                <template x-for="(slice, i) in methodPieSlices()" :key="slice.method + '-' + i">
-                  <path :d="slice.d" :fill="slice.color" :class="'stats-method-color stats-method-' + slice.method"></path>
-                </template>
+                <g x-html="methodPieSvg()"></g>
               </svg>
               <ul class="stats-method-legend">
                 <template x-for="(item, i) in (factCheckMethod.by_method || [])" :key="item.method + '-' + i">

@@ -1173,3 +1173,82 @@ class TestCORS:
             headers={"Origin": "http://127.0.0.1:8900"},
         )
         assert r.headers.get("Access-Control-Allow-Origin") == "http://127.0.0.1:8900"
+
+
+class TestLlmProviderCRUD:
+    """v1.0.32 patch: LLM provider CRUD + test_provider 修复覆盖.
+
+    - Q1 schema (notes 修复): notes=null/""/省略都能 POST /api/llm/providers 201
+    - Q5 module kwarg (D fix): test_provider 不再传 module, 5 provider ok
+    - Q3 timeout 修复 (15s → 60s): 默认走 60s
+    """
+
+    def test_provider_create_notes_null(self, client: TestClient):
+        """notes=null (前端 form 空备注提交) 不再报错 422."""
+        from moni.db.seed_llm import seed as seed_llm
+        seed_llm()
+        r = client.post(
+            "/api/llm/providers",
+            json={"name": "opencode-go-deepseek", "hermes_provider": "opencode-go", "notes": None},
+        )
+        assert r.status_code == 201, r.text
+
+    def test_provider_create_notes_empty_string(self, client: TestClient):
+        """notes="" 仍然通过 (向后兼容)."""
+        from moni.db.seed_llm import seed as seed_llm
+        seed_llm()
+        r = client.post(
+            "/api/llm/providers",
+            json={"name": "test-empty", "hermes_provider": "test-prov", "notes": ""},
+        )
+        assert r.status_code == 201, r.text
+
+    def test_provider_create_notes_omitted(self, client: TestClient):
+        """省略 notes 字段 (Pydantic default) — 也能通过."""
+        from moni.db.seed_llm import seed as seed_llm
+        seed_llm()
+        r = client.post(
+            "/api/llm/providers",
+            json={"name": "test-omit", "hermes_provider": "test-prov"},
+        )
+        assert r.status_code == 201, r.text
+
+    def test_provider_test_does_not_pass_module_kwarg(self, client: TestClient, monkeypatch):
+        """D 修: test_provider 调 call_llm 不传 module=, 任何 provider 不抛 TypeError."""
+        from moni.db.seed_llm import seed as seed_llm
+        seed_llm()
+        # mock call_llm 看是否还传 module kwarg
+        captured = {}
+        from moni.web.routes import llm as llm_routes
+        real_call_llm = llm_routes.__dict__.get("call_llm")  # import 已被 route 内部 lazy
+
+        def fake_call_llm(provider, model, prompt, **kwargs):
+            captured.update(kwargs)
+            return "ok"
+        monkeypatch.setattr("moni.llm.client.call_llm", fake_call_llm, raising=False)
+        # 直接调 test_provider (不走 HTTP, 减少耦合)
+        from moni.db.connection import get_db
+        conn = get_db()
+        # 取任意 provider 试
+        rows = conn.execute(
+            "SELECT p.id, p.hermes_provider, m.model_id FROM llm_providers p "
+            "JOIN llm_models m ON m.provider_id = p.id "
+            "WHERE p.is_active = 1 AND m.enabled = 1 LIMIT 1"
+        ).fetchone()
+        if rows:
+            # 在 test_provider 路径中 call_llm 是从 import 时拿的, mock 已生效
+            from moni.web.routes.llm import test_provider
+            result = test_provider(rows["id"])
+            assert result.get("ok") is True, result
+            assert "module" not in captured, f"module kwarg still passed: {captured}"
+
+    def test_provider_test_timeout_is_60s(self, monkeypatch):
+        """Q3 修复: test_provider 默认 timeout 是 60s (不是 15s)."""
+        from moni.db.connection import get_db
+        conn = get_db()
+        # 检查 llm.py 源码确认 timeout 值 (静态检查, 避免 mock call_llm 复杂性)
+        import inspect
+        from moni.web.routes import llm as llm_routes_module
+        src = inspect.getsource(llm_routes_module.test_provider)
+        assert "timeout=60" in src, f"expected timeout=60, got:\n{src}"
+        assert "timeout=15" not in src, f"timeout=15 still present:\n{src}"

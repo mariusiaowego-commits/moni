@@ -960,12 +960,13 @@ print(p.get('generation_approach',''))
     #       both inspect it and hand remote fal.media URLs to curl below.
     local hermes_exit=0
     local hermes_out_file="$artifacts_dir/${task_id}-hermes-output.txt"
+    local hermes_usage_file="$artifacts_dir/${task_id}-hermes-usage.json"
     local hermes_output=""
     local llm_args=("--db" "$DB_PATH" "--timeout" "$TIMEOUT_SECONDS")
     [[ -n "$effective_skill" ]] && llm_args+=("--skill" "$effective_skill")
     [[ -n "$provider_override" ]] && llm_args+=("--provider" "$provider_override")
     [[ -n "$model_override" ]] && llm_args+=("--model" "$model_override")
-    llm_args+=("--output" "$hermes_out_file" "--" "$prompt")
+    llm_args+=("--output" "$hermes_out_file" "--usage-file" "$hermes_usage_file" "--" "$prompt")
 
     python3 "$REPO_ROOT/moni/share/worker_llm.py" "${llm_args[@]}" >/dev/null 2>&1 \
         || hermes_exit=$?
