@@ -4,6 +4,37 @@
 
 ---
 
+## 当前状态: **v1.0.34.2 — /fetch 页 4 行 ghost sources 清理** (2026-08-17 PM)
+
+**主分支**: **main** @ `6fc33a1` (PR #110 squash-merged, tag v1.0.34.1 `6fc33a1` push, tag=main 无漂移)
+**Web 服务**: `127.0.0.1:8900` 已 restart 载入 v1.0.34.2 代码 (2026-08-17 PM, HTTP 200, `/api/config/sources` 返 11 行无 ghost)
+
+### v1.0.34.2 核心改动
+
+- **A `moni/db/migrations/030_drop_mp_ghost_sources.sql`**: 删除 4 行 2026-08-13 测试残留的 ghost sources (id: `src-mp_3be50e90` / `src-mp_3be50e90-b` / `src-mp_4ea4c40a` / `src-mp_4ea4c40a-b`). 现象: `/fetch` 页同时显示 2 个 36氪 + 2 个 支付 (重影). 根因: 8-13 06:36/06:42 在 `/config` 批量创建测试行, hex 哈希后缀命名 (`mp_3be50e90` 等), url=example.com 占位, 从未清理. `/fetch` 调 `/api/config/sources` 直接读 DB 不过滤 YAML, 所以跟真行同屏. schema_version 29 → 30.
+- **B `tests/test_migration_030_ghost_cleanup.py`**: 7 个新 case (migration version 同步 / 文件加载 / ghost 删 / 真源保护 / 重复运行 idempotent / 全 fresh DB migrate / FK CASCADE 自动清 source_tags)
+
+### 效果
+
+- `/api/config/sources` 返 15 → **11** (4 行 ghost 删); `/fetch` 页面"立即抓取"按钮 ghost 行 404 → 全 11 行按钮可达真源
+- 真源全部保留 (`36kr_rss` / `mpaypass` / `huxiu` / `qbitai` / `bestblogs` / `bestblog-podcast` / `bestblog-x` / `bestblog-yt` / `wechat_rss_a` / `wechat_rss_b` / `xwatch`)
+- FK CASCADE 自动带走 `source_tags` (如果有的话; prod 是 0 行 — schema 004 已配 CASCADE)
+
+### 验证
+
+- 7 个新 case **passed** (7/7)
+- 18 个 schema/CRUD test **passed** (18/18)
+- 4 端点 200 OK: `/api/config/sources` (11 rows) / `/api/fetch/sources` (11 rows) / `/api/articles` / `/api/cases/stats`
+- 总测试 (跨 sprint baseline): 733+ passed / 2 skip
+
+### 后续 (out of scope, 记录给后续 sprint)
+
+- 防御 UX: 给 `/api/config/sources` GET 加 `is_fetchable` 字段, `/fetch` 页未挂载行显示灰 badge + 禁用按钮 — 防 YAML ↔ DB 漂移再次裸奔
+- 架构: `/fetch` 页改读 `/api/fetch/sources` (YAML), `/config` 仍读 DB — 概念分层更干净
+- 现阶段 dad 拍板选 A (最小改动), 后续如有 ghost row 重现再做
+
+---
+
 ## 当前状态: **v1.0.34.1 — bestblogs UA+retry 修 SSL EOF + 全量 375 feeds + 财经号补全** (2026-08-17 PM)
 
 **主分支**: **main** @ `6fc33a1` (PR #110 squash-merged, tag v1.0.34.1 `6fc33a1` push, tag=main 无漂移)
