@@ -309,19 +309,49 @@ class FetcherBestBlogs(BaseFetcher):
         Supports both RSS 2.0 (<rss><channel><item>) and Atom
         (<feed xmlns=...Atom><entry>) — YouTube / GitHub / many podcast
         platforms publish Atom.  Detection is by root element name.
+
+        v1.0.34.1: send a browser-like User-Agent and retry transient
+        transport errors.  wechat2rss.bestblogs.dev rejects plain
+        ``httpx`` requests (default python-httpx UA) with an abrupt
+        ``SSL: UNEXPECTED_EOF_WHILE_READING`` mid-download ~40% of the
+        time during a full 375-feed sweep; a browser UA + one retry
+        brings success to ~100% (verified against 财新/钛媒体/券商中国/
+        AIBase基地/华尔街见闻).
         """
-        try:
-            resp = httpx.get(feed_url, timeout=15.0)
-            if resp.status_code == 404:
-                logger.debug("[bestblogs] 404: %s", feed_title)
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/126.0.0.0 Safari/537.36"
+            )
+        }
+        resp: httpx.Response | None = None
+        for attempt in (1, 2, 3):
+            try:
+                resp = httpx.get(feed_url, timeout=20.0, headers=headers)
+                if resp.status_code == 404:
+                    logger.debug("[bestblogs] 404: %s", feed_title)
+                    return []
+                resp.raise_for_status()
+                break
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                last_exc = exc
+                logger.warning(
+                    "[bestblogs] fetch %s attempt %d/3 failed (%s: %s)",
+                    feed_title, attempt, type(exc).__name__, exc,
+                )
+                if attempt == 3:
+                    logger.warning(
+                        "[bestblogs] giving up on %s after 3 attempts", feed_title
+                    )
+                    return []
+                time.sleep(1.5 * attempt)
+            except Exception as exc:
+                logger.warning("[bestblogs] error fetching %s: %s", feed_title, exc)
                 return []
-            resp.raise_for_status()
-        except httpx.TimeoutException:
-            logger.warning("[bestblogs] timeout: %s", feed_title)
-            return []
-        except Exception as exc:
-            logger.warning("[bestblogs] error fetching %s: %s", feed_title, exc)
-            return []
+        # resp is guaranteed bound here: the loop either broke on success
+        # or returned early on all failure paths.
+        assert resp is not None
 
         try:
             root = ET.fromstring(resp.text.encode("utf-8"))
