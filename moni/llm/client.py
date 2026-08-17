@@ -82,11 +82,15 @@ def call_llm(
     Raises:
         RuntimeError: if hermes exits non-zero or times out.
     """
+    # v1.0.34: hermes 0.20 removed ``--profile`` flag (usage rc=2).
+    # Omitting it lets hermes auto-select the active session's profile
+    # (which for moni's worker invocation is the same one anyway, since
+    # the server is launched from a shell that already sources the
+    # coder profile).  See sprint-13 HANDOFF §sprint-13 踩坑 34.
     cmd = [
         "hermes", "-z", prompt,
         "--provider", provider,
         "-m", model,
-        "--profile", os.environ.get("MONI_HERMES_PROFILE", "default"),
     ]
     if extra_args:
         cmd.extend(extra_args)

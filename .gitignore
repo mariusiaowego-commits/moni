@@ -34,6 +34,9 @@ HANDOFF.md
 .pending/
 # 上一 session 临时文件 (2026-08-08 未命名 handoff, 本地留底不上 GH)
 260807-handoff.md
+# 申报书 B 历史 handoff 工单草稿 (2026-08-12, 本地留底不上 GH)
+260812-handoff-shenbaoshu.md
+260812-handoff-shenbaoshu-v2.md
 
 # 36kr persisted session cookies (含 userId 敏感信息, 不入库)
 config/36kr_cookies.json
@@ -67,6 +70,15 @@ scripts/dev_*.py
 # 不入库, 完成迭代后正式版落到 moni/web/static/icons/
 scripts/.pending_*.py
 docs/moni-icon-redesign-*
+
+# v1.0.34: 截图仓内不追踪 (申报材料走 docs/moni-screenshots-申报/ 单独 gitignore)
+# docs/screenshots/ 整目录全 *.png/*.zip 进 gitignore, 但 README.md 历史 commit 保留
+docs/screenshots/*.png
+docs/screenshots/*.zip
+docs/screenshots/**/*.png
+docs/screenshots/**/*.zip
+# 申报材料目录: gitignore 但本地保留 (dad 手动归档)
+docs/moni-screenshots-申报/
 
 # 散落临时废料 (v1.0.9.10 收尾清理, 6/12-6/29 期间积累)
 /tmp/
