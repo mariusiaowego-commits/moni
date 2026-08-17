@@ -27,10 +27,11 @@ wt/
 .pending/
 
 # 本地收尾文档 (不上 GH)
-# AGENTS.md, vibe-coding-log.md, HANDOFF.md, .pending/
+# AGENTS.md, vibe-coding-log.md, HANDOFF.md, HANDOFF-*.md, .pending/
 AGENTS.md
 vibe-coding-log.md
 HANDOFF.md
+HANDOFF-*.md
 .pending/
 # 上一 session 临时文件 (2026-08-08 未命名 handoff, 本地留底不上 GH)
 260807-handoff.md
