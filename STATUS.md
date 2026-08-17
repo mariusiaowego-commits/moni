@@ -4,7 +4,61 @@
 
 ---
 
-## 当前状态: **v1.0.31 — PNG 生图重新设计 (sprint-12)** (2026-08-14)
+## 当前状态: **v1.0.34 — hermes 0.20 extra_args 兼容 + 截图归档清理 (sprint-13.5)** (2026-08-17)
+
+**主分支**: **main** @ `153422c` (PR #109 squash-merged, tag v1.0.34 `153422c` push)
+**Web 服务**: `127.0.0.1:8900` PID 72830 已 restart 载入 v1.0.34 代码（2026-08-17）
+
+### v1.0.34 核心改动
+
+- **A `moni/llm/client.py`**: 删 `--profile` flag (hermes 0.20 不再支持, rc=2 usage error; 走 hermes 自动选当前 session profile)
+- **B `moni/llm/jobs.py`**: `fact_check_plus` `extra_args` 去 `-Q --max-turns` (hermes 0.20 rc=2); turn 限制改由 `call_llm` timeout 层承接 (默认 120s)
+- **C `.gitignore`**: `docs/screenshots/*.png/*.zip` 整目录入 ignore (22 张 untracked 截图 + 2 zip); `docs/moni-screenshots-申报/` 独立 ignore (本地保留 dad 归档)
+- **D 删 `docs/screenshots/v1.0.19/`**: 6 张量化看板截图彻底删除 (申报材料已迁出)
+
+### 验证
+
+- `tests/test_fact_check_plus.py`: **28/28 passed** (直接覆盖 jobs.py:296-297 改动)
+- 19 个相关 test 文件: **487 passed / 2 skipped / 0 failed**
+- 4 个 fetcher test: **87 passed**
+- 端到端真跑 (8900 PID 72830 修复版): `POST /articles/{id}/summary` → rc=0; `POST /articles/{id}/fact-check-plus` → hermes 接受 cmd + LLM 返回 parseable JSON
+- 5 端点全 200: `/api/articles`、`/api/config/sources`、`/api/cases/stats`、`/api/llm/usage`、`/api/cron/runs`
+
+### 关联
+
+- PR #109: https://github.com/mariusiaowego-commits/moni/pull/109
+- 踩坑沉淀: HANDOFF.md §sprint-13.5
+
+### ⚠️ 已浮出的 sprint-14 candidate (v1.0.34 不修)
+
+- **prompt 渲染层 bug**: `fact_check_plus` 端到端跑出现 "article template was sent with unfilled placeholders ($title / $url / $published_at)" 错误, hermes 调用链路通了但 prompt 模板变量未替换。需查 `moni/llm/prompts/__init__.py` 的 `render_fact_check_plus()` 实现。  
+  这条 bug 在 v1.0.32 之前就被 hermes flag 拒收遮蔽, **现在才浮出水面** = P1 "联网核查 ≥3 PASS" 闸仍未满足的根因。
+
+---
+
+## 历史: **v1.0.33 — method 饼图渲染修复 + v1.0.32 worker 漏改 pickup (sprint-13 收尾)** (2026-08-15)
+
+**主分支**: **main** @ `51650cf` (PR #108 squash-merged, tag v1.0.33 `41d2236` push)
+**数据库**: schema_version=29（v1.0.32 LLM usage counters）
+
+- v1.0.33-A: method 饼图 Alpine SVG `:d` attribute reactivity quirk 修复 (`<g x-html="methodPieSvg()">`)
+- v1.0.33-B: v1.0.32 squash-merge 漏 3 文件 pickup (`default_worker.sh` + 2 测试)
+- PR: https://github.com/mariusiaowego-commits/moni/pull/108
+
+### v1.0.32 — LLM 用量统计 (sprint-13, 5 个 fix) (2026-08-15)
+
+- `moni/db/migrations/029_*.sql`: `llm_jobs` 加 `input_tokens / output_tokens / cost_usd` 列 + 索引
+- `moni/llm/client.py`: `call_llm()` 加 `--usage-file` 支持 (hermes `-z` one-shot 写 JSON)
+- `moni/llm/jobs.py`: token/cost 写回 `llm_jobs`
+- `moni/stats/repository.py`: LLM usage aggregation by day/provider/model
+- `moni/web/routes/`: `/api/llm/usage?period=7d/30d/90d` 端点 + 看板新模块
+- `scripts/setup-hermes-fallback.sh`: YAML 编辑绕交互 picker, 配 hermes fallback chain
+- 测试: +13 用量统计测试, 704 passed / 2 skipped / 0 failed
+- PR: https://github.com/mariusiaowego-commits/moni/pull/107
+
+---
+
+## 历史: **v1.0.31 — PNG 生图重新设计 (sprint-12)** (2026-08-14)
 
 **主分支**: **main** @ `1ad7bd5` (PR #106 merge, tag v1.0.31 `b324514` push)
 **Web 服务**: `127.0.0.1:8900` PID 7323 已 restart 跟 main（2026-08-14）

@@ -1,7 +1,7 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。**v1.0.25** (2026-08-12) — 685 pytest pass + 2 skip, **11** active 源, schema v26。
-> 本次新增: **sprint-08 3 sub-ships** — B5 失败诊断 (v1.0.23) + 简报 web 模式 (v1.0.24) + 看板 method 分布 (v1.0.25)。
+> 同业信源自动抓取与本地新闻库。**v1.0.34** (2026-08-17) — hermes 0.20 extra_args 兼容 + 截图归档清理。  
+> 本次新增: `moni/llm/client.py` 删 `--profile` flag; `moni/llm/jobs.py` fact_check_plus `extra_args` 去 `-Q --max-turns`; `.gitignore` 整目录截图入 ignore + 申报目录独立 ignore; 删 6 张 v1.0.19 量化看板截图。PR #109。  
 > 这份文档给**用户**（你自己）看 —— 怎么用 moni，不讲代码细节。
 
 ---
