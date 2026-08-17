@@ -18,7 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 29  # v1.0.32: LLM 用量统计列 (029)
+_CURRENT_VERSION = 30  # v1.0.34.2: 删除 4 行 ghost sources (030 cleanup)
 
 
 def current_version(conn: sqlite3.Connection) -> int:
