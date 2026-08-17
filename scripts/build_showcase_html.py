@@ -1072,6 +1072,13 @@ table td img[alt=""],
   background: transparent !important;
   object-fit: contain;
 }
+.source-row .source-icon,
+.source-row.focus .source-icon,
+.moni-icon {
+  border: none !important;
+  box-shadow: none !important;
+}
+"""
 """
 
 SHOWCASE_BOOT = r"""

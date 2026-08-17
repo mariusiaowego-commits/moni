@@ -2882,6 +2882,222 @@ table td img[alt=""],
   object-fit: contain;
 }
 
+/* ── fetch modal: no icon chrome ── */
+.source-row .source-icon,
+.source-row.focus .source-icon,
+.moni-icon {
+  border: none !important;
+  box-shadow: none !important;
+}
+.source-row.focus .source-icon { outline: none; }
+
+/* ── 量化看板 layout rhythm ── */
+.stats-view { padding-bottom: 8px; }
+.stats-view > .panel-header { margin-bottom: 8px; }
+.stats-view {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 16px;
+  row-gap: 0;
+}
+.stats-view > .panel-header,
+.stats-view > .stats-toolbar,
+.stats-view > .stats-error,
+.stats-view > .stats-cards,
+.stats-view > .stats-modules,
+.stats-view > .stats-waterfall {
+  grid-column: 1 / -1;
+}
+.stats-view > .stats-trend { margin-bottom: 16px; }
+
+.stats-toolbar {
+  background: transparent;
+  border: none;
+  padding: 0 0 4px;
+  margin-bottom: 20px;
+  gap: 10px;
+}
+.stats-toolbar-period {
+  border-radius: 999px;
+  border-color: var(--border);
+  background: var(--card);
+}
+.stats-toolbar-period button {
+  padding: 6px 16px;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+.stats-toolbar-period button.active {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.stats-cards {
+  grid-template-columns: 1fr 1.28fr 1fr;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+.stats-card {
+  border-radius: 12px;
+  padding: 18px 20px 16px;
+  box-shadow: var(--shadow);
+}
+.stats-card-current {
+  border-color: oklch(from var(--accent) l c h / 0.45);
+  background: oklch(from var(--accent) l c h / 0.06);
+}
+.stats-card-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  margin-bottom: 10px;
+}
+.stats-card-value { font-size: 2rem; letter-spacing: -0.03em; line-height: 1.1; }
+.stats-card-sub { margin-top: 8px; line-height: 1.45; }
+
+.stats-modules {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.stats-module {
+  border-radius: 12px;
+  padding: 14px 14px 12px;
+  box-shadow: var(--shadow);
+}
+.stats-module:nth-child(6) { grid-column: span 2; }
+.stats-module:nth-child(7) { grid-column: span 3; }
+.stats-module-title { font-size: 0.78rem; letter-spacing: 0.02em; }
+.stats-module-primary { font-size: 1.35rem; letter-spacing: -0.02em; margin: 4px 0 8px; }
+.stats-module-row { margin-top: 5px; padding-top: 5px; border-top: 1px solid oklch(from var(--border) l c h / 0.55); }
+.stats-module-row:first-of-type { border-top: 0; padding-top: 0; }
+.stats-module-status.stat-ok {
+  background: oklch(from var(--success) l c h / 0.14);
+  color: var(--success-muted-fg);
+}
+.stats-method-pie-wrap { margin: 6px 0 8px; }
+
+.stats-trend,
+.stats-waterfall {
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: var(--shadow);
+}
+.stats-trend-title,
+.stats-waterfall-title {
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.stats-trend-svg { height: 96px; }
+
+@media (max-width: 1100px) {
+  .stats-view { grid-template-columns: 1fr; }
+  .stats-cards { grid-template-columns: 1fr; }
+  .stats-modules { grid-template-columns: 1fr 1fr; }
+  .stats-module:nth-child(6),
+  .stats-module:nth-child(7) { grid-column: span 1; }
+}
+
+/* ── Config edit modals ── */
+.modal-config {
+  max-width: 560px;
+  padding: 26px 28px 22px;
+}
+.modal-kicker {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: var(--muted-fg);
+  font-weight: 400;
+  line-height: 1.4;
+}
+.modal-config .modal-header {
+  align-items: flex-start;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-config .modal-header h3 { font-size: 1.12rem; letter-spacing: -0.02em; }
+.modal-config .modal-body { margin-bottom: 8px; }
+.modal-config .modal-footer { padding-top: 16px; gap: 10px; }
+
+.config-form-tag .modal-body,
+.config-form-source .modal-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 16px;
+}
+.config-form-tag .form-row,
+.config-form-source .form-row { margin-bottom: 0; }
+.form-span-2 { grid-column: 1 / -1; }
+
+.config-form-tag .form-row label,
+.config-form-source .form-row label {
+  font-size: 0.82rem;
+  margin-bottom: 6px;
+}
+.config-form-tag .form-row label small,
+.config-form-source .form-row label small {
+  font-size: 0.72rem;
+  margin-top: 1px;
+}
+.config-form-tag input[type="text"],
+.config-form-tag input[type="number"],
+.config-form-tag textarea,
+.config-form-tag select,
+.config-form-source input[type="text"],
+.config-form-source input[type="number"],
+.config-form-source textarea,
+.config-form-source select {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 11px;
+  border-radius: 8px;
+}
+.config-form-tag textarea,
+.config-form-source textarea { min-height: 88px; }
+
+.color-swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.color-swatch {
+  flex-direction: row;
+  gap: 0;
+  padding: 8px 12px 8px 34px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  justify-content: flex-start;
+  position: relative;
+}
+.color-swatch::before {
+  content: "";
+  position: absolute;
+  left: 10px; top: 50%;
+  width: 14px; height: 14px;
+  margin-top: -7px;
+  border-radius: 50%;
+  background: var(--swatch, #999);
+  box-shadow: inset 0 0 0 1px oklch(0 0 0 / 0.16);
+}
+.color-swatch .swatch-dot { display: none; }
+.color-swatch:hover { background: var(--muted); }
+.color-swatch.is-active {
+  border-color: var(--accent);
+  background: oklch(from var(--accent) l c h / 0.10);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.14);
+}
+.swatch-label { font-size: 0.75rem; color: var(--foreground); }
+
+.config-form-source .checkbox-row {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+}
+
 </style>
 </head>
 <body>
@@ -4659,7 +4875,7 @@ table td img[alt=""],
       </section>
 
       <!-- ══ 量化看板 (v1.0.19 W1) ═════════════════════════════════ -->
-      <section x-show="currentView === 'stats'" x-cloak x-init="statsOnEnter()">
+      <section class="stats-view" x-show="currentView === 'stats'" x-cloak x-init="statsOnEnter()">
         <div class="panel-header">
           <div class="panel-title-row">
             <h3>量化看板</h3>
@@ -5694,18 +5910,21 @@ table td img[alt=""],
 
     <!-- ══ Config Edit Modal (v1.0.2-F) ═════════════════════════════ -->
     <div class="modal-backdrop" x-show="configModalOpen" x-cloak @click.self="closeConfigModal()" @keydown.escape.window="closeConfigModal()">
-      <div class="modal-content">
+      <div class="modal-content modal-config">
 
         <!-- Tag modal -->
         <template x-if="configModalType === 'tag'">
-          <div>
+          <div class="config-form-tag">
             <div class="modal-header">
-              <h3 x-text="configModalTarget ? '编辑 tag' : '新建 tag'"></h3>
+              <div>
+                <h3 x-text="configModalTarget ? '编辑业务 tag' : '新建业务 tag'"></h3>
+                <p class="modal-kicker">改显示名与色块即可，系统标识创建后不可改</p>
+              </div>
             </div>
             <div class="modal-body">
               <div class="form-row">
                 <label>标识 name <span class="required">*</span>
-                  <small class="muted">系统主键，创建后不可改；英文/短横线</small>
+                  <small class="muted">系统主键 · 英文/短横线</small>
                 </label>
                 <!-- v1.0.5.12: name was locked whenever the modal was
                      opened with a target (truthy check), but for a
@@ -5718,7 +5937,7 @@ table td img[alt=""],
               </div>
               <div class="form-row">
                 <label>显示名 display_name
-                  <small class="muted">界面上展示的中文名；改名请改这里，不要改 name</small>
+                  <small class="muted">界面上的中文名</small>
                 </label>
                 <!-- v1.0.5.14: this is the field users edit to "rename"
                      a tag from the UI.  The `name` above is the immutable
@@ -5730,15 +5949,15 @@ table td img[alt=""],
                 <input type="text" x-model="configModalTarget.display_name"
                        placeholder="银行 (留空则用 name)">
               </div>
-              <div class="form-row">
+              <div class="form-row form-span-2">
                 <label>描述 description
-                  <small class="muted">用途说明，用于 tooltip</small>
+                  <small class="muted">用途说明，出现在 tooltip</small>
                 </label>
                 <input type="text" x-model="configModalTarget.description" placeholder="银行业务相关">
               </div>
-              <div class="form-row">
+              <div class="form-row form-span-2">
                 <label>颜色 color
-                  <small class="muted">列表色块；点下方色板选择</small>
+                  <small class="muted">点选色板，用于列表色块</small>
                 </label>
                 <!-- v1.0.5.12: was a free-text <input> that made users
                      type hex.  Replaced with a curated swatch grid
@@ -5763,11 +5982,10 @@ table td img[alt=""],
                   </template>
                 </div>
                 <input type="hidden" x-model="configModalTarget.color">
-                <small class="muted">从 8 色色板中选 — 风格统一参考 /Users/mt16/dev/uiux-asset-library</small>
               </div>
-              <div class="form-row">
+              <div class="form-row form-span-2">
                 <label>关键词 keywords
-                  <small class="muted">一行一个；OR 匹配标题+正文</small>
+                  <small class="muted">一行一个，OR 匹配标题 + 正文</small>
                 </label>
                 <textarea x-model="configModalTarget.keywordsText" rows="4"
                           placeholder="银行&#10;支付&#10;跨境支付"></textarea>
@@ -5792,20 +6010,23 @@ table td img[alt=""],
 
         <!-- Source modal -->
         <template x-if="configModalType === 'source'">
-          <div>
+          <div class="config-form-source">
             <div class="modal-header">
-              <h3 x-text="configModalTarget?.id ? '编辑抓取源' : '新建抓取源'"></h3>
+              <div>
+                <h3 x-text="configModalTarget?.id ? '编辑抓取源' : '新建抓取源'"></h3>
+                <p class="modal-kicker">标识给程序用，显示名给人看</p>
+              </div>
             </div>
             <div class="modal-body">
-              <div class="form-row" x-show="!configModalTarget?.id">
+              <div class="form-row form-span-2" x-show="!configModalTarget?.id">
                 <label>源 ID <span class="required">*</span>
-                  <small class="muted">主键，如 src-xwatch；创建后一般不改</small>
+                  <small class="muted">主键，如 src-xwatch</small>
                 </label>
                 <input type="text" x-model="configModalTarget.id" placeholder="e.g. src-newsource">
               </div>
               <div class="form-row">
                 <label>源标识 name <span class="required">*</span>
-                  <small class="muted">程序内用的名字，如 xwatch、36kr_rss</small>
+                  <small class="muted">如 xwatch、36kr_rss</small>
                 </label>
                 <input type="text" x-model="configModalTarget.name" placeholder="e.g. xwatch">
               </div>
@@ -5828,26 +6049,26 @@ table td img[alt=""],
                 </select>
               </div>
               <div class="form-row">
-                <label>地址 url <span class="required">*</span>
-                  <small class="muted">RSS 链接 / OPML 路径 / 站点 URL；xwatch 可留空</small>
-                </label>
-                <input type="text" x-model="configModalTarget.url" placeholder="https://... 或本地 OPML 路径">
-              </div>
-              <div class="form-row">
-                <label>抓取间隔（分钟） fetch_interval_min
-                  <small class="muted">定时任务建议间隔，非强制</small>
+                <label>抓取间隔（分钟）
+                  <small class="muted">定时建议间隔</small>
                 </label>
                 <input type="number" x-model.number="configModalTarget.fetch_interval_min" min="1">
               </div>
-              <div class="form-row">
+              <div class="form-row form-span-2">
+                <label>地址 url <span class="required">*</span>
+                  <small class="muted">RSS / OPML / 站点；xwatch 可留空</small>
+                </label>
+                <input type="text" x-model="configModalTarget.url" placeholder="https://... 或本地 OPML 路径">
+              </div>
+              <div class="form-row form-span-2">
                 <label class="checkbox-row">
                   <input type="checkbox" x-model="configModalTarget.is_active">
-                  <span>启用 is_active — 关闭后定时/批量抓取会跳过</span>
+                  <span>启用 — 关闭后定时 / 批量抓取会跳过</span>
                 </label>
               </div>
-              <div class="form-row">
+              <div class="form-row form-span-2">
                 <label>备注 notes
-                  <small class="muted">给人看的说明，不影响抓取逻辑</small>
+                  <small class="muted">给人看的说明，不影响抓取</small>
                 </label>
                 <textarea x-model="configModalTarget.notes" rows="2"></textarea>
               </div>
