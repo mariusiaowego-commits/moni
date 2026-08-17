@@ -293,8 +293,13 @@ def _run_job(row: dict[str, Any]) -> None:
             prompt = render_fact_check(article_dict)
         elif task_type == "fact_check_plus":
             prompt = render_fact_check_plus(article_dict)
-            # hermes -t web agent mode (Q1=B); -Q quiet; cap turns.
-            extra_args = ["-t", "web", "-Q", "--max-turns", "8"]
+            # hermes -t web agent mode (Q1=B from sprint-07); -Q quiet removed
+            # in hermes 0.20 (rc=2 usage error).
+            # v1.0.34 (sprint-14 prep): --max-turns also removed in 0.20 — turn
+            # limiting moves to the worker layer (call_llm timeout) instead
+            # of a hermes CLI flag.  Net effect: same web-facts behavior, no
+            # turn ceiling, but bounded by call_llm timeout (default 120s).
+            extra_args = ["-t", "web"]
         else:
             _mark_failed(job_id, f"unsupported task_type {task_type!r}", attempts=attempt)
             return
