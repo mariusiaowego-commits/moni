@@ -4,17 +4,22 @@
 
 ---
 
-## 当前状态: **v1.0.34 — hermes 0.20 extra_args 兼容 + 截图归档清理 (sprint-13.5)** (2026-08-17)
+## 当前状态: **v1.0.34.1 — bestblogs UA+retry 修 SSL EOF + 全量 375 feeds + 财经号补全** (2026-08-17 PM)
 
-**主分支**: **main** @ `153422c` (PR #109 squash-merged, tag v1.0.34 `153422c` push)
-**Web 服务**: `127.0.0.1:8900` PID 72830 已 restart 载入 v1.0.34 代码（2026-08-17）
+**主分支**: **main** @ `6fc33a1` (PR #110 squash-merged, tag v1.0.34.1 `6fc33a1` push, tag=main 无漂移)
+**Web 服务**: `127.0.0.1:8900` 已 restart 载入 v1.0.34.1 代码（2026-08-17 PM, HTTP 200）
 
-### v1.0.34 核心改动
+### v1.0.34.1 核心改动
 
-- **A `moni/llm/client.py`**: 删 `--profile` flag (hermes 0.20 不再支持, rc=2 usage error; 走 hermes 自动选当前 session profile)
-- **B `moni/llm/jobs.py`**: `fact_check_plus` `extra_args` 去 `-Q --max-turns` (hermes 0.20 rc=2); turn 限制改由 `call_llm` timeout 层承接 (默认 120s)
-- **C `.gitignore`**: `docs/screenshots/*.png/*.zip` 整目录入 ignore (22 张 untracked 截图 + 2 zip); `docs/moni-screenshots-申报/` 独立 ignore (本地保留 dad 归档)
-- **D 删 `docs/screenshots/v1.0.19/`**: 6 张量化看板截图彻底删除 (申报材料已迁出)
+- **A `moni/fetch/sources/bestblogs.py`**: `_fetch_feed` 加浏览器 UA + 3 次重试退避 (修复 wechat2rss.bestblogs.dev 对 httpx 默认 UA 的 SSL EOF 断连, 全量 375-feeds sweep 0 giving up)
+- **B DB 配置 (非 git)**: bestblogs `max_articles_total` 500→1900 (全量 375 feeds 不截断); bestblogs 绑 `banking`/`regulation` tag; banking 关键词 129→204 (+75 泛金融: 央行/利率/股市/IPO/证券/基金/汇率/保险/财报/港股 等)
+- **C DB 配置**: wechat_rss_a/b 暂停 is_active=0 (上游 waytomaster 停更, 保留记录)
+
+### 效果
+
+- 抓取: fetched=1875 (375 feeds 全量跑通), 修复后轮次 inserted=140 (修复前最高 58)
+- wechat2rss OPML 375 公众号覆盖 **149 → 212 (57%)**; 核心财经号 (财新/钛媒体/雪球/华尔街见闻/财联社/21世纪/格隆汇/虎嗅/人民日报) 全部进库
+- 剩余 163 号: 153 泛民生/文化/体育号 (按 tag 门合理拦截) + 10 标题不含金融词的财经号 (靠后续轮次自然入库)
 
 ### 验证
 
