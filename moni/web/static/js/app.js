@@ -925,10 +925,9 @@ function app() {
     // string unchanged if it's already within `max` chars; otherwise
     // slices on a char boundary and appends an ellipsis.  Counts
     // JavaScript .length (UTF-16 code units) which is close enough
-    // for "around 150 Chinese chars" — at 150 we never slice a
-    // surrogate pair in practice.  Use this everywhere a list-row
-    // title is shown; the detail modal keeps the full title.
-    truncateTitle(text, max = 150) {
+    // for "around 80 Chinese chars" combined with .title-cell 2-line clamp;
+    // longer titles wrap to a 2nd line in the cell instead of overflowing.
+    truncateTitle(text, max = 80) {
       if (text == null) return '';
       const s = String(text);
       if (s.length <= max) return s;
