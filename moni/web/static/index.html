@@ -141,7 +141,7 @@
                      (之前 "操作"列里的 pin 按钮太靠右, 不明显) -->
                 <th class="pin-col-head">Pin</th>
                 <th x-show="articlesSubTab === 'pinned'"><input type="checkbox" :checked="pinnedAllSelectedOnPage()" @change="pinnedToggleAllOnPage($event)"></th>
-                <th>标题</th><th>来源</th><th style="width: 140px; min-width: 140px;">分类</th>
+                <th>标题</th><th>来源</th><th style="width: 140px; min-width: 140px;">命中标签</th>
                 <th x-show="articlesSubTab === 'pinned'">Pin 时间</th>
                 <th x-show="articlesSubTab === 'all'">原文时间</th>
                 <th>抓取时间</th><th>操作</th>
@@ -170,7 +170,7 @@
                          on the <span> gives a hover tooltip so the
                          user can preview the rest without opening
                          the modal. -->
-                    <span :title="a.title" x-text="truncateTitle(a.title, 80)"></span>
+                    <span :title="a.title" x-text="truncateTitle(a.title, 150)"></span>
                     <span class="badge badge-fresh" x-show="a.is_fresh"
                           data-tooltip="本次抓取新增 (该信源最新一轮)">fresh</span>
                     <span class="badge badge-new" x-show="isNew(a.created_at)"
@@ -178,6 +178,7 @@
                   </td>
                   <td x-text="a.source"></td>
                   <td class="tags-cell">
+                    <!-- v1.0.35.1: 全部 tag 都展示, 用紧凑 chip + 自适应换行 + 列宽自适应 -->
                     <template x-for="tagObj in (a.tags || [])" :key="tagObj.name">
                       <span class="tag-chip-wrap">
                         <span class="tag-chip"
@@ -195,7 +196,7 @@
                   <td x-show="articlesSubTab === 'pinned'" x-text="formatTime(a.pinned_at)"></td>
                   <td x-show="articlesSubTab === 'all'" x-text="formatTime(a.published_at || a.fetched_at || a.created_at)"></td>
                   <td x-text="formatTime(a.created_at)"></td>
-                  <td><a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a></td>
+                  <td><div class="row-actions"><a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a><button class="btn-danger btn-sm" @click="showDeleteModal(a)">删除</button></div></td>
                 </tr>
               </template>
               <tr x-show="activeArticles.length === 0">
@@ -233,9 +234,23 @@
             <h3>数据维护</h3>
             <p class="panel-title-hint">对文章记录做新建、编辑与删除</p>
           </div>
-          <!-- v1.0.5.11: opens the create form modal.  Backend POST
-               /api/articles was added in v1.0.5.10, this wires the UI. -->
-          <button class="btn-primary" @click="openCrudForm(null)">+ 新建文章</button>
+          <div class="crud-toolbar">
+            <!-- v1.0.35.1: 标题模糊搜索 (后端 /api/articles 已支持 keyword LIKE) -->
+            <div class="search-box">
+              <input type="text" x-model="crudSearch"
+                     @input="crudSearchInput()"
+                     @keydown.enter.prevent="loadCrudArticles()"
+                     placeholder="按标题搜索...">
+              <button type="button" class="search-clear"
+                      x-show="crudSearch"
+                      @click="crudSearch = ''; loadCrudArticles()"
+                      title="清空搜索">×</button>
+              <span class="search-icon" aria-hidden="true">🔍</span>
+            </div>
+            <!-- v1.0.5.11: opens the create form modal.  Backend POST
+                 /api/articles was added in v1.0.5.10, this wires the UI. -->
+            <button class="btn-primary" @click="openCrudForm(null)">+ 新建文章</button>
+          </div>
         </div>
         <div class="table-container">
           <table>
@@ -245,13 +260,17 @@
             <tbody>
               <template x-for="a in crudArticles" :key="a.id">
                 <tr>
-                  <td class="title-cell"><span :title="a.title" x-text="truncateTitle(a.title, 80)"></span></td>
+                  <td class="title-cell">
+                    <span x-text="truncateTitle(a.title, 150)"></span>
+                    <span class="tip title-tip" x-text="a.title"></span>
+                  </td>
                   <td x-text="a.source"></td>
-                  <td class="url-cell"><a :href="a.url" target="_blank" x-text="a.url"></a></td>
+                  <td class="url-cell"><a class="link" :href="a.url" target="_blank" x-text="a.url"></a></td>
                   <td>
-                    <!-- v1.0.5.11: pre-populate the form modal with this article. -->
-                    <button class="btn-secondary" @click="openCrudForm(a)">编辑</button>
-                    <button class="btn-danger"    @click="showDeleteModal(a)">删除</button>
+                    <div class="row-actions">
+                      <button class="btn-secondary" @click="openCrudForm(a)">编辑</button>
+                      <button class="btn-danger"    @click="showDeleteModal(a)">删除</button>
+                    </div>
                   </td>
                 </tr>
               </template>
@@ -592,7 +611,7 @@
                   <tr>
                     <td><img :src="getSourceIcon(s.name)" style="width:24px;height:24px;border-radius:6px;display:block;object-fit:cover;" alt=""></td>
                     <td x-text="s.display_name || s.name"></td>
-                    <td class="url-cell"><a :href="s.url" target="_blank" x-text="s.url"></a></td>
+                    <td class="url-cell"><a class="link" :href="s.url" target="_blank" x-text="s.url"></a></td>
                     <td x-text="s.fetch_interval_min ? s.fetch_interval_min + 'min' : '-'"></td>
                     <td class="td-actions">
                       <!-- 与顶部操作区同一套：primary=触发抓取 / secondary=旁路操作 -->
@@ -997,7 +1016,7 @@
                        x-model="selectedArticleIds"
                        class="article-card-check">
                 <div class="article-card-source" x-text="a.source"></div>
-                <div class="article-card-title" :title="a.title" x-text="truncateTitle(a.title, 80)"></div>
+                <div class="article-card-title" :title="a.title" x-text="truncateTitle(a.title, 150)"></div>
               </label>
             </template>
             <div class="article-card empty"
@@ -1208,7 +1227,7 @@
                       <!-- v1.0.5.15: prefer output_url (web URL via /artifacts/ mount).
                            Fall back to plain-text output_path if no URL (missing source). -->
                       <template x-if="q.output_url && q.status === 'done'">
-                        <a :href="q.output_url" target="_blank"
+                        <a class="link" :href="q.output_url" target="_blank"
                            x-text="q.output_url.split('/').pop()"
                            :title="q.output_path || q.output_url"></a>
                       </template>
@@ -2079,9 +2098,11 @@
                       <button class="link-btn" @click="configEditSourceTags(s)">改 tags</button>
                     </td>
                     <td>
-                      <button class="link-btn" @click="configEditFetchConfig(s)">抓取配置</button>
-                      <button class="btn-link" @click="configEditSource(s)">编辑</button>
-                      <button class="btn-danger" @click="configDeleteSource(s)">删除</button>
+                      <div class="row-actions">
+                        <button class="link-btn" @click="configEditFetchConfig(s)">抓取配置</button>
+                        <button class="btn-link" @click="configEditSource(s)">编辑</button>
+                        <button class="btn-danger" @click="configDeleteSource(s)">删除</button>
+                      </div>
                     </td>
                   </tr>
                 </template>
@@ -2237,14 +2258,15 @@
                             x-text="p.is_active ? '启用' : '停用'"></span>
                     </td>
                     <td>
-                      <button class="btn-link" @click="openLlmProviderForm(p)">编辑</button>
-                      <button class="btn-link" @click="testLlmProvider(p)"
-                              :disabled="p._testing"
-                              class="text-success"
-                              x-text="p._testing ? '测试中...' : '测试'"></button>
-                      <button class="btn-secondary" @click="toggleLlmProviderActive(p)"
-                              x-text="p.is_active ? '停用' : '启用'"></button>
-                      <button class="btn-danger" @click="deleteLlmProvider(p)">删除</button>
+                      <div class="row-actions">
+                        <button class="btn-link" @click="openLlmProviderForm(p)">编辑</button>
+                        <button class="btn-link" @click="testLlmProvider(p)"
+                                :disabled="p._testing"
+                                x-text="p._testing ? '测试中...' : '测试'">测试</button>
+                        <button class="btn-secondary" @click="toggleLlmProviderActive(p)"
+                                x-text="p.is_active ? '停用' : '启用'">停用</button>
+                        <button class="btn-danger" @click="deleteLlmProvider(p)">删除</button>
+                      </div>
                     </td>
                   </tr>
                 </template>

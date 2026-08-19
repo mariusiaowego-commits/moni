@@ -925,9 +925,11 @@ function app() {
     // string unchanged if it's already within `max` chars; otherwise
     // slices on a char boundary and appends an ellipsis.  Counts
     // JavaScript .length (UTF-16 code units) which is close enough
-    // for "around 80 Chinese chars" combined with .title-cell 2-line clamp;
-    // longer titles wrap to a 2nd line in the cell instead of overflowing.
-    truncateTitle(text, max = 80) {
+    // for "around 150 Chinese chars" — at 150 we never slice a
+    // surrogate pair in practice.  CSS .title-cell single-line ellipsis
+    // does the visual truncation; this just trims the underlying
+    // string so we don't send 1000-char titles over the wire.
+    truncateTitle(text, max = 150) {
       if (text == null) return '';
       const s = String(text);
       if (s.length <= max) return s;
@@ -1078,6 +1080,7 @@ function app() {
 
     // ── CRUD panel ────────────────────────────────────────────────
     crudArticles: [],
+    crudSearch: '',  // v1.0.35.1: 标题模糊搜索 (debounce 300ms)
     showModal: false,
     deleteTarget: null,
 
@@ -1099,10 +1102,23 @@ function app() {
     crudFormError: '',
 
     loadCrudArticles() {
-      fetch('/api/articles', { credentials: 'same-origin' })
+      const params = new URLSearchParams();
+      if (this.crudSearch) params.set('keyword', this.crudSearch);
+      // v1.0.35.1: CRUD 用 keyword LIKE 模糊搜索 (后端 articles.py 已支持)
+      const query = params.toString();
+      fetch('/api/articles' + (query ? '?' + query : ''), { credentials: 'same-origin' })
         .then(r => r.json())
         .then(data => { this.crudArticles = Array.isArray(data) ? data : (data.articles || []); })
         .catch(err => console.error('loadCrudArticles failed:', err));
+    },
+
+    // v1.0.35.1: CRUD 搜索 debounce (300ms 避免每个键击都 fetch)
+    crudSearchDebounceTimer: null,
+    crudSearchInput() {
+      clearTimeout(this.crudSearchDebounceTimer);
+      this.crudSearchDebounceTimer = setTimeout(() => {
+        this.loadCrudArticles();
+      }, 300);
     },
 
     showDeleteModal(article) {
@@ -1121,9 +1137,11 @@ function app() {
       fetch(`/api/articles/${article.id}?confirm=1`, { method: 'DELETE', credentials: 'same-origin' })
         .then(r => {
           if (!r.ok) throw new Error('Delete failed');
-          this.crudArticles = this.crudArticles.filter(a => a.id !== article.id);
-          this.articles      = this.articles.filter(a => a.id !== article.id);
-          this.allArticles   = this.allArticles.filter(a => a.id !== article.id);
+          this.crudArticles    = this.crudArticles.filter(a => a.id !== article.id);
+          this.articles        = this.articles.filter(a => a.id !== article.id);
+          this.allArticles     = this.allArticles.filter(a => a.id !== article.id);
+          this.pinnedArticles  = this.pinnedArticles.filter(a => a.id !== article.id);  // v1.0.35.1: 同步清 pinned
+          this._notify('success', `已删除: ${article.title?.slice(0, 30) || article.id}`);
           this.closeModal();
         })
         .catch(err => { this._notify('error', '删除失败: ' + err.message); this.closeModal(); });

@@ -221,6 +221,8 @@ body {
   font-size: 1.15rem; font-weight: 600; letter-spacing: -0.01em;
   margin: 0; flex-shrink: 0;
 }
+/* v1.0.35.1: CRUD toolbar (search box + 新建 button 同行) */
+.crud-toolbar { display: flex; align-items: center; gap: 12px; }
 /* h3 + 启示性说明（分享页模式：标题右侧 10px） */
 .panel-title-row {
   display: flex; align-items: baseline; gap: 10px;
@@ -406,14 +408,30 @@ body {
   color: var(--foreground); background: var(--muted);
 }
 
-/* Danger — red destructive */
+/* Danger — red destructive (full red bg, pill-shaped — 用于 modal 确认/批量操作等主 destructive 操作) */
 .btn-danger {
   background: var(--destructive); color: var(--destructive-fg);
   border-color: var(--destructive);
+  border-radius: 6px;
 }
 .btn-danger:hover:not(:disabled) {
   box-shadow: 0 2px 8px oklch(from var(--destructive) l c h / 0.3);
   background: oklch(from var(--destructive) calc(l + 0.06) c h);
+}
+
+/* v1.0.35.1: 表格行内操作列 ghost-style btn-danger
+   跟同一行的 .link-btn / .btn-secondary 视觉重量匹配, 但保留红色语义可识别 destructive */
+.row-actions .btn-danger {
+  background: transparent;
+  color: var(--destructive);
+  border-color: oklch(from var(--destructive) l c h / 0.4);
+  border-radius: 4px;
+}
+.row-actions .btn-danger:hover:not(:disabled) {
+  background: oklch(from var(--destructive) l c h / 0.08);
+  border-color: var(--destructive);
+  color: var(--destructive);
+  box-shadow: none;
 }
 
 /* Small variant */
@@ -439,6 +457,23 @@ body {
   display: inline-block;
 }
 .btn-link:hover { color: var(--foreground); background: var(--muted); }
+
+/* v1.0.35.1: 行内操作列 wrapper (ghost btn-danger 用)
+   用 flex + gap 替代全局 .btn + .btn 的兄弟 margin-left (row-actions 内部更紧凑) */
+.row-actions { display: inline-flex; align-items: center; gap: 8px; }
+
+/* v1.0.35.1: 按钮安全距离 (相邻兄弟 +8px, 替代原本 inline-whitespace 的 ~4px)
+   不影响: tab/segmented control (有自己 padding + active 状态)、modal-footer (自带 gap),
+   以及其他显式有 flex/gap 的容器。 */
+.btn + .btn,
+.btn + .btn-link,
+.btn-link + .btn,
+.btn-link + .btn-link,
+.btn + .link-btn,
+.link-btn + .btn,
+.link-btn + .link-btn {
+  margin-left: 8px;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    Tables
@@ -539,19 +574,88 @@ tbody tr:last-child td { border-bottom: none; }
 .dark .tag-chip { color: #F2E6CE; }  /* 黑夜模式: 荔肉白 */
 :root.dark .tag-chip { color: #F2E6CE; }  /* 双保险 */
 .tags-cell {
-  min-width: 110px;  /* v1.0.35: 容纳 4 字 tag chip 不垂直换行 */
-  vertical-align: middle;  /* 跟 cell 中线对齐 (不用 flex 避免单 chip 贴底) */
+  /* v1.0.35.1: 重新设计排版
+     - 全部 chip 都展示, 不再 slice
+     - 列宽自适应内容 (max-width 220px 上限, 不撑开标题列)
+     - chip 用紧凑版 (字号/内边距/外边距 都缩小), 但间距保留 */
+  max-width: 220px;
+  vertical-align: middle;
+  overflow: hidden;
+  font-size: 0;  /* 消除 inline-block 之间的换行空格 */
 }
-.tags-cell .tag-chip-wrap { margin-bottom: 0; vertical-align: middle; }
-.title-cell {
-  max-width: 480px;
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+.tags-cell > .tag-chip-wrap {
+  display: inline-block;
+  vertical-align: top;
+  font-size: 0.72rem;  /* v1.0.35.1: 字号缩 (原 0.78rem) */
+  margin: 2px 4px 2px 0;  /* v1.0.35.1: 间距缩 (原 6px 右), 但仍有 */
+  /* 单 chip 截断 */
+  max-width: calc(100% - 4px);
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
+/* v1.0.35.1: 紧凑 chip 样式 — 缩小 padding + 圆角更方 */
+.tags-cell .tag-chip {
+  padding: 1px 6px;  /* 原 2px 10px, 缩 ~50% */
+  border-radius: 3px;  /* 原 4px, 更方 */
+  margin: 0;  /* wrap 已带 margin, 不重复 */
+}
+/* v1.0.35.1: 完整 tag 列表浮层 — hover td 弹, 复用 .tip 风格 molevibe 浮层 */
+.tags-overflow {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  max-width: 360px;
+  box-shadow: var(--shadow-lg);
+  font-size: 0.82rem;
+  color: var(--card-fg);
+  z-index: 50;
+  white-space: normal;
+  line-height: 1.5;
+}
+.tags-overflow-label {
+  font-size: 0.72rem;
+  color: var(--muted-fg);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+.tags-overflow .tag-chip { margin: 2px 4px 2px 0; }
+.tags-cell:hover .tags-overflow { display: block; }
+/* tag chip 内部 tooltip 不受影响 (位置相对 wrap) */
+.title-cell {
+  max-width: 480px;
+  position: relative;  /* v1.0.35.1: anchor for .title-tip */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* v1.0.35.1: title-cell hover tooltip (复用 .tip 样式, molevibe 风格浮层) */
+.title-tip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  max-width: 480px;
+  min-width: 200px;
+  box-shadow: var(--shadow-lg);
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+  line-height: 1.5;
+  color: var(--card-fg);
+  z-index: 50;
+}
+.title-cell:hover .title-tip { display: block; }
+/* 黑夜模式: 沿用 .dark 全局卡片样式, 不重复定义 */
 .tag-chip-no-color {
   background: var(--muted); color: var(--muted-fg);
 }
@@ -837,6 +941,10 @@ label { font-size: 0.85rem; }
 .modal-header h3 { margin-bottom: 0; }
 .modal-body { margin-bottom: 16px; }
 .modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+/* v1.0.35.1: modal-footer 自带 gap: 8px, 取消兄弟选择器加的 margin-left 避免叠加到 16px */
+.modal-footer .btn,
+.modal-footer .btn-link,
+.modal-footer .link-btn { margin-left: 0; }
 .modal-content-wide { max-width: 720px; }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -891,11 +999,13 @@ label { font-size: 0.85rem; }
   border: 3px solid var(--border);
   overflow: hidden;
   flex-shrink: 0;
-  background: #1a1a1a;
+  /* v1.0.35.1: 跟随卡片背景, 暗色模式不再用硬编码 #1a1a1a */
+  background: var(--card);
 }
 .source-row .source-icon img {
   width: 100%; height: 100%;
-  object-fit: cover; display: block; background: #1a1a1a;
+  object-fit: cover; display: block;
+  background: var(--card);  /* v1.0.35.1: 跟随主题, 透明 PNG 在卡片背景上显示 */
 }
 .source-row.focus .source-icon {
   width: 96px; height: 96px;
@@ -917,12 +1027,13 @@ label { font-size: 0.85rem; }
   z-index: 3;
   box-shadow: 0 0 24px oklch(0.819 0.109 302.2 / 0.2);
   transition: box-shadow 0.3s;
-  background: #1a1a1a;
+  /* v1.0.35.1: 跟随主题, 不再硬编码 #1a1a1a */
+  background: var(--card);
 }
 .moni-icon.receiving {
   box-shadow: 0 0 32px oklch(0.819 0.109 302.2 / 0.45);
 }
-.moni-icon img { width: 100%; height: 100%; object-fit: cover; display: block; background: #1a1a1a; }
+.moni-icon img { width: 100%; height: 100%; object-fit: cover; display: block; background: var(--card); }
 .moni-label {
   position: absolute;
   font-size: 0.9rem;
