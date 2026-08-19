@@ -141,7 +141,7 @@
                      (之前 "操作"列里的 pin 按钮太靠右, 不明显) -->
                 <th class="pin-col-head">Pin</th>
                 <th x-show="articlesSubTab === 'pinned'"><input type="checkbox" :checked="pinnedAllSelectedOnPage()" @change="pinnedToggleAllOnPage($event)"></th>
-                <th>标题</th><th>来源</th><th>分类</th>
+                <th>标题</th><th>来源</th><th style="width: 140px; min-width: 140px;">分类</th>
                 <th x-show="articlesSubTab === 'pinned'">Pin 时间</th>
                 <th x-show="articlesSubTab === 'all'">原文时间</th>
                 <th>抓取时间</th><th>操作</th>
@@ -170,14 +170,14 @@
                          on the <span> gives a hover tooltip so the
                          user can preview the rest without opening
                          the modal. -->
-                    <span :title="a.title" x-text="truncateTitle(a.title, 150)"></span>
+                    <span :title="a.title" x-text="truncateTitle(a.title, 80)"></span>
                     <span class="badge badge-fresh" x-show="a.is_fresh"
                           data-tooltip="本次抓取新增 (该信源最新一轮)">fresh</span>
                     <span class="badge badge-new" x-show="isNew(a.created_at)"
                           data-tooltip="最近 24 小时内抓取">new</span>
                   </td>
                   <td x-text="a.source"></td>
-                  <td>
+                  <td class="tags-cell">
                     <template x-for="tagObj in (a.tags || [])" :key="tagObj.name">
                       <span class="tag-chip-wrap">
                         <span class="tag-chip"
@@ -193,7 +193,7 @@
                     <span x-show="!a.tags || a.tags.length === 0" class="muted">-</span>
                   </td>
                   <td x-show="articlesSubTab === 'pinned'" x-text="formatTime(a.pinned_at)"></td>
-                  <td x-show="articlesSubTab === 'all'" x-text="formatTime(a.published_at)"></td>
+                  <td x-show="articlesSubTab === 'all'" x-text="formatTime(a.published_at || a.fetched_at || a.created_at)"></td>
                   <td x-text="formatTime(a.created_at)"></td>
                   <td><a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a></td>
                 </tr>
@@ -245,7 +245,7 @@
             <tbody>
               <template x-for="a in crudArticles" :key="a.id">
                 <tr>
-                  <td><span :title="a.title" x-text="truncateTitle(a.title, 150)"></span></td>
+                  <td class="title-cell"><span :title="a.title" x-text="truncateTitle(a.title, 80)"></span></td>
                   <td x-text="a.source"></td>
                   <td class="url-cell"><a :href="a.url" target="_blank" x-text="a.url"></a></td>
                   <td>
@@ -829,7 +829,7 @@
                 </td>
                 <td x-text="job.task_type === 'summary' ? '摘要' : '事实核查'"></td>
                 <td>
-                  <a href="#" @click.prevent="navigate('articles')"
+                  <a class="link" href="#" @click.prevent="navigate('articles')"
                      x-text="(job.article_title || job.article_id).slice(0, 50)"></a>
                 </td>
                 <td x-text="job.model || '-'"></td>
@@ -997,7 +997,7 @@
                        x-model="selectedArticleIds"
                        class="article-card-check">
                 <div class="article-card-source" x-text="a.source"></div>
-                <div class="article-card-title" :title="a.title" x-text="truncateTitle(a.title, 150)"></div>
+                <div class="article-card-title" :title="a.title" x-text="truncateTitle(a.title, 80)"></div>
               </label>
             </template>
             <div class="article-card empty"
