@@ -4,6 +4,49 @@
 
 ---
 
+## 当前状态: **v1.0.35.2 — demo refresh (sprint-15, UI 搬运 + artifacts 整肃 + 演示物料)** (2026-08-19 PM)
+
+**主分支**: **main** @ `22b846a` (sprint-15 ship, code HEAD)
+**Web 服务**: `127.0.0.1:8900` PID 9646 (上次 v1.0.35.1 起的, demo 文件改动**不需 restart 8900**, demo HTML 是 moni-web-showcase.html 静态文件)
+**Tag**: v1.0.35.2 @ `22b846a` (已 push, tag=main 无漂移)
+**测试**: **738 passed / 2 skipped / 0 failed** (无回归, 跟 v1.0.35.1 持平)
+
+### v1.0.35.2 核心改动 (sprint-15, 3 路并行, herdr pane 分工)
+
+**A 路 (artifacts-curator pane, commit 7d8bbab)**:
+- 根目录残留目录 `output/` `share_output/` `infographic/` `infographics/` mv 到 `~/Documents/moni-archive-20260819/` (不删, 归档)
+- 写 `docs/ARTIFACTS-STRUCTURE.md` 说明生产真目录是 `data/artifacts/` (代码佐证: `moni/share/artifacts.py:25` + `moni/share/worker.py:36`)
+
+**B 路 (主线 blue-owl, commit 22b846a) — demo HTML 同步 v1.0.35.1 prod UI**:
+- 分类列名"分类" → "命中标签"
+- tag chip 紧凑样式 (字号 0.78→0.72rem, padding 2px 10px→1px 6px, 圆角 4→3px, 间距 6px→4px)
+- 全局兄弟选择器 `.btn + .btn { margin-left: 8px }` + `.modal-footer` override
+- `.link` class 暗色模式友好
+- `.row-actions` wrapper + ghost-style `.btn-danger` (行内 destructive 不显沉重)
+- articles 操作列加删除按钮 (demo 化: `showDeleteDemo` 弹"演示提示" modal, 不真删)
+- CRUD 标题模糊搜索框 (300ms debounce, 后端 `/api/articles?keyword=` LIKE 已支持)
+
+**C 路 (demo-builder pane -> 主线接管, 因 coder state.db 2.8GB 写满中断, commit 22b846a)**:
+- `docs/moni-showcase-artifacts/` 5 个独立 HTML 展示页: `info_graphic` / `html_landing` / `pdf` / `report_png` / `markdown`
+- 每个展示页内嵌真物料 (`data/artifacts/` 下的真产物, 5 个最大最完整: 2.4MB 信息图 / 158KB HTML / 326KB PDF / 481KB 报告 PNG / 21KB Markdown)
+- demo HTML 分享页面加"演示物料 5 种格式"按钮组 (target=_blank, 不影响原"打开产物"演示流程)
+
+### 约束遵守
+
+- 不删任何东西 (artifacts 整肃用 mv, 不用 rm -rf)
+- 不动 working tree `scripts/build_showcase_html.py` (跟 demo HTML 分开 commit, 等 dad 后续决定 build 脚本要不要更新)
+- 不碰 moni 业务代码
+- herdr pane 派 2 个 agent (artifacts-curator + demo-builder) 因 coder profile state.db 写满 (`/Users/mt16/.hermes/profiles/coder/state.db` 2.8GB) 多次中断, demo-builder 转主线手动完成
+
+### 后续 (out of scope, 记录给后续 sprint)
+
+- sprint-14 P1 仍是 `moni/llm/prompts/__init__.py::render_fact_check_plus()` 模板变量未替换 bug
+- v1.0.34.2 防御 UX (`is_fetchable` 字段 + 灰 badge) 暂挂
+- demo build 脚本 `scripts/build_showcase_html.py` 待 sprint-16 更新 (把 sprint-15 的 manual patch 同步进 builder)
+- `~/Documents/moni-archive-20260819/` 残留归档待 sprint-16 review 是否真可删
+
+---
+
 ## 当前状态: **v1.0.35.1 — production UI ship (PR #112 + PR #113 hotfixes)** (2026-08-19)
 
 **主分支**: **main** @ `7080e6a` (v1.0.35.1 ship, code HEAD)
