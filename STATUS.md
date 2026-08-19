@@ -4,6 +4,46 @@
 
 ---
 
+## 当前状态: **v1.0.35 — production UI 修复 (hover / tag chip / link / 标题截断)** (2026-08-19)
+
+**主分支**: **main** @ `ab18556` (PR #112 squash-merged, tag v1.0.35 `ab18556` push, tag=main 无漂移)
+**Web 服务**: `127.0.0.1:8900` 已 restart 载入 v1.0.35 代码 (2026-08-19 AM, HTTP 200, 5 端点 OK)
+
+### v1.0.35 核心改动
+
+**Sprint-14 P2 — prod UI bug 修复 (demo HTML 实测发现同款 bug, 带回 prod)**
+
+- **Q1 tbody hover 色**: `oklch(from var(--muted) l c h / 0.5)` 灰蒙 → `#F9F2E4` 白天 / `#241D17` 黑夜 (含 `.dark` + `:root.dark` 双保险). demo 截图发现 prod 也有.
+- **Q2 tag chip 文字色**: 默认 `oklch` 太淡 → `#1A1A1A` 白天深色 / `#F2E6CE` 黑夜荔肉白. 保留各色 tag inline `--tag-bg/--tag-fg` 能力 (prod 不走 demo 的"统一背景色").
+- **Q3 tag chip 间距**: `.tag-chip-wrap` / `.tag-chip` margin `2px 6px` (修关键词过滤子菜单 chip 间距, prod 同款).
+- **Q4 `.link` class**: 修裸 `<a>` 默认蓝色刺眼. 新增 `.link` CSS (紫 ` #4a3a8c` 白天 / ` #D1B3FF` 黑夜) + llmJobs 列表 article title 加 `class="link"`.
+- **Q5 分类列固定宽度 + 垂直对齐**: `<th style="width: 140px; min-width: 140px;">分类</th>` + articles 列表 td class="tags-cell" 垂直居中 (含 chip wrap 同步).
+- **Q6 title-cell 2 行截断**: `.title-cell` CSS (max-width 480px + -webkit-line-clamp 2) + `truncateTitle(text, max = 80)` 默认值 + 3 处调用 sites 改 80 (articles 列表 / CRUD 列表 / 卡片). **只改 CRUD 列表用 `.title-cell`, articles 列表不加 class 因 cell 里有 fresh/new badge**.
+
+### 不带回 prod (demo-only, dad 明确)
+
+- 抓取管理源 tag chip 改统一背景色 (Q8) — prod 各色 tag 保留
+- 粒子动效 `count * 0.8` + `z-index: 3` (Q10) — 粒子是 demo 离线性能优化, dad 明确不要改 prod
+- `tagLookup` map + 抓取管理源 tagLookup 渲染 (Q7/Q9) — demo-only 概念
+
+### 顺手 bug fix
+
+- articles 列表原文时间 fallback: `formatTime(a.published_at || a.fetched_at || a.created_at)` — 原文时间字段空时不再显示 "-"
+
+### 效果
+
+- 5 端点 200 OK (`/articles` `/api/config/sources` `/fetch` `/stats` `/`)
+- `pytest tests/` **748 passed, 2 skipped** (无回归, 比 v1.0.34.2 baseline +15 = truncateTitle/title-cell 新 test coverage)
+- prod 视觉: hover 不灰蒙, tag chip 文字清晰, llmJobs 列表 article 链接不再是默认蓝色, CRUD 列表标题列 2 行截断不再溢出
+
+### 后续 (out of scope, 记录给后续 sprint)
+
+- sprint-14 P1 仍是 `moni/llm/prompts/__init__.py::render_fact_check_plus()` 模板变量未替换 bug (v1.0.34 浮出)
+- v1.0.34.2 防御 UX (`is_fetchable` 字段 + 灰 badge) 暂挂
+- demo HTML (`docs/moni-web-showcase.html`) 不在 main 合入, 独立产物 (`~/Documents/moni-share/` 副本)
+
+---
+
 ## 当前状态: **v1.0.34.2 — /fetch 页 4 行 ghost sources 清理** (2026-08-17 PM)
 
 **主分支**: **main** @ `6fc33a1` (PR #110 squash-merged, tag v1.0.34.1 `6fc33a1` push, tag=main 无漂移)
