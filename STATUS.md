@@ -4,6 +4,42 @@
 
 ---
 
+## 当前状态: **v1.0.35.3 — demo 单文件物料内嵌 (v1.0.35.2 hotfix, dad 要求单文件交付)** (2026-08-19 PM)
+
+**主分支**: **main** @ `069b4cc` (hotfix ship, code HEAD)
+**Web 服务**: `127.0.0.1:8900` PID 9646 (v1.0.35.1 起的, demo 文件改动不需 restart)
+**Tag**: v1.0.35.3 @ `069b4cc` (新 tag, 不用 --force)
+**测试**: **738 passed / 2 skipped / 0 failed** (无回归)
+**文件大小**: demo 3.50MB → 3.85MB (+350KB, base64 webp 240KB + modal HTML + 4 占位)
+
+### v1.0.35.3 核心改动 (v1.0.35.2 hotfix)
+
+**dad 反馈**: 分享演示时只能有 1 个 HTML 文件 (单文件交付). v1.0.35.2 的 `docs/moni-showcase-artifacts/` 5 个独立 HTML 不符合.
+
+**修复**:
+- 5 个外部 HTML 展示页删除, 改为 5 个 inline modal (`x-show` 切换)
+- 仅 1 个真物料 (`info_graphic` 2.4MB 原图 → webp 240KB → base64 320KB) 内嵌进 demo HTML
+- 其他 4 种 (`html_landing` / `pdf` / `report_png` / `markdown`) 用 moni 主题占位 + 文字说明, 标 "演示占位"
+- `markdown` 是真文本内嵌 (9KB, 完整源文) 展示原文 (等宽字体 + 等高滚动块)
+- 新增 `showcaseArtifact` / `closeShowcaseArtifact` JS 方法 + `showcaseArtifactOpen` state
+- 文件大小: 3.50MB → 3.85MB (+350KB), Chrome 105 `file://` 打开 1-2 秒可接受
+
+### 约束遵守
+
+- 不删 `docs/moni-showcase-artifacts/` (留给 sprint-16 review 是否保留为开发参考)
+- 不动业务代码
+- 不动 working tree `scripts/build_showcase_html.py` (跟 demo HTML 分开 commit)
+
+### 后续 (out of scope, 记录给后续 sprint)
+
+- sprint-14 P1 仍是 `moni/llm/prompts/__init__.py::render_fact_check_plus()` 模板变量未替换 bug
+- v1.0.34.2 防御 UX (`is_fetchable` 字段 + 灰 badge) 暂挂
+- `scripts/build_showcase_html.py` 待 sprint-16 更新 (v1.0.35.3 的 inline modal 模式同步进 builder)
+- `~/Documents/moni-archive-20260819/` 4 个残留归档待 sprint-16 review
+- `docs/moni-showcase-artifacts/` 5 个外部 HTML 待 sprint-16 review (保留/删除)
+
+---
+
 ## 当前状态: **v1.0.35.2 — demo refresh (sprint-15, UI 搬运 + artifacts 整肃 + 演示物料)** (2026-08-19 PM)
 
 **主分支**: **main** @ `22b846a` (sprint-15 ship, code HEAD)
