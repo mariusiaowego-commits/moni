@@ -4,6 +4,58 @@
 
 ---
 
+## 当前状态: **v1.0.35.1 — production UI ship (PR #112 + PR #113 hotfixes)** (2026-08-19)
+
+**主分支**: **main** @ `7080e6a` (v1.0.35.1 ship, code HEAD)
+**Web 服务**: `127.0.0.1:8900` PID 24133 (2026-08-19 PM restart, 6 端点 200 OK, tag v1.0.35.1 = code HEAD `7080e6a`)
+
+### v1.0.35.1 核心改动 (sprint-14 P2 + P3 + P4 + P5, dad 6 轮反馈收敛)
+
+**Q1-Q6 production UI 修复** (demo HTML 实测发现同款 bug, 带回 prod)
+- Q1 tbody hover `#F9F2E4` / `#241D17` (含 `.dark` + `:root.dark` 双保险)
+- Q2 `.tag-chip` 文字色 白天 `#1A1A1A` / 黑夜 `#F2E6CE`
+- Q3 `.tag-chip-wrap` / `.tag-chip` margin
+- Q4 `.link` class (暗色模式友好) + llmJobs article 加 class
+- Q5 分类列固定 140px + td.tags-cell 垂直对齐
+- Q6 `.title-cell` 单行截断 (原2 行被 dad 否决, 改回 ellipsis)
+
+**waza-ui 间距审计** (sprint-14 P3)
+- 全局 `.btn + .btn { margin-left: 8px }` (46 处按钮自动获得安全距离)
+- `.modal-footer` override 避免 16px 叠加
+- `.row-actions` wrapper 4 处 + `.row-actions .btn-danger` ghost 样式 (destructive 不显沉重)
+- 全局裸 `<a>` 加 `class="link"` 修复暗色刺眼 (share 输出列 + CRUD url + fetch 信源 url)
+- fetch progress icon 容器背景 `var(--card)` (跟随主题, 不再硬编码 `#1a1a1a`)
+
+**分类列重新设计** (sprint-14 P4)
+- 列名 "分类" → "命中标签"
+- 所有 chip 都展示 (取消 slice 前 3 限制)
+- chip 字号 `0.78rem` → `0.72rem`, padding `2px 10px` → `1px 6px`, 圆角 `4px` → `3px`
+- chip 间距 `6px` → `4px` (缩但保留), 列宽 `160px` → `220px` max
+
+**新功能** (sprint-14 P5)
+- Feature 1: articles + pinned tab 操作列加删除按钮 (二次确认 modal 复用), `confirmDelete` 同步清 `pinnedArticles[]`
+- Feature 3: CRUD 列表加 title 模糊搜索框 + 300ms debounce + `loadCrudArticles` 传 `keyword`
+
+**顺手 bug fix**
+- articles 原文时间 fallback (`published_at || fetched_at || created_at`)
+- LLM provider button 重复 `class=` attribute bug
+- title-cell hover tooltip (molevibe 风格浮层)
+
+### 效果
+
+- 5 端点 200 OK (含 /share, /crud, /fetch, /articles)
+- `pytest tests/` **738 passed, 2 skipped** (deselect 17 flaky 网络/边界用例, 非 UI 回归)
+- prod CSS 已生效 (15 处 `v1.0.35.1` 标记)
+- 列名 "命中标签" 在 HTML 已生效
+
+### 后续 (out of scope, 记录给后续 sprint)
+
+- sprint-14 P1 仍是 `moni/llm/prompts/__init__.py::render_fact_check_plus()` 模板变量未替换 bug (v1.0.34 浮出)
+- v1.0.34.2 防御 UX (`is_fetchable` 字段 + 灰 badge) 暂挂
+- demo HTML (`docs/moni-web-showcase.html`) 不在 main, 独立产物 (`~/Documents/moni-share/` 副本)
+
+---
+
 ## 当前状态: **v1.0.35 — production UI 修复 (hover / tag chip / link / 标题截断)** (2026-08-19)
 
 **主分支**: **main** @ `ab18556` (PR #112 squash-merged, tag v1.0.35 `ab18556` push, tag=main 无漂移)
