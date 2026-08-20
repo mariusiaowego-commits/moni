@@ -6109,9 +6109,13 @@ table td img[alt=""],
                 <textarea x-model="configModalTarget.notes" rows="2"></textarea>
               </div>
             </div>
+            </template>
             <div class="modal-footer">
               <button class="btn-secondary" @click="closeConfigModal()">取消</button>
               <button class="btn-primary" @click="configSaveFilter(configModalTarget, !!configModalTarget.id)">保存</button>
+            </div>
+          </div>
+        </div>
     <!-- v1.0.35.1: 演示物料 5 种格式 modal (单文件渲染, 仅 1 个内嵌真 base64) -->
 <!-- v1.0.35.1: 演示物料 modal — info_graphic_png -->
     <div class="modal-backdrop" x-show="showcaseArtifactOpen === 'info_graphic'" x-cloak @click.self="closeShowcaseArtifact()" @keydown.escape.window="closeShowcaseArtifact()">
