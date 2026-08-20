@@ -17,6 +17,117 @@ from pathlib import Path
 
 from PIL import Image
 
+# v1.0.35: oklch → hex 转换 (Chrome 105 等老浏览器无 oklch 支持)
+# 在 assemble() 写 HTML 前预算, 避免 file:// 分享给老 Chrome 全白
+def _oklch_to_srgb(L: float, C: float, h_deg: float, alpha: float = 1.0) -> tuple[int, int, int, float]:
+    """CSS oklch (L: 0-1, C: 0-0.4, h: 0-360) → sRGB (0-255, alpha 0-1) per CSS Color 4."""
+    import math
+    h = math.radians(h_deg)
+    a = C * math.cos(h); b = C * math.sin(h)
+    l_ = L + 0.3963377774 * a + 0.2158037573 * b
+    m_ = L - 0.1055613458 * a - 0.0638541728 * b
+    s_ = L - 0.0894841775 * a - 1.2914855480 * b
+    l = l_ ** 3; m = m_ ** 3; s = s_ ** 3
+    r = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
+    g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
+    b2 = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+
+    def to_srgb(x):
+        x = max(0.0, min(1.0, x))
+        if x <= 0.0031308: return 12.92 * x
+        return 1.055 * (x ** (1 / 2.4)) - 0.055
+
+    return (round(255 * to_srgb(r)), round(255 * to_srgb(g)),
+            round(255 * to_srgb(b2)), alpha)
+
+_OKLCH_PARSE_RE = re.compile(r'^oklch\(\s*([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)(?:\s*/\s*([0-9.]+))?\s*\)$')
+_OKLCH_FROM_RE = re.compile(
+    r'^oklch\(\s*from\s+var\(--([\w-]+)\)\s+([^\s/]+(?:\s+[^\s/]+)*?)(?:\s*/\s*([0-9.]+))?\s*\)$'
+)
+
+def _oklch_static_to_hex(s: str) -> str:
+    p = _OKLCH_PARSE_RE.match(s)
+    if not p: return None
+    L, C, h = float(p.group(1)), float(p.group(2)), float(p.group(3))
+    a = float(p.group(4)) if p.group(4) else 1.0
+    R, G, B, _ = _oklch_to_srgb(L, C, h, a)
+    if a < 1.0:
+        return f"#{R:02X}{G:02X}{B:02X}{round(255*a):02X}"
+    return f"#{R:02X}{G:02X}{B:02X}"
+
+def _oklch_from_var_to_rgba(s: str, var_map: dict[str, str]) -> str:
+    """oklch(from var(--accent) calc(l + 0.05) c h [/ alpha])"""
+    m = _OKLCH_FROM_RE.match(s)
+    if not m: return None
+    var_name = m.group(1)
+    expr = m.group(2).strip()
+    alpha = float(m.group(3)) if m.group(3) else 1.0
+    base_hex = var_map.get(var_name)
+    if not base_hex: return None
+
+    # 简化版: 只识别 calc(l +/- X), 其他 (c/h) 当无变化
+    delta = 0.0
+    delta_match = re.search(r'calc\(l\s*\+\s*([0-9.]+)\)', expr)
+    if delta_match:
+        delta = float(delta_match.group(1))
+    else:
+        delta_match = re.search(r'calc\(l\s*-\s*([0-9.]+)\)', expr)
+        if delta_match:
+            delta = -float(delta_match.group(1))
+
+    h = base_hex.lstrip('#')[:6]
+    r = int(h[0:2], 16); g = int(h[2:4], 16); b = int(h[4:6], 16)
+    if delta > 0:
+        r = min(255, int(r + 255 * delta))
+        g = min(255, int(g + 255 * delta))
+        b = min(255, int(b + 255 * delta))
+    elif delta < 0:
+        r = max(0, int(r + 255 * delta))
+        g = max(0, int(g + 255 * delta))
+        b = max(0, int(b + 255 * delta))
+
+    if alpha < 1.0:
+        return f"rgba({r},{g},{b},{alpha:g})"
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+_VAR_DECL_RE = re.compile(r'--([\w-]+)\s*:\s*([^;,}\n]+)')
+
+def _strip_oklch(css: str, var_map: dict[str, str] | None = None) -> tuple[str, dict[str, str]]:
+    """将 CSS 中所有 oklch(...) 转 hex. 返回 (new_css, full_var_map)."""
+    # 步骤 1: 找 :root { --foo: oklch(...); ... } 和 :root.dark { ... }
+    # 先找所有 --xxx 变量声明值, 试图解析为 oklch → hex
+    var_map = dict(var_map or {})
+    for m in _VAR_DECL_RE.finditer(css):
+        name, val = m.group(1), m.group(2).strip()
+        # 跳过 calc() / from var() 派生色 (要 hex map 后再处理)
+        if val.startswith('calc(') or val.startswith('var(') or val.startswith('from'):
+            continue
+        hex_val = _oklch_static_to_hex(val)
+        if hex_val:
+            var_map[name] = hex_val
+
+    # 步骤 2: 替换派生色 oklch(from var(--xxx) ...) → hex/rgba
+    css2 = re.sub(
+        r'oklch\(\s*from\s+var\(--[\w-]+\)[^)]*\)',
+        lambda m: _oklch_from_var_to_rgba(m.group(0), var_map) or m.group(0),
+        css,
+    )
+
+    # 步骤 3: 替换剩余静态 oklch(...) → hex
+    css3 = re.sub(
+        r'oklch\([^)]*\)',
+        lambda m: _oklch_static_to_hex(m.group(0)) or m.group(0),
+        css2,
+    )
+
+    # 统计
+    remaining = re.findall(r'oklch\(', css3)
+    if remaining:
+        print(f"  ! {len(remaining)} oklch remain (解析失败的复杂表达式)")
+
+    return css3, var_map
+
+
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "moni" / "web" / "static"
 OUT = ROOT / "docs" / "moni-web-showcase.html"
@@ -238,6 +349,10 @@ def fetch_snapshot() -> dict:
     for a in snap["articles"]:
         a["is_pinned"] = any(p["id"] == a.get("id") for p in pins)
 
+    # v1.0.35: 给文章重新分配 tag, 让 6 个 tag 都有覆盖 (不是单一 banking)
+    snap["articles"] = polish_articles_tags(snap["articles"])
+    snap["pinned"] = polish_articles_tags(snap["pinned"])
+
     snap["llm_jobs"] = polish_llm_jobs(snap["llm_jobs"])
     snap["llm_stats"] = recount_llm_stats(snap["llm_jobs"])
 
@@ -255,6 +370,82 @@ DEMO_FACTCHECK = (
     "- 未发现与公开报道明显矛盾的表述\n"
     "- 建议关注后续监管细则落地时间表"
 )
+
+
+def polish_articles_tags(articles):
+    """v1.0.35: 重新分配 tag 分布, 让 6 个 tag 都有覆盖 (生产真实比例)
+
+    生产真实比例 (按 D8 8/17 跨源统计):
+      banking 30% / ai-fintech 25% / regulation 15% / wechat 15%
+      / miniprogram 8% / payment 5% / general-tech 2%
+    """
+    if not articles:
+        return articles
+    # 6 个 tag 真实呈现比例
+    TAG_PROFILE = [
+        ("banking", 0.30),
+        ("ai-fintech", 0.25),
+        ("regulation", 0.15),
+        ("wechat", 0.15),
+        ("miniprogram", 0.08),
+        ("payment", 0.05),
+        ("general-tech", 0.02),
+    ]
+    # 累积区间
+    cumulative = []
+    acc = 0.0
+    for name, p in TAG_PROFILE:
+        acc += p
+        cumulative.append((acc, name))
+    # 给每篇文章按 hash 分桶
+    out = []
+    for i, a in enumerate(articles):
+        a2 = dict(a)
+        # 基于 article id hash 稳定分类
+        import hashlib
+        if a.get("id"):
+            h = int(hashlib.md5(a["id"].encode("utf-8")).hexdigest(), 16) / (16**32)
+        else:
+            h = (i % 100) / 100.0
+        # 选主 tag
+        chosen = "banking"
+        for threshold, name in cumulative:
+            if h <= threshold:
+                chosen = name
+                break
+        # v1.0.35: ~30% 文章命中多 tag (更真实): 2 tag 20% + 3 tag 10%
+        # 用 hash 的第二位小数决定是否多 tag
+        h2 = (h * 1000) % 1.0
+        chosen_list = [chosen]
+        if h2 < 0.10 and len(TAG_PROFILE) >= 3:
+            # 3 个 tag: 主 tag + 2 个其他
+            others = [n for n, _ in TAG_PROFILE if n != chosen]
+            # 按 hash 选另外 2 个
+            idx1 = int((h * 31) % len(others))
+            idx2 = int((h * 47) % (len(others) - 1))
+            if idx2 >= idx1:
+                idx2 += 1
+            chosen_list.extend([others[idx1], others[idx2]])
+        elif h2 < 0.30:
+            # 2 个 tag: 主 tag + 1 个其他
+            others = [n for n, _ in TAG_PROFILE if n != chosen]
+            idx = int((h * 13) % len(others))
+            chosen_list.append(others[idx])
+
+        tags = []
+        for tn in chosen_list:
+            tags.append({"name": tn, "display_name": {
+                "banking": "银行", "ai-fintech": "AI×金融", "regulation": "监管",
+                "wechat": "微信生态", "miniprogram": "小程序", "payment": "支付",
+                "general-tech": "通用科技",
+            }.get(tn, tn), "color": {
+                "banking": "#2563EB", "ai-fintech": "#DC2626", "regulation": "#EA580C",
+                "wechat": "#7C3AED", "miniprogram": "#10B981", "payment": "#16A34A",
+                "general-tech": "#6B7280",
+            }.get(tn, "#6B7280"), "keyword_hits": []})
+        a2["tags"] = tags
+        out.append(a2)
+    return out
 
 
 def polish_llm_jobs(jobs):
@@ -751,7 +942,27 @@ window.__MONI_SNAP__ = """ + payload + r""";
         return jsonResp(a || body);
       }
       const detail = store.details[id] || store.articles.find((x) => x.id === id) || {};
-      const merged = { content: (detail.title || '') + '\n\n这是展示页内置的正文摘要。原文已在本地新闻库落库，可继续生成摘要、事实核查或提取同业案例。', ...detail };
+      const tagNames = (detail.tags || []).map((t) => (typeof t === 'string' ? t : (t.name || '')));
+      const _mkBody = (lead, source) => {
+        const pool = {
+          banking: ['文章梳理近期银行业重点动态：存款利率市场化定价机制运行整体平稳，净息差收窄背景下各行加大财富管理、AUM与中收业务投入。信贷投放方面，制造业、普惠小微、绿色金融仍是主要投向，对公房地产风险化解稳步推进。', '财报季观察：六大行资产质量保持稳健，不良率边际改善，拨备覆盖率维持高位。零售端按揭需求处于恢复通道，信用卡不良可控。'],
+          'ai-fintech': ['大模型应用持续从概念验证走向落地。头部股份制银行已完成开源模型私有化部署，应用于信贷报告生成、合规审查、智能客服等场景。监管侧对生成式AI在金融场景的使用提出可解释性、数据安全、模型审计等多项要求。', '智能投顾业务进入合规重塑期。监管明确投顾业务持牌经营，多家银行暂停非持牌AI投顾服务，转向人工+AI辅助混合模式。'],
+          regulation: ['近期监管机构发布多项新政，重点关注资产管理、跨境数据流动、平台经济治理三大领域。征求意见稿发布后通常预留6个月过渡期，机构需提前布局合规改造。', '金融监管强调功能监管理念，对同类金融业务按实质重于形式原则实施统一监管。'],
+          wechat: ['微信生态商业化路径持续深化。公众号、视频号、小程序、企业微信形成内容+服务闭环。私域运营成为零售消费品牌标配，公众号+视频号+企微三层漏斗体系覆盖400+品牌。', '微信读书、视频号直播、问一问等内容生态加速融合。AI搜索与微信搜索对接，传统关键词流量再次被激活。'],
+          'general-tech': ['OpenAI、Anthropic等头部实验室持续推进模型迭代。长上下文、多模态模型在企业级RAG场景中表现稳健。开源侧Qwen、DeepSeek、Llama等中文/英文模型生态成熟。', '大模型应用从Chatbot形态向Agent形态演进。Computer Use、Tool Use、Memory成为新焦点。LangChain、LangGraph、AutoGen等编排框架快速迭代。'],
+          payment: ['支付行业进入合规深水区。条码支付、刷脸支付、数字人民币与境外卡组织互联互通仍在持续推进。聚合支付服务商面临断直连后的二次合规改造。', '二维码支付跨境试点扩展至更多东盟国家。游客出境使用云闪付、Alipay+ 钱包付款体验持续优化。'],
+          miniprogram: ['微信小程序生态进入成熟期。MAU保持稳定增长，电商、本地生活、企业服务三大类目占据主导。微信小程序已加挂AI能力，商家可一键集成智能客服与商品推荐。', '小程序搜索结果在微信主页权重提升。SAA化与低代码工具降低小程序开发门槛。中长尾小程序流量获取成本上升，差异化运营成为突围关键。'],
+        };
+        const keys = tagNames.length ? tagNames.filter((k) => pool[k]) : ['general-tech'];
+        const main = keys[0] || 'general-tech';
+        const src = pool[main] || pool['general-tech'];
+        const para = src[Math.floor(Math.random() * src.length)];
+        return `${lead}\n\n${para}\n\n本文来源：${source}。本段落为展示页内置的正文摘要（原文已落库，可继续生成简报、事实核查或同业案例提取）。`;
+      };
+      const lead = (detail.title || '').trim();
+      const fake_content = _mkBody(lead, detail.source || 'moni');
+      const merged = { content: detail.content || fake_content, ...detail };
+      if (!merged.content || merged.content.length < 30) merged.content = fake_content;
       if (!merged.content) merged.content = merged.raw_content || '（无内容）';
       return jsonResp(merged);
     }
@@ -1079,7 +1290,7 @@ table td img[alt=""],
   box-shadow: none !important;
 }
 """
-"""
+
 
 SHOWCASE_BOOT = r"""
 (function () {
@@ -1148,8 +1359,10 @@ SHOWCASE_MODAL = """
 """
 
 
-def assemble(html: str, css: str, scripts: list[str], alpine: str, gsap: str, icons: dict[str, str]) -> str:
+def assemble(html: str, css: str, scripts: list[str], alpine: str, gsap: str, icons: dict[str, str], css_with_var_map: tuple[str, dict[str, str]] | None = None) -> str:
     css = css + "\n" + SHOWCASE_CSS
+    # v1.0.35: assemble 拼接后再 strip (SHOWCASE_CSS 里也有 oklch)
+    css, _var_map = _strip_oklch(css, (css_with_var_map[1] if css_with_var_map else None))
     # drop external deps
     html = re.sub(r'<link rel="preload"[^>]*>\s*', '', html)
     html = re.sub(r'<link rel="preconnect"[^>]*>\s*', '', html)
@@ -1221,6 +1434,13 @@ def main():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     css = (STATIC / "css" / "main.css").read_text(encoding="utf-8")
 
+    # v1.0.35: Chrome 105 等老浏览器无 oklch 支持 — 全部预算成 sRGB hex
+    # 两次跑 strip: 第一次扫 CSS 拿到 var_map, 第二次把 var_map 传到整 HTML 处理 JS theme dict
+    var_map: dict[str, str] = {}
+    before_oklch = css.count("oklch(")
+    css, var_map = _strip_oklch(css, var_map)
+    print(f"oklch stripped (CSS): {before_oklch} → {css.count('oklch(')} (var_map size={len(var_map)})")
+
     js_files = [
         "toast.js", "modal.js", "calendar.js", "cases.js", "stats.js",
         "theme.js", "app.js", "icons.js", "pin_anim.js",
@@ -1234,7 +1454,14 @@ def main():
         scripts.append(f"/* ===== {name} ===== */\n{text}")
     scripts.append("/* ===== showcase boot ===== */\n" + SHOWCASE_BOOT)
 
-    out = assemble(html, css, scripts, alpine, gsap, icons)
+    out = assemble(html, css, scripts, alpine, gsap, icons, (css, var_map))
+    # v1.0.35: 处理 mock_js snapshot + JS theme dict (line 8049+) 里的 oklch
+    # 这些是 JS string 'oklch(...)', 不在 CSS 路径里. var_map 累计传过去
+    js_oklch = out.count("oklch(")
+    if js_oklch:
+        out, _ = _strip_oklch(out, var_map)
+        js_after = out.count("oklch(")
+        print(f"  oklch in assembled HTML (JS): {js_oklch} → {js_after}")
     # escape accidental </script> in vendor
     # already handled in JSON; alpine/gsap typically safe
     OUT.parent.mkdir(parents=True, exist_ok=True)
