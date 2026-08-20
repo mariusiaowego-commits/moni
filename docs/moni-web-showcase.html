@@ -4903,7 +4903,7 @@ table td img[alt=""],
             <div class="stats-module-primary" x-text="fmt(llmUsage.totals?.calls || 0) + ' 次调用'"></div>
             <div class="stats-module-row"><span>输入 tokens</span><strong x-text="fmt(llmUsage.totals?.input_tokens || 0)"></strong></div>
             <div class="stats-module-row"><span>输出 tokens</span><strong x-text="fmt(llmUsage.totals?.output_tokens || 0)"></strong></div>
-            <div class="stats-module-row"><span>花费</span><strong x-text="costFmt(llmUsage.totals?.cost_usd || 0)"></strong></div>
+            <div class="stats-module-row"><span>花费</span><strong x-text="costFmt(llmUsage.totals?.cost_usd)"></strong></div>
             <div class="stats-module-row"><span>窗口</span><strong x-text="period"></strong></div>
 
             <table class="stats-usage-table" x-show="(llmUsage.by_model || []).length > 0">
