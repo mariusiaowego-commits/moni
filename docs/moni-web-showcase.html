@@ -13630,13 +13630,13 @@ function app() {
     llmModelFormError: '',
 
     // Usage stats state
-    llmUsage: { totals: {}, by_model: [] },
+    llmUsage: null,
     llmUsageDays: 30,
     llmUsageGroupBy: 'module',
 
     switchLlmTab(tab) {
       this.llmTab = tab;
-      if (tab === 'usage' && !this.llmUsage.summary) {
+      if (tab === 'usage' && !this.llmUsage) {
         this.loadLlmUsage();
       }
     },
