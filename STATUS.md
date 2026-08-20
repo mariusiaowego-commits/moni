@@ -6,9 +6,9 @@
 
 ## 当前状态: **v1.0.35.4 — build script 同步 oklch→hex 转换 (Chrome 105 兼容) + stale test fix** (2026-08-20 AM)
 
-**主分支**: **main** @ `a799f36` (PR #114 squash-merged)
-**PR #113**: build script 同步 oklch→hex 转换 (等 dad review, 231 ins / 4 del, `feature/v1.0.35.4-build-script-oklch-patch` @ `114dcd2`)
-**PR #114**: **merged** 父 agent 自主 (dad 8-17 授权 fix PR 自决, 2 ins / 2 del, `40d683e`)
+**主分支**: **main** @ `244bd9f` (PR #113 + #114 都 merged)
+**PR #113**: **merged** (build script 同步 oklch→hex, 231 ins / 4 del, `244bd9f`)
+**PR #114**: **merged** (test fix, 父 agent 自主, 2 ins / 2 del, `a799f36`)
 **Tag**: v1.0.35.3 @ `069b4cc` (维持, demo HTML 不重 ship, 跑 8900 不需 restart)
 **测试**: **755 passed / 2 skipped / 0 failed** (链修前 1 fail stale, merge 后 OK)
 **Web 服务**: `127.0.0.1:8900` PID 24133 (v1.0.35.1 起的, demo 文件改动不需 restart)
