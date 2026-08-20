@@ -1381,3 +1381,18 @@ PRs (全部 OPEN → squash merge 成 v1.0.13):
 | wechat_rss_b | 5min | wechat_aggregator | ✅ |
 | bestblogs | 5min | rss (OPML 聚合, 375 号) | ✅ |
 | huxiu | 5min | rss | ✅ |
+
+
+## v1.0.35.6 (2026-08-20)
+
+**Demo HTML 修复 + 演示物料 UX 优化**
+
+- configModal 区域闭合修复 (1 `</template>` + 3 `</div>`) — info_graphic / html_landing modal 不再被 HTML5 parser 吞掉
+- demo mock `/api/share/brief` 返 `share_id` envelope 匹配 prod contract
+- modal 宽高按产物尺寸 (modalContent 95vh, modalBody 80vh)
+- 7 share formats (跟 prod 一致) + `openArtifact()` gate: html_landing / info_graphic_png 真演示, 其他 5 种弹提示
+- 生成产物 6 步骤可见进度 (~7s, fetch → generate → render → factcheck → finalize → done)
+- 暗色模式 status badge 改用 `var(--warning-muted)` / `var(--muted)` 取代硬编码浅色
+- format chip 标签带 "✓ 演示就绪" / "未演示" 高亮
+
+PR #115 merged (0d87a66), tag v1.0.35.6
