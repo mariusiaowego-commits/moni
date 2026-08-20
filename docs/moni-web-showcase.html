@@ -14090,12 +14090,6 @@ window.pinIcon = pinIcon;
   document.addEventListener('click', function (e) {
     const a = e.target.closest && e.target.closest('a');
     if (!a) return;
-    // v1.0.35.6: skip showcaseArtifact entry buttons (they already have @click.prevent="showcaseArtifact(...)")
-    // — they use href="#" with no /artifacts/ or .html/.png suffix, so the regex below already lets them
-    // through, but we also need to skip capture-phase preventDefault which races with Alpine's bubble-phase
-    // handler and triggers the "演示提示" modal instead of the real showcase modal.
-    const onclickAttr = a.getAttribute('@click') || '';
-    if (onclickAttr.indexOf('showcaseArtifact(') === 0) return;
     const href = a.getAttribute('href') || '';
     if (
       href.indexOf('/artifacts/') !== -1 ||
