@@ -4,6 +4,40 @@
 
 ---
 
+## 当前状态: **v1.0.35.4 — build script 同步 oklch→hex 转换 (Chrome 105 兼容) + stale test fix** (2026-08-20 AM)
+
+**主分支**: **main** @ `79f5039` (docs HEAD, code HEAD `069b4cc` v1.0.35.3 ship)
+**PR**: #113 (build script) + #114 (test fix) **等 dad review**
+**Tag**: v1.0.35.3 @ `069b4cc` (维持, demo HTML 不重 ship)
+**测试**: **755 passed / 2 skipped / 0 failed** (链修前 1 fail stale)
+**Web 服务**: `127.0.0.1:8900` PID 24133 (v1.0.35.1 起的, demo 文件改动不需 restart)
+
+### v1.0.35.4 核心改动 (2 PR)
+
+**PR #113 (build script, 231 ins / 4 del)**:
+- v1.0.35.3 ship 时 demo HTML 手快绕过了 oklch 颜色转换 (因 Windows Chrome 105 不支持 oklch), 现在正式 patch 进 build script
+- 新增 `_oklch_to_srgb()` / `_oklch_from_var_to_rgba()` / `_strip_oklch()`, 用 CSS Color 4 oklch(L C h [/ alpha]) → sRGB hex
+- `main()` 集成: assemble 前 strip CSS, assemble 后再 strip 整 HTML (主 JS theme dict)
+- 验证: 重 build `oklch stripped (CSS): 174 → 0 (var_map size=32)`, `oklch in assembled HTML (JS): 81 → 0`
+
+**PR #114 (test fix, 2 ins / 2 del)**:
+- v1.0.34.2 ship 加 migration 030 (ghost sources cleanup), schema 29 → 30, 但 `test_llm_usage_counters.py::test_migration_029_adds_usage_columns` 2 个 assert 仍 hard-code 29
+- 修法: 升 30 + 注释 v1.0.34.2 source
+- 验证: 755 passed / 2 skipped / 0 failed (链修前 1 fail)
+
+### 约束遵守
+- demo HTML 不重 ship (3.85MB v1.0.35.3 dad 实测满意版本维持)
+- `docs/moni-showcase-artifacts/` 5 HTML 保留 disk 不动 (git rm sandbox 拦截, sprint-16 处理)
+- `~/Documents/moni-archive-20260819/` 4 目录保持现状 (HANDOFF 原定)
+
+### 后续 (out of scope, 记录给后续 sprint)
+- sprint-14 P1 仍是 `moni/llm/prompts/__init__.py::render_fact_check_plus()` 模板变量未替换 bug
+- v1.0.34.2 防御 UX (`is_fetchable` 字段 + 灰 badge) 暂挂
+- `docs/moni-showcase-artifacts/` 5 个外部 HTML 暂保留 (sandbox 拦截, 后续 sprint-16 review)
+- `~/Documents/moni-archive-20260819/` 4 归档目录保留 (HANDOFF "不删, 等 review")
+
+---
+
 ## 当前状态: **v1.0.35.3 — demo 单文件物料内嵌 (v1.0.35.2 hotfix, dad 要求单文件交付)** (2026-08-19 PM)
 
 **主分支**: **main** @ `069b4cc` (hotfix ship, code HEAD)
