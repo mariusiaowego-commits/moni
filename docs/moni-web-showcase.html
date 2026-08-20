@@ -14090,16 +14090,13 @@ window.pinIcon = pinIcon;
   document.addEventListener('click', function (e) {
     const a = e.target.closest && e.target.closest('a');
     if (!a) return;
-    // v1.0.35.6 round 5: skip showcaseArtifact entry buttons (they have
-    // @click.prevent="showcaseArtifact(...)" which Alpine compiles to an
-    // inline onclick handler — @click attribute disappears after init).
-    // Identify by checking if the parent <template> is active (Alpine
-    // marks x-if active elements with .showcase-artifact-open-class
-    // doesn't exist). Better: skip if href="#" AND target class includes
-    // btn-primary AND text is "打开产物" (Chinese stable string).
-    const text = (a.textContent || '').trim();
+    // v1.0.35.6: skip showcaseArtifact entry buttons (they already have @click.prevent="showcaseArtifact(...)")
+    // — they use href="#" with no /artifacts/ or .html/.png suffix, so the regex below already lets them
+    // through, but we also need to skip capture-phase preventDefault which races with Alpine's bubble-phase
+    // handler and triggers the "演示提示" modal instead of the real showcase modal.
+    const onclickAttr = a.getAttribute('@click') || '';
+    if (onclickAttr.indexOf('showcaseArtifact(') === 0) return;
     const href = a.getAttribute('href') || '';
-    if (text === '打开产物' && href === '#') return;
     if (
       href.indexOf('/artifacts/') !== -1 ||
       /info_graphic|report_png|html_landing|\.png$|\.html$/i.test(href)
