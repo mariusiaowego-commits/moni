@@ -580,8 +580,8 @@ tbody tr:last-child td { border-bottom: none; }
 .status-badge { padding: 3px 10px; border-radius: 4px; font-size: 0.78rem; font-weight: 500; white-space: nowrap; }
 .status-success { background: var(--success-muted); color: var(--success-muted-fg); }
 .status-failed { background: rgba(204,22,58,0.15); color: var(--destructive); }
-.status-cancelled { background: #EAD9DD; color: #514347; }
-.status-pending { background: #F1E3C7; color: #57451E; }
+.status-cancelled { background: var(--muted); color: var(--muted-fg); }  /* v1.0.35.6: theme-aware */
+.status-pending { background: var(--warning-muted); color: var(--warning-muted-fg); }  /* v1.0.35.6: theme-aware (light:米黄, dark:深棕) */
 .status-running { background: var(--info-muted); color: var(--info-muted-fg); }
 .status-done { background: var(--success-muted); color: var(--success-muted-fg); }
 
@@ -1178,6 +1178,21 @@ label { font-size: 0.85rem; }
 }
 .format-chip:has(input:checked) { border-color: var(--accent); background: rgba(209,179,255,0.08); }
 .format-chip input { display: none; }
+/* v1.0.35.6: highlight demo-ready formats, dim non-demo formats */
+.format-chip-demo-ready {
+  border-color: var(--accent);
+  background: rgba(34, 197, 94, 0.08);
+}
+.format-chip-demo-ready .demo-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px;
+  font-size: 0.7rem; font-weight: 600; color: #166534; background: rgba(34, 197, 94, 0.18);
+}
+.format-chip-disabled {
+  opacity: 0.55; cursor: not-allowed;
+  border-style: dashed;
+}
+.format-chip-disabled input { cursor: not-allowed; }
+.format-chip-disabled .demo-badge { display: none; }
 
 .filter-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .filter-bar label { display: flex; align-items: center; gap: 4px; font-size: 0.84rem; color: var(--muted-fg); }
@@ -2923,9 +2938,10 @@ label { font-size: 0.85rem; }
 }
 .panel-soft {
   margin-top: 14px; padding: 12px; border-radius: 8px;
-  background: #F9F2E4;  /* v1.0.35: 米黄 moni 主题色, 取代深咖啡 */
+  background: var(--surface-2);  /* v1.0.35.6: theme-aware (米黄 light / 深灰 dark) */
   border-left: 3px solid var(--info);
 }
+.panel-soft * { color: var(--fg); }  /* v1.0.35.6: dark mode text override */
 .text-danger { color: var(--destructive); }
 .text-success { color: var(--success); }
 .text-warning { color: var(--warning-muted-fg); }
@@ -3827,21 +3843,27 @@ table td img[alt=""],
               格式
               <select x-model="briefFormat" style="padding: 4px 8px;">
                 <template x-for="fmt in shareFormats" :key="'brief-'+fmt.value">
-                  <option :value="fmt.value" x-text="fmt.label"></option>
+                  <option :value="fmt.value"
+                          x-text="fmt.label + (fmt.demo_ready ? ' (✓ 演示就绪)' : ' (未演示)')"></option>
                 </template>
               </select>
             </label>
             <button class="btn-primary"
                     @click="createBrief()"
-                    :disabled="briefSubmitting || (pinnedTotal || 0) === 0">
+                    :disabled="briefSubmitting || (pinnedTotal || 0) === 0 || !demoReadyFormats.includes(briefFormat)">
               <span x-show="!briefSubmitting" x-text="'用当前 Pin 生成简报 (' + (pinnedTotal || 0) + ')'"></span>
               <span x-show="briefSubmitting">提交中…</span>
             </button>
             <span class="muted" style="font-size:0.85em;"
                   x-show="(pinnedTotal || 0) === 0">先去文章流 Pin 至少 1 篇</span>
+            <span class="demo-warning" style="font-size:0.85em; color:#b45309;"
+                  x-show="demoReadyFormats.indexOf(briefFormat) === -1 && (pinnedTotal || 0) > 0">
+              当前 demo 仅演示 HTML 网页 + 信息图 PNG, 该格式点"打开产物"会弹提示
+            </span>
           </div>
           <p class="muted" style="margin-top:8px; font-size:0.82em;">
-            提示: 当前 demo 仅 HTML 落地页 + 信息图 PNG 提供演示. 其他 5 种格式 (纯文本 / Markdown / 富媒体文本 / 报告 PNG / PDF) 生产上可用.
+            <strong style="color:#166534;">✓ HTML 网页 / 信息图 PNG:</strong> 真演示, 点"打开产物"看真产物.
+            <strong style="color:#78716c; margin-left:8px;">其他 5 种:</strong> 生产可用, demo 未打包, 点"打开产物"弹提示.
           </p>
           <p x-show="briefError" class="text-danger" style="margin:10px 0 0; font-size:0.9em;" x-text="briefError"></p>
 
@@ -3966,9 +3988,17 @@ table td img[alt=""],
           <h4>选择格式</h4>
           <div class="format-selector">
             <template x-for="fmt in shareFormats" :key="fmt.value">
-              <label class="format-chip">
-                <input type="radio" :value="fmt.value" x-model="shareFormat" :name="'shareFormat-' + fmt.value">
+              <label class="format-chip"
+                     :class="fmt.demo_ready ? 'format-chip-demo-ready' : 'format-chip-disabled'">
+                <input type="radio" :value="fmt.value" x-model="shareFormat"
+                       :name="'shareFormat-' + fmt.value">
                 <span x-text="fmt.label"></span>
+                <template x-if="fmt.demo_ready">
+                  <span class="demo-badge">✓ 演示就绪</span>
+                </template>
+                <template x-if="!fmt.demo_ready">
+                  <span class="demo-badge-missing" title="当前 demo 未打包此格式, 点 "打开产物" 会弹提示">未演示</span>
+                </template>
               </label>
             </template>
           </div>
@@ -7799,25 +7829,40 @@ window.__MONI_SNAP__ = {"service":{"running":true,"pid":65708,"uptime_sec":82756
         output_url: null, error: null,
       };
       store.shareTasks.unshift(task);
-      let pct = 15;
+      // v1.0.35.6: longer progress stages (6 steps × 1.2s = ~7s total) so user sees real progress
+      const STAGES = [
+        { pct: 12, stage: 'fetch',    message: '正在拉取已 Pin 文章…' },
+        { pct: 28, stage: 'generate', message: 'AI 生成简报框架…' },
+        { pct: 48, stage: 'render',   message: '渲染信息图 / 网页布局…' },
+        { pct: 68, stage: 'factcheck',message: '联网核查关键数据…' },
+        { pct: 88, stage: 'finalize', message: '拼接最终产物…' },
+        { pct: 100,stage: 'done',     message: '已完成' },
+      ];
+      let stepIdx = 0;
       const timer = setInterval(() => {
-        pct += 28;
+        stepIdx += 1;
+        const step = STAGES[stepIdx];
         const t = store.shareTasks.find((x) => x.id === id);
         if (!t) { clearInterval(timer); return; }
-        if (pct >= 100) {
-          t.status = 'done'; t.progress_pct = 100; t.progress_stage = 'done';
-          t.progress_message = '已完成';
-          // v1.0.35.6: demo brief mock keeps output_url as a truthy placeholder so the
-          // "打开产物" button (gated by output_url && status==='done') renders. The actual
-          // artifact is embedded in the modal srcdoc (74KB), not loaded from this URL.
-          // The L3862 x-if template checks output_url truthiness only; clicking the button
-          // calls showcaseArtifact(formatId) and reads the embedded artifact, not output_url.
-          t.output_url = '#/share';
-          clearInterval(timer);
+        if (step) {
+          t.progress_pct = step.pct;
+          t.progress_stage = step.stage;
+          t.progress_message = step.message;
+          if (step.stage === 'done') {
+            t.status = 'done';
+            // v1.0.35.6: demo brief mock keeps output_url as a truthy placeholder so the
+            // "打开产物" button (gated by output_url && status==='done') renders. The actual
+            // artifact is embedded in the modal srcdoc (74KB), not loaded from this URL.
+            // The L3862 x-if template checks output_url truthiness only; clicking the button
+            // calls showcaseArtifact(formatId) and reads the embedded artifact, not output_url.
+            t.output_url = '#/share';
+            clearInterval(timer);
+          }
         } else {
-          t.progress_pct = pct;
+          // defensive: clamp
+          clearInterval(timer);
         }
-      }, 700);
+      }, 1200);
       // v1.0.35.6: match prod ShareTaskResponseV1 contract — {share_id, status, ...}
       // Prod backend returns share_id (see moni/web/models.py ShareTaskResponseV1);
       // demo consumer (L12433 createBrief) reads data.share_id. Without share_id in
