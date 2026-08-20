@@ -6109,9 +6109,13 @@ table td img[alt=""],
                 <textarea x-model="configModalTarget.notes" rows="2"></textarea>
               </div>
             </div>
+            </template>
             <div class="modal-footer">
               <button class="btn-secondary" @click="closeConfigModal()">取消</button>
               <button class="btn-primary" @click="configSaveFilter(configModalTarget, !!configModalTarget.id)">保存</button>
+            </div>
+          </div>
+        </div>
     <!-- v1.0.35.1: 演示物料 5 种格式 modal (单文件渲染, 仅 1 个内嵌真 base64) -->
 <!-- v1.0.35.1: 演示物料 modal — info_graphic_png -->
     <div class="modal-backdrop" x-show="showcaseArtifactOpen === 'info_graphic'" x-cloak @click.self="closeShowcaseArtifact()" @keydown.escape.window="closeShowcaseArtifact()">
@@ -7802,13 +7806,24 @@ window.__MONI_SNAP__ = {"service":{"running":true,"pid":65708,"uptime_sec":82756
         if (!t) { clearInterval(timer); return; }
         if (pct >= 100) {
           t.status = 'done'; t.progress_pct = 100; t.progress_stage = 'done';
-          t.progress_message = '已完成'; t.output_url = '#/share';
+          t.progress_message = '已完成';
+          // v1.0.35.6: demo brief mock keeps output_url as a truthy placeholder so the
+          // "打开产物" button (gated by output_url && status==='done') renders. The actual
+          // artifact is embedded in the modal srcdoc (74KB), not loaded from this URL.
+          // The L3862 x-if template checks output_url truthiness only; clicking the button
+          // calls showcaseArtifact(formatId) and reads the embedded artifact, not output_url.
+          t.output_url = '#/share';
           clearInterval(timer);
         } else {
           t.progress_pct = pct;
         }
       }, 700);
-      return jsonResp(task, 202);
+      // v1.0.35.6: match prod ShareTaskResponseV1 contract — {share_id, status, ...}
+      // Prod backend returns share_id (see moni/web/models.py ShareTaskResponseV1);
+      // demo consumer (L12433 createBrief) reads data.share_id. Without share_id in
+      // response, activeBriefId stays null → activeBriefTask stays null → "打开产物"
+      // button never renders. Wrap response in prod-shape envelope.
+      return jsonResp({share_id: id, status: task.status, task}, 202);
     }
     if (path === '/api/share' && method === 'POST') {
       const id = uid('share');
@@ -14091,6 +14106,11 @@ window.pinIcon = pinIcon;
       href.indexOf('/artifacts/') !== -1 ||
       /info_graphic|report_png|html_landing|\.png$|\.html$/i.test(href)
     ) {
+      // Skip the demo mock's '#/share' output_url placeholder — it's set by the mock
+      // to satisfy the "打开产物" button template's output_url truthiness check, but
+      // it doesn't actually point to a real artifact. The button's @click.prevent=
+      // "showcaseArtifact(...)" handles opening the real modal from embedded srcdoc.
+      if (href === '#/share') return;
       if (href.indexOf('#/') === 0) return;
       e.preventDefault();
       e.stopPropagation();
