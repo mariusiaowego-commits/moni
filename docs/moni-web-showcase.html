@@ -2942,6 +2942,8 @@ label { font-size: 0.85rem; }
   border-left: 3px solid var(--info);
 }
 .panel-soft * { color: var(--foreground); }  /* v1.0.35.6: dark mode text override (was --fg typo, now --foreground) */
+.dark .panel-soft *,
+:root.dark .panel-soft * { color: var(--foreground); }  /* v1.0.35.8: scope to dark mode only (was applied in light mode too, made .btn-primary text black-on-black) */
 .text-danger { color: var(--destructive); }
 .text-success { color: var(--success); }
 .text-warning { color: var(--warning-muted-fg); }
@@ -12891,7 +12893,7 @@ function app() {
     llmModelFormError: '',
 
     // Usage stats state
-    llmUsage: null,
+    llmUsage: { totals: {}, by_model: [] },  /* v1.0.35.8: default empty object so Alpine x-show=x-text expressions (llmUsage.totals?.calls || 0) don't throw when llmUsage API fails; previous default null caused 'Cannot read properties of null' errors */
     llmUsageDays: 30,
     llmUsageGroupBy: 'module',
 
