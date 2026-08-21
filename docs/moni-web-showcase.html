@@ -2941,9 +2941,7 @@ label { font-size: 0.85rem; }
   background: var(--surface-2);  /* v1.0.35.6: theme-aware (米黄 light / 深灰 dark) */
   border-left: 3px solid var(--info);
 }
-.panel-soft * { color: var(--foreground); }  /* v1.0.35.6: dark mode text override (was --fg typo, now --foreground) */
-.dark .panel-soft *,
-:root.dark .panel-soft * { color: var(--foreground); }  /* v1.0.35.8: scope to dark mode only (was applied in light mode too, made .btn-primary text black-on-black) */
+.panel-soft .btn-primary { color: var(--background); }  /* v1.0.35.8 (grok fix): specificity (0,2,0) > prev (0,1,0) universal selector; ensures 打开产物 button text visible in both light and dark mode */
 .text-danger { color: var(--destructive); }
 .text-success { color: var(--success); }
 .text-warning { color: var(--warning-muted-fg); }
