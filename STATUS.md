@@ -1407,3 +1407,16 @@ PR #115 merged (0d87a66), tag v1.0.35.6
 - `briefFormat` 默认值 (L12314) 一直就是 'html_landing', 这次只调顺序, 不改默认值
 
 commit `e593c73`, share copy 同步到 `~/Documents/moni-share/moni-web-showcase-v1.0.35.6.html` (sha256[:16]=`019426b1c9a18812`)
+
+
+## v1.0.35.8 (2026-08-21)
+
+**Demo HTML "打开产物" 按钮全黑修复 + 性能优化**
+
+- **按钮全黑根因**: v1.0.35.6 加的 `.panel-soft * { color: var(--foreground) }` 光暗通用, light mode `--foreground`=玄色(#1A1A1A)跟 button 背景同色 → 隐形. 且 dark class 加在 `body` 上, 不是 `:root`, 导致 round-2 scope 修复失效.
+- **grok 修复** (herdr pane w4:p1V): `.panel-soft .btn-primary { color: var(--background); }` — specificity (0,2,0) 压过原通配, mode-agnostic, 只影响 打开产物 button.
+- **性能**: srcdoc/img 抽到 `<script type="application/json">` + Alpine 按需注入 (deferred), 单文件保留, modal 打开更快.
+- **llmUsage 默认值** 改 `{ totals:{}, by_model:[] }` 避免 API 失败时 null 报错.
+- commit 链: `6394c6f`(--fg typo) → `cea9e39`(defer) → `ea1a292`(body.dark scope, 失败) → `3353508`(grok fix, 成功). tag `v1.0.35.8`.
+
+share copy: `~/Documents/moni-share/moni-web-showcase.html` (sha256[:16]=`472f6586588366e1`)
