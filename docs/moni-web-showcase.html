@@ -12293,10 +12293,13 @@ function app() {
     shareFormats: [
       // v1.0.35.6: 同 prod 7 种格式, 但只 html_landing + info_graphic_png 真演示,
       // 其他 5 种格式点 "打开产物" 弹 "演示提示" blocker (告知 demo 没打包该产物)
-      { value: 'plain_text',          label: '纯文本' },
-      { value: 'markdown',            label: 'Markdown' },
+      // v1.0.35.7: 排序调整 — demo-ready 排前 2 位, 让默认 select 渲染时第一个就是
+      // html_landing (一键简报 briefFormat 默认 'html_landing', select 元素先渲染
+      // shareFormats 顺序的 option, x-model 同步前视觉上显示第一项)
       { value: 'html_landing',        label: 'HTML 网页', demo_ready: true },
       { value: 'info_graphic_png',    label: '信息图 PNG', demo_ready: true },
+      { value: 'plain_text',          label: '纯文本' },
+      { value: 'markdown',            label: 'Markdown' },
       { value: 'rich_text',           label: '富媒体文本' },
       { value: 'report_png',          label: '报告 PNG' },
       { value: 'pdf',                 label: 'PDF 日报' },
