@@ -1396,3 +1396,14 @@ PRs (全部 OPEN → squash merge 成 v1.0.13):
 - format chip 标签带 "✓ 演示就绪" / "未演示" 高亮
 
 PR #115 merged (0d87a66), tag v1.0.35.6
+
+
+## v1.0.35.7 (2026-08-21)
+
+**一键简报 select 默认 HTML 网页**
+
+- `shareFormats` 数组重排 — demo-ready (html_landing, info_graphic_png) 排前 2 位
+- 修复 `<select x-model="briefFormat">` 初次渲染显示 "纯文本" 跳变到 "HTML 网页" 的视觉不一致
+- `briefFormat` 默认值 (L12314) 一直就是 'html_landing', 这次只调顺序, 不改默认值
+
+commit `e593c73`, share copy 同步到 `~/Documents/moni-share/moni-web-showcase-v1.0.35.6.html` (sha256[:16]=`019426b1c9a18812`)
