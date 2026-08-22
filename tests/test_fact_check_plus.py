@@ -749,3 +749,38 @@ def test_failure_log_redacts_before_truncate(fresh_db, monkeypatch):
     # RAW OUTPUT 前缀和 PARSE 后缀仍保留 (error 实际以 "DB writeback failed: " 开头, _mark_failed 包装)
     assert "RAW OUTPUT: I cannot help. key=[REDACTED:api_key] and token=[REDACTED:token] here." in err
     assert "PARSE: evidence parse failed" in err
+
+
+# ---------------------------------------------------------------------------
+# P1 (sprint-16): $name → {name} 占位符渲染修复
+# ---------------------------------------------------------------------------
+
+
+def test_render_fact_check_plus_fills_placeholders():
+    """回归: fact_check_plus.md 模板占位符必须用 {name} (regex _render 风格),
+    不能用 $name (dollar 前缀 _render 不识别, LLM 拒答 'unfilled placeholders').
+
+    v1.0.34 删 hermes flag 后暴露 (sprint-07~13 flag 拒收遮蔽). 见 HANDOFF
+    'sprint-14 P1' 段 / vibe-coding-log L266. 修复: 模板 4 行 $→{}.
+    参考 tests/test_cases.py:703 test_prompt_placeholder_rendering 写法.
+    """
+    from moni.llm.prompts import render_fact_check_plus
+
+    article = {
+        "title": "招行 2026 年 8 月 1 日上线 AI 智能投顾",
+        "url": "https://example.com/news/123",
+        "content": "正文含 $1B 美元, AAPL 等美元符号 + {json_key} 演示",
+        "published_at": "2026-08-01",
+    }
+    prompt = render_fact_check_plus(article)
+
+    # 模板占位符必须被真实内容替换, 不能原样保留
+    assert "$title" not in prompt
+    assert "$url" not in prompt
+    assert "$published_at" not in prompt
+    assert "$content" not in prompt
+    # 真实内容必须注入
+    assert "招行 2026 年 8 月 1 日上线 AI 智能投顾" in prompt
+    assert "https://example.com/news/123" in prompt
+    assert "2026-08-01" in prompt
+    assert "AI 智能投顾" in prompt  # content 一部分
