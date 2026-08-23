@@ -784,3 +784,27 @@ def test_render_fact_check_plus_fills_placeholders():
     assert "https://example.com/news/123" in prompt
     assert "2026-08-01" in prompt
     assert "AI 智能投顾" in prompt  # content 一部分
+
+
+def test_render_fact_check_plus_empty_article_falls_back():
+    """空 dict article 不应抛异常, 渲染结果不应含字面占位符.
+
+    report 2026-08-22 §3 盲区 3: render_fact_check_plus 用 article.get(k, "")
+    fallback, 但缺独立测试钉死. 跟 tests/test_prompts.py 现有 render_summary
+    /render_fact_check/render_predict_tag 各自的 empty-dict fallback 测试同款.
+    """
+    from moni.llm.prompts import render_fact_check_plus
+
+    prompt = render_fact_check_plus({})
+
+    # 占位符必须被空字符串替换, 不能保留 ${xxx} 或 ${xxx} 字面
+    assert "${title}" not in prompt
+    assert "${url}" not in prompt
+    assert "${published_at}" not in prompt
+    assert "${content}" not in prompt
+    # 也不应有遗留的 $title / $url 字面 (修前 bug 形态)
+    assert "$title" not in prompt
+    assert "$url" not in prompt
+    # 渲染结果应非空 (模板本身有指令 + 输出格式段)
+    assert len(prompt) > 100
+    assert "事实核查" in prompt or "核查" in prompt
