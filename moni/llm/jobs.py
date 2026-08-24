@@ -616,6 +616,12 @@ def _persist_fact_check_plus(
         if not isinstance(raw_evidence, list):
             raise ValueError("evidence parse failed: evidence is not a list")
 
+        # Sprint-16.6 P1: 提前提取 conclusion 到 Gate 1 之前 (不改行为, 只改读顺序).
+        # 让 Gate 1 后 L640 的 valid==[] 判断能拿到 conclusion, 区分【无需核查】档
+        # (模板 fact_check_plus.md:42 规定 evidence 必须空) 跟其他 3 档 (缺 snippet 失败).
+        # 原 L644 的同一行赋值删除, 避免重复.
+        conclusion = str(parsed.get("conclusion") or "【待核实】").strip()
+
         # Gate 1: drop rows without snippet / invalid URL
         valid: list[dict[str, Any]] = []
         for e in raw_evidence:
@@ -638,10 +644,17 @@ def _persist_fact_check_plus(
                 }
             )
         if not valid:
+            # Sprint-16.6 P1: 【无需核查】档允许空 evidence (模板规定), 直接 done 入库.
+            # 其他 3 档 (【已核实】/【待核实】/【存疑】) 行为不变, 仍 raise.
+            if conclusion.startswith("【无需核查】"):
+                _persist_no_check_needed(
+                    conn, article_id=article_id, conclusion=conclusion,
+                    finished_at=finished_at,
+                )
+                return
             raise ValueError("no evidence with snippet")
 
         # Gate 2: whitelist required for 【已核实】
-        conclusion = str(parsed.get("conclusion") or "【待核实】").strip()
         has_whitelist = any(is_in_whitelist(e["domain"]) for e in valid)
         if conclusion == "【已核实】" and not has_whitelist:
             conclusion = "【待核实】"
@@ -775,6 +788,77 @@ def _persist_fact_check_plus(
             msg = _log_failure(conn, job_id, raw_output, str(exc))
             raise ValueError(msg) from None
         raise
+
+
+def _persist_no_check_needed(
+    conn: Any,
+    *,
+    article_id: str,
+    conclusion: str,
+    finished_at: str,
+) -> None:
+    """【无需核查】档: 写 articles 结论, 不插 evidence, 跳过 Gate 2/3.
+
+    Sprint-16.6 P1: 模板 fact_check_plus.md:42 规定【无需核查】evidence 必须为
+    空. 之前 _persist_fact_check_plus Gate 1 把空 evidence 当失败处理, 导致
+    纯观点文 (e.g. "AI办公这个垃圾赛道...") 联网核查失败误报.
+
+    其他 3 档 (【已核实】/【待核实】/【存疑】) 走原路径, 此函数仅 conclusion
+    以【无需核查】开头时被调用.
+    """
+    try:
+        conn.execute(
+            """
+            UPDATE articles
+            SET fact_check_conclusion  = ?,
+                fact_check_method      = 'web_search',
+                fact_checked_at        = ?,
+                fact_check_note        = '[]',
+                fact_check_timeliness  = NULL,
+                has_fact_check         = 1,
+                has_web_fact_check     = 1
+            WHERE id = ?
+            """,
+            (conclusion, finished_at, article_id),
+        )
+    except Exception:
+        # Pre-migration 026/027 fallback: optional fact_check_timeliness column missing.
+        try:
+            conn.execute(
+                """
+                UPDATE articles
+                SET fact_check_conclusion = ?,
+                    fact_check_method     = 'web_search',
+                    fact_checked_at       = ?,
+                    fact_check_note       = '[]',
+                    has_fact_check        = 1,
+                    has_web_fact_check    = 1
+                WHERE id = ?
+                """,
+                (conclusion, finished_at, article_id),
+            )
+        except Exception:
+            # Pre-migration 025 fallback: has_web_fact_check column missing.
+            conn.execute(
+                """
+                UPDATE articles
+                SET fact_check_conclusion = ?,
+                    fact_check_method     = 'web_search',
+                    fact_checked_at       = ?,
+                    fact_check_note       = '[]',
+                    has_fact_check        = 1
+                WHERE id = ?
+                """,
+                (conclusion, finished_at, article_id),
+            )
+
+    # Clear prior evidence for this article (re-run overwrite), even though
+    # 【无需核查】 never inserts new rows. Keeps behavior consistent with the
+    # primary path (L724-728).
+    conn.execute(
+        "DELETE FROM fact_check_evidence WHERE article_id = ?",
+        (article_id,),
+    )
 
 
 def _mark_failed(

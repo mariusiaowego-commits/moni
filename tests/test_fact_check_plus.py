@@ -1000,3 +1000,129 @@ def test_run_job_uses_raw_content_when_content_missing(fresh_db, monkeypatch):
         ]
         == "done"
     )
+
+
+# ---------------------------------------------------------------------------
+# Sprint-16.6: 【无需核查】档 evidence=[] 应 done 入库
+# ---------------------------------------------------------------------------
+#
+# bug 背景: 模板 fact_check_plus.md:42 规定【无需核查】evidence 必须为空数组,
+# 但 _persist_fact_check_plus Gate 1 不区分 conclusion, evidence=[] 一律 raise
+# "no evidence with snippet" → status=failed. 纯观点文 (e.g. "AI办公这个
+# 垃圾赛道...") 联网核查误报失败.
+#
+# 修法: _persist_fact_check_plus 提前 conclusion, 当
+#   conclusion.startswith("【无需核查】") AND valid==[]
+# 时跳过 evidence 闸, 调 _persist_no_check_needed 直接 done 入库.
+# 其他 3 档 (【已核实】/【待核实】/【存疑】) 行为不变 (防御测试钉死).
+#
+# Refs: agy herdr §4.2 设计.
+# ---------------------------------------------------------------------------
+
+
+def test_no_check_needed_empty_evidence_succeeds(fresh_db, monkeypatch):
+    """【无需核查】+ evidence=[] 应 status=done, articles 入库结论 + fact_check_note='[]'."""
+    article_id = "a-nc"
+    _insert_article(article_id)
+    _insert_job("job-nc", article_id)
+
+    payload = json.dumps({
+        "conclusion": "【无需核查】",
+        "evidence": [],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({
+        "id": "job-nc", "task_type": "fact_check_plus",
+        "article_id": article_id, "provider": "minimax-cn",
+        "model": "MiniMax-M3", "attempts": 0,
+    })
+
+    conn = get_db()
+    # job 应 done, error 应 None (修前 error 含 "no evidence with snippet")
+    job = conn.execute(
+        "SELECT status, error FROM llm_jobs WHERE id = 'job-nc'"
+    ).fetchone()
+    assert job["status"] == "done", f"job 应 done, 实得 {job['status']!r}, error={job['error']!r}"
+    assert job["error"] is None, f"job.error 应 None, 实得 {job['error']!r}"
+
+    # articles 应入库 (修前因 fail 没入库)
+    art = conn.execute(
+        "SELECT fact_check_conclusion, has_fact_check, has_web_fact_check, "
+        "fact_check_note, fact_check_method, fact_check_timeliness "
+        "FROM articles WHERE id = ?", (article_id,)
+    ).fetchone()
+    assert art["fact_check_conclusion"] == "【无需核查】"
+    assert art["has_fact_check"] == 1
+    assert art["has_web_fact_check"] == 1
+    assert art["fact_check_method"] == "web_search"
+    assert art["fact_check_note"] == "[]"
+    assert art["fact_check_timeliness"] is None  # 无 evidence → 无 days_old → NULL
+
+    # evidence 表应空 (清空旧 + 不插新)
+    ev_count = conn.execute(
+        "SELECT COUNT(*) FROM fact_check_evidence WHERE article_id = ?",
+        (article_id,),
+    ).fetchone()[0]
+    assert ev_count == 0
+
+
+def test_verified_empty_evidence_still_fails(fresh_db, monkeypatch):
+    """防御: 【已核实】+ evidence=[] 仍应 status=failed (现有行为不变).
+
+    钉死 sprint-16.6 P1 没误伤【已核实】档. LLM 返"已核实但 0 evidence"是
+    闸拒绝的合法场景, 跟【无需核查】(模板允许 0 evidence)语义不同.
+    """
+    article_id = "a-vf"
+    _insert_article(article_id)
+    _insert_job("job-vf", article_id)
+
+    payload = json.dumps({
+        "conclusion": "【已核实】",
+        "evidence": [],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({
+        "id": "job-vf", "task_type": "fact_check_plus",
+        "article_id": article_id, "provider": "minimax-cn",
+        "model": "MiniMax-M3", "attempts": 0,
+    })
+
+    conn = get_db()
+    job = conn.execute(
+        "SELECT status, error FROM llm_jobs WHERE id = 'job-vf'"
+    ).fetchone()
+    assert job["status"] == "failed", (
+        f"【已核实】+ 空 evidence 应 fail, 实得 {job['status']!r}"
+    )
+    # B5: error 应含 RAW OUTPUT + PARSE reason
+    assert "no evidence with snippet" in (job["error"] or "")
+
+
+def test_pending_empty_evidence_still_fails(fresh_db, monkeypatch):
+    """防御: 【待核实】+ evidence=[] 仍应 status=failed (现有行为不变)."""
+    article_id = "a-pf"
+    _insert_article(article_id)
+    _insert_job("job-pf", article_id)
+
+    payload = json.dumps({
+        "conclusion": "【待核实】",
+        "evidence": [],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({
+        "id": "job-pf", "task_type": "fact_check_plus",
+        "article_id": article_id, "provider": "minimax-cn",
+        "model": "MiniMax-M3", "attempts": 0,
+    })
+
+    conn = get_db()
+    job = conn.execute(
+        "SELECT status, error FROM llm_jobs WHERE id = 'job-pf'"
+    ).fetchone()
+    assert job["status"] == "failed", (
+        f"【待核实】+ 空 evidence 应 fail, 实得 {job['status']!r}"
+    )
+    assert "no evidence with snippet" in (job["error"] or "")
