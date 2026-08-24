@@ -13,7 +13,9 @@ import urllib.error
 import urllib.request
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from copy import deepcopy
 from pathlib import Path
+from typing import Any
 
 from PIL import Image
 
@@ -371,6 +373,70 @@ DEMO_FACTCHECK = (
     "- 建议关注后续监管细则落地时间表"
 )
 
+# v1.0.35.16: deterministic fact_check fixture —— 让 demo 重建触发生产 v1.0.35.14 的
+# 友好 fact_check modal (核查结论 badge + 证据链卡片 + 可折叠原始 JSON)。
+# 主题围绕「数字人民币运营机构扩容 30 家」这种 done 率高、证据丰富的文章。
+# 不复用 live 11 条 evidence (grok 明确建议不用 live 数据), 自包含稳定可重现。
+DEMO_FACT_CHECK_FIXTURE: dict[str, Any] = {
+    "conclusion": "【已核实】核心数据与事件均获多源一致支持",
+    "evidence": [
+        {
+            "query": "人民银行 数字人民币 运营机构 扩容 30家",
+            "url": "http://paper.people.com.cn/rmrb/pc/content/202608/18/content_30175613.html",
+            "domain": "paper.people.com.cn",
+            "snippet": "目前,数字人民币业务运营机构已扩容至30家。新增机构将在完成业务、技术准备后开展数字人民币业务。",
+            "rationale": "人民日报逐字核对「30家」总数与新增8家银行名单, 与文章核心数字一致",
+            "fetched_at": "2026-08-24T07:29:10.609307+00:00",
+            "model": "ark-code-latest",
+            "provider": "ark",
+            "conclusion": "【已核实】核心数据与事件均获多源一致支持",
+            "evidence_seq": 0,
+        },
+        {
+            "query": "央行 新增 平安银行 恒丰银行 渤海银行 数字人民币",
+            "url": "http://finance.people.com.cn/n1/2026/0818/c1004-40781318.html",
+            "domain": "finance.people.com.cn",
+            "snippet": "人民银行新增平安银行、恒丰银行、渤海银行、上海银行、杭州银行、徽商银行、长沙银行、广西北部湾银行成为银行类数字人民币业务运营机构。",
+            "rationale": "人民网财经完整列出8家新成员, 名称逐字一致",
+            "fetched_at": "2026-08-24T07:29:10.609307+00:00",
+            "model": "ark-code-latest",
+            "provider": "ark",
+            "conclusion": "【已核实】核心数据与事件均获多源一致支持",
+            "evidence_seq": 1,
+        },
+        {
+            "query": "数字人民币 运营机构 扩容 30家 十五五规划",
+            "url": "https://finance.eastmoney.com/a/202608173843181562.html",
+            "domain": "finance.eastmoney.com",
+            "snippet": "下一步, 中国人民银行将按照市场化、法治化原则有序推进运营机构扩容。",
+            "rationale": "东方财富转引央行口径, 佐证扩容进程与政策方向",
+            "fetched_at": "2026-08-24T07:29:10.609307+00:00",
+            "model": "ark-code-latest",
+            "provider": "ark",
+            "conclusion": "【已核实】核心数据与事件均获多源一致支持",
+            "evidence_seq": 2,
+        },
+        {
+            "query": "数字人民币 运营机构 首次扩容 12家 中信 光大 2026年4月",
+            "url": "https://www.news.cn/money/20260818/c9541e5d105d40ac95aef81e8b0a94e5/c.html",
+            "domain": "news.cn",
+            "snippet": "2026年4月, 数字人民币业务运营机构新增12家, 达到22家。中信银行、光大银行、华夏银行、民生银行、广发银行、浦发银行、浙商银行等。",
+            "rationale": "新华网佐证4月首次扩容12家达22家, 25家演进链条成立",
+            "fetched_at": "2026-08-24T07:29:10.609307+00:00",
+            "model": "ark-code-latest",
+            "provider": "ark",
+            "conclusion": "【已核实】核心数据与事件均获多源一致支持",
+            "evidence_seq": 3,
+        },
+    ],
+}
+
+# v1.0.35.16: deterministic fact_check fixture for cancelled/failed —— 空证据档
+DEMO_FACT_CHECK_EMPTY: dict[str, Any] = {
+    "conclusion": "【无需核查】纯观点评论",
+    "evidence": [],
+}
+
 
 def polish_articles_tags(articles):
     """v1.0.35: 重新分配 tag 分布, 让 6 个 tag 都有覆盖 (生产真实比例)
@@ -449,13 +515,24 @@ def polish_articles_tags(articles):
 
 
 def polish_llm_jobs(jobs):
-    """Contest-facing mix: mostly done, one running, at most one failed."""
+    """Contest-facing mix: mostly done with rich fact_check evidence, one running,
+    one cancelled. v1.0.35.16: fact_check_plus tasks now attach structured
+    ``fact_check`` field so production's v1.0.35.14 friendly modal (核查结论
+    badge + 证据链卡片 + 可折叠原始 JSON) renders correctly inside the demo.
+
+    result 改成同构 JSON 字符串 (而不是散文) 以匹配生产 v1.0.35.13+ 的
+    call_llm 输出形态; friendly modal 走 ``fact_check`` 字段优先, 原始
+    result 仅作为兜底 / 可折叠区展示.
+    """
     if isinstance(jobs, dict):
         jobs = jobs.get("items") or []
     jobs = [dict(j) for j in (jobs or [])]
     if not jobs:
         return jobs
     n = len(jobs)
+    # 至少 1/3 是 fact_check_plus done, 触发 friendly modal
+    target_done_plus = max(8, n // 3)
+    plus_count = 0
     for i, j in enumerate(jobs):
         title = j.get("article_title") or "同业动态"
         if i == 0:
@@ -463,19 +540,40 @@ def polish_llm_jobs(jobs):
             j["error"] = None
             j["result"] = None
             j["duration_ms"] = None
+            # v1.0.35.16: running 任务也带 fact_check field (生产 mock 一致)
+            j["model"] = "ark-code-latest"
+            j["provider"] = "ark"
+            j["fact_check"] = None
             continue
         # leave a single cancelled row if we have enough, otherwise all done
         if i == n - 1 and n >= 8:
             j["status"] = "cancelled"
             j["error"] = None
             j["result"] = None
+            j["model"] = "ark-code-latest"
+            j["provider"] = "ark"
+            j["fact_check"] = None
             continue
         j["status"] = "done"
         j["error"] = None
+        j["model"] = "ark-code-latest"
+        j["provider"] = "ark"
         if j.get("task_type") == "summary":
+            # summary result keeps narrative format (production path)
             j["result"] = DEMO_SUMMARY
+            j["fact_check"] = None
         else:
-            j["result"] = DEMO_FACTCHECK
+            # v1.0.35.16: fact_check_plus done → 结构化 fact_check + result 同构 JSON 字符串
+            if plus_count < target_done_plus:
+                fixture = deepcopy(DEMO_FACT_CHECK_FIXTURE)
+                # 补一个时间戳变体,让不同任务看起来有时间差
+                base_ts = j.get("created_at") or "2026-08-24T07:29:10"
+                j["result"] = json.dumps(fixture, ensure_ascii=False)
+                j["fact_check"] = fixture
+                plus_count += 1
+            else:
+                j["result"] = json.dumps(DEMO_FACT_CHECK_EMPTY, ensure_ascii=False)
+                j["fact_check"] = deepcopy(DEMO_FACT_CHECK_EMPTY)
         if not j.get("duration_ms") or j["duration_ms"] < 400:
             j["duration_ms"] = 12000 + (i * 137) % 8000
         j["article_title"] = title
@@ -1359,6 +1457,120 @@ SHOWCASE_MODAL = """
 """
 
 
+# v1.0.35.16: 演示物料 modal (info_graphic + html_landing) — 从 docs/moni-web-showcase.html
+# v1.0.35.1 时代手工 inline 抽回, 现在由生成器注入. assets 来自 scripts/showcase_assets/.
+SHOWCASE_ARTIFACTS_DIR = Path(__file__).resolve().parent / "showcase_assets"
+
+
+def load_showcase_assets() -> dict[str, str]:
+    """v1.0.35.16: 读取演示物料真实数据 (info_graphic + html_landing).
+
+    失败时返回空 dict — assemble() 会判断后用占位模式注入。
+    """
+    out: dict[str, str] = {}
+    img_path = SHOWCASE_ARTIFACTS_DIR / "info_graphic.webp"
+    html_path = SHOWCASE_ARTIFACTS_DIR / "html_landing.html"
+    if img_path.exists():
+        b64 = base64.b64encode(img_path.read_bytes()).decode("ascii")
+        out["info_graphic_png_data"] = f"data:image/webp;base64,{b64}"
+    if html_path.exists():
+        out["html_landing"] = html_path.read_text(encoding="utf-8")
+    return out
+
+
+def render_showcase_artifacts_modal() -> str:
+    """v1.0.35.16: 演示物料 modal HTML (info_graphic + html_landing).
+
+    由 assemble() 在 <div class="toast"> 前注入 demo HTML.
+    """
+    return """\
+    <!-- v1.0.35.16: 演示物料 modal — info_graphic -->
+    <div class="modal-backdrop" x-show="showcaseArtifactOpen === 'info_graphic'" x-cloak @click.self="closeShowcaseArtifact()" @keydown.escape.window="closeShowcaseArtifact()">
+      <div class="modal-content" style="max-width:880px;height:80vh;display:flex;flex-direction:column;">
+        <div class="modal-header">
+          <h3>演示物料 · 信息图</h3>
+          <span class="muted" style="font-size:0.8em;">格式: <code>info_graphic_png</code></span>
+          <button class="modal-close" @click="closeShowcaseArtifact()" aria-label="关闭">&times;</button>
+        </div>
+        <div class="modal-body" style="overflow:auto;display:flex;align-items:center;justify-content:center;background:var(--muted,#f5f5f4);">
+<img id="img-info-graphic" data-img-id="info_graphic_png_data" alt="信息图" style="max-width:100%; height:auto; display:block; margin:0 auto;">
+        </div>
+        <div class="modal-footer" style="justify-content:space-between;">
+          <p class="muted" style="font-size:0.82em;margin:0;">源文件: info_graphic_png (2.4MB 原图, webp 128KB)</p>
+          <button class="btn-secondary" @click="closeShowcaseArtifact()">关闭</button>
+        </div>
+      </div>
+    </div>
+    <!-- v1.0.35.16: 演示物料 modal — html_landing -->
+    <div class="modal-backdrop" x-show="showcaseArtifactOpen === 'html_landing'" x-cloak @click.self="closeShowcaseArtifact()" @keydown.escape.window="closeShowcaseArtifact()">
+      <div class="modal-content" style="max-width:920px;height:85vh;display:flex;flex-direction:column;">
+        <div class="modal-header">
+          <h3>演示物料 · 同业简报 HTML</h3>
+          <span class="muted" style="font-size:0.8em;">格式: <code>html_landing</code></span>
+          <button class="modal-close" @click="closeShowcaseArtifact()" aria-label="关闭">&times;</button>
+        </div>
+        <div class="modal-body" style="overflow:hidden;padding:0;background:#fff;">
+          <iframe id="iframe-html-landing" data-srcdoc-id="html_landing" style="width:100%; height:100%; border:0; display:block;"></iframe>
+        </div>
+        <div class="modal-footer">
+          <p class="muted" style="font-size:0.82em;margin:0;">2026-08-14 一键简报产物 (单文件 HTML, 离线可读)</p>
+          <button class="btn-secondary" @click="closeShowcaseArtifact()">关闭</button>
+        </div>
+      </div>
+    </div>
+"""
+
+
+# v1.0.35.16: 给 app.js bundle 末尾注入 showcaseArtifact state + methods (v1.0.35.1 时代 inline 抽回).
+# 让 demo 重建保留原 v1.0.35.1 的演示物料 modal 行为, 而不污染主分支 app.js.
+SHOWCASE_ARTIFACT_JS_PATCH = """
+// v1.0.35.16: 演示物料 modal state + method (从 docs/moni-web-showcase.html inline 抽回)
+;(function(){
+  if (!window.__MONI_SNAP__) return;
+  const app = Alpine.$data(document.body);
+  if (!app) return;
+  app.showcaseArtifactOpen = null;
+  app.showcaseArtifact = function(formatId) {
+    this.showcaseArtifactOpen = formatId;
+    this.$nextTick(() => {
+      const data = (this._deferredArtifacts ??= (() => {
+        try { return JSON.parse(document.getElementById('deferred-artifacts').textContent); }
+        catch(e){ return {}; }
+      })());
+      if (formatId === 'html_landing' && data.html_landing) {
+        const iframe = document.getElementById('iframe-html-landing');
+        if (iframe && !iframe.srcdoc) iframe.srcdoc = data.html_landing;
+      } else if (formatId === 'info_graphic' && data.info_graphic_png_data) {
+        const img = document.getElementById('img-info-graphic');
+        if (img && !img.src) img.src = data.info_graphic_png_data;
+      }
+    });
+  };
+  app.closeShowcaseArtifact = function() { this.showcaseArtifactOpen = null; };
+  // v1.0.35.6: 演示模式直接弹演示物料, 不调生产 output_url 流程
+  const origOpen = app.openBriefTaskDetail;
+  app.openBriefTaskDetail = function(task) {
+    const fmt = task && task.brief_format;
+    if (fmt === 'info_graphic_png') { this.showcaseArtifact('info_graphic'); return; }
+    if (fmt === 'html_landing')    { this.showcaseArtifact('html_landing'); return; }
+    if (typeof origOpen === 'function') return origOpen.call(this, task);
+  };
+  // v1.0.35.6: share output_url 按钮 (打开产物) 重定向到演示物料
+  document.querySelectorAll("a.btn-primary").forEach((el) => {
+    if (el.textContent.trim() === '打开产物') {
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        // 默认演示两个真物料: info_graphic + html_landing
+        const fmt = (window.__MONI_SNAP__.share_tasks?.items?.[0]?.brief_format) || 'html_landing';
+        const mapped = fmt === 'info_graphic_png' ? 'info_graphic' : 'html_landing';
+        this.showcaseArtifact(mapped);
+      });
+    }
+  });
+}).call({});
+"""
+
+
 def assemble(html: str, css: str, scripts: list[str], alpine: str, gsap: str, icons: dict[str, str], css_with_var_map: tuple[str, dict[str, str]] | None = None) -> str:
     css = css + "\n" + SHOWCASE_CSS
     # v1.0.35: assemble 拼接后再 strip (SHOWCASE_CSS 里也有 oklch)
@@ -1400,9 +1612,21 @@ def assemble(html: str, css: str, scripts: list[str], alpine: str, gsap: str, ic
 
     html = html.replace(
         '<div class="toast"',
-        SHOWCASE_MODAL + '\n    <div class="toast"',
+        SHOWCASE_MODAL + render_showcase_artifacts_modal() + '\n    <div class="toast"',
         1,
     )
+
+    # v1.0.35.16: 演示物料 deferred JSON (info_graphic + html_landing) 注入到 </body> 前
+    assets = load_showcase_assets()
+    if assets:
+        assets_json = json.dumps(assets, ensure_ascii=False)
+        deferred_block = (
+            '\n<script type="application/json" id="deferred-artifacts">'
+            + assets_json
+            + '</script>'
+        )
+    else:
+        deferred_block = '\n<!-- v1.0.35.16: showcase assets not found, run scripts/extract_showcase_assets.py -->'
 
     # strip original script tags
     html = re.sub(r'<script defer src="https://cdn\.jsdelivr\.net/npm/alpinejs[^"]*"></script>\s*', '', html)
@@ -1413,8 +1637,9 @@ def assemble(html: str, css: str, scripts: list[str], alpine: str, gsap: str, ic
     bundle = "\n".join(scripts)
     tail = (
         "<script>\n" + gsap + "\n</script>\n"
-        "<script>\n" + bundle + "\n</script>\n"
+        "<script>\n" + bundle + SHOWCASE_ARTIFACT_JS_PATCH + "\n</script>\n"
         "<script>\n" + alpine + "\n</script>\n"
+        + deferred_block
     )
     html = html.replace("</body>", tail + "</body>")
     # title hint
