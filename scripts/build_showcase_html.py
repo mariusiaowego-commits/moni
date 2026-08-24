@@ -93,20 +93,30 @@ def _oklch_from_var_to_rgba(s: str, var_map: dict[str, str]) -> str:
     return f"#{r:02X}{g:02X}{b:02X}"
 
 _VAR_DECL_RE = re.compile(r'--([\w-]+)\s*:\s*([^;,}\n]+)')
+_ROOT_BLOCK_RE = re.compile(r':root\s*\{([^}]*)\}', re.S)
 
 def _strip_oklch(css: str, var_map: dict[str, str] | None = None) -> tuple[str, dict[str, str]]:
-    """将 CSS 中所有 oklch(...) 转 hex. 返回 (new_css, full_var_map)."""
-    # 步骤 1: 找 :root { --foo: oklch(...); ... } 和 :root.dark { ... }
-    # 先找所有 --xxx 变量声明值, 试图解析为 oklch → hex
+    """将 CSS 中所有 oklch(...) 转 hex. 返回 (new_css, full_var_map).
+
+    v1.0.35.16 fix: 只扫 ``:root { ... }`` 块内的 --xxx 声明. demo HTML 渲染浅色
+    主题, 不需要 .dark 块; 之前的 ``_VAR_DECL_RE.finditer(css)`` 全文扫描会把
+    ``.dark`` 块的同名暗色变量覆盖 ``:root`` 浅色变量, 导致 ``oklch(from var(--muted) ...)``
+    反算出暗色 hex, 出现「一行深棕底色」诡异渲染。
+    """
+    # 步骤 1: 只在 :root { ... } 块内找变量声明, 避免 .dark 块覆盖
     var_map = dict(var_map or {})
-    for m in _VAR_DECL_RE.finditer(css):
-        name, val = m.group(1), m.group(2).strip()
-        # 跳过 calc() / from var() 派生色 (要 hex map 后再处理)
-        if val.startswith('calc(') or val.startswith('var(') or val.startswith('from'):
-            continue
-        hex_val = _oklch_static_to_hex(val)
-        if hex_val:
-            var_map[name] = hex_val
+    root_block_match = _ROOT_BLOCK_RE.search(css)
+    if root_block_match:
+        root_css = root_block_match.group(1)
+        for m in _VAR_DECL_RE.finditer(root_css):
+            name, val = m.group(1), m.group(2).strip()
+            # 跳过 calc() / from var() 派生色 (要 hex map 后再处理)
+            if val.startswith('calc(') or val.startswith('var(') or val.startswith('from'):
+                continue
+            hex_val = _oklch_static_to_hex(val)
+            if hex_val:
+                # 第一次出现即覆盖: :root 内若同名重声明取最后一个
+                var_map[name] = hex_val
 
     # 步骤 2: 替换派生色 oklch(from var(--xxx) ...) → hex/rgba
     css2 = re.sub(
