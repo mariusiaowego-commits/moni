@@ -42,9 +42,9 @@
 - 【无需核查】时 evidence 必须为空数组
 
 # 文章
-标题: $title
-URL: $url
-发布日期: $published_at
+标题: {title}
+URL: {url}
+发布日期: {published_at}
 
 正文:
-$content
+{content}
