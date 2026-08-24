@@ -835,6 +835,7 @@
               <th>耗时</th>
               <th>重试</th>
               <th>创建</th>
+              <th>任务 ID</th>
               <th>结果 / 错误</th>
               <th>操作</th>
             </tr>
@@ -848,13 +849,15 @@
                 </td>
                 <td x-text="job.task_type === 'summary' ? '摘要' : '事实核查'"></td>
                 <td>
-                  <a class="link" href="#" @click.prevent="navigate('articles')"
+                  <!-- v1.0.35.14: 点击文章标题 → 打开文章详情 modal (不跳转) -->
+                  <a class="link" href="#" @click.prevent="showArticleDetail({ id: job.article_id })"
                      x-text="(job.article_title || job.article_id).slice(0, 50)"></a>
                 </td>
                 <td x-text="job.model || '-'"></td>
                 <td x-text="formatDuration(job.duration_ms)"></td>
                 <td x-text="job.attempts + (job.status === 'failed' ? '/' + 2 : '')"></td>
                 <td x-text="job.created_at ? job.created_at.slice(0, 19).replace('T', ' ') : '-'"></td>
+                <td class="job-id-cell" :title="job.id" x-text="job.id ? job.id.slice(0, 8) : '-'"></td>
                 <td class="result-cell">
                   <span x-show="job.status === 'done'">
                     <button class="link-btn" @click="openJobDetail(job)"
