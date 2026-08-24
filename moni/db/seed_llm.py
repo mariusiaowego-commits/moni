@@ -15,13 +15,22 @@ from .connection import get_db
 
 
 # 默认 seed provider：coder profile 自带的 minimax-cn
-# key 已在 ~/.hermes/config.yaml 里，moni 不存
+# key 已在 ~/.hermes/config.yaml 里，moni 不存。
+#
+# v1.0.35.13: minimax-cn (MiniMax-M3) Token Plan 已达用量上限 (HTTP 429),
+# 默认主力换成 ark + ark-code-latest (dad 2026-08-24 指示)。minimax 行保留作回退。
 _DEFAULT_PROVIDERS = [
     {
+        "id": "seed-provider-ark",
+        "name": "Ark (默认)",
+        "hermes_provider": "ark",
+        "notes": "Volcengine Ark (dad 2026-08-24 指定，替换已无额度的 minimax-cn)。Key 在 ~/.hermes/.env。",
+    },
+    {
         "id": "seed-provider-minimax-cn",
-        "name": "minimax-cn (默认)",
+        "name": "minimax-cn",
         "hermes_provider": "minimax-cn",
-        "notes": "coder profile 默认 provider。Key 在 ~/.hermes/config.yaml。",
+        "notes": "coder profile 默认 provider。Key 在 ~/.hermes/config.yaml。⚠️ Token Plan 2026-08-24 已耗尽 (HTTP 429)。",
     },
     {
         "id": "seed-provider-google",
@@ -39,7 +48,7 @@ _DEFAULT_PROVIDERS = [
 
 # 默认 model seed
 _DEFAULT_MODELS = [
-    # (provider_id, model_id, display_name, use_for)
+    ("seed-provider-ark", "ark-code-latest", "Ark Code Latest", ["summary", "tag_predict", "fact_check"]),
     ("seed-provider-minimax-cn", "MiniMax-M3", "MiniMax M3", ["summary", "tag_predict", "fact_check"]),
     ("seed-provider-google", "gemini-2.5-flash-lite", "Gemini 2.5 Flash-Lite", ["summary", "tag_predict"]),
     ("seed-provider-google", "gemini-2.5-pro", "Gemini 2.5 Pro", ["fact_check"]),
@@ -104,10 +113,19 @@ def seed() -> None:
         )
 
     # ── Active model resolution (look up the model row ids) ──────────────
-    # Default: minimax-cn / MiniMax-M3 for all three purposes
-    active_summary = _find_model_id(conn, "minimax-cn", "MiniMax-M3")
-    active_fact = _find_model_id(conn, "minimax-cn", "MiniMax-M3")
-    active_tag = _find_model_id(conn, "minimax-cn", "MiniMax-M3")
+    # Default: ark / ark-code-latest for all three purposes
+    # (v1.0.35.13: minimax-cn 已无额度, 切 ark; 见 _DEFAULT_PROVIDERS 注释)
+    active_summary = _find_model_id(conn, "ark", "ark-code-latest")
+    active_fact = _find_model_id(conn, "ark", "ark-code-latest")
+    active_tag = _find_model_id(conn, "ark", "ark-code-latest")
+
+    # fallback: 若 seed 里找不到 (crop 早期 DB), 退回 minimax-cn 以免空
+    if active_fact is None:
+        active_fact = _find_model_id(conn, "minimax-cn", "MiniMax-M3")
+    if active_summary is None:
+        active_summary = _find_model_id(conn, "minimax-cn", "MiniMax-M3")
+    if active_tag is None:
+        active_tag = _find_model_id(conn, "minimax-cn", "MiniMax-M3")
 
     # ── Settings ─────────────────────────────────────────────────────────
     for key, value in _DEFAULT_SETTINGS.items():
