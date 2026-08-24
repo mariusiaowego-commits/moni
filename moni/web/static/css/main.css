@@ -2697,6 +2697,14 @@ label { font-size: 0.85rem; }
   max-height: 220px;
   overflow: auto;
 }
+/* v1.0.35.14: /llmJobs 列表任务 ID 列 — 等宽 + muted, 悬浮显示完整 id */
+.job-id-cell {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted-fg);
+  white-space: nowrap;
+  user-select: all;
+}
 
 /* Responsive — narrow viewports: stack side column under main
    断点从 900 改 1100 — 让 1100-900 区间侧栏能及早点折叠,避免左/右比例失衡 */
