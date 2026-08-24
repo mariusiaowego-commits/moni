@@ -32,7 +32,7 @@ from moni.db.migrate import migrate
 # 若先 import jobs, routes/__init__ -> llm_jobs -> jobs 形成循环 import.
 import moni.web.routes.fact_check_plus  # noqa: F401,E402
 
-from moni.llm.jobs import _run_job, enqueue_job
+from moni.llm.jobs import _parse_fact_check_plus_evidence, _run_job, enqueue_job
 from moni.web.server import create_app
 
 
@@ -155,6 +155,51 @@ def test_fact_check_plus_endpoint_202_with_job_id(fresh_db, client, monkeypatch)
     ).fetchone()
     assert row["task_type"] == "fact_check_plus"
     assert row["status"] == "pending"
+
+
+def test_get_llm_job_detail_attaches_fact_check_for_done_plus(fresh_db, client):
+    """v1.0.35.13: GET /api/llm/jobs/{id} 对 fact_check_plus done 附加结构化
+    fact_check (conclusion + evidence)，供前端友好渲染，而非原始 JSON。"""
+    _insert_article("a1", method="web_search")
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO llm_jobs (id, task_type, article_id, provider, model, status, attempts, created_at) "
+        "VALUES ('job-done1', 'fact_check_plus', 'a1', 'minimax-cn', 'MiniMax-M3', 'done', 1, ?)",
+        (now,),
+    )
+    conn.execute(
+        "UPDATE articles SET fact_check_conclusion = '【已核实】测试', fact_check_method = 'web_search' "
+        "WHERE id = 'a1'"
+    )
+    _insert_evidence("a1", 1)
+    conn.commit()
+
+    r = client.get("/api/llm/jobs/job-done1")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["task_type"] == "fact_check_plus"
+    assert "fact_check" in data
+    assert data["fact_check"]["conclusion"] == "【已核实】测试"
+    ev = data["fact_check"]["evidence"]
+    assert len(ev) == 1
+    assert ev[0]["url"] == "https://www.pbc.gov.cn/notice"
+    assert ev[0]["snippet"] == "snippet-1"
+
+
+def test_get_llm_job_detail_no_fact_check_for_summary(fresh_db, client):
+    """非 fact_check_plus (e.g. summary) done 不应附加 fact_check 字段."""
+    _insert_article("a2")
+    now = datetime.now(timezone.utc).isoformat()
+    get_db().execute(
+        "INSERT INTO llm_jobs (id, task_type, article_id, provider, model, status, attempts, created_at) "
+        "VALUES ('job-sum1', 'summary', 'a2', 'minimax-cn', 'MiniMax-M3', 'done', 1, ?)",
+        (now,),
+    )
+    get_db().commit()
+    r = client.get("/api/llm/jobs/job-sum1")
+    assert r.status_code == 200
+    assert "fact_check" not in r.json()
 
 
 def test_fact_check_plus_404_unknown_article(client):
@@ -407,6 +452,41 @@ def test_jobs_task_type_whitelist_includes_plus(fresh_db, monkeypatch):
 # ---------------------------------------------------------------------------
 # B5 (v1.0.23): 解析失败 raw_output 落库诊断 (spec §3/§5)
 # ---------------------------------------------------------------------------
+
+
+def test_fact_check_plus_parse_repairs_uneccaped_cn_quotes():
+    """v1.0.35.13 follow-up: LLM 在 rationale 值里塞未转义 ASCII 引号.
+
+    原失败样本 ``人民网"白名单"佐证8家银行名单`` —— 半角引号在 JSON 字符串值
+    内部未被转义, 标准 json.loads 报错 → 之前 UI 报 'evidence parse failed'。
+    保守修复应把中文夹住的 ASCII 引号转全角后成功解析。
+    """
+    raw = (
+        '{"conclusion": "【已核实】测试", "evidence": ['
+        '{"query": "q", "url": "http://people.com.cn/a.html", '
+        '"snippet": "扩容至30家。", '
+        '"rationale": "人民网"白名单"佐证8家银行名单及扩容事实"}]}'
+    )
+    parsed = _parse_fact_check_plus_evidence(raw)
+    assert parsed is not None
+    assert parsed["conclusion"] == "【已核实】测试"
+    ev = parsed["evidence"]
+    assert len(ev) == 1
+    assert ev[0]["url"] == "http://people.com.cn/a.html"
+    # 修复后 rationale 是合法解码的字符串 (白名单保留, 引号变全角)
+    assert "白名单" in ev[0]["rationale"]
+
+
+def test_fact_check_plus_parse_passes_valid_json_unchanged():
+    """合法 JSON 原样通过, 不被修复逻辑误伤."""
+    raw = (
+        '{"conclusion": "【待核实】", "evidence": ['
+        '{"query": "x", "url": "http://a.com", '
+        '"snippet": "s", "rationale": "正常证据"}]}'
+    )
+    parsed = _parse_fact_check_plus_evidence(raw)
+    assert parsed is not None
+    assert parsed["evidence"][0]["rationale"] == "正常证据"
 
 
 def test_fact_check_plus_failure_log_writes_raw_output(fresh_db, monkeypatch):

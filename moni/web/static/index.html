@@ -2697,8 +2697,42 @@
             </span>
           </div>
           <div class="summary-box" x-show="jobDetail?.status === 'done'" x-cloak>
-            <h4>LLM 输出</h4>
-            <pre class="job-detail-text" x-text="jobDetail?.result || '(无输出)'"></pre>
+            <h4 x-text="jobDetailFactCheck ? '核查结论' : 'LLM 输出'"></h4>
+            <!-- v1.0.35.13: 联网核查 done → 用户友好的结论 + 证据链 (非原始 JSON) -->
+            <template x-if="jobDetailFactCheck">
+              <div class="fact-check-evidence">
+                <div class="fc-result">
+                  <span class="badge web_search">联网核查</span>
+                  <span class="fc-conclusion" x-text="jobDetailFactCheck.conclusion || '（无结论）'"></span>
+                </div>
+                <template x-if="jobDetailFactCheck.evidence && jobDetailFactCheck.evidence.length">
+                  <ol class="evidence-list">
+                    <template x-for="(e, idx) in jobDetailFactCheck.evidence" :key="idx">
+                      <li class="evidence-item">
+                        <div class="evidence-query" x-text="e.query"></div>
+                        <a class="evidence-url" :href="e.url" target="_blank" rel="noopener" x-text="e.url"></a>
+                        <div class="evidence-snippet" x-text="e.snippet"></div>
+                        <div class="evidence-meta">
+                          <span x-show="e.domain" x-text="e.domain"></span>
+                          <span x-show="e.rationale" x-text="e.rationale"></span>
+                        </div>
+                      </li>
+                    </template>
+                  </ol>
+                </template>
+                <template x-if="!(jobDetailFactCheck.evidence && jobDetailFactCheck.evidence.length)">
+                  <p class="muted">该结论无引用证据（纯观点 / 证据不足档）。</p>
+                </template>
+                <!-- 原始 LLM 输出仍保留在可折叠区内供核对/复制 -->
+                <details class="fc-raw-details">
+                  <summary>查看 LLM 原始输出</summary>
+                  <pre class="job-detail-text" x-text="jobDetail?.result || ''"></pre>
+                </details>
+              </div>
+            </template>
+            <template x-if="!jobDetailFactCheck">
+              <pre class="job-detail-text" x-text="jobDetail?.result || '(无输出)'"></pre>
+            </template>
           </div>
           <div class="summary-box" x-show="jobDetail?.status === 'failed'" x-cloak>
             <h4>错误信息</h4>

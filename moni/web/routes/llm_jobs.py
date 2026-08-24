@@ -64,12 +64,49 @@ def jobs_stats_summary() -> dict[str, int]:
 
 @router.get("/{job_id}")
 def get_llm_job(job_id: str) -> dict[str, Any]:
-    """Return one job row (the SPA polls this every 1s)."""
+    """Return one job row (the SPA polls this every 1s).
+
+    v1.0.35.13 (follow-up): 若 job 是 ``fact_check_plus`` 且 done, 附加
+    ``fact_check`` 结构化字段 {conclusion, evidence: [...]} —— 来自 articles
+    + fact_check_evidence 表 (用户友好渲染用), 而非 LLM 原始 JSON。这样
+    /llmJobs 详情 modal 能展示可读结论与证据链接, 不甩原始 JSON 给用户。
+    """
+    from moni.db.connection import get_db
     from moni.web.exceptions import NotFoundError
 
     job = get_job(job_id)
     if job is None:
         raise NotFoundError(message=f"LLM job {job_id!r} not found")
+
+    # 只对联网核查的已完成任务附加友好结构化数据
+    if (
+        job.get("task_type") == "fact_check_plus"
+        and job.get("status") == "done"
+        and job.get("article_id")
+    ):
+        conn = get_db()
+        art = conn.execute(
+            "SELECT fact_check_conclusion, fact_check_note "
+            "FROM articles WHERE id = ?",
+            (job["article_id"],),
+        ).fetchone()
+        conclusion = (dict(art).get("fact_check_conclusion") if art else None) or None
+
+        # evidence rows (evidence_seq 升序)
+        ev_rows = conn.execute(
+            """
+            SELECT query, url, domain, snippet, rationale, fetched_at,
+                   model, provider, conclusion, evidence_seq
+            FROM fact_check_evidence
+            WHERE article_id = ?
+            ORDER BY evidence_seq ASC
+            """,
+            (job["article_id"],),
+        ).fetchall()
+        job["fact_check"] = {
+            "conclusion": conclusion,
+            "evidence": [dict(r) for r in ev_rows],
+        }
     return job
 
 
