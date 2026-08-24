@@ -35,6 +35,34 @@
   - `conclusion=【待核实】` (仅 财联社 + 至顶网 2 自媒体,无 gov/交易所命中,符合 4 档规则)
   - 2 条 evidence 落库 (cls.cn / zhiding.cn)
 
+## 当前状态: **v1.0.35.11 — sprint-16.6 【无需核查】空 evidence 误报修复** (2026-08-24 SHIPPED)
+
+**主分支**: main @ `dd3ef00` (squash of PR #118)
+**PR #118**: **MERGED (squash, branch deleted)** @ `dd3ef00` (2 files +211/-1)
+**Tag**: **v1.0.35.11 @ `dd3ef00`** (push OK, 无 drift)
+**测试**: **765 passed / 2 skipped / 0 failed** (基线 762 → +3: 1 happy + 2 防御)
+**Web 服务**: `127.0.0.1:8900` PID 48790 (uvicorn, absolute python3.12 path, dotenv loader)
+**端到端验证 (live 8900)**:
+- 5 端点 200 OK: `/`, `/api/articles`, `/api/config/sources`, `/api/llm/jobs`, `/api/share/tasks`
+- POST `/api/articles/df2257ff32d22bc3/fact-check-plus` 跑 dad 报错文章 "AI办公这个'垃圾赛道',大厂到底在抢什么?" (bestblog-podcast 人民公园说AI):
+  - `status=done` (修前 `failed` "no evidence with snippet")
+  - duration 9.78s, input 13280 tokens, error=None
+  - DB 入库确认: `fact_check_conclusion=【无需核查】`, `has_fact_check=1`, `has_web_fact_check=1`, `fact_check_method=web_search`, `fact_check_note='[]'`, `fact_check_timeliness=NULL`
+
+### v1.0.35.11 核心改动 (sprint-16.6)
+
+**背景**: dad 2026-08-24 live 验报 bug — 纯观点文 "AI办公这个'垃圾赛道'..." 联网核查报 "DB writeback failed: ... no evidence with snippet". LLM 判定 + 返回全对 (【无需核查】 + 空 evidence 符合模板), 但 `_persist_fact_check_plus` 闸把它当失败处理. **设计与实现矛盾**: 模板 `fact_check_plus.md:42` 规定【无需核查】evidence 必须为空, 但 `jobs.py:640-641` 不区分 conclusion.
+
+**修法 (agy 方案 A)**:
+- `_persist_fact_check_plus` 提前 `conclusion` 到 Gate 1 之前 (agy 第一刀: 0 regression)
+- `if not valid:` 加条件 `if conclusion.startswith("【无需核查】"):` → 调新增 `_persist_no_check_needed()` 直接 done 入库
+- 新增 `_persist_no_check_needed` (~70 行): UPDATE articles + DELETE old evidence, 3 层 migration fallback
+- 其他 3 档 (【已核实】/【待核实】/【存疑】) 行为不变 (防御测试钉死)
+
+**Risk**: Low — ~20 行生产代码 + ~125 行测试, 仅在 `conclusion.startswith("【无需核查】") AND valid==[]` 时走新路径.
+
+**Refs**: agy herdr 报告 `/Users/mt16/dev/moni-ref-fact-check/SPRINT-16.6-REFERENCE-REPORT.md` (353 行, moni-agy pane `w4:p1V` Claude Opus 4.6 调研 ~3 min)
+
 ### v1.0.35.10 核心改动 (sprint-16.5 加固)
 
 **背景**: v1.0.35.9 修了 fact_check_plus.md 占位符 bug, 但只是治标. 本 PR 加固, 防止 "$name 雷再埋" + 钉死 sprint-14 类复发 (mock 太厚盖掉真实 LLM 输入).

@@ -1,6 +1,6 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。**v1.0.35.10** (2026-08-24 SHIPPED) — sprint-16.5 加固: 模板占位符 lint 守卫 + spy call_llm e2e 测试, 防止 v1.0.35.9 修复的 `$name` 雷再埋, 钉死 sprint-14 类复发 (mock 太厚盖掉真实 LLM 输入). PR #117 squash @ `1fa7c42`, tag v1.0.35.10. 762 pass / 2 skip / 0 fail.
+> 同业信源自动抓取与本地新闻库。**v1.0.35.11** (2026-08-24 SHIPPED) — sprint-16.6 修复: 【无需核查】档 + 空 evidence 不再误报 failed (修设计与实现矛盾). PR #118 squash @ `dd3ef00`, tag v1.0.35.11. 765 pass / 2 skip / 0 fail.
 > 本次新增: `moni/llm/client.py` 删 `--profile` flag; `moni/llm/jobs.py` fact_check_plus `extra_args` 去 `-Q --max-turns`; `.gitignore` 整目录截图入 ignore + 申报目录独立 ignore; 删 6 张 v1.0.19 量化看板截图。PR #109。  
 > 这份文档给**用户**（你自己）看 —— 怎么用 moni，不讲代码细节。
 
@@ -649,6 +649,32 @@ v1.0.35.9 修了占位符 bug 但只是治标, v1.0.35.10 加两层防护:
 **范围决策 (agy herdr §3)**:
 - 8 项盲区砍到 3 项 ship (lint + spy + raw_content fallback)
 - 砍 4 项: `{json_key}` 边界 (L772 间接覆盖) / `published_at` 异常 (DB schema 保证) / `_PLACEHOLDER_RE` regex pin (低价值) / `extra_args` 单独 spy (合并到 spy 测试)
+
+### 5.5c v1.0.35.11 修复 — 【无需核查】档不再误报 failed
+
+**症状** (dad 2026-08-24 live 验报):
+纯观点文 (e.g. "AI办公这个'垃圾赛道',大厂到底在抢什么?") 联网核查报:
+```
+DB writeback failed: RAW OUTPUT: {"conclusion": "【无需核查】", "evidence": []} | PARSE: no evidence with snippet
+```
+
+**根因** (设计与实现矛盾):
+- 模板 `moni/llm/prompts/fact_check_plus.md:42` 规定: 【无需核查】evidence 必须为空数组
+- 实现 `moni/llm/jobs.py:640-641` 不区分 conclusion, 只要 `evidence==[]` 就 raise → status=failed
+
+**修法**:
+- `_persist_fact_check_plus` 提前 `conclusion` 到 Gate 1 之前
+- 加条件: `if not valid AND conclusion.startswith("【无需核查】"):` → 跳闸, 调新增 `_persist_no_check_needed()` 直接 done 入库
+- 其他 3 档 (【已核实】/【待核实】/【存疑】) 行为不变
+
+**用户可见效果**:
+- 修前: 纯观点文联网核查必报 "failed"
+- 修后: 直接 status=done, 文章详情面板 "联网核查" 展开显示 "【无需核查】" 标签, 证据链为空 (符合预期)
+
+**回归怎么验**:
+1. 进文章详情, 找一篇纯观点文 (标题含 "赛道/趋势/思考" 等, 无数字/排名/案例)
+2. 点 "联网核查" → 观察 10-20 秒
+3. status=done (修前 status=failed) + 详情显示 "【无需核查】"
 
 ### 5.6 B5 失败诊断 (v1.0.23)
 
