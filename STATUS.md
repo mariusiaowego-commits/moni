@@ -4,7 +4,73 @@
 
 ---
 
-## 当前状态: **v1.0.35.4 — build script 同步 oklch→hex 转换 (Chrome 105 兼容) + stale test fix** (2026-08-20 AM)
+## 当前状态: **v1.0.35.9 — sprint-16 P1 fact_check_plus 占位符 $name → {name} 修复** (2026-08-23 SHIPPED)
+
+**主分支**: main @ `15a5256` (squash of PR #116)
+**PR #116**: **MERGED (squash, branch deleted)** @ `15a5256` (2 files +63/-4)
+**Tag**: **v1.0.35.9 @ `15a5256`** (force push OK, 无 drift)
+**测试**: **757 passed / 2 skipped / 0 failed** (基线 756 → +1 新单测 `test_render_fact_check_plus_empty_article_falls_back` + 99c133c 的 `test_render_fact_check_plus_fills_placeholders`)
+**Web 服务**: `127.0.0.1:8900` PID 9661 (uvicorn, absolute python3.12 path, dotenv loader in /tmp/moni-8900-launcher.py 绕 shell builtin)
+**端到端验证 (live 8900)**:
+- 5 端点 200 OK: `/`, `/api/articles`, `/api/config/sources`, `/api/llm/jobs`, `/api/share/tasks`
+- POST `/api/articles/{id}/fact-check-plus` 跑 Westpac + Amp 文章 `d1073c471aa9a9b1`:
+  - `status=done` (修前 `failed` "unfilled placeholders")
+  - duration 51.2s, input 19481 tokens (修前 0 token, LLM 拒答)
+  - `conclusion=【已核实】`, 5 条 evidence 落库 (westpac.com.au 官方 / Finextra / westpac.com.au 公司概况 / Wikipedia Big Four / Asian Banking & Finance)
+- 另一篇播客文章 (第一财经 Vol.585): `status=failed` 但 error 是 "no evidence with snippet" (跟修前 "unfilled placeholders" 不同, 渲染层已通, 是下游 evidence parse 闸跟【无需核查】结论交互的已知边界, 跟本次 fix 无关)
+
+## 当前状态: **v1.0.35.10 — sprint-16.5 lint placeholder + spy call_llm e2e** (2026-08-24 SHIPPED)
+
+**主分支**: main @ `1fa7c42` (squash of PR #117)
+**PR #117**: **MERGED (squash, branch deleted)** @ `1fa7c42` (3 files +387/-0)
+**Tag**: **v1.0.35.10 @ `1fa7c42`** (push OK, 无 drift)
+**测试**: **762 passed / 2 skipped / 0 failed** (基线 757 → +5: 3 lint test + 2 spy test)
+**Web 服务**: `127.0.0.1:8900` PID 34329 (uvicorn, absolute python3.12 path, dotenv loader in /tmp/moni-8900-launcher.py)
+**端到端验证 (live 8900)**:
+- 5 端点 200 OK: `/`, `/api/articles`, `/api/config/sources`, `/api/llm/jobs`, `/api/share/tasks`
+- **lint 守卫 live**: `python scripts/lint_prompt_placeholders.py` exit 0 (4 模板 clean)
+- POST `/api/articles/{id}/fact-check-plus` 跑 36kr 文章 `3908eb246312d9a3` (博泰车联 8397 座舱):
+  - `status=done` (v1.0.35.9 后继续 ship,渲染层修复已稳)
+  - duration 9.7s, input 12969 tokens
+  - `conclusion=【待核实】` (仅 财联社 + 至顶网 2 自媒体,无 gov/交易所命中,符合 4 档规则)
+  - 2 条 evidence 落库 (cls.cn / zhiding.cn)
+
+### v1.0.35.10 核心改动 (sprint-16.5 加固)
+
+**背景**: v1.0.35.9 修了 fact_check_plus.md 占位符 bug, 但只是治标. 本 PR 加固, 防止 "$name 雷再埋" + 钉死 sprint-14 类复发 (mock 太厚盖掉真实 LLM 输入).
+
+**3 文件 ship**:
+1. `scripts/lint_prompt_placeholders.py` (新, 95 行) — 扫 4 个 regex-rendered .md 模板, 拒 `$[a-zA-Z_]+` 占位符 (代码块内允许). 不扫 case_extraction.txt / event_extraction.txt (不同渲染器)
+2. `tests/test_lint_prompts.py` (新, 99 行, 3 tests) — pytest 集成 (不引 pre-commit 依赖, moni 无 `.pre-commit-config.yaml`)
+3. `tests/test_fact_check_plus.py` (+192 行, 2 spy tests) — captured dict spy 模式, 断言 prompt 到 LLM 时不含 `$xxx` + 含真实 article 字段 + `extra_args=["-t", "web"]`; raw_content fallback 路径钉死
+
+**范围决策 (agy herdr §3)**: 原 8 项盲区砍到 3 项 (本 PR 全部 ship), 砍 4 项理由:
+- `{json_key}` 边界 (L772 现有测试间接覆盖)
+- `published_at` 异常值 (DB schema 保证不会触发)
+- `_PLACEHOLDER_RE` regex pin (5 sprint 不动, 低价值)
+- `extra_args` 单独 spy (合并到 spy 测试)
+
+**Risk**: Low — 零生产代码改动, rollback = 删 3 文件 + revert 1 commit.
+
+**Refs**: agy herdr 报告 `/Users/mt16/dev/moni-ref-fact-check/SPRINT-16.5-REFERENCE-REPORT.md` (198 行, moni-agy pane `w4:p1V` Claude Opus 4.6 调研 ~4 min)
+
+### v1.0.35.9 核心改动 (sprint-16 P1)
+
+**根因**: moni/llm/prompts/fact_check_plus.md L45-50 用 `$title/$url/$published_at/$content` (dollar 前缀), 但 `moni/llm/prompts/__init__.py::_render()` 正则 `_PLACEHOLDER_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")` 只认 `{name}`。`$name` 形式完全不被识别 → 模板原样发到 LLM → LLM 拒答 "article template was sent with unfilled placeholders" → `llm_jobs.status=failed`。
+
+**暴露过程**: 这 bug 自 v1.0.22 (fact_check_plus 上线) ship 起一直未通, 被 sprint-07~13 hermes flag (LLM 拒答自动 retry) 遮蔽, v1.0.34 删 flag 后事实核查 job 才持续以 failed 落库, v1.0.34.2 修了一部分但漏这个, v1.0.35 / v1.0.35.1~8 都没动, 拖到 sprint-16 P1 才修。
+
+**修法**: 模板 4 行 `$name → {name}`, 跟其他 3 模板 (fact_check.md / predict_tag.md / summary.md) 风格统一。
+
+**端到端验证** (tmp DB + enqueue + _run_job + mocked call_llm):
+- prompt 渲染输出不再含 `$title` 等字面
+- `llm_jobs.status=done` (修前 `failed`)
+- `llm_jobs.error=None` (修前含 "unfilled placeholders")
+- `fact_check_evidence` 落库
+
+**测试**: `tests/test_fact_check_plus.py` 新增 `test_render_fact_check_plus_fills_placeholders`, 断言渲染后不含 `$title`/`$url`/`$published_at`/`$content` 字面, 含已填内容。
+
+### v1.0.35.4 核心改动 (2 PR)
 
 **主分支**: **main** @ `244bd9f` (PR #113 + #114 都 merged)
 **PR #113**: **merged** (build script 同步 oklch→hex, 231 ins / 4 del, `244bd9f`)

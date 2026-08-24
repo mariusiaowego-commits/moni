@@ -1,6 +1,6 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。**v1.0.34** (2026-08-17) — hermes 0.20 extra_args 兼容 + 截图归档清理。  
+> 同业信源自动抓取与本地新闻库。**v1.0.35.10** (2026-08-24 SHIPPED) — sprint-16.5 加固: 模板占位符 lint 守卫 + spy call_llm e2e 测试, 防止 v1.0.35.9 修复的 `$name` 雷再埋, 钉死 sprint-14 类复发 (mock 太厚盖掉真实 LLM 输入). PR #117 squash @ `1fa7c42`, tag v1.0.35.10. 762 pass / 2 skip / 0 fail.
 > 本次新增: `moni/llm/client.py` 删 `--profile` flag; `moni/llm/jobs.py` fact_check_plus `extra_args` 去 `-Q --max-turns`; `.gitignore` 整目录截图入 ignore + 申报目录独立 ignore; 删 6 张 v1.0.19 量化看板截图。PR #109。  
 > 这份文档给**用户**（你自己）看 —— 怎么用 moni，不讲代码细节。
 
@@ -611,10 +611,44 @@ Rescue = 把菜篮子里的文章「救回」到正式文章库：
 
 **故障排查**:
 - 证据始终为空 → 后端 `_parse_fact_check_plus_evidence` 失败 (P1 留 sprint08, 暂记 llm_jobs.error)
+- **v1.0.35.9 修复**: 若 llm_jobs.error 含 "unfilled placeholders" 字样, 那是模板占位符未替换. 已 ship, 不应再出现
 - 409 Conflict → 已有同 article 的 pending/running job, 等完成或手动取消
 - 503 Service Unavailable → 没配 active_fact_check_model_id, 进 LLM 设置页绑 model
 
 **注意**: 导入会整体替换原有正文，不合并。
+
+### 5.5 v1.0.35.9 修复 — 模板占位符 $name → {name}
+
+**自 v1.0.22 ship 起的隐藏 bug** (sprint-16 P1 才修):
+
+`moni/llm/prompts/fact_check_plus.md` 模板历史用 `$title/$url/$published_at/$content` (dollar 前缀), 但 `moni/llm/prompts/__init__.py::_render()` 正则只认 `{name}` 风格。`$name` 形式完全不被识别, 模板原样发到 LLM, LLM 拒答 "article template was sent with unfilled placeholders" → `llm_jobs.status=failed`。被 sprint-07~13 hermes flag (自动 retry) 遮蔽, v1.0.34 删 flag 后暴露, v1.0.35 / v1.0.35.1~8 都没动, 拖到 v1.0.35.9 (sprint-16 P1) 修。
+
+**用户可见效果**: 修前 LLM 任务面板里 fact_check_plus 任务长期 100% failed; 修后 done 率正常, 证据链 (URL + snippet) 正常落库 articles 表。
+
+**回归怎么验**:
+1. 启 8900 (绝对路径): `/usr/local/bin/python3 -c "import uvicorn; ..."`
+2. 进 "文章查阅" 找 1 篇未联网核查过的文章
+3. 点 "联网核查" → 任务面板观察 30-60 秒
+4. status=done (修前 status=failed) + 详情面板"联网核查"展开有证据链
+
+### 5.5b v1.0.35.10 加固 — lint 守卫 + spy call_llm e2e
+
+v1.0.35.9 修了占位符 bug 但只是治标, v1.0.35.10 加两层防护:
+
+**lint 守卫** (`scripts/lint_prompt_placeholders.py`):
+- 扫 `moni/llm/prompts/*.md` 4 个 regex-rendered 模板 (summary/fact_check/fact_check_plus/predict_tag)
+- 拒绝 `$[a-zA-Z_]+` 占位符形态 (代码块内允许)
+- 不引 pre-commit 依赖, 直接走 pytest
+- 独立可跑: `python scripts/lint_prompt_placeholders.py` → exit 0/1
+
+**spy call_llm e2e 测试** (`tests/test_fact_check_plus.py` 新增 2 测试):
+- 用 captured dict 模式 spy `moni.llm.jobs.call_llm`
+- 断言 prompt 到 LLM 时不含 `$xxx` + 含真实 article 字段 + `extra_args=["-t", "web"]`
+- 钉死 sprint-14 类复发: mock 太厚盖掉真实 LLM 输入, bug 期间测试全 pass 现在不会了
+
+**范围决策 (agy herdr §3)**:
+- 8 项盲区砍到 3 项 ship (lint + spy + raw_content fallback)
+- 砍 4 项: `{json_key}` 边界 (L772 间接覆盖) / `published_at` 异常 (DB schema 保证) / `_PLACEHOLDER_RE` regex pin (低价值) / `extra_args` 单独 spy (合并到 spy 测试)
 
 ### 5.6 B5 失败诊断 (v1.0.23)
 
