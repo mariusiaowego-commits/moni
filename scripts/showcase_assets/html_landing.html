@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>同业简报 2026-08-14</title>
+
+<style>
+  :root {
+    --bg: #f5f2eb;
+    --card: #fffcf7;
+    --text: #1c1917;
+    --muted: #78716c;
+    --border: #e7e0d4;
+    --navy: #1a365d;
+    --accent: #b45309;
+    --accent-soft: #d97706;
+    --tone-0: #faf7f2;
+    --tone-1: #f3ebe0;
+    --tone-2: #e8d9c4;
+    --tone-3: #ddc9a8;
+    --panel: #f0ebe3;
+    --summary-bg: #fff4e6;
+    --focus-bg: #f8f4ee;
+    --focus-border: #e8d9c4;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC",
+             "Noto Serif CJK SC", "Source Han Serif SC", "STSong", Georgia, serif;
+    --sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--serif);
+    line-height: 1.75; font-size: 17px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 48px 36px 80px; }
+  h1 {
+    font-family: var(--serif);
+    font-size: 2rem; margin: 0 0 12px; letter-spacing: -0.02em;
+    font-weight: 700; line-height: 1.25;
+  }
+  .sub {
+    color: var(--muted); margin: 0 0 36px; font-size: 0.95rem;
+    font-family: var(--sans);
+  }
+  .focus {
+    background: var(--focus-bg); border: 1px solid var(--focus-border);
+    border-radius: 14px; padding: 28px 26px 24px; margin: 0 0 40px;
+  }
+  .focus > h2 {
+    margin: 0 0 20px; font-size: 1.05rem; font-family: var(--sans);
+    font-weight: 650; letter-spacing: 0.02em; color: var(--navy);
+  }
+  .focus-list { list-style: none; margin: 0; padding: 0; counter-reset: fi; }
+  .focus-item {
+    counter-increment: fi;
+    margin: 0 0 18px; padding: 16px 16px 16px 48px; position: relative;
+    background: rgba(255,255,255,0.82); border-radius: 12px;
+    border: 1px solid rgba(26,54,93,0.06);
+  }
+  .focus-item:last-child { margin-bottom: 0; }
+  .focus-item::before {
+    content: counter(fi);
+    position: absolute; left: 14px; top: 16px;
+    width: 26px; height: 26px; border-radius: 999px;
+    background: var(--navy); color: #fff;
+    font-family: var(--sans); font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .focus-title {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px;
+    margin: 0 0 10px; line-height: 1.45;
+  }
+  .focus-title strong { font-weight: 650; font-size: 1.02rem; }
+  .focus-bv {
+    font-family: var(--sans); font-size: 11px; font-weight: 700;
+    color: var(--navy); background: var(--tone-1); border: 1px solid var(--tone-2);
+    border-radius: 999px; padding: 3px 10px; cursor: help;
+  }
+  .focus-note { margin: 0; color: #44403c; font-size: 0.98rem; line-height: 1.7; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 28px 28px 24px; margin: 0 0 32px;
+    box-shadow: 0 1px 0 rgba(28,25,23,0.03);
+  }
+  .card.is-thin { opacity: 0.97; }
+  .card-head {
+    display: grid; grid-template-columns: auto 1fr; gap: 12px 16px;
+    align-items: start; margin: 0 0 18px;
+  }
+  .card-idx {
+    font-family: var(--sans); font-size: 1.6rem; font-weight: 700; line-height: 1.1;
+    color: var(--accent-soft); letter-spacing: -0.02em; min-width: 1.6em;
+  }
+  .card h2 {
+    font-size: 1.2rem; margin: 0; line-height: 1.45; font-weight: 700; color: var(--navy);
+  }
+  .meta-row {
+    display: flex; flex-wrap: wrap; gap: 8px 10px; margin: 0 0 16px; font-family: var(--sans);
+  }
+  .chip {
+    display: inline-flex; align-items: center; font-size: 0.8rem; color: var(--navy);
+    background: var(--tone-1); border: 1px solid var(--tone-2);
+    border-radius: 999px; padding: 5px 12px; max-width: 100%; line-height: 1.4;
+  }
+  .chip.score {
+    font-weight: 650; cursor: help; background: var(--tone-0);
+    border-color: var(--tone-2); color: var(--navy);
+    position: relative;
+  }
+  /* CSS tooltips (native title is too slow / easy to miss) */
+  .has-tip {
+    position: relative;
+    cursor: help;
+  }
+  .has-tip::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: 50%; bottom: calc(100% + 8px);
+    transform: translateX(-50%) translateY(4px);
+    min-width: 12em; max-width: 18em;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #1c1917;
+    color: #fafaf9;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: var(--sans);
+    line-height: 1.45;
+    letter-spacing: 0;
+    white-space: normal;
+    text-align: left;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease, transform 0.12s ease;
+    z-index: 40;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+  }
+  .has-tip:hover::after,
+  .has-tip:focus-visible::after {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  .sec { margin: 24px 0 10px; }
+  .sec + .sec { margin-top: 30px; }
+  .sec-label {
+    font-size: 0.82rem; margin: 0 0 14px; color: var(--accent);
+    font-weight: 650; font-family: var(--sans); letter-spacing: 0.04em;
+    /* 与摘要/事实核查同一行内布局，保证 ▎ 与标题左对齐 */
+    display: block;
+    line-height: 1.5;
+  }
+  .sec-label::before {
+    content: "▎";
+    margin-right: 2px;
+    color: var(--accent-soft);
+  }
+  /* 业务判断分数：标题同行、非 pill，无描边 */
+  .bv-score {
+    display: inline-block;
+    margin-left: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    border: none;
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.35;
+    vertical-align: 0.05em;
+  }
+  .bv-score.bv-lo { background: #dc2626; color: #fff; }
+  .bv-score.bv-60 { background: #ea580c; color: #fff; }
+  .bv-score.bv-70 { background: #d97706; color: #fff; }
+  .bv-score.bv-80 { background: #ca8a04; color: #fff; }
+  .bv-score.bv-90 { background: #16a34a; color: #fff; }
+  .bv-score.bv-na { background: var(--tone-1); color: var(--muted); }
+  .bv-body {
+    margin: 0;
+    font-size: 1.02rem;
+    line-height: 1.75;
+    color: #1c1917;
+  }
+  .summary-block {
+    margin: 0; padding: 16px 18px; background: var(--summary-bg);
+    border: none; border-radius: 10px; color: #292524; font-size: 1.02rem; line-height: 1.75;
+  }
+  .summary-block.is-thin { background: var(--tone-1); color: var(--muted); font-size: 0.95rem; }
+  .orig-body blockquote, blockquote {
+    margin: 0.7em 0; padding: 10px 14px; border-left: 3px solid var(--tone-2);
+    background: var(--tone-0); border-radius: 0 8px 8px 0; color: #44403c;
+  }
+  .fc { list-style: none; padding: 0; margin: 4px 0 0; }
+  /* 已核实/待核实：与正文同一行，标签在段首 */
+  .fc-line {
+    margin: 0 0 14px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px 10px;
+  }
+  .fc-line.fc-inline {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+  }
+  .fc-line.fc-stack {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .fc-line:last-child { margin-bottom: 0; }
+  .fc-plain { color: var(--muted); font-family: var(--sans); }
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
+    font-size: 12px; font-weight: 600; font-family: var(--sans);
+    padding: 2px 8px 2px 4px; border-radius: 999px; white-space: nowrap; line-height: 1.4;
+    border: 1px solid var(--tone-2); background: var(--tone-1); color: var(--navy);
+  }
+  .badge.ok { background: #f0ebe3; color: #3f3a34; border-color: #ddd0bc; }
+  .badge.warn { background: #fff4e6; color: #9a3412; border-color: #f0d9b5; }
+  .badge.bad { background: #f5e6e0; color: #7c2d12; border-color: #e8c4b0; }
+  .badge svg { flex-shrink: 0; display: block; }
+  .badge-lab { letter-spacing: 0.02em; }
+  .fc-text {
+    flex: 1 1 12em;
+    min-width: 0;
+    line-height: 1.7;
+    color: #1c1917;
+  }
+  .excluded {
+    margin: 40px 0 0; padding: 22px 24px;
+    background: var(--tone-0); border: 1px dashed var(--tone-2);
+    border-radius: 12px; font-family: var(--sans);
+  }
+  .excluded h2 {
+    margin: 0 0 10px; font-size: 1rem; color: var(--navy); font-weight: 650;
+  }
+  .excluded-lead { margin: 0 0 12px; color: var(--muted); font-size: 0.9rem; }
+  .excluded-list { margin: 0; padding-left: 1.25em; color: #44403c; font-size: 0.92rem; }
+  .excluded-list li { margin: 0.45em 0; }
+  .ex-reason { color: var(--muted); font-weight: 400; }
+  .orig-wrap { margin-top: 28px; border-top: 1px dashed var(--border); padding-top: 22px; }
+  .fold-btn {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    width: 100%; min-height: 44px; padding: 10px 16px;
+    border: 1px solid var(--tone-2); border-radius: 10px; cursor: pointer;
+    font-family: var(--sans); font-size: 14px; font-weight: 600; letter-spacing: 0.03em;
+    color: var(--navy); background: var(--tone-0);
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .fold-btn:hover { background: var(--tone-1); border-color: var(--tone-3); }
+  .fold-btn:focus-visible { outline: 2px solid var(--accent-soft); outline-offset: 2px; }
+  .fold-chev {
+    width: 0; height: 0;
+    border-left: 5px solid transparent; border-right: 5px solid transparent;
+    border-top: 6px solid var(--muted); transition: transform 0.25s ease;
+  }
+  .fold-btn[aria-expanded="true"] .fold-chev { transform: rotate(180deg); }
+  .orig-panel { overflow: hidden; max-height: 0; transition: max-height 0.32s ease; }
+  .orig-inner { padding-top: 16px; }
+  .orig-scroll {
+    max-height: 420px; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 20px 22px; font-size: 1.02rem; color: #1c1917; line-height: 1.85;
+  }
+  .orig-body { white-space: normal; word-break: break-word; font-family: var(--serif); }
+  .orig-body h2 { font-size: 1.12rem; margin: 1.2em 0 0.55em; color: var(--text); }
+  .orig-body h3 { font-size: 1.04rem; margin: 1.1em 0 0.5em; color: #44403c; }
+  .orig-body h4 { font-size: 0.98rem; margin: 1em 0 0.45em; color: #57534e; }
+  .orig-body p { margin: 0 0 0.95em; }
+  .orig-body p:last-child { margin-bottom: 0; }
+  .orig-body ul, .orig-body ol { margin: 0 0 0.95em; padding-left: 1.4em; }
+  .orig-body li { margin: 0.35em 0; }
+  .orig-body hr { border: 0; border-top: 1px solid #d6d3d1; margin: 1.2em 0; }
+  .orig-body code {
+    font-family: ui-monospace, Consolas, monospace; font-size: 0.88em;
+    background: #e7e5e4; padding: 0.1em 0.35em; border-radius: 4px;
+  }
+  .orig-body a { color: var(--accent); text-decoration: none; }
+  .orig-body a:hover { text-decoration: underline; }
+  .orig-body strong { font-weight: 700; color: #0c0a09; }
+  .orig-body .empty { color: var(--muted); }
+  .orig-foot { margin-top: 12px; font-size: 0.85rem; font-family: var(--sans); }
+  .orig-foot .ext { color: var(--muted); }
+  .foot {
+    text-align: center; color: var(--muted); font-size: 0.88rem;
+    margin-top: 48px; font-family: var(--sans);
+  }
+  @media print {
+    .orig-panel { max-height: none !important; overflow: visible !important; }
+    .orig-scroll { max-height: none; overflow: visible; }
+    .fold-btn { display: none; }
+    .wrap { max-width: none; }
+  }
+  @media (max-width: 720px) {
+    .wrap { padding: 28px 16px 56px; }
+    body { font-size: 16px; }
+    .card { padding: 22px 18px 20px; margin-bottom: 24px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .orig-panel, .fold-chev { transition: none; }
+  }
+</style>
+
+<script>
+(function () {
+  function setOpen(btn, panel, open) {
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    panel.setAttribute("aria-hidden", open ? "false" : "true");
+    var txt = btn.querySelector(".fold-txt");
+    if (txt) {
+      txt.textContent = open
+        ? (btn.getAttribute("data-label-close") || "收起全文")
+        : (btn.getAttribute("data-label-open") || "查看全文");
+    }
+    if (open) {
+      panel.style.maxHeight = "none";
+      var h = panel.scrollHeight;
+      panel.style.maxHeight = "0px";
+      void panel.offsetHeight;
+      panel.style.maxHeight = h + "px";
+      var done = function () {
+        if (btn.getAttribute("aria-expanded") === "true") {
+          panel.style.maxHeight = "none";
+        }
+        panel.removeEventListener("transitionend", done);
+      };
+      panel.addEventListener("transitionend", done);
+    } else {
+      panel.style.maxHeight = panel.scrollHeight + "px";
+      void panel.offsetHeight;
+      panel.style.maxHeight = "0px";
+    }
+  }
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest(".fold-btn");
+    if (!btn) return;
+    var wrap = btn.closest(".orig-wrap");
+    if (!wrap) return;
+    var panel = wrap.querySelector(".orig-panel");
+    if (!panel) return;
+    var open = btn.getAttribute("aria-expanded") === "true";
+    setOpen(btn, panel, !open);
+  });
+})();
+</script>
+</head>
+<body>
+<div class="wrap">
+  <h1>同业简报 2026-08-14</h1>
+  <p class="sub">from moni by TQ · 7 篇文章 · 按业务价值排序 · 全文已内嵌（离线可读） · 另有 6 篇因信息不足未纳入 · 已联网核查 0/13 篇，13 篇未联网核查</p>
+
+  <section class="focus">
+    <h2>优先关注</h2>
+    <ol class="focus-list"><li class="focus-item">
+  <div class="focus-title">
+    <span class="focus-bv has-tip" data-tip="业务价值（0–100）：对同业/自身业务可对标程度，由 moni AI 评估">业务价值 85</span>
+    <strong>AI叙事，救不了信用卡</strong>
+  </div>
+  <p class="focus-note">AI卡仅是表层获客试水，智能体支付才是底层方向，我方应对标银联APOP与卡组织布局</p>
+</li><li class="focus-item">
+  <div class="focus-title">
+    <span class="focus-bv has-tip" data-tip="业务价值（0–100）：对同业/自身业务可对标程度，由 moni AI 评估">业务价值 84</span>
+    <strong>App时代要结束了？OpenAI总裁：未来用户只需指挥Agent，每个软件都得学会被调用</strong>
+  </div>
+  <p class="focus-note">银行服务要按Agent可调用标准开放API，权限与重入设计决定开放银行竞争力。</p>
+</li><li class="focus-item">
+  <div class="focus-title">
+    <span class="focus-bv has-tip" data-tip="业务价值（0–100）：对同业/自身业务可对标程度，由 moni AI 评估">业务价值 83</span>
+    <strong>招商银行App上线“碳积分兑数币”通道，数字人民币与碳普惠的探索融合之路</strong>
+  </div>
+  <p class="focus-note">招行借碳普惠拉数币钱包活跃度，可借鉴其积分-数币兑换链路</p>
+</li></ol>
+  </section>
+
+  
+<article class="card" data-id="6a83708766c0004c">
+  <header class="card-head">
+    <span class="card-idx" aria-hidden="true">01</span>
+    <h2>AI叙事，救不了信用卡</h2>
+  </header>
+  <div class="meta-row">
+    <span class="chip">未央科技weiyangx（wechat_rss_b）</span>
+    <span class="chip">2026-07-24</span>
+    <span class="chip score has-tip" data-tip="质量/注意力分（0–100）：综合标题完整度、正文信息量等的启发式评分，用于粗略判断是否「值得一读」。非机构评级。">质量分 94</span>
+    <span class="chip score has-tip" data-tip="业务价值（0–100）：对同业/自身业务的可对标、可落地程度。由 moni 结合正文做 AI 评估；正文过短时会标「素材不足」。">业务价值 85</span>
+  </div>
+  <div class="sec">
+    <h3 class="sec-label">摘要</h3>
+    <div class="summary-block">国内信用卡发卡量降至6.87亿张，招行浦发农行推出AI主题卡，仅限Token权益层。文章认为这些卡非AI原生，救不了行业下滑。</div>
+  </div>
+  
+  <div class="sec">
+    <h3 class="sec-label">业务判断 <span class="bv-score bv-80">85分</span></h3>
+    <div class="bv-body">AI卡仅是表层获客试水，智能体支付才是底层方向，我方应对标银联APOP与卡组织布局</div>
+  </div>
+  <div class="sec">
+    <h3 class="sec-label">事实核查</h3>
+    <ul class="fc"><li class='fc-line fc-inline'><span class='badge ok'><svg viewBox="0 0 16 16" width="16" height="16" aria-label="已核实" role="img"><circle cx="8" cy="8" r="8" fill="#16a34a"/><path d="M4.5 8.2l2.2 2.2 4.8-4.8" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg><span class='badge-lab'>已核实</span></span><span class='fc-text'>信用卡发卡量6.87亿张、峰值缩减1.2亿张：央行一季度支付报告确认6.87亿张，峰值为2022Q3的8.07亿张，缩减1.2亿张（21经济/人民日报/证券时报等多家转载）</span></li><li class='fc-line fc-inline'><span class='badge ok'><svg viewBox="0 0 16 16" width="16" height="16" aria-label="已核实" role="img"><circle cx="8" cy="8" r="8" fill="#16a34a"/><path d="M4.5 8.2l2.2 2.2 4.8-4.8" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg><span class='badge-lab'>已核实</span></span><span class='fc-text'>Visa 4月30日新加坡Agentic Ready项目：Visa官方新闻稿确认当日启动，联合13家银行及金融科技机构（星展、汇丰新加坡、华侨银行等），亚太最大智能体支付基础设施布局</span></li></ul>
+  </div>
+  <div class="orig-wrap">
+    <button type="button" class="fold-btn" aria-expanded="false"
+            data-label-open="查看全文" data-label-close="收起全文">
+      <span class="fold-chev" aria-hidden="true"></span>
+      <span class="fold-txt">查看全文</span>
+    </button>
+    <div class="orig-panel" aria-hidden="true">
+      <div class="orig-inner">
+        <div class="orig-scroll">
+          <div class="orig-body"><h3>[未央科技weiyangx] AI叙事，救不了信用卡</h3>
+<p>日报 专栏 热点 国际 活动 当前国内所有AI信用卡，都只是AI主题的信用卡，而非AI原生的信用卡。</p>
+<p>来源｜新金融琅琊榜 作者｜董云峰 国内信用卡行业的收缩周期，已经持续了整整三年。</p>
+<p>截至一季度末，全国信用卡和借贷合一卡在用发卡量回落至6.87亿张，较历史峰值累计缩减超1.2亿张，跌回2018年水平。</p>
+<p>持续下滑背后，是全行业挥之不去的同质化内卷、获客成本高企、用户黏性下滑的困境，砍权益、缩编制、降规模成为近年行业的主旋律。</p>
+<p>在此背景下，一场AI信用卡发行潮激起了不小的水花。</p>
+<p>从6月中旬招行落地国内首张内嵌大模型Token权益的工程师信用卡，到7月浦发、农行接连推出阿里云、Kimi联名产品，短短一个多月内，AI主题信用卡密集落地。</p>
+<p>当算力权益替代咖啡券、观影票、航空里程成为新的获客招牌，当生产型权益的叙事取代传统的消费返利逻辑，一个核心问题摆在整个行业面前： 陷入存量收缩的信用卡，能靠AI救场吗？</p>
+<p>寒冬里的新稻草 对发卡机构而言，AI主题卡至少在三个维度上，提供了破局的现实可能性。</p>
+<p>信用卡行业当前的一大痛点，在于权益与客群的双重同质化。</p>
+<p>餐饮返现、观影折扣、机场贵宾厅等传统权益，已经卷到边际效益几乎为零。</p>
+<p>AI主题卡的核心价值，就在于精准锚定了银行渴求的优质客群，比如AI开发者、科研人员、内容创作者以及高频使用大模型的自由职业者；算力主题的细分定位能帮助银行以更低的获客成本触达高价值用户，优化整体用户结构。</p>
+<p>在权益体系层面，AI信用卡的重大突破，是完成了从“生活消费型”到“生产型”的范式升级，跳出了以消费返利为核心的传统逻辑。</p>
+<p>传统信用卡权益始终围绕生活消费场景展开，本质是对用户支出的反向补贴。</p>
+<p>而本轮AI信用卡将大模型Token、算力额度、专业AI工具权限纳入核心权益，直接匹配数字经济下用户的生产力工具刚需，首次将信用卡升级为个人数字生产力的配套载体。</p>
+<p>从行业实践来看，权益模式已形成清晰的分层体系：招行主打专业开发者的高额一次性Token礼包，农行Kimi卡落地“消费积分换算力”的长期兑换机制，浦发则以云服务满减券覆盖科创消费场景，初步构建起分层的生产型权益框架。</p>
+<p>值得一提的是，本轮AI信用卡的集中落地，并非银行单方面的自嗨，而是形成了“银行+卡组织+AI/云厂商”的稳定三方合作框架。</p>
+<p>对银行而言，借助AI主题完成差异化获客与用户结构优化，同时带动3C数码、云服务等科技类消费的刷卡频次；对AI厂商而言，银行庞大的用户基础与线上线下触达网络，提供了低成本的获客渠道，解决了大模型付费转化难的痛点；对卡组织而言，进一步拓展了支付网络的场景边界。</p>
+<p>从这个意义来说，AI信用卡可以视为支付产业与AI产业跨界协同的一次有效落地。</p>
+<p>远水难解近渴 从差异化创新到拯救行业大盘，很遥远。</p>
+<p>就当前的产品形态而言，AI信用卡很难承担救场重任，其局限性十分突出。</p>
+<p>很明显，AI权益的实用价值，存在极强的圈层局限性，根本无法覆盖大众用户，也就不可能扭转全行业发卡量下滑的大盘。</p>
+<p>对绝大多数普通办公用户而言，日常使用大模型每月仅需数百万Token，当前产品动辄几十亿的Token额度基本处于闲置状态，权益的标称价值远高于用户实际感知价值。</p>
+<p>对非高频使用AI的大众用户而言，算力权益的感知价值远低于传统权益，普适性严重不足。</p>
+<p>更关键的是，当前核心AI权益几乎全部绑定新户首刷礼，属于一次性获客补贴，存量老用户无法享受，其本质仍是银行惯用的新户拉新套路，只能撬动极小一部分细分客群，对行业整体的规模收缩、用户流失困局，无异于杯水车薪。</p>
+<p>在商业逻辑层面，当前AI信用卡的短期获客价值已被验证，但长期可持续性仍存在多重隐患，很难成为行业的长期转型方向。</p>
+<p>短期内，AI权益的获客成本具备显著优势。</p>
+<p>银行与大模型厂商采用企业级批量合作，看似标称价值高昂的数十亿Token新户礼，实际边际成本仅为几十元到上百元，叠加精准客群筛选带来的低获客损耗，短期拉新的性价比优于传统权益。</p>
+<p>但从长期来看，成本端的不确定性持续存在。</p>
+<p>一次性新户礼成本可控，但“消费积分换算力”的长期权益模式，会随用户使用频次提升形成持续的成本支出。</p>
+<p>在息差收窄的行业背景下，能否被用户全生命周期价值完全覆盖，目前仍没有成熟的验证案例。</p>
+<p>此外，同质化内卷的苗头已经显现。</p>
+<p>短短一个多月内，多家头部银行扎堆入局，所有产品都在主打“信用卡+大模型会员/Token”。</p>
+<p>若后续更多银行跟风布局，很容易重蹈拼补贴、卷权益的覆辙，陷入新一轮无效竞争。</p>
+<p>对于内卷，信用卡从业者再熟稔不过了。</p>
+<p>一次温和的维新 归根结底，当前国内所有AI信用卡，都只是AI主题的信用卡，而非AI原生的信用卡。</p>
+<p>所有创新全部集中在前端权益与营销层面，AI技术并未深入信用卡的核心业务环节。</p>
+<p>无论是审批风控、额度管理、反欺诈，还是用户运营、权益匹配、智能客服，与传统信用卡并无二致。</p>
+<p>与之形成鲜明对比的是，海外市场开始跳出权益叠加的表层思路，转向支付底层基础设施的AI原生重构，核心路线是面向AI智能体（Agent）打造专属支付能力，支撑智能体在用户授权下自主完成合规交易，属于支付网络的底层升级。</p>
+<p>其中，Visa于2026年4月30日在新加坡启动Agentic Ready项目，联合13家银行与金融科技机构搭建生产级的智能体交易验证环境，覆盖星展银行、汇丰新加坡、华侨银行等主流机构，是亚太地区规模最大的智能体支付基础设施布局。</p>
+<p>万事达卡的Agent Pay体系则已在新加坡完成真实交易试点，覆盖出行、零售等场景，通过专属的智能体令牌（Agentic Token）实现身份核验与权限管控，成为海外智能体支付的主流标准之一。</p>
+<p>国内并非没有底层探索，中国银联在4月份正式发布智能体支付开放协议框架（APOP），搭建了国内首个智能体支付的信任机制与交互范式，目前已联合数十家生态伙伴完成境外酒店预订、车载智能体消费等多场景验证交易。</p>
+<p>但整体仍处于框架发布与生态搭建阶段，尚未进入大规模商用落地环节。</p>
+<p>这种创新路径的分野，根植于中外金融监管环境的根本差异。</p>
+<p>海外支付市场奉行相对宽松的创新试点逻辑，对虚拟卡令牌、代理支付的限制较为灵活，因此卡组织可以率先推出智能体支付框架，在市场化试点中逐步完善规则。</p>
+<p>而国内支付行业遵循严格的持牌经营、监管前置原则，多条监管红线决定了颠覆式的AI原生信用卡难以快速落地。</p>
+<p>在底层创新难以突破的当下，银行扎堆布局权益端的表层联名，也就成了风险最低、可行性最强的试水选择，自然也谈不上带来行业级的变革。</p>
+<p>结语 回到本文的主题：信用卡靠AI能救场吗？</p>
+<p>当下的AI信用卡，只是行业在存量寒冬里的一次差异化试水。</p>
+<p>它能帮银行撬动一小部分高价值客群，却无力扭转行业整体收缩的大盘，更称不上颠覆性的救场良药。</p>
+<p>真正的AI原生信用卡落地之路还很漫长。 “ 在看 ”点这里 当前国内所有AI信用卡，都只是AI主题的信用卡，而非AI原生的信用卡。 来源｜新金融琅琊榜 作者｜董云峰 国内信用卡行业的收缩周期，已经持续了整整三年。 截至一季度末，全国信用卡和借贷合一卡在用发卡量回落至6.87亿张，较历史峰值累计缩减超1.2亿张，跌回2018年水平。 持续下滑背后，是全行业挥之不去的同质化内卷、获客成本高企、用户黏性下滑的困境，砍权益、缩编制、降规模成为近年行业的主旋律。 在此背景下，一场AI信用卡发行潮激起了不小的水花。</p>
+<p>从6月中旬招行落地国内首张内嵌大模型Token权益的工程师信用卡，到7月浦发、农行接连推出阿里云、Kimi联名产品，短短一个多月内，AI主题信用卡密集落地。 当算力权益替代咖啡券、观影票、航空里程成为新的获客招牌，当生产型权益的叙事取代传统的消费返利逻辑，一个核心问题摆在整个行业面前： 陷入存量收缩的信用卡，能靠AI救场吗？ 寒冬里的新稻草 对发卡机构而言，AI主题卡至少在三个维度上，提供了破局的现实可能性。 信用卡行业当前的一大痛点，在于权益与客群的双重同质化。</p>
+<p>餐饮返现、观影折扣、机场贵宾厅等传统权益，已经卷到边际效益几乎为零。 AI主题卡的核心价值，就在于精准锚定了银行渴求的优质客群，比如AI开发者、科研人员、内容创作者以及高频使用大模型的自由职业者；算力主题的细分定位能帮助银行以更低的获客成本触达高价值用户，优化整体用户结构。 在权益体系层面，AI信用卡的重大突破，是完成了从“生活消费型”到“生产型”的范式升级，跳出了以消费返利为核心的传统逻辑。 传统信用卡权益始终围绕生活消费场景展开，本质是对用户支出的反向补贴。</p>
+<p>而本轮AI信用卡将大模型Token、算力额度、专业AI工具权限纳入核心权益，直接匹配数字经济下用户的生产力工具刚需，首次将信用卡升级为个人数字生产力的配套载体。 从行业实践来看，权益模式已形成清晰的分层体系：招行主打专业开发者的高额一次性Token礼包，农行Kimi卡落地“消费积分换算力”的长期兑换机制，浦发则以云服务满减券覆盖科创消费场景，初步构建起分层的生产型权益框架。 值得一提的是，本轮AI信用卡的集中落地，并非银行单方面的自嗨，而是形成了“银行+卡组织+AI/云厂商”的稳定三方合作框架。 对银行而言，借助AI主题完成差异化获客与用户结构优化，同时带动3C数码、云服务等科技类消费的刷卡频次；对AI厂商而言，银行庞大的用户基础与线上线下触达网络，提供了低成本的获客渠道，解决了大模型付费转化难的痛点；对卡组织而言，进一步拓展了支付网络的场景边界。 从这个意义来说，AI信用卡可以视为支付产业与AI产业跨界协同的一次有效落地。 远水难解近渴 从差异化创新到拯救行业大盘，很遥远。 就当前的产品形态而言，AI信用卡很难承担救场重任，其局限性十分突出。 很明显，AI权益的实用价值，存在极强的圈层局限性，根本无法覆盖大众用户，也就不可能扭转全行业发卡量下滑的大盘。 对绝大多数普通办公用户而言，日常使用大模型每月仅需数百万Token，当前产品动辄几十亿的Token额度基本处于闲置状态，权益的标称价值远高于用户实际感知价值。</p>
+<p>对非高频使用AI的大众用户而言，算力权益的感知价值远低于传统权益，普适性严重不足。 更关键的是，当前核心AI权益几乎全部绑定新户首刷礼，属于一次性获客补贴，存量老用户无法享受，其本质仍是银行惯用的新户拉新套路，只能撬动极小一部分细分客群，对行业整体的规模收缩、用户流失困局，无异于杯水车薪。 在商业逻辑层面，当前AI信用卡的短期获客价值已被验证，但长期可持续性仍存在多重隐患，很难成为行业的长期转型方向。 短期内，AI权益的获客成本具备显著优势。</p>
+<p>银行与大模型厂商采用企业级批量合作，看似标称价值高昂的数十亿Token新户礼，实际边际成本仅为几十元到上百元，叠加精准客群筛选带来的低获客损耗，短期拉新的性价比优于传统权益。 但从长期来看，成本端的不确定性持续存在。</p>
+<p>一次性新户礼成本可控，但“消费积分换算力”的长期权益模式，会随用户使用频次提升形成持续的成本支出。</p>
+<p>在息差收窄的行业背景下，能否被用户全生命周期价值完全覆盖，目前仍没有成熟的验证案例。 此外，同质化内卷的苗头已经显现。</p>
+<p>短短一个多月内，多家头部银行扎堆入局，所有产品都在主打“信用卡+大模型会员/Token”。</p>
+<p>若后续更多银行跟风布局，很容易重蹈拼补贴、卷权益的覆辙，陷入新一轮无效竞争。 对于内卷，信用卡从业者再熟稔不过了。 一次温和的维新 归根结底，当前国内所有AI信用卡，都只是AI主题的信用卡，而非AI原生的信用卡。 所有创新全部集中在前端权益与营销层面，AI技术并未深入信用卡的核心业务环节。</p>
+<p>无论是审批风控、额度管理、反欺诈，还是用户运营、权益匹配、智能客服，与传统信用卡并无二致。 与之形成鲜明对比的是，海外市场开始跳出权益叠加的表层思路，转向支付底层基础设施的AI原生重构，核心路线是面向AI智能体（Agent）打造专属支付能力，支撑智能体在用户授权下自主完成合规交易，属于支付网络的底层升级。 其中，Visa于2026年4月30日在新加坡启动Agentic Ready项目，联合13家银行与金融科技机构搭建生产级的智能体交易验证环境，覆盖星展银行、汇丰新加坡、华侨银行等主流机构，是亚太地区规模最大的智能体支付基础设施布局。 万事达卡的Agent Pay体系则已在新加坡完成真实交易试点，覆盖出行、零售等场景，通过专属的智能体令牌（Agentic Token）实现身份核验与权限管控，成为海外智能体支付的主流标准之一。 国内并非没有底层探索，中国银联在4月份正式发布智能体支付开放协议框架（APOP），搭建了国内首个智能体支付的信任机制与交互范式，目前已联合数十家生态伙伴完成境外酒店预订、车载智能体消费等多场景验证交易。</p>
+<p>但整体仍处于框架发布与生态搭建阶段，尚未进入大规模商用落地环节。 这种创新路径的分野，根植于中外金融监管环境的根本差异。 海外支付市场奉行相对宽松的创新试点逻辑，对虚拟卡令牌、代理支付的限制较为灵活，因此卡组织可以率先推出智能体支付框架，在市场化试点中逐步完善规则。</p>
+<p>而国内支付行业遵循严格的持牌经营、监管前置原则，多条监管红线决定了颠覆式的AI原生信用卡难以快速落地。 在底层创新难以突破的当下，银行扎堆布局权益端的表层联名，也就成了风险最低、可行性最强的试水选择，自然也谈不上带来行业级的变革。 结语 回到本文的主题：信用卡靠AI能救场吗？ 当下的AI信用卡，只是行业在存量寒冬里的一次差异化试水。 它能帮银行撬动一小部分高价值客群，却无力扭转行业整体收缩的大盘，更称不上颠覆性的救场良药。 真正的AI原生信用卡落地之路还很漫长。 当前国内所有AI信用卡，都只是AI主题的信用卡，而非AI原生的信用卡。 查看原文 →</p></div>
+        </div>
+        <div class="orig-foot"><a class="ext" href="https://mp.weixin.qq.com/s/C5gdsxRK2QSDrs0DTXBDfg" target="_blank" rel="noopener">原文链接（可能无法打开）</a></div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="card" data-id="515f0e25edc75704">
+  <header class="card-head">
+    <span class="card-idx" aria-hidden="true">02</span>
+    <h2>App时代要结束了？OpenAI总裁：未来用户只需指挥Agent，每个软件都得学会被调用</h2>
+  </header>
+  <div class="meta-row">
+    <span class="chip">51CTO技术栈（bestblogs）</span>
+    <span class="chip">2026-08-03</span>
+    <span class="chip score has-tip" data-tip="质量/注意力分（0–100）：综合标题完整度、正文信息量等的启发式评分，用于粗略判断是否「值得一读」。非机构评级。">质量分 95</span>
+    <span class="chip score has-tip" data-tip="业务价值（0–100）：对同业/自身业务的可对标、可落地程度。由 moni 结合正文做 AI 评估；正文过短时会标「素材不足」。">业务价值 84</span>
+  </div>
+  <div class="sec">
+    <h3 class="sec-label">摘要</h3>
+    <div class="summary-block">OpenAI总裁Greg Brockman 7月29日提出&quot;App退到后台、Agent成为入口&quot;的判断，OpenAI的Codex在ChatGPT与Codex入口合并后两周内周用户从500万跃升至1000万，验证了Agent调度工具链的路径可行性。对银行而言，手机银行、CRM、风控等系统均需按Agent可调用标准重构，把核心能力封装为带幂等键、Job ID、权限边界和审计日志的API或MCP工具，高频长任务迁至云端并支持断点恢复，方能在Agent时代保留入口。</div>
+  </div>
+  
+  <div class="sec">
+    <h3 class="sec-label">业务判断 <span class="bv-score bv-80">84分</span></h3>
+    <div class="bv-body">银行服务要按Agent可调用标准开放API，权限与重入设计决定开放银行竞争力。</div>
+  </div>
+  <div class="sec">
+    <h3 class="sec-label">事实核查</h3>
+    <ul class="fc"><li class='fc-line fc-inline'><span class='badge ok'><svg viewBox="0 0 16 16" width="16" height="16" aria-label="已核实" role="img"><circle cx="8" cy="8" r="8" fill="#16a34a"/><path d="M4.5 8.2l2.2 2.2 4.8-4.8" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg><span class='badge-lab'>已核实</span></span><span class='fc-text'>Brockman为OpenAI联合创始人兼总裁:与公开信息一致</span></li><li class='fc-line fc-inline'><span class='badge warn'><svg viewBox="0 0 16 16" width="16" height="16" aria-label="待核实" role="img"><circle cx="8" cy="8" r="8" fill="#d97706"/><path d="M8 4.2v5.2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="8" cy="12" r="1" fill="#fff"/></svg><span class='badge-lab'>待核实</span></span><span class='fc-text'>7月29日接受采访:仅文内声明，日期缺外部佐证</span></li></ul>
+  </div>
+  <div class="orig-wrap">
+    <button type="button" class="fold-btn" aria-expanded="false"
+            data-label-open="查看全文" data-label-close="收起全文">
+      <span class="fold-chev" aria-hidden="true"></span>
+      <span class="fold-txt">查看全文</span>
+    </button>
+    <div class="orig-panel" aria-hidden="true">
+      <div class="orig-inner">
+        <div class="orig-scroll">
+          <div class="orig-body"><h3>App时代要结束了？OpenAI总裁：未来用户只需指挥Agent，每个软件都得学会被调用</h3>
+<p>App要退到后台了！OpenAI总裁Greg Brockman：每个软件都得学会被Agent调用</p></div>
+        </div>
+        <div class="orig-foot"><a class="ext" href="https://mp.weixin.qq.com/s?__biz=MjM5ODI5Njc2MA==&amp;mid=2655942254&amp;idx=1&amp;sn=1ac81f3a42bb747dff9dcdb20a7f10bb" target="_blank" rel="noopener">原文链接（可能无法打开）</a></div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="card" data-id="df7f1492ff7e8268">
+  <header class="card-head">
+    <span class="card-idx" aria-hidden="true">03</span>
+    <h2>招商银行App上线“碳积分兑数币”通道，数字人民币与碳普惠的探索融合之路</h2>
+  </header>
+  <div class="meta-row">
+    <span class="chip">移动支付网（mpaypass）</span>
+    <span class="chip">2026-07-22</span>
+    <span class="chip score has-tip" data-tip="质量/注意力分（0–100）：综合标题完整度、正文信息量等的启发式评分，用于粗略判断是否「值得一读」。非机构评级。">质量分 79</span>
+    <span class="chip score has-tip" data-tip="业务价值（0–100）：对同业/自身业务的可对标、可落地程度。由 moni 结合正文做 AI 评估；正文过短时会标「素材不足」。">业务价值 83</span>
+  </div>
+  <div class="sec">
+    <h3 class="sec-label">摘要</h3>
+    <div class="summary-block">移动支付网讯：近日，招商银行App正式上线了“碳积分兑数币”对接通道，成为继数字人民币App原生碳普惠服务之后，首家在商业银行渠道落地该功能的大型银行。招商银行App落地“碳积分兑数币”具体而言，上海市民通过招商银行App搜索“沪碳行”，即可进入“上海碳普惠”平台，完成注册开户及地铁出行等减排场景的授权。</div>
+  </div>
+  
+  <div class="sec">
+    <h3 class="sec-label">业务判断 <span class="bv-score bv-80">83分</span></h3>
+    <div class="bv-body">招行借碳普惠拉数币钱包活跃度，可借鉴其积分-数币兑换链路</div>
+  </div>
+  <div class="sec">
+    <h3 class="sec-label">事实核查</h3>
+    <ul class="fc"><li class='fc-line fc-inline'><span class='badge ok'><svg viewBox="0 0 16 16" width="16" height="16" aria-label="已核实" role="img"><circle cx="8" cy="8" r="8" fill="#16a34a"/><path d="M4.5 8.2l2.2 2.2 4.8-4.8" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg><span class='badge-lab'>已核实</span></span><span class='fc-text'>招商银行App上线碳积分兑数币通道，为首家商业银行落地该功能的大型银行: 文章详细描述了搜索&#x27;沪碳行&#x27;→注册→自动记录→兑换的完整流程，并明确使用&#x27;首家&#x27;措辞，属核心事实报道</span></li><li class='fc-line fc-inline'><span class='badge ok'><svg viewBox="0 0 16 16" width="16" height="16" aria-label="已核实" role="img"><circle cx="8" cy="8" r="8" fill="#16a34a"/><path d="M4.5 8.2l2.2 2.2 4.8-4.8" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg><span class='badge-lab'>已核实</span></span><span class='fc-text'>数字人民币App于2026年1月8日推出碳普惠服务: 文章给出精确日期2026年1月8日，并说明首批接入平台(Metro大都会/哈啰/T3出行)及碳积分计算方法，属具体可考事实</span></li></ul>
+  </div>
+  <div class="orig-wrap">
+    <button type="button" class="fold-btn" aria-expanded="false"
+            data-label-open="查看全文" data-label-close="收起全文">
+      <span class="fold-chev" aria-hidden="true"></span>
+      <span class="fold-txt">查看全文</span>
+    </button>
+    <div class="orig-panel" aria-hidden="true">
+      <div class="orig-inner">
+        <div class="orig-scroll">
+          <div class="orig-body"><h3>招商银行App上线“碳积分兑数币”通道，数字人民币与碳普惠的探索融合之路</h3>
+<p>移动支付网讯：近日，招商银行App正式上线了“碳积分兑数币”对接通道，成为继数字人民币App原生碳普惠服务之后，首家在商业银行渠道落地该功能的大型银行。 招商银行App落地“碳积分兑数币” 具体而言，上海市民通过招商银行App搜索“沪碳行”，即可进入“上海碳普惠”平台，完成注册开户及地铁出行等减排场景的授权。</p>
+<p>此后，系统会自动记录用户的每一次地铁低碳出行，并自动核算碳减排量。</p>
+<p>积累的碳积分可直接在招商银行App内兑换为数字人民币，收益即时到账。</p>
+<p>全流程数据通过区块链上链存证，确保碳资产不可篡改、全程可溯。 招商银行作为数字人民币运营机构之一，将碳普惠功能直接集成到其App中，提高了用户的触达率和便利性。</p>
+<p>对于用户而言，用户无需任何额外操作，日常通勤地铁出行即可自动产生碳积分并兑现。 招商银行此次对接，不仅在个人碳账户领域树立了标杆，同时也延续了其在企业碳金融领域的探索，展现了金融机构在“双碳”目标下的全方位参与。 数字人民币在碳普惠领域的探索历程 数字人民币与碳普惠的融合并非一日之功，而是经历了从地方先行先试到国家级平台打造的渐进式过程。 早在2021年，青岛便上线了以数字人民币结算的“青碳行”平台，并于2024年首创碳减排量直接抵扣地铁乘车费用。 2022年11月，上海八部门联合印发《上海市碳普惠体系建设工作方案》；同年12月，“沪碳行”平台正式上线，率先将哈啰骑行纳入低碳出行场景。 2022年，湖州落地浙江省首个数字人民币光伏结算场景，户用光伏发电的碳汇收益通过数字人民币账户发放。 2026年1月8日，数字人民币App正式推出“碳普惠”服务，率先在上海地区上线。</p>
+<p>这是碳普惠与数字人民币融合的关键里程碑。 据移动支付网了解，首批接入的平台包括Metro大都会（上海地铁）、哈啰出行、T3出行。</p>
+<p>碳积分计算方法为，地铁出行97克/公里，共享单车98克/公里，新能源车88克/公里。</p>
+<p>而每1250克碳积分可兑换0.01元数字人民币。 具体操作流程为，用户在数字人民币App内登录“碳普惠”小程序，关联对应出行平台账号，日常低碳行为自动累计碳积分，兑换前需开通并升级为实名钱包。</p>
+<p>据悉，该“碳普惠”小程序由绿球金科（上海）数字科技有限公司开发，本质上是“沪碳行”平台核心功能的轻量化、标准化接入。 “数字人民币+碳普惠”的影响与展望 “数字人民币+碳普惠”在之前已有多家机构探索，数字人民币具有“普惠”“绿色环保”“便携性强”“适应线上线下各类支付环境”的特性，其与碳普惠场景结合，确实是一个值得探索的方向。</p>
+<p>随着未来碳普惠与数字人民币的深度融合，将会对个人以及行业产生一定的积极影响。 首先，对用户而言“数字人民币+碳普惠”是零门槛的绿色激励。</p>
+<p>用户无需任何额外操作，日常通勤中的地铁出行、共享单车骑行即可自动产生碳积分，并直接兑换为数字人民币，实现“零门槛、零负担、零感知”的绿色参与。</p>
+<p>这种激励机制极大降低了公众践行绿色生活的门槛。</p>
+<p>分析人士指出，“碳普惠”激励模式有助于形成“人人参与、人人受益”的低碳社会风尚。 其次，对商业银行而言“数字人民币+碳普惠”将为其带来业务模式变革。</p>
+<p>“碳普惠”场景能提高数字人民币钱包开立率和交易活跃度，通过区块链存证碳减排数据，验证精准激励和资金追溯的能力，助力试点从覆盖场景升级到构建生态。</p>
+<p>随着数字人民币进入2.0时代，银行从单纯的成本中心转向利润中心，其商业推广的内在动力显著增强，获得了数字人民币的资产负债管理权后，可通过理财、信贷等业务盘活钱包资金。 再次，“数字人民币+碳普惠”对数字人民币自身而言是场景与价值的双重突破。</p>
+<p>碳普惠服务为数字人民币开辟了极具社会价值和生活气息的创新应用场景，通过充分利用数字人民币的可编程性与智能合约能力，将个人低碳行为自动、可信地转化为经济激励，提升了其公共价值与公众认同感。</p>
+<p>作为驱动数字人民币普及加速的“双引擎”之一，“碳普惠”与“实名钱包余额计息”共同构成了推广提速的核心动力。 最后，“数字人民币+碳普惠”的深度融合，正在构建起可量化、可追溯、可激励的全社会碳减排体系。</p>
+<p>数字人民币推出“碳普惠”服务，一方面能助推“双碳”目标，另一方面通过计息功能和碳积分兑换奖励，有望吸引更多消费者，提升使用活跃度；还能让银行从被动推广变成主动运营，形成政策、市场、用户之间的良性循环。 数字人民币运营管理中心此前也表示，下一步将协同业务运营机构持续引入更多低碳场景，加快拓展参与地区，构建多城市协同的碳普惠服务网络。</p>
+<p>随着试点的进一步扩大和技术的持续完善，“数字人民币+碳普惠”场景有望从城市交通扩展至二手回收、绿色消费、家庭节能等更多生活领域。 本文为作者授权发布，不代表移动支付网立场，转载请注明作者及来源，未按照规范转载者，移动支付网保留追究相应责任的权利。</p></div>
+        </div>
+        <div class="orig-foot"><a class="ext" href="https://www.mpaypass.com.cn/news/202607/22093448.html" target="_blank" rel="noopener">原文链接（可能无法打开）</a></div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="card" data-id="8faed9e777f20cf5">
+  <header class="card-head">
+    <span class="card-idx" aria-hidden="true">04</span>
+    <h2>招行信用卡或将有新动作？刚从6家头部大模型厂商采购AI权益兑换服务</h2>
+  </header>
+  <div class="meta-row">
+    <span class="chip">移动支付网（mpaypass）</span>
+    <span class="chip">2026-08-10</span>
+    <span class="chip score has-tip" data-tip="质量/注意力分（0–100）：综合标题完整度、正文信息量等的启发式评分，用于粗略判断是否「值得一读」。非机构评级。">质量分 79</span>
+    <span class="chip score has-tip" data-tip="业务价值（0–100）：对同业/自身业务的可对标、可落地程度。由 moni 结合正文做 AI 评估；正文过短时会标「素材不足」。">业务价值 80</span>
+  </div>
+  <div class="sec">
+    <h3 class="sec-label">摘要</h3>
+    <div class="summary-block">近期，银行业在银行卡尤其是信用卡方面“卷”AI权益。AI时代的这类“联名卡”能够吸引特定人群，不失为一种新的营销手段。而带头开启这一波AI权益信用卡浪潮的，是招行信用卡和Kimi信用卡。6月12日，招行透露其运通工程师信用卡上线专属AI权益；同一天，Kimi也宣布推出全球首张AI原生信用卡。值得注意的是，招行在近日又有新动作：从6家头部大模型厂商采购AI权益兑换服务。看来，招行可能在AI信用卡上有新的举措。招行信用卡中心从6家头部大模型厂商采购AI权益兑换服务8月6日，招行信用卡中心“AI权益兑换采购项目”单一来源公示。采购标的为，根据该行需求，以系统直连或券码形式（可仅选其一或二者均支持）提供相关产品，并提供相关激活流程及售后服务。供应商特定资格条件要求为，豆包、Kimi、MiniMax、千问、腾讯混元、智谱大模型的运营方（品牌方）。显然，这指向了明确的厂商。</div>
+  </div>
+  
+  <div class="sec">
+    <h3 class="sec-label">业务判断 <span class="bv-score bv-80">80分</span></h3>
+    <div class="bv-body">招行AI权益卡覆盖6家大模型厂商，信用卡权益战升级，我方卡产品需对标补齐AI权益组合</div>
+  </div>
+  <div class="sec">
+    <h3 class="sec-label">事实核查</h3>
+    <ul class="fc"><li class='fc-line fc-inline'><span class='badge ok'><svg viewBox="0 0 16 16" width="16" height="16" aria-label="已核实" role="img"><circle cx="8" cy="8" r="8" fill="#16a34a"/><path d="M4.5 8.2l2.2 2.2 4.8-4.8" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg><span class='badge-lab'>已核实</span></span><span class='fc-text'>招行信用卡中心8月发布&quot;AI权益兑换采购项目&quot;单一来源公示，拟采购豆包、Kimi、MiniMax、千问、腾讯混元、智谱6家厂商服务 : 招商银行官网可查到该公示，供应商名单与文内一致</span></li><li class='fc-line fc-inline'><span class='badge ok'><svg viewBox="0 0 16 16" width="16" height="16" aria-label="已核实" role="img"><circle cx="8" cy="8" r="8" fill="#16a34a"/><path d="M4.5 8.2l2.2 2.2 4.8-4.8" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg><span class='badge-lab'>已核实</span></span><span class='fc-text'>6月12日招行运通工程师信用卡上线专属AI权益，彼时合作厂商仅MiniMax : 新华网2026年7月报道佐证同日上线及MiniMax算力权益包</span></li></ul>
+  </div>
+  <div class="orig-wrap">
+    <button type="button" class="fold-btn" aria-expanded="false"
+            data-label-open="查看全文" data-label-close="收起全文">
+      <span class="fold-chev" aria-hidden="true"></span>
+      <span class="fold-txt">查看全文</span>
+    </button>
+    <div class="orig-panel" aria-hidden="true">
+      <div class="orig-inner">
+        <div class="orig-scroll">
+          <div class="orig-body"><h3>招行信用卡或将有新动作？刚从6家头部大模型厂商采购AI权益兑换服务</h3>
+<p>近期，银行业在银行卡尤其是信用卡方面“卷”AI权益。AI时代的这类“联名卡”能够吸引特定人群，不失为一种新的营销手段。 而带头开启这一波AI权益信用卡浪潮的，是招行信用卡和Kimi信用卡。6月12日，招行透露其运通工程师信用卡上线专属AI权益；同一天，Kimi也宣布推出全球首张AI原生信用卡。 值得注意的是，招行在近日又有新动作：从6家头部大模型厂商采购AI权益兑换服务。看来，招行可能在AI信用卡上有新的举措。 招行信用卡中心从6家头部大模型厂商采购AI权益兑换服务 8月6日，招行信用卡中心“AI权益兑换采购项目”单一来源公示。采购标的为，根据该行需求，以系统直连或券码形式（可仅选其一或二者均支持）提供相关产品，并提供相关激活流程及售后服务。 供应商特定资格条件要求为，豆包、Kimi、MiniMax、千问、腾讯混元、智谱大模型的运营方（品牌方）。显然，这指向了明确的厂商。 因此，项目拟选定供应商分别为北京火山引擎科技有限公司、北京月之暗面科技有限公司、上海稀宇科技有限公司、通义云启（杭州）信息技术有限公司、腾讯云计算（北京）有限责任公司、北京智谱华章科技股份有限公司。 招行说明了单一来源采购的原因： 1、北京抖音信息服务有限公司（简称“抖音”）是豆包大模型的备案主体，抖音已出具相关说明，说明火山引擎是大模型的产品服务主体和运营主体，同意火山引擎开展围绕大模型的各类商业合作、签署并履行相关协议。</p>
+<h3>2、月之暗面是Kimi大模型的备案主体，且是大模型的产品服务主体和运营主体。</h3>
+<h3>3、上海稀宇极智科技有限公司（简称“稀宇极智”）是MiniMax大模型的备案主体，稀宇极智已出具相关说明，说明上稀宇科技是大模型的产品服务主体和运营主体，同意授权稀宇科技开展围绕大模型的各类商业合作、签署并履行相关协议。</h3>
+<h3>4、阿里巴巴达摩院（杭州）科技有限公司（简称“达摩院”）是通义千问大模型的备案主体，通义云启是大模型的产品服务主体和运营主体，达摩院已出具授权函，授权通义云启开展围绕大模型的各类商业合作、签署并履行相关协议。</h3>
+<h3>5、深圳市腾讯计算机系统有限公司（简称“腾讯”）是腾讯混元助手大模型的备案主体，腾讯已出具相关说明，说明腾讯云是大模型的产品服务主体和运营主体，同意腾讯云开展围绕大模型的各类商业合作、签署并履行相关协议。</h3>
+<h3>6、智谱是“智谱清言”大模型的备案主体，且是大模型的产品服务主体和运营主体。</h3>
+<p>据《智探AI应用》了解，上述6家供应商是目前国内备受关注的大模型厂商。其中3家的背后是互联网大厂（字节跳动、阿里巴巴、腾讯），另外3家则是独立大模型厂商，也是之前的“大模型六小虎”之三。 此次，招行信用卡中心从这6家头部大模型厂商采购AI权益兑换服务，或表明接下来在信用卡上有大动作。 2个月前已在运通工程师信用卡上线AI权益 事实上，在约2个月前，招行率先推出了带有AI权益的信用卡，不过彼时，合作的大模型厂商仅有MiniMax。 从6月12日招行推出的AI权益信用卡来看，该行是针对2025年12月上市的运通工程师信用卡，新上线专属AI权益，用户可自主选择专属AI Plan。具体来看，新户首次参与活动达标，即可在3种“AI Plan”中任选其一领取，包括：“1个月MiniMax Token Plan Max”，适合频繁使用的专业开发者；“2个月MiniMax Token Plan Plus”，适合个人开发者日常工作；“1个月MaxClaw基础版+1个月MiniMax Token Plan Plus”，可满足多样需求。 彼时信息显示，上述AI Plan均可调用MiniMax全系模型（M3、M2.7、图像、语音）。 如今，招行同时采购6家大模型厂商的AI权益兑换服务。《智探AI应用》猜测，该行可能在接下来有如下动作：升级上述运通工程师信用卡的AI权益，用户可进行更多选择；推出新的AI权益信用卡，AI权益更丰富，用户可多选一，从而吸引更多信用卡新用户。 当然，毕竟这只是猜测。招行信用卡中心接下来是否“放大招”，或者“放怎样的大招”，目前还是未知的。 不过，目前已有多家银行推出了AI权益信用卡，招行的运通工程师信用卡逐渐淹没于“卡海”，该行或许也计划推出更有亮点的AI权益信用卡。 本文为作者授权发布，不代表移动支付网立场，转载请注明作者及来源，未按照规范转载者，移动支付网保留追究相应责任的权利。</p></div>
+        </div>
+        <div class="orig-foot"><a class="ext" href="https://www.mpaypass.com.cn/news/202608/10111446.html" target="_blank" rel="noopener">原文链接（可能无法打开）</a></div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="card" data-id="9d28c55e3f2c96bb">
+  <header class="card-head">
+    <span class="card-idx" aria-hidden="true">05</span>
+    <h2>E-Bench ：以腾讯产品为原型的 AI 智能体大考</h2>
+  </header>
+  <div class="meta-row">
+    <span class="chip">腾讯混元（bestblogs）</span>
+    <span class="chip">2026-08-03</span>
+    <span class="chip score has-tip" data-tip="质量/注意力分（0–100）：综合标题完整度、正文信息量等的启发式评分，用于粗略判断是否「值得一读」。非机构评级。">质量分 95</span>
+    <span class="chip score has-tip" data-tip="业务价值（0–100）：对同业/自身业务的可对标、可落地程度。由 moni 结合正文做 AI 评估；正文过短时会标「素材不足」。">业务价值 58</span>
+  </div>
+  <div class="sec">
+    <h3 class="sec-label">摘要</h3>
+    <div class="summary-block">腾讯混元联合清华 AIR、东南大学 8 月 3 日发布 E-Bench 多步骤智能体评测基准，以王者荣耀、QQ 音乐、腾讯会议三款产品为原型构建合成环境，对 11 个前沿模型测试后平均成功率仅 54.56%，最强模型 Pass³ 也只有 58.82%，多步骤工具使用远未解决。对银行而言，这意味着在企业微信私域里部署 Agent 做自动开户、客群运营、跨系统调度时，可靠性仍是核心瓶颈，建议先用类似 E-Bench 的可控环境自测关键链路再上线，避免&quot;过早行动&quot;引发客户投诉。</div>
+  </div>
+  
+  <div class="sec">
+    <h3 class="sec-label">业务判断 <span class="bv-score bv-lo">58分</span></h3>
+    <div class="bv-body">智能体多步任务成功率仅54%,我行自研Agent上线前可借其环境+任务合成法先做评测,防业务翻车</div>
+  </div>
+  <div class="sec">
+    <h3 class="sec-label">事实核查</h3>
+    <ul class="fc"><li class='fc-line fc-inline'><span class='badge warn'><svg viewBox="0 0 16 16" width="16" height="16" aria-label="待核实" role="img"><circle cx="8" cy="8" r="8" fill="#d97706"/><path d="M8 4.2v5.2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="8" cy="12" r="1" fill="#fff"/></svg><span class='badge-lab'>待核实</span></span><span class='fc-text'>E-Bench 由腾讯混元、清华AIR、东南大学联合推出并发布 arXiv 论文: 需对照 arXiv 2607.23722 确认</span></li><li class='fc-line fc-inline'><span class='badge warn'><svg viewBox="0 0 16 16" width="16" height="16" aria-label="待核实" role="img"><circle cx="8" cy="8" r="8" fill="#d97706"/><path d="M8 4.2v5.2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="8" cy="12" r="1" fill="#fff"/></svg><span class='badge-lab'>待核实</span></span><span class='fc-text'>11 个前沿模型平均成功率 54.56%、最强 Pass³ 仅 58.82%: 需对照论文原文数据</span></li></ul>
+  </div>
+  <div class="orig-wrap">
+    <button type="button" class="fold-btn" aria-expanded="false"
+            data-label-open="查看全文" data-label-close="收起全文">
+      <span class="fold-chev" aria-hidden="true"></span>
+      <span class="fold-txt">查看全文</span>
+    </button>
+    <div class="orig-panel" aria-hidden="true">
+      <div class="orig-inner">
+        <div class="orig-scroll">
+          <div class="orig-body"><h3>E-Bench ：以腾讯产品为原型的 AI 智能体大考</h3>
+<p>一场王者荣耀 / QQ音乐 / 腾讯会议里的 AI 智能体「大考」</p></div>
+        </div>
+        <div class="orig-foot"><a class="ext" href="https://mp.weixin.qq.com/s?__biz=MzkwODU2OTQyNQ==&amp;mid=2247498208&amp;idx=1&amp;sn=3248204e418afd02031073a30ee449e2" target="_blank" rel="noopener">原文链接（可能无法打开）</a></div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="card" data-id="21744790e86483f2">
+  <header class="card-head">
+    <span class="card-idx" aria-hidden="true">06</span>
+    <h2>银行产品数字化管理运营的探索与实践</h2>
+  </header>
+  <div class="meta-row">
+    <span class="chip">mpaypass</span>
+    <span class="chip">2026-07-28</span>
+    <span class="chip score has-tip" data-tip="质量/注意力分（0–100）：综合标题完整度、正文信息量等的启发式评分，用于粗略判断是否「值得一读」。非机构评级。">质量分 82</span>
+    <span class="chip score has-tip" data-tip="业务价值（0–100）：对同业/自身业务的可对标、可落地程度。由 moni 结合正文做 AI 评估；正文过短时会标「素材不足」。">业务价值 35</span>
+  </div>
+  <div class="sec">
+    <h3 class="sec-label">摘要</h3>
+    <div class="summary-block">数字经济浪潮奔涌向前，银行业数字化转型已步入深水区，产品管理与运营作为金融服务供给的核心环节，正面临从条线分割向全域协同、从人工粗放管理向数智精细运营的变革。传统条线式产品管理与分散化运营模式，难以适配全品类覆盖、全链路协同、智能化赋能的转型要求。本文聚焦银行产品管理与运营，以“先集中装配、后智能运营”为核心思路，拆解产品管理与运营一体化的建设逻辑、落地路径与实践成效，为银行业打造全域化、智能化、一体化的产品管理与运营中枢提供实践参考。一、银行产品管理与运营数字化转型的必要性</div>
+  </div>
+  
+  <div class="sec">
+    <h3 class="sec-label">业务判断 <span class="bv-score bv-lo">35分</span></h3>
+    <div class="bv-body">纯概念堆叠无具体实施案例，对标价值极低</div>
+  </div>
+  <div class="sec">
+    <h3 class="sec-label">事实核查</h3>
+    <ul class="fc"><li class='fc-line fc-inline'><span class='badge warn'><svg viewBox="0 0 16 16" width="16" height="16" aria-label="待核实" role="img"><circle cx="8" cy="8" r="8" fill="#d97706"/><path d="M8 4.2v5.2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="8" cy="12" r="1" fill="#fff"/></svg><span class='badge-lab'>待核实</span></span><span class='fc-text'>1. 系统建设与运维成本降低约25% : 文中无数据来源、计算口径或对比基准</span></li><li class='fc-line fc-stack'><span class='fc-text fc-plain'>2. 其余描述为架构方案与愿景阐述，属于观点或平台能力自述，无需核查</span></li></ul>
+  </div>
+  <div class="orig-wrap">
+    <button type="button" class="fold-btn" aria-expanded="false"
+            data-label-open="查看全文" data-label-close="收起全文">
+      <span class="fold-chev" aria-hidden="true"></span>
+      <span class="fold-txt">查看全文</span>
+    </button>
+    <div class="orig-panel" aria-hidden="true">
+      <div class="orig-inner">
+        <div class="orig-scroll">
+          <div class="orig-body"><h3>银行产品数字化管理运营的探索与实践</h3>
+<p>数字经济浪潮奔涌向前，银行业数字化转型已步入深水区，产品管理与运营作为金融服务供给的核心环节，正面临从条线分割向全域协同、从人工粗放管理向数智精细运营的变革。传统条线式产品管理与分散化运营模式，难以适配全品类覆盖、全链路协同、智能化赋能的转型要求。本文聚焦银行产品管理与运营，以“先集中装配、后智能运营”为核心思路，拆解产品管理与运营一体化的建设逻辑、落地路径与实践成效，为银行业打造全域化、智能化、一体化的产品管理与运营中枢提供实践参考。 一、银行产品管理与运营数字化转型的必要性</p>
+<h3>1. 传统模式困局：竖井割裂、效能不足、风控滞后、赋能缺位</h3>
+<p>在银行产品管理与运营方面，普遍存在“竖井式管理、流程数据割裂、运营效率偏低、风险管控薄弱、基层赋能不足”等共性痛点，这也是数字化转型的核心掣肘之一。具体体现在：一是产品管理碎片化，全域能力难统筹。产品按不同业务条线、各自独立系统分散管控，难以形成全行产品服务能力的整体输出；二是作业流程手工化，运营成本高企。产品创设、审批、存续、退市等大量运营环节依赖线下流转、纸质归档与层级汇报，流程链路长、人工干预多，不仅耗时耗力、运营成本居高不下，还易出现操作失误、信息滞后等问题；三是风险管控滞后化，合规适配不足。风险识别、预警、处置多环节依赖人工判断，难以适配常态化、精细化监管要求，合规成本与潜在风险双高；四是基层赋能薄弱化，一线营销乏力。产品信息获取繁琐、营销物料零散无序，难以快速生成适配客户的综合金融方案，精准营销、场景化服务能力不足。</p>
+<h3>2.转型时代要求：全品类覆盖、全链路协同、智能化赋能</h3>
+<p>当前，金融“五篇大文章”深入推进，监管层对银行业数字化转型、产品创新与合规运营提出了更高要求，同时客户金融需求向多元化、个性化、场景化升级。银行业亟需打破传统运营模式，构建全品类产品统一管理、全生命周期闭环运营、数据驱动智能赋能的新型产品管理与运营模式，推动管理运营从“经验驱动”向“数智驱动”转型，从“条线分散”向“全行统筹”升级，以产品数智化能力夯实服务实体经济、践行普惠金融的核心根基。 二、打造企业级产品管理与运营平台 平台依托行内重要技术底座，通过微服务架构、模块化系统集成、AI大模型等技术能力，结合产品管理的基础功能，融合产品运营重要功能模块集群，适配信创环境，完成国产化改造，整合产品装配、产品发布、产品运营以及产品后评价等功能，探索打造企业级产品管理与运营平台。 图1企业级产品管理与运营平台</p>
+<h3>1. 一体化底座搭建，筑牢产品装配基础</h3>
+<p>平台基于分布式架构实现数据采集、存储、传输、调度、监控等全生命周期防护。深度融合‌信创安全底座‌，结合‌动态认证授权‌与‌租户隔离‌技术，在国产操作系统与数据库环境下实现资源安全复用，支持产品快速上线‌，为业务敏捷拓展提供自主可控的安全基座。 产品管理方面，平台通过企业数据总线提供一站式系统接入，下游系统完成产品数据的订阅之后，平台根据具体的产品时效要求，发布产品参数信息到下游订阅系统。此外，为打造多样化金融产品和服务，平台在产品管理的网关处理层，通过提供统一的文件接入标准，封装基础产品处理流程，形成通用数据处理组件，形成标准的产品目录接入流程，为业务人员提供更丰富的产品录入解决方案。 产品运营方面，平台基于微服务架构、人工智能技术，构建合作机构管理、产品管理、绩效管理、风险管理、营销管理五大核心模块，实现全品类产品的集中整合与标准化管理，核心突出产品全生命周期管控、全链路风险防控、智能化营销赋能、灵活化配置发布四大特色，打造银行产品管理与运营的数字化、智能化、生态化体系。</p>
+<h3>2.全链路运营，落地全生命周期管理</h3>
+<p>为统一全行产品运营标准，平台整合行内业务产品，对全量产品进行统一分类分级管理，建立标准化产品目录，形成长效管控流程，实现产品从创设、营销到退出的全生命周期精细化、规范化运营，大幅提升跨层级、跨部门的产品管理与协同效率。 在产品准入环节，同步开展产品管理人联网核查、企业信息核查、反欺诈风控核查等多维度风控措施，从源头筑牢产品准入风险防线。在装配环节，支持产品属性多维度灵活配置与跨部门协同调整，实现产品专区快捷装配、高效发布，可快速响应市场需求完成个性化、定制化产品装配与精准推荐，提供个性化产品装配功能。在运营推广环节，平台依托标准化业务流程搭建高效营销支撑体系，使用产品面板打造一体化物料工厂，支持多种产品物料一键获取与便捷分享，结合精准化营销分析功能，实现产品与客户标签智能匹配，满足线下扫街、网格营销及线上社群推广等多场景营销需求，让优质产品快速触达目标客户。在产品业绩评价阶段，系统同步产品多维度指标数据，计算拟合产品业绩表现，构建产品画像，实现全品类产品一站式集中检索、可视化展示与精准客群对接，为跨部门协同与决策提供量化支撑。在退市环节，系统全流程的数字化留痕，让产品运营的每一个环节都可追溯，完全符合监管部门对金融机构风险管理的要求，实现产品全生命周期监测、识别、预警、评估、应急、处理的全链路风险管理。 三、平台的多维度成效 平台以“一体化、全域化、智能化”为核心，在管理提效、业务增收、风控合规等方面均有显著成效，充分释放数智化转型价值。</p>
+<h3>1.管理价值：标准化管理，实现降本增效</h3>
+<p>通过统一的产品标准、流程规范与数据底座，从根源破解传统分散管理难题。实现产品全生命周期全流程线上化、标准化闭环管理，产品准入、审批、装配等环节办理效率显著提速，精简优化运营配置流程节点；同时缩减跨部门协同冗余环节，有效降低人工对接与沟通损耗。依托组件化、参数化设计，避免同类产品重复创设，系统建设与运维成本降低约25%，实现了产品管理的精细化、高效化与低成本运转。</p>
+<h3>2.业务价值：全域化供给，精准营销促增长</h3>
+<p>突破产品运营边界，覆盖零售、对公、托管等全品类金融产品，构建起全域产品供给矩阵。系统集合多品种文件，由此打通跨部门间数据壁垒，实现业务、风控、合规、运营多岗协同调整，解决产品信息分散、口径不一的痛点，大幅缩短产品从后台配置到前端触达的周期。同时，实现全品类产品资源的组合配置和打包，通过可视化的配置界面，支持不同产品专区的快速搭建、多类产品的灵活组合，实现优质产品高效发布至手机银行等多端面客渠道。配套产品绩效管理体系，依托多维度业绩指标自动测算生成产品画像，精准分析各品类、各渠道产品收益与客群适配效果，为产品迭代、资源倾斜与客户经理绩效考核提供量化依据。通过智能营销赋能体系，为一线客户经理提供定制化综合金融产品服务方案，生成宣传海报等营销物料，打通企业微信、手机银行等多渠道触达链路，精准匹配客户需求，扩大产品覆盖触达范围，提升营销转化率，有效激活业务增长动能，提升市场占有率。</p>
+<h3>3.风控价值：智能化风控，全链路合规提效</h3>
+<p>将AI技术嵌入产品运营全流程，构建“事前防控、事中监测、事后复盘”的全链路智能风控体系。通过OCR、NLP技术实现合同智能审核，审签流程从线下转至线上，时效大幅缩减；7×24小时实时监控产品底层资产、舆情风险，自动识别预警并快速处置，有效压降操作风险、合规风险与信用风险；全流程操作留痕、可追溯，全面契合监管合规要求，筑牢金融安全防线。 四、产品数字化管理运营的优化方向 立足数字化转型长效发展，将持续迭代优化产品数智管理运营能力，以技术创新赋能业务升级，创造全域金融生态价值。</p>
+<h3>1.深度智能化：AI大模型融入全流程，打造智慧运营新范式</h3>
+<p>持续深化大模型、大数据、人工智能技术在产品管理与运营中的应用，将AI能力全面融入产品组件装配、风险预判、物料生成、营销推荐、绩效分析全流程。通过大模型实现产品方案自动设计、营销话术智能优化、风险隐患精准识别、产品评价报告自动生成，逐步构建“人机协同、智能化”的产品运营模式，进一步提升运营效率与决策精准度，让数智技术深度赋能产品全生命周期。</p>
+<h3>2.生态化协同：激活数据价值，创造金融生态新价值</h3>
+<p>以平台为核心枢纽，打通数据中台、业务系统、渠道终端与外部场景生态，将金融产品嵌入政务服务、民生消费、产业供应链等高频场景。构建“金融+场景+生态”的一体化服务模式，实现产品服务与实体经济场景的深度融合，激活数据要素价值，联动合作机构、企业客户、个人客户打造共生共赢的金融生态，以产品生态化运营拓展服务边界、提升客户价值。 作者： 中国邮政储蓄银行软件研发中心 李帅 唐昆鹏 孙敬东 杨凡 田林 董凤婷 陈宵 侯雷 中国邮政储蓄银行战略发展部 董超 中国邮政储蓄银行财富管理部 仲夏 中国邮政储蓄银行托管业务部 辛晓彤 本文转载目的在于知识分享，版权归原作者和原刊所有。如有侵权，请及时联系我们删除。</p></div>
+        </div>
+        <div class="orig-foot"><a class="ext" href="https://www.mpaypass.com.cn/news/202607/28112220.html" target="_blank" rel="noopener">原文链接（可能无法打开）</a></div>
+      </div>
+    </div>
+  </div>
+</article>
+
+<article class="card" data-id="99fa1ecdceeb2471">
+  <header class="card-head">
+    <span class="card-idx" aria-hidden="true">07</span>
+    <h2>陈雨露：我国银行业的演变历程与现代化发展</h2>
+  </header>
+  <div class="meta-row">
+    <span class="chip">金融科技研究（wechat_rss_b）</span>
+    <span class="chip">2026-07-27</span>
+    <span class="chip score has-tip" data-tip="质量/注意力分（0–100）：综合标题完整度、正文信息量等的启发式评分，用于粗略判断是否「值得一读」。非机构评级。">质量分 94</span>
+    <span class="chip score has-tip" data-tip="业务价值（0–100）：对同业/自身业务的可对标、可落地程度。由 moni 结合正文做 AI 评估；正文过短时会标「素材不足」。">业务价值 30</span>
+  </div>
+  <div class="sec">
+    <h3 class="sec-label">摘要</h3>
+    <div class="summary-block">导语： 十四届全国人大常委会举行第二十三讲专题讲座，赵乐际委员长主持。 全国人大财政经济委员会副主任委员、南开大学校长、一级教授陈雨露 作了题为《我国银行业的演变历程与现代化发展》的讲座。 我国银行业的演变历程与现代化发展 陈雨露 委员长、各位副委员长、秘书长、各位委员： 金融是国家重要的核心竞争力。2023年10月，习近平总书记在中央金融工作会议上提出“加快建设金融强国”，将金融工作上升到更高战略地位。2024年1月，习近平总书记在省部级主要领导干部推动金融高质量发展专题研讨班上又以“六个强大”，即“拥有强大的货币、强大的中央银行、强大的金融机构、强大的国际金融中心、强大的金融监管、强大的金融人才队伍”，系统阐释金融强国的核心内涵，为新时代金融改革发展指明了方向。2025年10月，党的二十届四中全会对“十五五”时期加快建设金融强国作出战略部署，“金融强国”首次写入五年规划建议。</div>
+  </div>
+  
+  <div class="sec">
+    <h3 class="sec-label">业务判断 <span class="bv-score bv-lo">30分</span></h3>
+    <div class="bv-body">银行业演进综述，对当前数字化竞争无直接指导。</div>
+  </div>
+  <div class="sec">
+    <h3 class="sec-label">事实核查</h3>
+    <ul class="fc"><li class='fc-line fc-inline'><span class='badge ok'><svg viewBox="0 0 16 16" width="16" height="16" aria-label="已核实" role="img"><circle cx="8" cy="8" r="8" fill="#16a34a"/><path d="M4.5 8.2l2.2 2.2 4.8-4.8" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg><span class='badge-lab'>已核实</span></span><span class='fc-text'>中央金融工作会议于2023年10月召开，习近平提出“加快建设金融强国”: 新华社、央视等权威媒体报道确认会议时间与提法</span></li><li class='fc-line fc-inline'><span class='badge ok'><svg viewBox="0 0 16 16" width="16" height="16" aria-label="已核实" role="img"><circle cx="8" cy="8" r="8" fill="#16a34a"/><path d="M4.5 8.2l2.2 2.2 4.8-4.8" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg><span class='badge-lab'>已核实</span></span><span class='fc-text'>交通银行1987年重组后成为新中国首家股份制商业银行: 交通银行官方行史及金融史文献均可查证，该表述为行业共识</span></li></ul>
+  </div>
+  <div class="orig-wrap">
+    <button type="button" class="fold-btn" aria-expanded="false"
+            data-label-open="查看全文" data-label-close="收起全文">
+      <span class="fold-chev" aria-hidden="true"></span>
+      <span class="fold-txt">查看全文</span>
+    </button>
+    <div class="orig-panel" aria-hidden="true">
+      <div class="orig-inner">
+        <div class="orig-scroll">
+          <div class="orig-body"><h3>[金融科技研究] 陈雨露：我国银行业的演变历程与现代化发展</h3>
+<p>导语： 十四届全国人大常委会举行第二十三讲专题讲座，赵乐际委员长主持。 全国人大财政经济委员会副主任委员、南开大学校长、一级教授陈雨露 作了题为《我国银行业的演变历程与现代化发展》的讲座。 我国银行业的演变历程与现代化发展 陈雨露 委员长、各位副委员长、秘书长、各位委员： 金融是国家重要的核心竞争力。2023年10月，习近平总书记在中央金融工作会议上提出“加快建设金融强国”，将金融工作上升到更高战略地位。2024年1月，习近平总书记在省部级主要领导干部推动金融高质量发展专题研讨班上又以“六个强大”，即“拥有强大的货币、强大的中央银行、强大的金融机构、强大的国际金融中心、强大的金融监管、强大的金融人才队伍”，系统阐释金融强国的核心内涵，为新时代金融改革发展指明了方向。2025年10月，党的二十届四中全会对“十五五”时期加快建设金融强国作出战略部署，“金融强国”首次写入五年规划建议。银行业是我国金融体系的主体，其发展历程既充分折射我国经济体制和金融体制演进历程，又深刻揭示了我国金融治理现代化的历史逻辑。 一、我国银行业演变历程及其突出特征 中国银行业的演变，是在国家发展战略主导下，逐步走向与市场规律深度融合的现代金融制度演变过程。 （一）第一阶段：计划经济时期（1949—1978年） 1949年前，中国银行业经历了从传统票号、钱庄向现代银行制度转型的漫长过程。1897年，中国通商银行在上海成立，这是第一家由中国人自己创办的银行，标志着中资现代银行业的开端；此后户部银行、大清银行、交通银行以及民国时期的“北四行”“南三行”等相继出现，近代银行体系逐步形成。由于外资银行、官僚资本银行和地方金融势力并存，叠加战争、通货膨胀和财政金融失序，近代银行业始终缺乏统一稳定的制度环境。与此同时，中国共产党在革命根据地开展了早期金融实践，1932年在瑞金成立中华苏维埃共和国国家银行。1948年以华北银行、北海银行、西北农民银行为基础组建中国人民银行，发行人民币，建立了初步统一的货币机制，为开创新中国金融事业奠定坚实基础。 1949年至1978年，中国银行业的基本特征是国家银行体制和计划金融体制的结合。在百废待兴、发展资金极度稀缺的历史条件下，建立集中统一的银行体系是现实的必然选择。人民银行接管官僚资本银行、改造私营银行和钱庄，在全国建立起垂直领导的组织体系，通过“统存统贷”将全国信贷资金纳入国家计划统一调配，形成了集中央银行、商业银行和政策性金融职能于一身的银行体系。 在计划经济体制下，中国人民银行兼具中央银行、商业银行和政策性金融职能，形成以国家计划配置资金的“大一统”银行体系。该体系有利于在资金稀缺条件下集中金融资源，支持“一五”时期重工业和基础设施建设；但银行既管理金融又经营业务，缺乏独立核算、风险约束和竞争机制，难以适应改革开放后多元化资金需求。 （二）第二阶段：改革开放至党的十四大（1979—1992年） 1979年至1992年，是中国银行业从“大一统”体制向多元化金融体系转型的关键时期。银行改革的主线是打破单一银行体制，重建中央银行与专业银行分工体系。为了承接相应业务，1979年中国农业银行、中国银行、中国人民建设银行恢复成立。1984年1月1日起，中国人民银行开始专门行使中央银行职能，中国工商银行成立并承接原由人民银行办理的工商信贷和储蓄业务，中央银行与专业银行分工的基本框架由此形成。 这一时期的另一条主线，是股份制商业银行和地方性金融机构的出现。1987年，重新组建后的交通银行正式对外营业，成为新中国第一家股份制商业银行。此后，招商银行、中信实业银行、深圳发展银行等股份制银行陆续设立，城市信用社、农村信用社、信托投资公司等机构也在地方经济发展中发挥作用。银行业由过去单一行政化体系，逐步转向以中央银行为中心、专业银行为主体、多种金融机构并存的格局。 （三）第三阶段：党的十四大至十八大（1992—2012年） 1992年至2012年，是中国银行业制度框架加速现代化的阶段。党的十四大确立社会主义市场经济体制的改革目标。1993年党的十四届三中全会明确提出我国银行业改革的方向为：发展和完善以银行融资为主的金融市场；中国人民银行作为中央银行，在国务院领导下独立执行货币政策；建立政策性银行，实行政策性业务与商业性业务分离；发展商业性银行等。1994年，国家开发银行、中国进出口银行、中国农业发展银行三家政策性银行相继成立，承接国家重点建设、进出口支持和农业农村发展等政策性金融任务；原国有专业银行则向国有商业银行转型。 1995年后，银行业改革逐步从机构分设转向经营机制改造。1995年，《中华人民共和国中国人民银行法》和《中华人民共和国商业银行法》相继出台，分别从法律上确立了中国人民银行的中央银行地位和商业银行的企业法人地位。1998年前后，信贷规模管理逐步让位于资产负债比例管理，商业银行开始强化资本约束、风险管理和内部控制。1997年，第一次全国金融工作会议召开，确立防风险、强监管主线；国家通过设立金融资产管理公司剥离不良资产，并在2003年前后启动国有商业银行股份制改革试点，推动大型银行建立现代公司治理结构。 在监管体系方面，2003年，中国银行业监督管理委员会正式挂牌成立，原由中国人民银行承担的银行、金融资产管理公司、信托投资公司及其他存款类金融机构监管职能被分离出来，银行业监管进入专业化阶段。2008年国际金融危机后，中国银行业一方面继续支持经济增长，另一方面加强资本充足率、流动性、平台贷款、房地产贷款和影子银行等领域监管。到2012年前后，中国银行业已经基本完成从专业银行体系向现代商业银行体系的转型，形成了大型商业银行、股份制商业银行、城市商业银行、农村金融机构、政策性银行和外资银行并存的多层次格局。 （四）第四阶段：党的十八大以来（2012年至今） 党的十八大报告提出了包括银行业在内的金融体制改革方向，主要包括：深化金融体制改革，健全促进宏观经济稳定、支持实体经济发展的现代金融体系，加快发展民营金融机构，完善金融监管，推进金融创新，提高银行、证券、保险等行业竞争力，维护金融稳定等。党的十八届三中全会通过的《中共中央关于全面深化改革若干重大问题的决定》中，将‌“完善金融市场体系”‌作为加快完善现代市场体系的重要组成部分。其重点是紧紧围绕‌使市场在资源配置中起决定性作用‌，全面深化金融业改革开放。 党的十八大以来，在以习近平同志为核心的党中央坚强领导下，我国金融系统加快适应我国经济由高速增长向高质量发展的转型，大力推进现代中央银行制度建设和现代金融体系建设，中国银行业进入高质量发展阶段。2017年全国金融工作会议明确提出，金融工作要紧紧围绕服务实体经济、防控金融风险、深化金融改革三大任务，健全现代金融企业制度和现代金融监管框架。 在风险治理方面，2017年召开的第五次全国金融工作会议上，习近平总书记明确指出，防范化解金融风险，特别是防止发生系统性金融风险，是金融工作的根本性任务。2018年12月，中央经济工作会议进一步强调了“六个稳定”，继续将“稳金融”列于第二位。在监管框架方面，2018年中国银行保险监督管理委员会组建，2023年又在银保监会基础上组建国家金融监督管理总局，统一负责除证券业之外的金融业监管，反映出金融监管从分业监管向更高层次统筹监管演进。在服务实体经济方面，银行业更加突出结构优化。2023年中央金融工作会议进一步提出建设金融强国，并要求做好科技金融、绿色金融、普惠金融、养老金融、数字金融“五篇大文章”。党的二十大报告明确提出深化金融体制改革，建设现代中央银行制度，加强和完善现代金融监管，强化金融稳定保障体系，依法将各类金融活动全部纳入监管，守住不发生系统性风险底线。党的二十届四中全会，明确提出“加快建设金融强国”目标。 总体来看，2012年以来中国银行业的核心变化，是从“有没有现代银行体系”转向“能不能建设高质量现代银行体系”。银行业发展的主线，已由机构扩张和规模增长，转向稳健经营、精准服务、风险防控和中国特色金融发展道路的制度完善。 二、我国银行业取得的发展成就与经验 新中国成立以来特别是改革开放以来，我国银行业取得了举世瞩目的发展成就，并形成了具有中国特色的发展经验。 （一）我国银行业发展的主要成就 1.形成多层次、广覆盖、差异化的银行体系，综合实力跃居全球前列 我国银行业资产负债规模长期保持平稳增长，综合实力大幅增强。截至2026年一季度末，我国银行业金融机构本外币资产总额达494.7万亿元，居世界首位。全球1000强银行中，143家中资银行上榜，前10位我国占据6席，显示出中国银行业的巨大国际影响力。结构上，我国已形成多层次、广覆盖、差异化的银行体系：国有六大行总资产约229万亿元，占全行业约46%，发挥主力军和压舱石作用；股份制银行、城商行、农商行和民营银行分层分工，全面服务经济社会发展的不同区域和客户群。</p>
+<h3>2.服务实体经济质效大幅提升，资源配置持续优化 金融服务经济的质量，关键在于金融资源配置效率。 目前，银行贷款在社会融资规模存量占比超过60%，表明银行体系仍是我国实体经济融资的主要供给方。同时贷款结构持续优化，重点向科技、普惠、绿色等实体经济重点领域倾斜，整个“十四五”时期，这些领域贷款保持两位数增速，高于整体贷款平均增速，其中科研技术贷款、制造业中长期贷款年均增长27.2%、21.7%。这一时期，净息差持续下行，银行业主动让利实体经济，通过降低贷款利率、减免服务收费等方式，切实减轻企业和个人融资负担，助力宏观经济企稳回升。</h3>
+<h3>3.普惠金融服务持续加强，金融覆盖率不断扩大 我国银行业坚持以人民为中心，大力发展普惠金融，金融服务覆盖率、可得性和满意度明显提升。基础金融服务实现广泛覆盖，数字普惠深入推进，数字人民币应用场景持续拓展，科技赋能金融服务成效明显。截至“十四五”末，全国城镇已实现银行机构全覆盖，乡村覆盖率达97.9%，建成近80万个助农取款服务点，行政村基本实现金融服务全覆盖。普惠型涉农贷款余额稳步增长，2026年一季度末达15万亿元，同比增长9.5%。中小微企业融资环境持续优化，普惠小微授信户数已超6000万户，覆盖约三分之一经营主体。科技型中小企业、高新技术企业获贷率分别提升至50.3%和57.6%。2026年一季度末，普惠型小微企业贷款余额达38.8万亿元，同比增长9.9%。在机制与模式创新上，国家、省、市、区县四级联动的小微融资协调机制有效运转，商业银行通过“双基联动”合作贷款、“拎包银行”等方式切实打通金融服务“最后一公里”。</h3>
+<h3>4.银行业对外开放形成制度型开放格局，中资银行国际竞争力显著增强 近年来，中国大幅减少外资准入数量型门槛，全面取消银行保险领域外资持股比例限制，金融业对外开放从“要素流动”向“制度型开放”‌迈进。外资银行作为重要组成部分，在华资产规模稳步增长，业务结构持续优化，在连接中外市场、服务实体经济及推动金融创新方面发挥了关键作用。截至2025年6月，全国共有来自52个国家和地区的银行在华设立机构，外资法人银行41家，外国及港澳台银行分行115家，覆盖27个省级行政区。全球系统重要性银行已全部在华设立分支机构，其中13家成立法人银行。‌‌ 我国银行业国际化程度和全球服务能力显著提升。2011年以来，工（2011）、中（2011）、农（2014）、建（2015）、交（2023）五家国有大行先后入围全球系统重要性银行，标志着中国银行业在全球金融体系中的地位不断上升。在“一带一路”倡议引领下，中资银行全球布局持续深化。比如，2025年末中国银行集团拥有533家境外分支机构，覆盖64个国家和地区，其中包括45个共建“一带一路”国家；2025年境外机构营业收入和利润总额分别同比增长12.1%和6.9%，境外业务利润贡献度接近28%。中资银行国际化既承接中国企业出海和人民币国际化需求，也在国内净息差收窄背景下拓展了收入来源。2015年上线的人民币跨境支付系统（CIPS）为离岸人民币清算提供了先进的基础设施，中国银行业在金融稳定理事会、巴塞尔银行监管委员会等国际金融机构中的参与度持续提升。</h3>
+<h3>5.行业监管体制机制日渐完善，风险防控能力大幅增强 我国银行业不断健全和完善监管体制和机制，逐步构建起结构合理、功能完备、运转高效的中国特色现代金融监管体系。2018年关于规范金融机构资产管理业务的指导意见的颁布标志着我国百万亿级资产管理行业步入规范发展的新阶段。制度建设同步推进，“十四五”期间共发布各类监管规制171件，基本建立起贯通宏观审慎（含全口径跨境融资）与微观审慎、覆盖银行全生命周期的制度体系，银行业监督管理法修订草案已提请审议并向社会公开征求意见，金融法草案、人民银行法修订草案已提请本次常委会会议审议。 2023年中央金融委员会、中央金融工作委员会的设立，加强了党中央对金融工作的集中统一领导；国家金融监督管理总局完成机构改革，“四级垂管”架构有效运转，机构监管、行为监管、功能监管、穿透式监管、持续监管全面强化。风险化解方面，中小银行“减量提质”稳步推进，高风险机构数量和资产规模较峰值大幅压降，部分省份实现高风险中小机构动态清零。截至2026年一季度末，商业银行不良贷款率1.51%，贷款拨备率3.07%，资本充足率15%，各项指标均处于健康区间。监管体制演进体现出从分业监管走向功能监管、从合规监管导向走向风险监管导向、从事后处置走向全生命周期管理的逻辑超越。 （二）我国银行业发展的主要经验 1.坚持党中央对银行工作的集中统一领导 习近平总书记指出，党的领导是中国特色金融发展之路最本质的特征，是我国金融发展最大的政治优势、制度优势。马克思主义政治经济学认为，金融资本具有脱离实体经济自我循环的内在倾向。只有在党的集中统一领导下，才能从根本上规制这一倾向，确保金融资本服务实体经济。回顾银行业改革发展历程，每一次重大结构性突破，都在党中央战略决策和统一部署下完成。将党的领导这一制度优势转化为治理效能，是银行业行稳致远的关键。“十四五”时期，中央金融委员会和中央金融工作委员会的组建，金融监管“四级垂管”架构的完善，进一步强化了党中央对金融工作的集中统一领导，确保了党中央决策部署在金融系统贯彻执行，形成了协同高效的金融治理新格局。</h3>
+<h3>2.坚持以人民为中心的价值取向 习近平总书记强调，我们党领导的金融事业，归根到底要造福人民。金融工作的人民性是中国银行业区别于西方银行业的根本特征。纯粹市场逻辑容易使金融资源简单地向高回报领域集中，难以自动流向最需要服务的群体。坚持以人民为中心，正是对市场局限性的必要超越，使金融服务成为可持续的制度安排。“十四五”时期，这一价值取向在普惠金融覆盖、消费者权益保护和养老金融等方面得到具体落实。银行业持续下沉服务重心，边远地区、小微企业、个体工商户与农户等群体得以更多地分享现代金融服务；消费者权益保护形成事前预防、事中管控、事后救济的链条；养老金融加快布局，满足多样化的养老保障需求。上述实践的共同逻辑，是将社会公平有效内嵌于金融制度安排之中。</h3>
+<h3>3.坚持将服务实体经济作为根本宗旨 习近平总书记强调，我国金融必须守好服务实体经济本分，决不能脱实向虚。二十世纪八十年代以来，全球金融自由化推动一些发达经济体金融部门持续扩张，金融深化超过一定阈值后，资本开始在金融体系内部自我循环。我国银行业也出现过信贷结构偏移，资金经由影子银行通道聚集于房地产和地方融资平台，弱化了对实体经济的支持。党的十八大以来，党中央将服务实体经济确立为银行业发展根本宗旨。“十四五”时期，银行业围绕“五篇大文章”优化信贷投向，建立小微企业融资协调机制、房地产融资协调机制等，引导资源从低效过剩领域向高效短缺领域流动，助力新质生产力培育和现代化产业体系建设。其内在逻辑是通过制度安排矫正市场信号失真，将银行经营激励与实体经济真实需求重新锚定。</h3>
+<h3>4.坚持将防控风险作为永恒主题 习近平总书记指出，金融既有管理和分散风险的功能，又自带风险基因。我国金融体量和复杂程度今非昔比，必须增强忧患意识，做好风险防控，增强金融体系韧性。这揭示了金融体系的本质特征。金融脆弱性源于期限错配、杠杆运作与顺周期性，在经济上行期容易滋生过度扩张和风险隐匿，下行期则可能引发连锁反应。2008年后，中小银行公司治理失范、影子银行野蛮生长、房地产与地方融资平台风险交织，使防范化解金融风险成为紧迫任务。“十四五”时期，银行业按照“稳定大局、统筹协调、分类施策、精准拆弹”的方针，处置了一批突出风险点，守住了不发生系统性金融风险的底线。中小银行通过吸收合并、市场化解散等方式减量提质，高风险机构数量和资产规模大幅压降；地方债务风险化解严守不新增隐性债务红线；房地产风险处置通过融资协调机制和“白名单”项目支持，有效阻断风险传染外溢。实践表明，维护金融安全既要在风险显现时果断应对，更要构建抑制顺周期行为、约束过度冒险的长效机制。</h3>
+<h3>5.坚持深化供给侧结构性改革 深化金融供给侧结构性改革，核心在于推动金融体系更好匹配实体经济真实需求。我国融资体系以间接融资为主，银行业在支持大规模投资方面具有显著的优势，但也存在机构同质竞争、资源配置效率有待提升等问题。“十四五”时期的深化改革有效改进了上述问题。在机构体系上，形成大中小机构差异化定位、协同发展的格局，通过“减量提质”提升整体效能。在公司治理上，党的领导与公司治理深度融合，权责透明、有效制衡的治理机制持续完善。在经营机制上，利率和汇率市场化改革深入推进，内部管理和成本管控能力增强。在对外开放上，制度型开放稳步扩大，外资准入不断放宽，人民币国际化与跨境支付体系持续完善。在数字化转型上，金融科技深度应用，移动支付、数字人民币、智能风控等走在世界前列。总体来看，供给侧结构性改革推动我国银行业从规模扩张转向结构优化和效率提升，为实体经济高质量发展提供了更适配、更稳健的金融支撑。 这五条经验是相互联系、内在统一的关系：党的领导是根本保证，以人民为中心是价值取向，服务实体经济是立身之本，防控风险是永恒主题，深化改革是动力源泉，它们共同构成了我国银行业发展的系统逻辑。 三、我国银行业现代化发展面临的机遇和挑战 当前，我国经济金融运行总体平稳、稳中有进。在百年变局和中华民族伟大复兴战略全局之下，“十五五”期间我国银行业现代化发展面临时代机遇和挑战。 （一）我国银行业现代化发展面临的时代机遇 1.以“五篇大文章”优化信贷结构是银行业高质量发展的关键抓手。 科技金融支持专精特新企业，推广知识产权质押、投贷联动等新模式；绿色金融契合“双碳”目标，绿色信贷、转型债券正成为新增长点；普惠金融借助数据风控覆盖小微、乡村振兴等长尾客群，践行金融为民并培育新增长点；养老金融伴随第三支柱扩围和适老化升级，市场空间巨大；数字金融贯穿始终，成为优化信贷结构的基础能力。由此银行可摆脱对房地产、地方基建的过度依赖，构建均衡、可持续的信贷资产组合，提升服务实体经济的质效。</h3>
+<h3>2.以数字化实现降本增效与风险管理升级，是银行业构筑核心竞争力的必由之路。 随着数字金融从消费互联网转向产业互联网，进一步释放了银行的规模与产业链优势。降本增效方面，产业链数据透明化与人工智能大幅压缩了获客及管理成本，供应链金融的规模经济效应显现。风险管理方面，基于企业动态行为数据和大模型，信用评估从依赖静态抵押物转向实时经营能力评估；区块链以主体与交易双重确权，打破了对核心企业信用过度依赖，将融资延伸至产业链末梢。同时，随着API生态嵌入产业场景，智能投顾降低了财富管理门槛，催进了服务模式革新。数字化正成为银行业分化的分水岭，具备规模效应和数据生态的机构将占据明显优势。</h3>
+<h3>3.财富管理金融正迎来“黄金十年”发展期，这是居民财富积累与结构转型共同催生的历史性机遇。 我国人均GDP近1.4万美元，中等收入群体壮大，社会正从“储蓄时代”迈向“财富管理时代”。房地产财富效应减弱，存款搬家趋势明显，权益类、混合类产品需求上升，高净值客户跨境配置需求增长。个人养老金制度全面铺开，第二、三支柱加速发展，银行凭借账户优势有望成为养老金融重要入口。银行依托理财子公司、基金投资顾问、跨境理财通等牌照，可整合投资银行、资产管理、私人银行业务形成服务闭环，盈利模式将从息差收入向管理费、投顾费及超额业绩分成转变。</h3>
+<h3>4.全国统一大市场建设和国内国际双循环新发展格局，为银行业开辟了新的战略发展空间。 统一大市场打破了地方保护，使异地展业、跨行结算、统一授信更加畅通，头部银行可拓展至全国客户，区域银行则深耕本地产业链形成差异化优势。要素流动加快促成商流、物流、资金流、信息流合一，供应链金融、动产融资等迎来规模化发展。国内国际双循环下，内循环推动乡村全面振兴与县域消费，为中西部银行带来增量市场；外循环要求银行提升跨境结算、汇率避险及境外融资能力，人民币跨境支付系统（CIPS）和数字人民币跨境试点也为中资大行提供了新的发展机遇。 （二）我国银行业现代化发展面临的若干挑战 第一，在应对外部冲击方面， 除全球债务、能源供给、AI科技泡沫等重大潜在风险外，国际支付清算系统被用作制裁工具，使金融基础设施的政治化风险从理论变为现实，揭示了中资银行在现行国际金融体系中的风险性。与此同时，资本监管、绿色金融标准、数字货币监管等议题正成为国际金融治理的新规则场，发达经济体凭借先发优势主导规则制定。上述外部制度环境带来的结构性挑战，有赖于国家层面的战略统筹与制度保障。推进人民币国际化、加快跨境支付基础设施建设，是化解这一风险性的战略路径。同时，也要求银行业自身在合规能力与全球治理参与上实现实质性提升。 第二，在核心竞争力方面， 传统增长模式经受挑战，效率提升面临结构性压力。随着经济增长从要素驱动转向创新驱动，以抵押物和短期财务指标为核心的传统信贷逻辑，与科技企业的价值创造方式难以适配。与此同时，净息差已降至历史低位，依靠信贷扩张和利差收入的传统增长模式难以为继。在此情形下，银行既要转变服务实体经济的方式，也要重构自身盈利模式，但两者均面临深层制约。传统风控体系难以识别和定价技术资产，研发长周期与银行短期资金结构存在期限错配，信贷供给与科创需求之间的结构性缺口难以弥合；数字化转型则受制于数据权属不清与共享机制缺失，大中小银行间的能力分化持续加剧；财富管理转型所要求的资产配置能力与银行长期积累的信贷风控能力存在本质差异，能力跃迁难以短期完成。 第三，在系统性风险防控方面， 风险防控的制度基础与法治保障仍需加强。房地产市场调整与地方债务压力尚未完全出清，风险仍可能向金融体系传导；部分中小银行公司治理薄弱、资本补充困难，改革化险需持续推进。从制度根源看，风险的积累与处置长期受到法制不完善的制约，现有金融法律体系缺乏基础立法，风险处置的权责框架不清晰，事前防范与事后问责缺乏有力的制度依托。与此同时，数字金融深化带来新型风险挑战，网络安全威胁常态化、模型趋同与算法黑箱等问题不断显现，而现行监管法律框架制定于数字金融兴起之前，监管工具与覆盖范围存在明显滞后，难以适应风险形态的深刻变化。 第四，在服务社会发展方面， 践行普惠金融与社会责任，推动金融资源配置更加公平仍面临现实挑战。小微企业与“三农”融资难、融资贵问题尚未根本化解，农村信用体系薄弱、有效抵押物不足等老问题依然突出。数字技术虽在一定程度上缓解了上述约束，但缺乏经营数据或数字化程度低的主体仍难获益，普惠总量扩大与结构性失衡并存的格局短期内仍将存在。养老金融供给滞后于老龄化进程，产品同质化、长期资金管理能力不足，难以适应多层次养老保障需求。绿色金融则面临碳核算标准不统一、伪造环保的“漂绿”风险与期限错配等多重制约。此外，金融机构以规模和利润为导向的逻辑，与普惠金融所要求的义利兼顾、服务基层的价值取向存在一定偏差，需要在考核机制、人才培养与激励机制等方面持续优化。 四、几点思考与建议 第一，要深入学习习近平经济思想金融篇，坚定不移走中国特色金融发展之路。 中国特色金融发展之路既要遵循现代金融发展的客观规律，更要具有适合自身国情的鲜明特色。一要坚持党中央对金融工作的集中统一领导，深刻把握金融工作的政治性、人民性，坚决落实中央金融工作会议提出的“八个坚持”，推动有效市场与有为政府更好结合。二要坚持金融服务实体经济，从追求规模扩张转向服务国家战略与提升金融效率并重，把更多金融资源配置到科技创新、绿色转型等重点领域。三要坚持以人民为中心，完善普惠金融、养老金融和消费者权益保护，增强金融服务的多样性与可及性，防止金融资源过度集中。四要统筹发展和安全，在全面强化“五大监管”的同时，明确金融监管与发展相统筹的政策取向，深化金融供给侧结构性改革，并推进人民币国际化和跨境支付基础设施建设，增强中资银行应对重大风险的能力。 第二，积极发展科技金融，有力支持科技自立自强和新质生产力发展。 一要发挥新型举国体制优势，引导金融资源支持核心技术攻关，弥补市场失灵造成的原始创新投入不足，推动政策、市场、技术、人才等要素形成合力。二要健全科技金融组织体系，引导银行设立科技金融专营机构和专属风控模型，提升识别科技企业技术价值与成长潜力的专业水平，改变过度依赖抵押物和短期财务指标的传统信贷逻辑。三要完善科技企业全生命周期金融供给，围绕初创期、成长期、成熟期企业的不同需求，构建“贷款、债券、股权、保险、担保”协同支持体系，并以数字化转型形成适应轻资产、科技型企业特点的金融服务新模式。四要引导金融资本投早、投小、投长期、投硬科技，推动更多中长期耐心资本流向原创性、颠覆性科技创新领域。五要强化政策协同和风险分担，完善融资担保、风险补偿和尽职免责机制，防止科技金融异化为概念化、套利化融资，以中国特色的现代科技金融体系服务高水平科技自立自强。 第三，要坚持立法先行，夯实金融法治根基。 一要积极推进金融法立法进程，填补金融领域长期缺乏统领性基础法律的空白，将党中央决策部署和成熟改革经验转化为稳定的法律规范，为金融强国建设提供坚实法治保障。二要推动金融稳定法及时出台，构建事前防范、事中处置、事后问责的全流程制度安排，压实股东、金融机构、监管部门、地方政府等各方责任，筑牢不发生系统性风险的制度防线。三要有序推进中国人民银行法、商业银行法修订，强化央行在流动性管理、系统性风险监测等方面的法定职责，并为数字人民币发行流通与跨境使用提供明确法律依据，加快建设现代中央银行制度。四要加快修订银行业监督管理法，实现监管范围、监管工具和责任体系的系统性升级，强化穿透式监管，提高违法违规成本，形成有力法律震慑。 第四，加快构建中国哲学社会科学自主知识体系，根植中国先进金融文化，造就一批具有深厚家国情怀和中国式现代化理念的卓越金融人才。 一要将信义为本、稳健经营、服务实体、义利兼顾等中国特色金融文化理念贯穿人才培养全过程，按照“政治过硬、作风优良、业务精通”的标准加强金融人才的培养、选拔和使用，从源头筑牢道德底线与职业操守。二要加强从业者的社会责任感，健全激励与约束机制，推行与风险挂钩的长效激励安排，完善违规行为的问责与职业禁入制度，实现优秀金融从业者引得进、留得住、用得好，从制度层面有效防范道德风险与操作风险。三要加快实施国家卓越金融人才专项培养计划，依托一流高校、大型金融机构和监管部门等教育实践平台，一体化重点培养既深刻理解中国国情与政策环境、又熟练掌握国际规则、金融科技、风险管理等前沿领域的复合型高端人才，为金融强国建设提供强大的人才后备队伍保障。 （主讲人系十四届全国人大财经委副主任委员、南开大学校长） 名词解释： 1.资本充足率： 根据国家金融监督管理总局《商业银行资本管理办法》，‌资本充足率是指银行资本总额与风险加权资产的比率‌。它用来衡量银行在存款人资产受损前，能用自有资本承担损失的程度，是评估银行稳健性的核心指标。</h3>
+<h3>2.影子银行（Shadow Banking）： 是指游离于传统商业银行监管体系之外，从事类似银行的‌信用中介‌活动，但不具备吸收公众存款资格、不受存款准备金和资本充足率等严格约束的金融机构及业务体系。</h3>
+<h3>3.转型债券： 是指为支持适应环境改善和应对气候变化，‌募集资金专项用于低碳转型领域‌的债务融资工具。它是绿色金融的有益补充，旨在解决传统高碳行业（“棕色资产”）因不符合纯绿标准而难以获得绿色融资的问题，支持其向低碳或零碳路径过渡。</h3>
+<h3>4.金融顺周期性： 是指金融变量（如信贷、资产价格、杠杆率）与经济周期‌同向波动‌并‌放大‌经济波动的现象。其核心特征是“繁荣时助推繁荣，衰退时加剧衰退”，形成正反馈循环，是引发系统性金融风险的重要内生机制。</h3>
+<h3>5.宏观审慎与微观审慎监管： 宏观审慎管理与微观审慎监管是现代金融监管体系的两大支柱，二者在目标、视角和工具上各有侧重，又相互补充，共同构成维护金融稳定的完整框架。宏观审慎管理旨在防范‌系统性金融风险‌，维护整个金融体系的稳定，避免金融危机对实体经济造成严重冲击。其核心理念是“整体稳定不等于个体简单加总”，关注风险的跨机构、跨市场传染及顺周期效应。微观审慎监管‌旨在确保‌单个金融机构‌的稳健运行，保护存款人和投资者利益，防止个别机构倒闭引发局部风险。其核心理念是“个体健康即系统安全”。‌‌‌‌ 内容来源：中国人大网 、 南开大学国家创新与金融研究院 *本文如有侵权，请及时联系我们删除。 “金融科技50人论坛”成立九周年啦，特别感谢热心读者对我们的支持，我们建立了“金融科技·读者微信群“，发布研究成果、促进交流合作、赠送金融科技图书，欢迎您的参与。 入群方法： 加群主为微信好友（ 微信号： serenazys ）,添加时备注个人姓名（实名认证）+单位+职务+入群，经群主审核后，即可被邀请进群。欢迎读者朋友多多留言与我们交流互动。 学术研究、会议合作和专题培训联系： 办公电话： 010-62561700 邮箱地址： songzeying@cft50.com.cn 金融科技50人论坛（CFT50）： 金融科技50人论坛（CFT50）成立于2017年4月22日，论坛近年来紧密围绕金融科技理论、实践与政策前沿，积极推动“政产学研用”交流与合作，逐渐建设成为在金融科技领域具有较高影响力的独立学术平台。论坛组织或参与出品《中国金融科技运行报告》《中小银行金融科技发展研究报告》《数据要素：领导干部公开课》《绿色金融：助力碳达峰碳中和》《金融科技15讲》《银行业数字化转型20讲》等重要学术成果，与《金融理论探索》杂志合作开设数字金融学术专栏，普遍受到政策层、学界和业界人士的高度评价。2019年以来，论坛参与发起北京市东城区立鼎金融与发展研究院、厦门鹭江金融科技研究院等机构。 更多内容，请长按识别二维码关注</h3>
+<p>导语： 十四届全国人大常委会举行第二十三讲专题讲座，赵乐际委员长主持。 全国人大财政经济委员会副主任委员、南开大学校长、一级教授陈雨露 作了题为《我国银行业的演变历程与现代化发展》的讲座。 我国银行业的演变历程与现代化发展 陈雨露 委员长、各位副委员长、秘书长、各位委员： 金融是国家重要的核心竞争力。2023年10月，习近平总书记在中央金融工作会议上提出“加快建设金融强国”，将金融工作上升到更高战略地位。2024年1月，习近平总书记在省部级主要领导干部推动金融高质量发展专题研讨班上又以“六个强大”，即“拥有强大的货币、强大的中央银行、强大的金融机构、强大的国际金融中心、强大的金融监管、强大的金融人才队伍”，系统阐释金融强国的核心内涵，为新时代金融改革发展指明了方向。2025年10月，党的二十届四中全会对“十五五”时期加快建设金融强国作出战略部署，“金融强国”首次写入五年规划建议。银行业是我国金融体系的主体，其发展历程既充分折射我国经济体制和金融体制演进历程，又深刻揭示了我国金融治理现代化的历史逻辑。 一、我国银行业演变历程及其突出特征 中国银行业的演变，是在国家发展战略主导下，逐步走向与市场规律深度融合的现代金融制度演变过程。 （一）第一阶段：计划经济时期（1949—1978年） 1949年前，中国银行业经历了从传统票号、钱庄向现代银行制度转型的漫长过程。1897年，中国通商银行在上海成立，这是第一家由中国人自己创办的银行，标志着中资现代银行业的开端；此后户部银行、大清银行、交通银行以及民国时期的“北四行”“南三行”等相继出现，近代银行体系逐步形成。由于外资银行、官僚资本银行和地方金融势力并存，叠加战争、通货膨胀和财政金融失序，近代银行业始终缺乏统一稳定的制度环境。与此同时，中国共产党在革命根据地开展了早期金融实践，1932年在瑞金成立中华苏维埃共和国国家银行。1948年以华北银行、北海银行、西北农民银行为基础组建中国人民银行，发行人民币，建立了初步统一的货币机制，为开创新中国金融事业奠定坚实基础。 1949年至1978年，中国银行业的基本特征是国家银行体制和计划金融体制的结合。在百废待兴、发展资金极度稀缺的历史条件下，建立集中统一的银行体系是现实的必然选择。人民银行接管官僚资本银行、改造私营银行和钱庄，在全国建立起垂直领导的组织体系，通过“统存统贷”将全国信贷资金纳入国家计划统一调配，形成了集中央银行、商业银行和政策性金融职能于一身的银行体系。 在计划经济体制下，中国人民银行兼具中央银行、商业银行和政策性金融职能，形成以国家计划配置资金的“大一统”银行体系。该体系有利于在资金稀缺条件下集中金融资源，支持“一五”时期重工业和基础设施建设；但银行既管理金融又经营业务，缺乏独立核算、风险约束和竞争机制，难以适应改革开放后多元化资金需求。 （二）第二阶段：改革开放至党的十四大（1979—1992年） 1979年至1992年，是中国银行业从“大一统”体制向多元化金融体系转型的关键时期。银行改革的主线是打破单一银行体制，重建中央银行与专业银行分工体系。为了承接相应业务，1979年中国农业银行、中国银行、中国人民建设银行恢复成立。1984年1月1日起，中国人民银行开始专门行使中央银行职能，中国工商银行成立并承接原由人民银行办理的工商信贷和储蓄业务，中央银行与专业银行分工的基本框架由此形成。 这一时期的另一条主线，是股份制商业银行和地方性金融机构的出现。1987年，重新组建后的交通银行正式对外营业，成为新中国第一家股份制商业银行。此后，招商银行、中信实业银行、深圳发展银行等股份制银行陆续设立，城市信用社、农村信用社、信托投资公司等机构也在地方经济发展中发挥作用。银行业由过去单一行政化体系，逐步转向以中央银行为中心、专业银行为主体、多种金融机构并存的格局。 （三）第三阶段：党的十四大至十八大（1992—2012年） 1992年至2012年，是中国银行业制度框架加速现代化的阶段。党的十四大确立社会主义市场经济体制的改革目标。1993年党的十四届三中全会明确提出我国银行业改革的方向为：发展和完善以银行融资为主的金融市场；中国人民银行作为中央银行，在国务院领导下独立执行货币政策；建立政策性银行，实行政策性业务与商业性业务分离；发展商业性银行等。1994年，国家开发银行、中国进出口银行、中国农业发展银行三家政策性银行相继成立，承接国家重点建设、进出口支持和农业农村发展等政策性金融任务；原国有专业银行则向国有商业银行转型。 1995年后，银行业改革逐步从机构分设转向经营机制改造。1995年，《中华人民共和国中国人民银行法》和《中华人民共和国商业银行法》相继出台，分别从法律上确立了中国人民银行的中央银行地位和商业银行的企业法人地位。1998年前后，信贷规模管理逐步让位于资产负债比例管理，商业银行开始强化资本约束、风险管理和内部控制。1997年，第一次全国金融工作会议召开，确立防风险、强监管主线；国家通过设立金融资产管理公司剥离不良资产，并在2003年前后启动国有商业银行股份制改革试点，推动大型银行建立现代公司治理结构。 在监管体系方面，2003年，中国银行业监督管理委员会正式挂牌成立，原由中国人民银行承担的银行、金融资产管理公司、信托投资公司及其他存款类金融机构监管职能被分离出来，银行业监管进入专业化阶段。2008年国际金融危机后，中国银行业一方面继续支持经济增长，另一方面加强资本充足率、流动性、平台贷款、房地产贷款和影子银行等领域监管。到2012年前后，中国银行业已经基本完成从专业银行体系向现代商业银行体系的转型，形成了大型商业银行、股份制商业银行、城市商业银行、农村金融机构、政策性银行和外资银行并存的多层次格局。 （四）第四阶段：党的十八大以来（2012年至今） 党的十八大报告提出了包括银行业在内的金融体制改革方向，主要包括：深化金融体制改革，健全促进宏观经济稳定、支持实体经济发展的现代金融体系，加快发展民营金融机构，完善金融监管，推进金融创新，提高银行、证券、保险等行业竞争力，维护金融稳定等。党的十八届三中全会通过的《中共中央关于全面深化改革若干重大问题的决定》中，将‌“完善金融市场体系”‌作为加快完善现代市场体系的重要组成部分。其重点是紧紧围绕‌使市场在资源配置中起决定性作用‌，全面深化金融业改革开放。 党的十八大以来，在以习近平同志为核心的党中央坚强领导下，我国金融系统加快适应我国经济由高速增长向高质量发展的转型，大力推进现代中央银行制度建设和现代金融体系建设，中国银行业进入高质量发展阶段。2017年全国金融工作会议明确提出，金融工作要紧紧围绕服务实体经济、防控金融风险、深化金融改革三大任务，健全现代金融企业制度和现代金融监管框架。 在风险治理方面，2017年召开的第五次全国金融工作会议上，习近平总书记明确指出，防范化解金融风险，特别是防止发生系统性金融风险，是金融工作的根本性任务。2018年12月，中央经济工作会议进一步强调了“六个稳定”，继续将“稳金融”列于第二位。在监管框架方面，2018年中国银行保险监督管理委员会组建，2023年又在银保监会基础上组建国家金融监督管理总局，统一负责除证券业之外的金融业监管，反映出金融监管从分业监管向更高层次统筹监管演进。在服务实体经济方面，银行业更加突出结构优化。2023年中央金融工作会议进一步提出建设金融强国，并要求做好科技金融、绿色金融、普惠金融、养老金融、数字金融“五篇大文章”。党的二十大报告明确提出深化金融体制改革，建设现代中央银行制度，加强和完善现代金融监管，强化金融稳定保障体系，依法将各类金融活动全部纳入监管，守住不发生系统性风险底线。党的二十届四中全会，明确提出“加快建设金融强国”目标。 总体来看，2012年以来中国银行业的核心变化，是从“有没有现代银行体系”转向“能不能建设高质量现代银行体系”。银行业发展的主线，已由机构扩张和规模增长，转向稳健经营、精准服务、风险防控和中国特色金融发展道路的制度完善。 二、我国银行业取得的发展成就与经验 新中国成立以来特别是改革开放以来，我国银行业取得了举世瞩目的发展成就，并形成了具有中国特色的发展经验。 （一）我国银行业发展的主要成就</p>
+<h3>1. 形成多层次、广覆盖、差异化的银行体系，综合实力跃居全球前列</h3>
+<p>我国银行业资产负债规模长期保持平稳增长，综合实力大幅增强。截至2026年一季度末，我国银行业金融机构本外币资产总额达494.7万亿元，居世界首位。全球1000强银行中，143家中资银行上榜，前10位我国占据6席，显示出中国银行业的巨大国际影响力。结构上，我国已形成多层次、广覆盖、差异化的银行体系：国有六大行总资产约229万亿元，占全行业约46%，发挥主力军和压舱石作用；股份制银行、城商行、农商行和民营银行分层分工，全面服务经济社会发展的不同区域和客户群。</p>
+<h3>2.服务实体经济质效大幅提升，资源配置持续优化</h3>
+<p>金融服务经济的质量，关键在于金融资源配置效率。 目前，银行贷款在社会融资规模存量占比超过60%，表明银行体系仍是我国实体经济融资的主要供给方。同时贷款结构持续优化，重点向科技、普惠、绿色等实体经济重点领域倾斜，整个“十四五”时期，这些领域贷款保持两位数增速，高于整体贷款平均增速，其中科研技术贷款、制造业中长期贷款年均增长27.2%、21.7%。这一时期，净息差持续下行，银行业主动让利实体经济，通过降低贷款利率、减免服务收费等方式，切实减轻企业和个人融资负担，助力宏观经济企稳回升。</p>
+<h3>3.普惠金融服务持续加强，金融覆盖率不断扩大</h3>
+<p>我国银行业坚持以人民为中心，大力发展普惠金融，金融服务覆盖率、可得性和满意度明显提升。基础金融服务实现广泛覆盖，数字普惠深入推进，数字人民币应用场景持续拓展，科技赋能金融服务成效明显。截至“十四五”末，全国城镇已实现银行机构全覆盖，乡村覆盖率达97.9%，建成近80万个助农取款服务点，行政村基本实现金融服务全覆盖。普惠型涉农贷款余额稳步增长，2026年一季度末达15万亿元，同比增长9.5%。中小微企业融资环境持续优化，普惠小微授信户数已超6000万户，覆盖约三分之一经营主体。科技型中小企业、高新技术企业获贷率分别提升至50.3%和57.6%。2026年一季度末，普惠型小微企业贷款余额达38.8万亿元，同比增长9.9%。在机制与模式创新上，国家、省、市、区县四级联动的小微融资协调机制有效运转，商业银行通过“双基联动”合作贷款、“拎包银行”等方式切实打通金融服务“最后一公里”。</p>
+<h3>4.银行业对外开放形成制度型开放格局，中资银行国际竞争力显著增强</h3>
+<p>近年来，中国大幅减少外资准入数量型门槛，全面取消银行保险领域外资持股比例限制，金融业对外开放从“要素流动”向“制度型开放”‌迈进。外资银行作为重要组成部分，在华资产规模稳步增长，业务结构持续优化，在连接中外市场、服务实体经济及推动金融创新方面发挥了关键作用。截至2025年6月，全国共有来自52个国家和地区的银行在华设立机构，外资法人银行41家，外国及港澳台银行分行115家，覆盖27个省级行政区。全球系统重要性银行已全部在华设立分支机构，其中13家成立法人银行。‌‌ 我国银行业国际化程度和全球服务能力显著提升。2011年以来，工（2011）、中（2011）、农（2014）、建（2015）、交（2023）五家国有大行先后入围全球系统重要性银行，标志着中国银行业在全球金融体系中的地位不断上升。在“一带一路”倡议引领下，中资银行全球布局持续深化。比如，2025年末中国银行集团拥有533家境外分支机构，覆盖64个国家和地区，其中包括45个共建“一带一路”国家；2025年境外机构营业收入和利润总额分别同比增长12.1%和6.9%，境外业务利润贡献度接近28%。中资银行国际化既承接中国企业出海和人民币国际化需求，也在国内净息差收窄背景下拓展了收入来源。2015年上线的人民币跨境支付系统（CIPS）为离岸人民币清算提供了先进的基础设施，中国银行业在金融稳定理事会、巴塞尔银行监管委员会等国际金融机构中的参与度持续提升。</p>
+<h3>5.行业监管体制机制日渐完善，风险防控能力大幅增强</h3>
+<p>我国银行业不断健全和完善监管体制和机制，逐步构建起结构合理、功能完备、运转高效的中国特色现代金融监管体系。2018年关于规范金融机构资产管理业务的指导意见的颁布标志着我国百万亿级资产管理行业步入规范发展的新阶段。制度建设同步推进，“十四五”期间共发布各类监管规制171件，基本建立起贯通宏观审慎（含全口径跨境融资）与微观审慎、覆盖银行全生命周期的制度体系，银行业监督管理法修订草案已提请审议并向社会公开征求意见，金融法草案、人民银行法修订草案已提请本次常委会会议审议。 2023年中央金融委员会、中央金融工作委员会的设立，加强了党中央对金融工作的集中统一领导；国家金融监督管理总局完成机构改革，“四级垂管”架构有效运转，机构监管、行为监管、功能监管、穿透式监管、持续监管全面强化。风险化解方面，中小银行“减量提质”稳步推进，高风险机构数量和资产规模较峰值大幅压降，部分省份实现高风险中小机构动态清零。截至2026年一季度末，商业银行不良贷款率1.51%，贷款拨备率3.07%，资本充足率15%，各项指标均处于健康区间。监管体制演进体现出从分业监管走向功能监管、从合规监管导向走向风险监管导向、从事后处置走向全生命周期管理的逻辑超越。 （二）我国银行业发展的主要经验</p>
+<h3>1. 坚持党中央对银行工作的集中统一领导</h3>
+<p>习近平总书记指出，党的领导是中国特色金融发展之路最本质的特征，是我国金融发展最大的政治优势、制度优势。马克思主义政治经济学认为，金融资本具有脱离实体经济自我循环的内在倾向。只有在党的集中统一领导下，才能从根本上规制这一倾向，确保金融资本服务实体经济。回顾银行业改革发展历程，每一次重大结构性突破，都在党中央战略决策和统一部署下完成。将党的领导这一制度优势转化为治理效能，是银行业行稳致远的关键。“十四五”时期，中央金融委员会和中央金融工作委员会的组建，金融监管“四级垂管”架构的完善，进一步强化了党中央对金融工作的集中统一领导，确保了党中央决策部署在金融系统贯彻执行，形成了协同高效的金融治理新格局。</p>
+<h3>2.坚持以人民为中心的价值取向</h3>
+<p>习近平总书记强调，我们党领导的金融事业，归根到底要造福人民。金融工作的人民性是中国银行业区别于西方银行业的根本特征。纯粹市场逻辑容易使金融资源简单地向高回报领域集中，难以自动流向最需要服务的群体。坚持以人民为中心，正是对市场局限性的必要超越，使金融服务成为可持续的制度安排。“十四五”时期，这一价值取向在普惠金融覆盖、消费者权益保护和养老金融等方面得到具体落实。银行业持续下沉服务重心，边远地区、小微企业、个体工商户与农户等群体得以更多地分享现代金融服务；消费者权益保护形成事前预防、事中管控、事后救济的链条；养老金融加快布局，满足多样化的养老保障需求。上述实践的共同逻辑，是将社会公平有效内嵌于金融制度安排之中。</p>
+<h3>3.坚持将服务实体经济作为根本宗旨</h3>
+<p>习近平总书记强调，我国金融必须守好服务实体经济本分，决不能脱实向虚。二十世纪八十年代以来，全球金融自由化推动一些发达经济体金融部门持续扩张，金融深化超过一定阈值后，资本开始在金融体系内部自我循环。我国银行业也出现过信贷结构偏移，资金经由影子银行通道聚集于房地产和地方融资平台，弱化了对实体经济的支持。党的十八大以来，党中央将服务实体经济确立为银行业发展根本宗旨。“十四五”时期，银行业围绕“五篇大文章”优化信贷投向，建立小微企业融资协调机制、房地产融资协调机制等，引导资源从低效过剩领域向高效短缺领域流动，助力新质生产力培育和现代化产业体系建设。其内在逻辑是通过制度安排矫正市场信号失真，将银行经营激励与实体经济真实需求重新锚定。</p>
+<h3>4.坚持将防控风险作为永恒主题</h3>
+<p>习近平总书记指出，金融既有管理和分散风险的功能，又自带风险基因。我国金融体量和复杂程度今非昔比，必须增强忧患意识，做好风险防控，增强金融体系韧性。这揭示了金融体系的本质特征。金融脆弱性源于期限错配、杠杆运作与顺周期性，在经济上行期容易滋生过度扩张和风险隐匿，下行期则可能引发连锁反应。2008年后，中小银行公司治理失范、影子银行野蛮生长、房地产与地方融资平台风险交织，使防范化解金融风险成为紧迫任务。“十四五”时期，银行业按照“稳定大局、统筹协调、分类施策、精准拆弹”的方针，处置了一批突出风险点，守住了不发生系统性金融风险的底线。中小银行通过吸收合并、市场化解散等方式减量提质，高风险机构数量和资产规模大幅压降；地方债务风险化解严守不新增隐性债务红线；房地产风险处置通过融资协调机制和“白名单”项目支持，有效阻断风险传染外溢。实践表明，维护金融安全既要在风险显现时果断应对，更要构建抑制顺周期行为、约束过度冒险的长效机制。</p>
+<h3>5.坚持深化供给侧结构性改革</h3>
+<p>深化金融供给侧结构性改革，核心在于推动金融体系更好匹配实体经济真实需求。我国融资体系以间接融资为主，银行业在支持大规模投资方面具有显著的优势，但也存在机构同质竞争、资源配置效率有待提升等问题。“十四五”时期的深化改革有效改进了上述问题。在机构体系上，形成大中小机构差异化定位、协同发展的格局，通过“减量提质”提升整体效能。在公司治理上，党的领导与公司治理深度融合，权责透明、有效制衡的治理机制持续完善。在经营机制上，利率和汇率市场化改革深入推进，内部管理和成本管控能力增强。在对外开放上，制度型开放稳步扩大，外资准入不断放宽，人民币国际化与跨境支付体系持续完善。在数字化转型上，金融科技深度应用，移动支付、数字人民币、智能风控等走在世界前列。总体来看，供给侧结构性改革推动我国银行业从规模扩张转向结构优化和效率提升，为实体经济高质量发展提供了更适配、更稳健的金融支撑。 这五条经验是相互联系、内在统一的关系：党的领导是根本保证，以人民为中心是价值取向，服务实体经济是立身之本，防控风险是永恒主题，深化改革是动力源泉，它们共同构成了我国银行业发展的系统逻辑。 三、我国银行业现代化发展面临的机遇和挑战 当前，我国经济金融运行总体平稳、稳中有进。在百年变局和中华民族伟大复兴战略全局之下，“十五五”期间我国银行业现代化发展面临时代机遇和挑战。 （一）我国银行业现代化发展面临的时代机遇 1.以“五篇大文章”优化信贷结构是银行业高质量发展的关键抓手。 科技金融支持专精特新企业，推广知识产权质押、投贷联动等新模式；绿色金融契合“双碳”目标，绿色信贷、转型债券正成为新增长点；普惠金融借助数据风控覆盖小微、乡村振兴等长尾客群，践行金融为民并培育新增长点；养老金融伴随第三支柱扩围和适老化升级，市场空间巨大；数字金融贯穿始终，成为优化信贷结构的基础能力。由此银行可摆脱对房地产、地方基建的过度依赖，构建均衡、可持续的信贷资产组合，提升服务实体经济的质效。</p>
+<h3>2.以数字化实现降本增效与风险管理升级，是银行业构筑核心竞争力的必由之路。 随着数字金融从消费互联网转向产业互联网，进一步释放了银行的规模与产业链优势。降本增效方面，产业链数据透明化与人工智能大幅压缩了获客及管理成本，供应链金融的规模经济效应显现。风险管理方面，基于企业动态行为数据和大模型，信用评估从依赖静态抵押物转向实时经营能力评估；区块链以主体与交易双重确权，打破了对核心企业信用过度依赖，将融资延伸至产业链末梢。同时，随着API生态嵌入产业场景，智能投顾降低了财富管理门槛，催进了服务模式革新。数字化正成为银行业分化的分水岭，具备规模效应和数据生态的机构将占据明显优势。</h3>
+<h3>3.财富管理金融正迎来“黄金十年”发展期，这是居民财富积累与结构转型共同催生的历史性机遇。 我国人均GDP近1.4万美元，中等收入群体壮大，社会正从“储蓄时代”迈向“财富管理时代”。房地产财富效应减弱，存款搬家趋势明显，权益类、混合类产品需求上升，高净值客户跨境配置需求增长。个人养老金制度全面铺开，第二、三支柱加速发展，银行凭借账户优势有望成为养老金融重要入口。银行依托理财子公司、基金投资顾问、跨境理财通等牌照，可整合投资银行、资产管理、私人银行业务形成服务闭环，盈利模式将从息差收入向管理费、投顾费及超额业绩分成转变。</h3>
+<h3>4.全国统一大市场建设和国内国际双循环新发展格局，为银行业开辟了新的战略发展空间。 统一大市场打破了地方保护，使异地展业、跨行结算、统一授信更加畅通，头部银行可拓展至全国客户，区域银行则深耕本地产业链形成差异化优势。要素流动加快促成商流、物流、资金流、信息流合一，供应链金融、动产融资等迎来规模化发展。国内国际双循环下，内循环推动乡村全面振兴与县域消费，为中西部银行带来增量市场；外循环要求银行提升跨境结算、汇率避险及境外融资能力，人民币跨境支付系统（CIPS）和数字人民币跨境试点也为中资大行提供了新的发展机遇。</h3>
+<p>（二）我国银行业现代化发展面临的若干挑战 第一，在应对外部冲击方面， 除全球债务、能源供给、AI科技泡沫等重大潜在风险外，国际支付清算系统被用作制裁工具，使金融基础设施的政治化风险从理论变为现实，揭示了中资银行在现行国际金融体系中的风险性。与此同时，资本监管、绿色金融标准、数字货币监管等议题正成为国际金融治理的新规则场，发达经济体凭借先发优势主导规则制定。上述外部制度环境带来的结构性挑战，有赖于国家层面的战略统筹与制度保障。推进人民币国际化、加快跨境支付基础设施建设，是化解这一风险性的战略路径。同时，也要求银行业自身在合规能力与全球治理参与上实现实质性提升。 第二，在核心竞争力方面， 传统增长模式经受挑战，效率提升面临结构性压力。随着经济增长从要素驱动转向创新驱动，以抵押物和短期财务指标为核心的传统信贷逻辑，与科技企业的价值创造方式难以适配。与此同时，净息差已降至历史低位，依靠信贷扩张和利差收入的传统增长模式难以为继。在此情形下，银行既要转变服务实体经济的方式，也要重构自身盈利模式，但两者均面临深层制约。传统风控体系难以识别和定价技术资产，研发长周期与银行短期资金结构存在期限错配，信贷供给与科创需求之间的结构性缺口难以弥合；数字化转型则受制于数据权属不清与共享机制缺失，大中小银行间的能力分化持续加剧；财富管理转型所要求的资产配置能力与银行长期积累的信贷风控能力存在本质差异，能力跃迁难以短期完成。 第三，在系统性风险防控方面， 风险防控的制度基础与法治保障仍需加强。房地产市场调整与地方债务压力尚未完全出清，风险仍可能向金融体系传导；部分中小银行公司治理薄弱、资本补充困难，改革化险需持续推进。从制度根源看，风险的积累与处置长期受到法制不完善的制约，现有金融法律体系缺乏基础立法，风险处置的权责框架不清晰，事前防范与事后问责缺乏有力的制度依托。与此同时，数字金融深化带来新型风险挑战，网络安全威胁常态化、模型趋同与算法黑箱等问题不断显现，而现行监管法律框架制定于数字金融兴起之前，监管工具与覆盖范围存在明显滞后，难以适应风险形态的深刻变化。 第四，在服务社会发展方面， 践行普惠金融与社会责任，推动金融资源配置更加公平仍面临现实挑战。小微企业与“三农”融资难、融资贵问题尚未根本化解，农村信用体系薄弱、有效抵押物不足等老问题依然突出。数字技术虽在一定程度上缓解了上述约束，但缺乏经营数据或数字化程度低的主体仍难获益，普惠总量扩大与结构性失衡并存的格局短期内仍将存在。养老金融供给滞后于老龄化进程，产品同质化、长期资金管理能力不足，难以适应多层次养老保障需求。绿色金融则面临碳核算标准不统一、伪造环保的“漂绿”风险与期限错配等多重制约。此外，金融机构以规模和利润为导向的逻辑，与普惠金融所要求的义利兼顾、服务基层的价值取向存在一定偏差，需要在考核机制、人才培养与激励机制等方面持续优化。 四、几点思考与建议 第一，要深入学习习近平经济思想金融篇，坚定不移走中国特色金融发展之路。 中国特色金融发展之路既要遵循现代金融发展的客观规律，更要具有适合自身国情的鲜明特色。一要坚持党中央对金融工作的集中统一领导，深刻把握金融工作的政治性、人民性，坚决落实中央金融工作会议提出的“八个坚持”，推动有效市场与有为政府更好结合。二要坚持金融服务实体经济，从追求规模扩张转向服务国家战略与提升金融效率并重，把更多金融资源配置到科技创新、绿色转型等重点领域。三要坚持以人民为中心，完善普惠金融、养老金融和消费者权益保护，增强金融服务的多样性与可及性，防止金融资源过度集中。四要统筹发展和安全，在全面强化“五大监管”的同时，明确金融监管与发展相统筹的政策取向，深化金融供给侧结构性改革，并推进人民币国际化和跨境支付基础设施建设，增强中资银行应对重大风险的能力。 第二，积极发展科技金融，有力支持科技自立自强和新质生产力发展。 一要发挥新型举国体制优势，引导金融资源支持核心技术攻关，弥补市场失灵造成的原始创新投入不足，推动政策、市场、技术、人才等要素形成合力。二要健全科技金融组织体系，引导银行设立科技金融专营机构和专属风控模型，提升识别科技企业技术价值与成长潜力的专业水平，改变过度依赖抵押物和短期财务指标的传统信贷逻辑。三要完善科技企业全生命周期金融供给，围绕初创期、成长期、成熟期企业的不同需求，构建“贷款、债券、股权、保险、担保”协同支持体系，并以数字化转型形成适应轻资产、科技型企业特点的金融服务新模式。四要引导金融资本投早、投小、投长期、投硬科技，推动更多中长期耐心资本流向原创性、颠覆性科技创新领域。五要强化政策协同和风险分担，完善融资担保、风险补偿和尽职免责机制，防止科技金融异化为概念化、套利化融资，以中国特色的现代科技金融体系服务高水平科技自立自强。 第三，要坚持立法先行，夯实金融法治根基。 一要积极推进金融法立法进程，填补金融领域长期缺乏统领性基础法律的空白，将党中央决策部署和成熟改革经验转化为稳定的法律规范，为金融强国建设提供坚实法治保障。二要推动金融稳定法及时出台，构建事前防范、事中处置、事后问责的全流程制度安排，压实股东、金融机构、监管部门、地方政府等各方责任，筑牢不发生系统性风险的制度防线。三要有序推进中国人民银行法、商业银行法修订，强化央行在流动性管理、系统性风险监测等方面的法定职责，并为数字人民币发行流通与跨境使用提供明确法律依据，加快建设现代中央银行制度。四要加快修订银行业监督管理法，实现监管范围、监管工具和责任体系的系统性升级，强化穿透式监管，提高违法违规成本，形成有力法律震慑。 第四，加快构建中国哲学社会科学自主知识体系，根植中国先进金融文化，造就一批具有深厚家国情怀和中国式现代化理念的卓越金融人才。 一要将信义为本、稳健经营、服务实体、义利兼顾等中国特色金融文化理念贯穿人才培养全过程，按照“政治过硬、作风优良、业务精通”的标准加强金融人才的培养、选拔和使用，从源头筑牢道德底线与职业操守。二要加强从业者的社会责任感，健全激励与约束机制，推行与风险挂钩的长效激励安排，完善违规行为的问责与职业禁入制度，实现优秀金融从业者引得进、留得住、用得好，从制度层面有效防范道德风险与操作风险。三要加快实施国家卓越金融人才专项培养计划，依托一流高校、大型金融机构和监管部门等教育实践平台，一体化重点培养既深刻理解中国国情与政策环境、又熟练掌握国际规则、金融科技、风险管理等前沿领域的复合型高端人才，为金融强国建设提供强大的人才后备队伍保障。 （主讲人系十四届全国人大财经委副主任委员、南开大学校长） 1.资本充足率： 根据国家金融监督管理总局《商业银行资本管理办法》，‌资本充足率是指银行资本总额与风险加权资产的比率‌。它用来衡量银行在存款人资产受损前，能用自有资本承担损失的程度，是评估银行稳健性的核心指标。</p>
+<h3>2.影子银行（Shadow Banking）： 是指游离于传统商业银行监管体系之外，从事类似银行的‌信用中介‌活动，但不具备吸收公众存款资格、不受存款准备金和资本充足率等严格约束的金融机构及业务体系。</h3>
+<h3>3.转型债券： 是指为支持适应环境改善和应对气候变化，‌募集资金专项用于低碳转型领域‌的债务融资工具。它是绿色金融的有益补充，旨在解决传统高碳行业（“棕色资产”）因不符合纯绿标准而难以获得绿色融资的问题，支持其向低碳或零碳路径过渡。</h3>
+<h3>4.金融顺周期性： 是指金融变量（如信贷、资产价格、杠杆率）与经济周期‌同向波动‌并‌放大‌经济波动的现象。其核心特征是“繁荣时助推繁荣，衰退时加剧衰退”，形成正反馈循环，是引发系统性金融风险的重要内生机制。</h3>
+<h3>5.宏观审慎与微观审慎监管： 宏观审慎管理与微观审慎监管是现代金融监管体系的两大支柱，二者在目标、视角和工具上各有侧重，又相互补充，共同构成维护金融稳定的完整框架。宏观审慎管理旨在防范‌系统性金融风险‌，维护整个金融体系的稳定，避免金融危机对实体经济造成严重冲击。其核心理念是“整体稳定不等于个体简单加总”，关注风险的跨机构、跨市场传染及顺周期效应。微观审慎监管‌旨在确保‌单个金融机构‌的稳健运行，保护存款人和投资者利益，防止个别机构倒闭引发局部风险。其核心理念是“个体健康即系统安全”。‌‌‌‌</h3>
+<p>内容来源：中国人大网 、 南开大学国家创新与金融研究院 *本文如有侵权，请及时联系我们删除。 “金融科技50人论坛”成立九周年啦，特别感谢热心读者对我们的支持，我们建立了“金融科技·读者微信群“，发布研究成果、促进交流合作、赠送金融科技图书，欢迎您的参与。 入群方法： 加群主为微信好友（ 微信号： serenazys ）,添加时备注个人姓名（实名认证）+单位+职务+入群，经群主审核后，即可被邀请进群。欢迎读者朋友多多留言与我们交流互动。 学术研究、会议合作和专题培训联系： 办公电话： 010-62561700 邮箱地址： songzeying@cft50.com.cn 金融科技50人论坛（CFT50）： 金融科技50人论坛（CFT50）成立于2017年4月22日，论坛近年来紧密围绕金融科技理论、实践与政策前沿，积极推动“政产学研用”交流与合作，逐渐建设成为在金融科技领域具有较高影响力的独立学术平台。论坛组织或参与出品《中国金融科技运行报告》《中小银行金融科技发展研究报告》《数据要素：领导干部公开课》《绿色金融：助力碳达峰碳中和》《金融科技15讲》《银行业数字化转型20讲》等重要学术成果，与《金融理论探索》杂志合作开设数字金融学术专栏，普遍受到政策层、学界和业界人士的高度评价。2019年以来，论坛参与发起北京市东城区立鼎金融与发展研究院、厦门鹭江金融科技研究院等机构。 更多内容，请长按识别二维码关注 要加快实施国家卓越金融人才专项培养计划。 查看原文 →</p></div>
+        </div>
+        <div class="orig-foot"><a class="ext" href="https://mp.weixin.qq.com/s/YwIQDOUBBwwmX9xHlKEzfQ" target="_blank" rel="noopener">原文链接（可能无法打开）</a></div>
+      </div>
+    </div>
+  </div>
+</article>
+
+
+  
+  <section class="excluded" aria-label="未纳入简报的文章">
+    <h2>未纳入本次简报</h2>
+    <p class="excluded-lead">以下文章因信息不足未展示（便于你补抓取/补摘要后再生成）：</p>
+    <ol class="excluded-list"><li><strong>空标题A</strong><span class='ex-reason'> — 正文未入库</span></li><li><strong>上海银行金融科技部社招，涉AI全栈开发工程师、AI用户体验设计师、智能运维研发岗</strong><span class='ex-reason'> — 业务判断不足</span></li><li><strong>与AI共生：2026微信小程序开发大赛WAIC官宣启动</strong><span class='ex-reason'> — 正文未入库、无可用摘要、业务判断不足</span></li><li><strong>腾讯WorkBuddy实践：如何把Agent做成可用产品</strong><span class='ex-reason'> — 业务判断不足</span></li><li><strong>实测三款AI办公应用：谁是天选“电子牛马”？</strong><span class='ex-reason'> — 正文未入库、无可用摘要、业务判断不足</span></li><li><strong>智能体走向终端，个人AI时代正在到来</strong><span class='ex-reason'> — 正文未入库、无可用摘要、业务判断不足</span></li></ol>
+  </section>
+
+
+  <section class="fact-check-evidence" aria-label="事实核查证据"><h3>事实核查证据 (本简报)</h3><div class="rollup"><span class="badge web_search">已联网核查: 0/13 篇 (13 篇失败降级)</span><span class="meta">方法: web_search (hermes -t web 实时检索) · 时效: 2026-08-14T06:07:08.332833+00:00</span></div><ol class="evidence-articles"><li><h4>[未央科技weiyangx] AI叙事，救不了信用卡</h4><p class="unverified">（未联网核查，证据解析失败，请人工复核）</p></li><li><h4>App时代要结束了？OpenAI总裁：未来用户只需指挥Agent，每个软件都得学会被调用</h4><p class="unverified">（未联网核查，证据解析失败，请人工复核）</p></li><li><h4>招商银行App上线“碳积分兑数币”通道，数字人民币与碳普惠的探索融合之路</h4><p class="unverified">（未联网核查，证据解析失败，请人工复核）</p></li><li><h4>招行信用卡或将有新动作？刚从6家头部大模型厂商采购AI权益兑换服务</h4><p class="unverified">（未联网核查，证据解析失败，请人工复核）</p></li><li><h4>空标题A</h4><p class="unverified">（未联网核查，证据解析失败，请人工复核）</p></li><li><h4>E-Bench ：以腾讯产品为原型的 AI 智能体大考</h4><p class="unverified">（未联网核查，证据解析失败，请人工复核）</p></li><li><h4>银行产品数字化管理运营的探索与实践</h4><p class="unverified">（未联网核查，证据解析失败，请人工复核）</p></li><li><h4>上海银行金融科技部社招，涉AI全栈开发工程师、AI用户体验设计师、智能运维研发岗</h4><p class="unverified">（未联网核查，证据解析失败，请人工复核）</p></li><li><h4>[金融科技研究] 陈雨露：我国银行业的演变历程与现代化发展</h4><p class="unverified">（未联网核查，证据解析失败，请人工复核）</p></li><li><h4>与AI共生：2026微信小程序开发大赛WAIC官宣启动</h4><p class="unverified">（未联网核查，证据解析失败，请人工复核）</p></li><li><h4>腾讯WorkBuddy实践：如何把Agent做成可用产品</h4><p class="unverified">（未联网核查，证据解析失败，请人工复核）</p></li><li><h4>实测三款AI办公应用：谁是天选“电子牛马”？</h4><p class="unverified">（未联网核查，证据解析失败，请人工复核）</p></li><li><h4>智能体走向终端，个人AI时代正在到来</h4><p class="unverified">（未联网核查，证据解析失败，请人工复核）</p></li></ol></section>
+
+  <p class="foot">Curated by moni — a TQ project.</p>
+</div>
+
+</body>
+</html>
