@@ -697,6 +697,39 @@ DB writeback failed: RAW OUTPUT: {"conclusion": "【无需核查】", "evidence"
 2. 点"联网核查" → 观察 30-60 秒
 3. 应 status=done (修前 status=failed) + 【待核实】标签 + 证据链为空
 
+### 5.5d v1.0.35.13/14/15 — 联网核查端到端跑通 + 结果友好展示 (2026-08-24)
+
+**v1.0.35.13 — 联网核查真正跑通 (provider 切换 + 服务进程 profile)**
+
+修前: 联网核查 (fact_check_plus) 端到端一直跑不通 —— MiniMax-M3 Token Plan 429 配额耗尽, 且 8900 服务进程切 ark 报 `Unknown provider 'ark'`。
+
+修法:
+- 默认 provider/model 从 minimax-cn/MiniMax-M3 切换到 **ark/ark-code-latest** (LLM 设置里 summary/tag/fact_check 三用途同步切换; MiniMax 保留作回退)
+- 8900 服务进程显式载入 coder profile (`HERMES_PROFILE=coder`), 使 ark 等 provider 能被识别
+
+用户可见: 联网核查任务 done 率恢复正常 (~30-80 秒/篇)。
+
+**v1.0.35.14 — 联网核查结果友好展示 + 证据解析兜底**
+
+修前两个问题:
+1. 「LLM 任务」面板点「查看详情」，联网核查成功的任务直接显示 LLM 原始 JSON（一堆 query/url/snippet），用户看不懂
+2. LLM 偶发在证据的 rationale 里用半角引号（如 `人民网"白名单"佐证...`），破坏 JSON → 报 `evidence parse failed`（"DB writeback failed" 红字失败）
+
+修后:
+1. 联网核查结果现在渲染成**友好卡片**: 「核查结论」徽章（【已核实】/【待核实】/【存疑】/【无需核查】）+ 证据链列表（每条含检索关键词 / 可点开的来源 URL / 引用片段 / 判断理据）。LLM 原始输出收进「查看 LLM 原始输出」可折叠区供核对。
+2. 解析层对中文里夹 ASCII 引号做了保守兜底 + prompt 强约束，不会再把整篇判失败。
+
+**v1.0.35.15 — LLM 任务列表 UX**
+
+1. 点文章标题 → 直接在当前页打开文章详情（不再跳去「文章查阅」页）
+2. 新增「任务 ID」列（等宽显示前 8 位，鼠标悬浮看完整 id，可选中复制）
+
+**回归怎么验**:
+1. 进「LLM 任务」→ 找 1 条已完成的「事实核查」任务 → 点「查看详情」
+2. 应显示友好的「核查结论」卡片 + 证据链（可点 URL），原始 JSON 在可折叠区
+3. 点任意文章标题 → 当前页弹出文章详情
+4. 列表含「任务 ID」列，悬浮看全 id
+
 ### 5.6 B5 失败诊断 (v1.0.23)
 
 > 联网核查+ (v1.0.22) 实施后, 4 个 fact_check_plus jobs 失败但 LLM 实际回什么都看不到 — B5 修这个诊断盲区。失败时把 LLM 原始回复前 2KB 落到 `llm_jobs.error` 字段, 跟 `evidence parse failed` 原因并列, 后续修 prompt 时一眼能看。

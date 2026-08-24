@@ -4,6 +4,40 @@
 
 ---
 
+## 当前状态: **v1.0.35.15 — sprint-16.7 /llmJobs 列表 UX + v1.0.35.14 联网核查友好渲染 + v1.0.35.13 provider 切换** (2026-08-24 SHIPPED × 3)
+
+**主分支**: main @ `9fb061d` (squash of PR #122; PR #120/121/122 three-ship chain)
+**Tag**: **v1.0.35.13 @ `8f5396e`** · **v1.0.35.14 @ `6d858c4`** · **v1.0.35.15 @ `9fb061d`** (全 push, 无 drift)
+**测试**: **770 passed / 2 skipped / 0 failed** (基线 766 → v1.0.35.13 +2, v1.0.35.14 +4)
+
+### v1.0.35.13 — provider 切 ark/ark-code-latest + HERMES_PROFILE=coder (PR #120)
+
+**背景**: 联网核查 (fact_check_plus) 端到端一直跑不通。MiniMax-M3 429 Token Plan 配额耗尽; 切 ark 后 8900 服务进程又报 `Unknown provider 'ark'`。
+
+**修法**:
+1. `moni/db/seed_llm.py`: 默认 provider/model 从 minimax-cn/MiniMax-M3 → **ark/ark-code-latest** (summary/tag/fact_check 三用途全切, minimax 回退)
+2. `moni/llm/client.py`: subprocess env `setdefault("HERMES_PROFILE", "coder")` —— 8900 进程无 HERMES_PROFILE → fallback default profile 认不出 ark (ark 定义在 coder profile config, base_url ark volces **/v3**)
+
+**验证**: 8900 PID 88391, 文章 df2257ff32d22bc3 (AI办公垃圾赛道) → done, 27.46s, 1 尝试
+
+### v1.0.35.14 — 联网核查结果友好渲染 + 引号解析兜底 (PR #121)
+
+**背景**: dad 生产验收 v1.0.35.13 后暴露: (1) /llmJobs modal 甩 LLM 原始 JSON 用户看不懂 (2) LLM rationale 偶发塞未转义 ASCII 引号 → evidence parse failed。
+
+**修法**:
+- 后端 `llm_jobs.py`: GET /api/llm/jobs/{id} 对 fact_check_plus done 附加结构化 `fact_check` (conclusion + evidence rows)
+- 后端 `jobs.py`: `_parse_fact_check_plus_evidence` 加保守兜底 —— 中文夹住的 ASCII 引号转全角再试 (解 evidence parse failed)
+- 模板 `fact_check_plus.md`: 强约束禁字符串值内半角引号 (治本)
+- 前端 modal 渲染「核查结论」badge + 证据卡片 (可点 URL) + 可折叠原始 JSON
+
+**验证**: 8900 PID 97142, 数字人民币文章 (2c0efb0264d49cf8) → done, 79.7s, 11 evidence 全入库
+
+### v1.0.35.15 — /llmJobs 列表 UX (PR #122)
+
+**背景**: dad 生产验收后补 2 个 UX: 点文章标题想当前页看文章详情; 任务 id 列表没展示。
+**修法** (纯静态 index.html + main.css, 刷新生效): 标题点击改 `showArticleDetail({id: job.article_id})`; 加「任务 ID」列 (前 8 位等宽 + 悬浮看全 id)。
+**8900**: PID 14325 running, 5 端点 200
+
 ## 当前状态: **v1.0.35.9 — sprint-16 P1 fact_check_plus 占位符 $name → {name} 修复** (2026-08-23 SHIPPED)
 
 **主分支**: main @ `15a5256` (squash of PR #116)
