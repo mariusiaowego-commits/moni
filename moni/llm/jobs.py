@@ -644,9 +644,13 @@ def _persist_fact_check_plus(
                 }
             )
         if not valid:
-            # Sprint-16.6 P1: 【无需核查】档允许空 evidence (模板规定), 直接 done 入库.
-            # 其他 3 档 (【已核实】/【待核实】/【存疑】) 行为不变, 仍 raise.
-            if conclusion.startswith("【无需核查】"):
+            # Sprint-16.6 hotfix: 模板 L41 明确允许【待核实】/【存疑】/【无需核查】
+            # 3 档 evidence=[] ("没有可引用证据时 evidence 给空数组, conclusion
+            # 只能是这 3 档"). 只有【已核实】不允许 evidence=[] (模板 L7+L20:
+            # "不联网则不得给【已核实】, 没有证据支撑只能给【待核实】").
+            # v1.0.35.11 只豁免了【无需核查】, 现在扩展到 3 档全部豁免 (白名单 →
+            # 黑名单). 历史 6 个【待核实】+[] fail 自然修好.
+            if not conclusion.startswith("【已核实】"):
                 _persist_no_check_needed(
                     conn, article_id=article_id, conclusion=conclusion,
                     finished_at=finished_at,

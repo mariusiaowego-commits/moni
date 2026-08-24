@@ -1100,8 +1100,16 @@ def test_verified_empty_evidence_still_fails(fresh_db, monkeypatch):
     assert "no evidence with snippet" in (job["error"] or "")
 
 
-def test_pending_empty_evidence_still_fails(fresh_db, monkeypatch):
-    """防御: 【待核实】+ evidence=[] 仍应 status=failed (现有行为不变)."""
+def test_pending_empty_evidence_succeeds(fresh_db, monkeypatch):
+    """【待核实】+ evidence=[] 应 status=done (跟【无需核查】同性质, 模板 L41 允许).
+
+    Sprint-16.6 hotfix: 模板 L41 明确 "没有可引用证据时 evidence 给空数组,
+    conclusion 只能是【待核实】/【存疑】/【无需核查】". v1.0.35.11 只豁免了
+    【无需核查】, hotfix 扩展到 3 档全部豁免 (白名单 → 黑名单).
+
+    USER_GUIDE §5.4: 【待核实】— "检索结果不足, 或仅自媒体命中 (无 snippet
+    证据丢弃)". 这两种合法场景经 Gate 1 过滤后 valid=[], 不是 LLM 错误.
+    """
     article_id = "a-pf"
     _insert_article(article_id)
     _insert_job("job-pf", article_id)
@@ -1122,7 +1130,53 @@ def test_pending_empty_evidence_still_fails(fresh_db, monkeypatch):
     job = conn.execute(
         "SELECT status, error FROM llm_jobs WHERE id = 'job-pf'"
     ).fetchone()
-    assert job["status"] == "failed", (
-        f"【待核实】+ 空 evidence 应 fail, 实得 {job['status']!r}"
+    assert job["status"] == "done", (
+        f"【待核实】+ 空 evidence 应 done (模板 L41 允许), 实得 {job['status']!r}, error={job['error']!r}"
     )
-    assert "no evidence with snippet" in (job["error"] or "")
+    assert job["error"] is None
+
+    art = conn.execute(
+        "SELECT fact_check_conclusion, has_web_fact_check, fact_check_note "
+        "FROM articles WHERE id = ?", (article_id,)
+    ).fetchone()
+    assert art["fact_check_conclusion"] == "【待核实】"
+    assert art["has_web_fact_check"] == 1
+    assert art["fact_check_note"] == "[]"
+
+
+def test_doubtful_empty_evidence_succeeds(fresh_db, monkeypatch):
+    """【存疑】+ evidence=[] 应 status=done (跟【无需核查】同性质, 模板 L41 允许).
+
+    Sprint-16.6 hotfix 扩展豁免到 3 档, 跟【待核实】对称.
+    """
+    article_id = "a-df"
+    _insert_article(article_id)
+    _insert_job("job-df", article_id)
+
+    payload = json.dumps({
+        "conclusion": "【存疑】",
+        "evidence": [],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({
+        "id": "job-df", "task_type": "fact_check_plus",
+        "article_id": article_id, "provider": "minimax-cn",
+        "model": "MiniMax-M3", "attempts": 0,
+    })
+
+    conn = get_db()
+    job = conn.execute(
+        "SELECT status, error FROM llm_jobs WHERE id = 'job-df'"
+    ).fetchone()
+    assert job["status"] == "done", (
+        f"【存疑】+ 空 evidence 应 done (模板 L41 允许), 实得 {job['status']!r}, error={job['error']!r}"
+    )
+    assert job["error"] is None
+
+    art = conn.execute(
+        "SELECT fact_check_conclusion, has_web_fact_check "
+        "FROM articles WHERE id = ?", (article_id,)
+    ).fetchone()
+    assert art["fact_check_conclusion"] == "【存疑】"
+    assert art["has_web_fact_check"] == 1
