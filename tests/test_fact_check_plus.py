@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Callable
 
 import pytest
 from fastapi.testclient import TestClient
@@ -808,3 +809,194 @@ def test_render_fact_check_plus_empty_article_falls_back():
     # 渲染结果应非空 (模板本身有指令 + 输出格式段)
     assert len(prompt) > 100
     assert "事实核查" in prompt or "核查" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Sprint-16.5: spy call_llm 测试 — 钉死 sprint-14 类复发
+# ---------------------------------------------------------------------------
+#
+# 现有 11 个 _run_job 测试都用 `lambda *a, **k: payload`, 把 call_llm 收到的
+# prompt / extra_args / 其他参数全部丢. bug 期间这些测试全 pass. 本组测试
+# 用 captured dict 模式 spy call_llm, 断言 prompt 实际到达 LLM 时已含真实
+# article 字段且不含 $xxx 字面 (sprint-16 P1 教训: 修前 prompt 仍含 $title
+# 字面, LLM 拒答 'unfilled placeholders').
+#
+# 参考 tests/test_api.py:1221 / tests/test_llm_usage_counters.py:171 现有
+# captured dict spy 模式 (agy herdr §4.2).
+# ---------------------------------------------------------------------------
+
+
+def _insert_article_with_content(
+    aid: str, *, content: str | None = None, raw_content: str | None = None
+) -> None:
+    """跟 _insert_article 同结构, 但允许指定 content / raw_content.
+
+    注意: moni articles schema 用 `raw_content` 列 (不是 `content`). spy 测试
+    钉死的 render_fact_check_plus fallback 路径: article_dict (从 DB row 构) 只
+    含 raw_content key, 所以 .get('content') → None → 走 .get('raw_content', '').
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_db()
+    conn.execute(
+        """
+        INSERT INTO articles
+            (id, title, url, source, publisher, published_at, fetched_at,
+             raw_content)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (aid, f"Title {aid}", f"https://example.com/{aid}", "testsrc",
+         "Test Publisher", now, now, raw_content or content),
+    )
+    conn.commit()
+
+
+def _make_spy_call_llm(payload: str) -> tuple[dict, Callable[..., str]]:
+    """构造 spy + captured dict, 返 (captured, spy) 给供 test 用 ``monkeypatch.setattr``.
+
+    spy 捕获 (provider, model, prompt, *, extra_args, ...) 然后返 payload
+    (str, 跟 call_llm 无 usage=True 的兼容路径对齐). 注意 _run_job 在
+    fact_check_plus 分支用 usage=True, call_llm 应返 tuple (str, usage).
+    spy 简化为返 str, jobs.py:322-327 兼容路径会兜底 (usage 记 0).
+    """
+    captured: dict = {}
+
+    def spy(provider: str, model: str, prompt: str, **kwargs):
+        captured["provider"] = provider
+        captured["model"] = model
+        captured["prompt"] = prompt
+        captured["extra_args"] = kwargs.get("extra_args")
+        captured["usage_file"] = kwargs.get("usage_file")
+        captured["usage"] = kwargs.get("usage", False)
+        return payload
+
+    return captured, spy
+
+
+def test_run_job_prompt_reaches_call_llm_without_dollar_placeholders(
+    fresh_db, monkeypatch
+):
+    """spy call_llm: 断言 prompt 到 LLM 时不含 $xxx 字面 + 含真实 article 字段.
+
+    Sprint-16.5 核心测试: 钉死 sprint-14 类复发 (mock 太厚盖掉真实 LLM 输入).
+    修前同流程: call_llm 收到的 prompt 仍含 '$title' 字面 → LLM 拒答.
+    修后: prompt 应含 article title 真值, 不含任何 $xxx 占位符形态.
+    """
+    article_id = "a-spy"
+    _insert_article_with_content(
+        article_id,
+        content="招行 2026 年 8 月 1 日上线 AI 智能投顾, 内容含 $1B 美元",
+    )
+    _insert_job("job-spy", article_id)
+
+    # spy 返合法 JSON: 1 条 evidence (snippet 非空 + 白名单域) 才能过 _persist_fact_check_plus 闸
+    payload = json.dumps({
+        "conclusion": "【已核实】",
+        "evidence": [{
+            "query": "招行 AI 智能投顾 2026",
+            "url": "https://www.cmbchina.com/news/123",
+            "snippet": "招行 8 月 1 日正式上线 AI 智能投顾产品, 升级财富管理体验",
+            "rationale": "招行官网公告验证",
+        }],
+    }, ensure_ascii=False)
+    captured, spy = _make_spy_call_llm(payload)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", spy)
+
+    _run_job(
+        {
+            "id": "job-spy",
+            "task_type": "fact_check_plus",
+            "article_id": article_id,
+            "provider": "minimax-cn",
+            "model": "MiniMax-M3",
+            "attempts": 0,
+        }
+    )
+
+    # 1. call_llm 确实被调 (spy 触发)
+    assert "prompt" in captured, "call_llm 未被调用"
+    prompt = captured["prompt"]
+
+    # 2. **核心断言**: prompt 不应含 $xxx 占位符形态 (sprint-16 P1 教训)
+    assert "$title" not in prompt
+    assert "$url" not in prompt
+    assert "$published_at" not in prompt
+    assert "$content" not in prompt
+
+    # 3. prompt 应含真实 article 字段值 (确认 _render() 真做了替换)
+    assert "Title a-spy" in prompt  # title
+    assert "https://example.com/a-spy" in prompt  # url
+    assert "AI 智能投顾" in prompt  # content 一部分
+
+    # 4. extra_args 应是 ["-t", "web"] (fact_check_plus 专有 hermes flag)
+    assert captured["extra_args"] == ["-t", "web"], (
+        f"fact_check_plus extra_args 错, 实得 {captured['extra_args']!r}"
+    )
+
+    # 5. job 应 done (spy 返合法 JSON, 走完整条 _run_job → writeback 路径)
+    conn = get_db()
+    assert (
+        conn.execute("SELECT status FROM llm_jobs WHERE id = 'job-spy'").fetchone()[
+            "status"
+        ]
+        == "done"
+    )
+
+
+def test_run_job_uses_raw_content_when_content_missing(fresh_db, monkeypatch):
+    """sprint-16.5 合并 §3 盲区 5: 只给 raw_content 时, prompt 应含 raw_content 内容.
+
+    render_fact_check_plus L88: article.get('content') or article.get('raw_content', '').
+    bug 期间 _run_job 调用链可能因为 article_dict 取自 DB (有 content 列) 而不触发
+    raw_content fallback. 本测试钉死 fallback 路径.
+    """
+    article_id = "a-raw"
+    _insert_article_with_content(
+        article_id,
+        content=None,
+        raw_content="raw_content_only: 农行 2026 H1 净利润 1386 亿元",
+    )
+    _insert_job("job-raw", article_id)
+
+    payload = json.dumps({
+        "conclusion": "【已核实】",
+        "evidence": [{
+            "query": "农行 2026 H1 净利润",
+            "url": "https://www.abchina.com/news/123",
+            "snippet": "农行 2026 H1 净利润 1386 亿元, 同比增长 1.8%",
+            "rationale": "农行官网公告验证",
+        }],
+    }, ensure_ascii=False)
+    captured, spy = _make_spy_call_llm(payload)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", spy)
+
+    _run_job(
+        {
+            "id": "job-raw",
+            "task_type": "fact_check_plus",
+            "article_id": article_id,
+            "provider": "minimax-cn",
+            "model": "MiniMax-M3",
+            "attempts": 0,
+        }
+    )
+
+    assert "prompt" in captured, "call_llm 未被调用"
+    prompt = captured["prompt"]
+
+    # raw_content 内容应注入 prompt
+    assert "raw_content_only: 农行 2026 H1 净利润 1386 亿元" in prompt, (
+        "raw_content fallback 未生效 — prompt 不含 raw_content 内容"
+    )
+
+    # 同样不能含 $xxx 占位符 (防御性 sanity check)
+    assert "$title" not in prompt
+    assert "$content" not in prompt
+
+    # job 应 done
+    conn = get_db()
+    assert (
+        conn.execute("SELECT status FROM llm_jobs WHERE id = 'job-raw'").fetchone()[
+            "status"
+        ]
+        == "done"
+    )
