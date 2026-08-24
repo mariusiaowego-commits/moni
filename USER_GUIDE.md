@@ -1,6 +1,6 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。**v1.0.35.11** (2026-08-24 SHIPPED) — sprint-16.6 修复: 【无需核查】档 + 空 evidence 不再误报 failed (修设计与实现矛盾). PR #118 squash @ `dd3ef00`, tag v1.0.35.11. 765 pass / 2 skip / 0 fail.
+> 同业信源自动抓取与本地新闻库。**v1.0.35.12** (2026-08-24 SHIPPED) — sprint-16.6 hotfix: 把空 evidence 豁免从【无需核查】扩展到【待核实】/【存疑】档 (白名单 → 黑名单, 只有【已核实】+[] 仍 fail). PR #119 squash @ `a479714`, tag v1.0.35.12. 766 pass / 2 skip / 0 fail.
 > 本次新增: `moni/llm/client.py` 删 `--profile` flag; `moni/llm/jobs.py` fact_check_plus `extra_args` 去 `-Q --max-turns`; `.gitignore` 整目录截图入 ignore + 申报目录独立 ignore; 删 6 张 v1.0.19 量化看板截图。PR #109。  
 > 这份文档给**用户**（你自己）看 —— 怎么用 moni，不讲代码细节。
 
@@ -675,6 +675,27 @@ DB writeback failed: RAW OUTPUT: {"conclusion": "【无需核查】", "evidence"
 1. 进文章详情, 找一篇纯观点文 (标题含 "赛道/趋势/思考" 等, 无数字/排名/案例)
 2. 点 "联网核查" → 观察 10-20 秒
 3. status=done (修前 status=failed) + 详情显示 "【无需核查】"
+
+### 5.5d v1.0.35.12 hotfix — 空 evidence 豁免扩展到 3 档
+
+**v1.0.35.11 修了什么**: 【无需核查】+ evidence=[] → status=done
+**v1.0.35.12 扩展到**: 【待核实】+[] + 【存疑】+[] + 【无需核查】+[] 都 → done
+
+**为什么还要修**: v1.0.35.11 ship 后, DB 里仍残留 6 个【待核实】+[] fail 历史数据. 模板 L41 明确 "没有可引用证据时 evidence 给空数组, conclusion 只能是【待核实】/【存疑】/【无需核查】" — 3 档都合法. v1.0.35.11 只豁免了 1 档, hotfix 补全.
+
+**修法**:
+- 逻辑从白名单 (【无需核查】) → 黑名单 (只有【已核实】)
+- `if not conclusion.startswith("【已核实】"):` → 3 档全部豁免, 直接 done 入库
+- 【已核实】+[] 仍 fail (LLM 声称已核实但没证据, 闸拒绝合法)
+
+**用户可见效果**:
+- 修前: 找不到白名单源的文章 → status=failed "no evidence with snippet"
+- 修后: 同场景 → status=done + 文章详情面板"联网核查"区显示【待核实】标签 (无证据链)
+
+**回归怎么验**:
+1. 找 1 篇具体声明少 / 数据稀疏的文章 (数字少 / 无排名 / 无具体案例)
+2. 点"联网核查" → 观察 30-60 秒
+3. 应 status=done (修前 status=failed) + 【待核实】标签 + 证据链为空
 
 ### 5.6 B5 失败诊断 (v1.0.23)
 

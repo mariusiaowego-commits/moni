@@ -49,6 +49,34 @@
   - duration 9.78s, input 13280 tokens, error=None
   - DB 入库确认: `fact_check_conclusion=【无需核查】`, `has_fact_check=1`, `has_web_fact_check=1`, `fact_check_method=web_search`, `fact_check_note='[]'`, `fact_check_timeliness=NULL`
 
+## 当前状态: **v1.0.35.12 — sprint-16.6 hotfix 扩展空 evidence 豁免到【待核实】/【存疑】** (2026-08-24 SHIPPED)
+
+**主分支**: main @ `a479714` (squash of PR #119)
+**PR #119**: **MERGED (squash, branch deleted)** @ `a479714` (2 files +66/-8)
+**Tag**: **v1.0.35.12 @ `a479714`** (push OK, 无 drift)
+**测试**: **766 passed / 2 skipped / 0 failed** (基线 765 → +1 新测试 `test_doubtful_empty_evidence_succeeds`, 改 `test_pending_..._still_fails` → `_succeeds`)
+**Web 服务**: `127.0.0.1:8900` PID 70928 (uvicorn, absolute python3.12 path, dotenv loader)
+**端到端验证 (live 8900)**:
+- 5 端点 200 OK: `/`, `/api/articles`, `/api/config/sources`, `/api/llm/jobs`, `/api/share/tasks`
+- POST `/api/articles/83318acaac00bc8a/fact-check-plus` 跑 bestblog-x Twitter 小众文章 "Apply or refer the best person you know":
+  - `status=done` (v1.0.35.12 沿用 v1.0.35.11 hotfix 路径,【无需核查】+[] → done)
+  - duration 6.42s, input 13259 tokens, error=None
+  - DB 入库: `fact_check_conclusion=【无需核查】`, `has_web_fact_check=1`, `fact_check_method=web_search`, `fact_check_note='[]'`
+
+### v1.0.35.12 核心改动 (sprint-16.6 hotfix)
+
+**背景**: 父 agent 扫 DB llm_jobs 发现 v1.0.35.11 ship 后仍残留 6 个【待核实】+[] fail, 跟【无需核查】同性质. 模板 L41 明确允许 3 档 evidence=[] (【待核实】/【存疑】/【无需核查】), v1.0.35.11 只豁免了【无需核查】, 漏了 2 档.
+
+**修法 (agy 方案 A)**: `jobs.py:649` 白名单 → 黑名单
+- 修前: `if conclusion.startswith("【无需核查】"):` 豁免
+- 修后: `if not conclusion.startswith("【已核实】"):` 豁免 (只有【已核实】+[] 仍 fail, 是 LLM 错误场景, 应被闸拒绝)
+- 3 档 (【待核实】/【存疑】/【无需核查】) evidence=[] → 直接 done 入库, 跳过 evidence 闸
+- 防御测试: `test_verified_empty_evidence_still_fails` (【已核实】) 仍 fail; `test_pending_empty_evidence_succeeds` (改名前是 still_fails) + 新增 `test_doubtful_empty_evidence_succeeds` (【存疑】)
+
+**Risk**: Low — ~36 行改动 (5 行生产代码 + 31 行测试), 逻辑白名单 → 黑名单. rollback = revert 1 commit.
+
+**Refs**: agy herdr 报告 `/Users/mt16/dev/moni-ref-fact-check/SPRINT-16.6-FOLLOWUP-REPORT.md` (179 行, moni-agy pane `w4:p1V` Claude Opus 4.6 调研 ~2 min)
+
 ### v1.0.35.11 核心改动 (sprint-16.6)
 
 **背景**: dad 2026-08-24 live 验报 bug — 纯观点文 "AI办公这个'垃圾赛道'..." 联网核查报 "DB writeback failed: ... no evidence with snippet". LLM 判定 + 返回全对 (【无需核查】 + 空 evidence 符合模板), 但 `_persist_fact_check_plus` 闸把它当失败处理. **设计与实现矛盾**: 模板 `fact_check_plus.md:42` 规定【无需核查】evidence 必须为空, 但 `jobs.py:640-641` 不区分 conclusion.
