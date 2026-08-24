@@ -4206,15 +4206,36 @@ function app() {
     // object for backwards compatibility but is no longer wired to UI.
     jobDetail: null,
     jobDetailCopied: false,
+    jobDetailFactCheck: null,
 
     openJobDetail(job) {
       this.jobDetail = job;
       this.jobDetailCopied = false;
+      this.jobDetailFactCheck = null;
+      // v1.0.35.13: 联网核查 done — 拉 detail 拿结构化证据 (fact_check 字段),
+      // 用于用户友好的卡片渲染 (而非直接把 LLM 原始 JSON 甩给用户)。
+      if (job && job.task_type === 'fact_check_plus' && job.status === 'done' && job.id) {
+        const self = this;
+        fetch(`/api/llm/jobs/${encodeURIComponent(job.id)}`, {
+          method: 'GET', credentials: 'same-origin',
+        })
+          .then(r => r.json())
+          .then(detail => {
+            if (detail && detail.fact_check) {
+              self.jobDetailFactCheck = detail.fact_check;
+            }
+          })
+          .catch(err => {
+            // 非致命: 拿不到结构化数据就退回原始 JSON 展示
+            console.warn('load fact_check detail failed:', err);
+          });
+      }
     },
 
     closeJobDetail() {
       this.jobDetail = null;
       this.jobDetailCopied = false;
+      this.jobDetailFactCheck = null;
     },
 
     async copyJobDetail() {

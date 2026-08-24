@@ -509,6 +509,13 @@ def _parse_fact_check_plus_evidence(raw: str) -> dict[str, Any] | None:
 
     Accepts raw JSON, fenced ```json blocks, or the first {...} object
     that contains an ``evidence`` array (regex extraction).
+
+    v1.0.35.13 (follow-up): LLM 偶发在字符串值里 (e.g. rationale) 塞入未转义的
+    ASCII 半角双引号 ``人民网"白名单"佐证``，让 json.loads 失败 → 之前在
+    UI 报 "evidence parse failed"。这里在标准 parse 全失败后加一层保守修复:
+    把「前后都紧邻中文/中文标点」的 ASCII 引号转成全角引号再重试。该 regex
+    只命中被中文夹在中间的嵌引号 (值边界两侧不会是中文), 不误伤 JSON 结构
+    定界符, 也不破坏正常值。
     """
     if not raw or not str(raw).strip():
         return None
@@ -517,6 +524,27 @@ def _parse_fact_check_plus_evidence(raw: str) -> dict[str, Any] | None:
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```\s*$", "", text)
+    parsed = _try_parse_fact_check_plus(text)
+    if parsed is not None:
+        return parsed
+    # 保守修复: 中文夹住的 ASCII 引号 → 全角右引号 (仅解析层关心可 loads,
+    # 语义不区分开闭; 统一 ” 保持简单, 亦是合法 JSON 字符)
+    repaired = re.sub(
+        r"(?<=[\u4e00-\u9fff，。、；：！？（）「」『』])"
+        r"\""
+        r"(?=[\u4e00-\u9fff，。、；：！？（）「」『』])",
+        "”",
+        text,
+    )
+    if repaired != text:
+        parsed = _try_parse_fact_check_plus(repaired)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _try_parse_fact_check_plus(text: str) -> dict[str, Any] | None:
+    """Core parse attempts shared by _parse_fact_check_plus_evidence."""
     # 1) direct JSON
     try:
         obj = json.loads(text)

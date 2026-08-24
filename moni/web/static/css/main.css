@@ -2669,6 +2669,35 @@ label { font-size: 0.85rem; }
   margin-top: 6px;
 }
 
+/* v1.0.35.13: /llmJobs 详情 modal 联网核查结果 — 用户友好的结论 + 证据链 */
+.fc-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.fc-conclusion {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--card-fg);
+}
+.fc-raw-details {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted-fg);
+}
+.fc-raw-details summary {
+  cursor: pointer;
+  user-select: none;
+  color: var(--muted-fg);
+}
+.fc-raw-details pre {
+  margin-top: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+
 /* Responsive — narrow viewports: stack side column under main
    断点从 900 改 1100 — 让 1100-900 区间侧栏能及早点折叠,避免左/右比例失衡 */
 @media (max-width: 1100px) {
