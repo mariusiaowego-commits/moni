@@ -241,6 +241,43 @@ def test_call_llm_without_usage_file_still_returns_text(monkeypatch):
     assert usage["cost_usd"] == 0.0
 
 
+def test_call_llm_sets_hermes_profile_coder(monkeypatch):
+    """v1.0.35.13: call_llm 必须在 subprocess env 设 HERMES_PROFILE=coder.
+
+    moni 播种的 provider (minimax-cn/google/openrouter/ark) 全定义在 coder
+    profile 的 config.yaml; 服务进程 (8900) 从 terminal 拉起时不带
+    HERMES_PROFILE, hermes 会 fallback 到 default profile —— 那个没有 ark,
+    `--provider ark` 报 "Unknown provider 'ark'"。这里钉死设 coder。
+    """
+    captured: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["env"] = kwargs.get("env")
+        import subprocess as sp
+        return sp.CompletedProcess(cmd, 0, stdout="session_id: s\nok\n", stderr="")
+
+    monkeypatch.setattr("moni.llm.client.subprocess.run", fake_run)
+    monkeypatch.delenv("HERMES_PROFILE", raising=False)
+    call_llm("ark", "ark-code-latest", "hi")
+    assert captured["env"] is not None
+    assert captured["env"].get("HERMES_PROFILE") == "coder"
+
+
+def test_call_llm_preserves_existing_hermes_profile(monkeypatch):
+    """setdefault 语义: 若环境已有 HERMES_PROFILE, 不被覆盖."""
+    captured: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["env"] = kwargs.get("env")
+        import subprocess as sp
+        return sp.CompletedProcess(cmd, 0, stdout="session_id: s\nok\n", stderr="")
+
+    monkeypatch.setattr("moni.llm.client.subprocess.run", fake_run)
+    monkeypatch.setenv("HERMES_PROFILE", "work")
+    call_llm("ark", "ark-code-latest", "hi")
+    assert captured["env"]["HERMES_PROFILE"] == "work"
+
+
 # ── jobs._run_job 写回 ────────────────────────────────────────────────────
 
 

@@ -107,11 +107,21 @@ def call_llm(
     }
 
     try:
+        # v1.0.35.13: 显式固定 HERMES_PROFILE=coder。moni 播种的 provider
+        # (minimax-cn / google / openrouter / ark) 全部定义在 coder profile 的
+        # config.yaml; 服务进程 (8900) 从 term 拉起时不带 HERMES_PROFILE, hermes
+        # 会 fallback 到 default profile (~/.hermes/config.yaml)——那个没有 ark,
+        # `--provider ark` 报 "Unknown provider 'ark'"。设死 coder 恢复一致性。
+        # 参考 client.py v1.0.34 注释: 之前省略 --profile 靠 auto-select, 但那只在
+        # 交互 session 成立, 独立 worker 进程不成立。
+        env = dict(os.environ)
+        env.setdefault("HERMES_PROFILE", "coder")
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=env,
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
