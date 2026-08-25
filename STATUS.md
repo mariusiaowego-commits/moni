@@ -4,10 +4,27 @@
 
 ---
 
-## 当前状态: **v1.0.35.15 — sprint-16.7 /llmJobs 列表 UX + v1.0.35.14 联网核查友好渲染 + v1.0.35.13 provider 切换** (2026-08-24 SHIPPED × 3)
+## 当前状态: **v1.0.35.16.5 — sprint-16.7 demo 修复 + 历史版本管理建立** (2026-08-25 SHIPPED)
 
-**主分支**: main @ `9fb061d` (squash of PR #122; PR #120/121/122 three-ship chain)
-**Tag**: **v1.0.35.13 @ `8f5396e`** · **v1.0.35.14 @ `6d858c4`** · **v1.0.35.15 @ `9fb061d`** (全 push, 无 drift)
+**主分支**: main @ `29442a5` (squash of PR #128; demo 修复 + history目录建立)
+**Tag 链 (本次 sprint-16.7)**: v1.0.35.16 @ `0c425cc` · v1.0.35.16.1 @ `ccb59b7` · v1.0.35.16.2 @ `797183d` · v1.0.35.16.3 @ `1bc4892` (回退 demo) · v1.0.35.16.4 @ `a4a81b0` (微信 baseline) · **v1.0.35.16.5 @ `29442a5`** (当前)
+
+> **sprint-16.7 (2026-08-24 → 2026-08-25)** 五次 ship:
+> 1. v1.0.35.16 (PR #123, `0c425cc`) — demo 重建反映 v1.0.35.13/14/15 生产 UI
+> 2. v1.0.35.16.1 (PR #124, `ccb59b7`) — demo fix: 生成器剥 oklch 时 `.dark` 覆盖 `:root` 浅色变量
+> 3. v1.0.35.16.2 (PR #125, `797183d`) — demo fix: html_landing `</script>` 提前终止 JSON script 致简报平铺
+> 4. v1.0.35.16.3 (PR #126, `1bc4892`) — 回退 demo HTML 到 v1.0.35.2-hotfix (修 ship 出去的 demo 跑飞问题)
+> 5. v1.0.35.16.4 (PR #127, `a4a81b0`) — 切到 dad 微信附件 demo (md5 `926312d`) 作为最终版 baseline
+> 6. v1.0.35.16.5 (PR #128, `29442a5`) — 修复 panel-soft 内 "打开产物" 按钮文字看不清 (CSS `.panel-soft * { color: var(--fg) }` 通配覆盖 `.btn-primary` 字色)
+
+**Demo 历史目录** (`docs/moni-web-showcase-history/`, dad 8-25 约定):
+- `v1.0.35.2-final-2026-08-21.html` — 微信附件 baseline (md5 `926312d`), 参赛版
+- `v1.0.35.2-git-069b4cc-2026-08-19.html` — git 官方 v1.0.35.2-hotfix @ `069b4cc` (md5 `dd49bae`)
+- `v1.0.35.16.4-before-btn-fix-2026-08-25.html` — v1.0.35.16.4 当前 demo (md5 `926312d`)
+- `README.md` — 命名约定 + 流程
+
+**测试**: 772 pytest pass / 2 skip (本次未改生产代码)
+**生产**: 8900 PID 14325 running (v1.0.35.15 代码, v1.0.35.16.5 demo fix 是 demo-only)
 **测试**: **770 passed / 2 skipped / 0 failed** (基线 766 → v1.0.35.13 +2, v1.0.35.14 +4)
 
 ### v1.0.35.13 — provider 切 ark/ark-code-latest + HERMES_PROFILE=coder (PR #120)

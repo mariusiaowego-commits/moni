@@ -1,6 +1,7 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。**v1.0.35.12** (2026-08-24 SHIPPED) — sprint-16.6 hotfix: 把空 evidence 豁免从【无需核查】扩展到【待核实】/【存疑】档 (白名单 → 黑名单, 只有【已核实】+[] 仍 fail). PR #119 squash @ `a479714`, tag v1.0.35.12. 766 pass / 2 skip / 0 fail.
+> 同业信源自动抓取与本地新闻库。**v1.0.35.16.5** (2026-08-25 SHIPPED) — sprint-16.7 demo 修复: 切到 dad 微信附件 demo (8-21 参赛版, md5 `926312d`) 作为 baseline; 建立 `docs/moni-web-showcase-history/` 历史目录保留所有 demo 版本; 修复 panel-soft 内 "打开产物" 按钮文字看不清 (`.panel-soft * { color: var(--fg) }` 通配覆盖 `.btn-primary` 字色). PR #128 squash @ `29442a5`, tag v1.0.35.16.5. 772 pass / 2 skip / 0 fail.
+>
 > 本次新增: `moni/llm/client.py` 删 `--profile` flag; `moni/llm/jobs.py` fact_check_plus `extra_args` 去 `-Q --max-turns`; `.gitignore` 整目录截图入 ignore + 申报目录独立 ignore; 删 6 张 v1.0.19 量化看板截图。PR #109。  
 > 这份文档给**用户**（你自己）看 —— 怎么用 moni，不讲代码细节。
 
