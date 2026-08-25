@@ -405,6 +405,11 @@ body {
   box-shadow: 0 4px 12px rgba(242,230,206,0.25);
   background: #F2E6CE c h);
 }
+/* v1.0.35.16.5: .panel-soft * { color: var(--fg) } 把 .btn-primary 字色也强制改掉,
+ 导致"打开产物"按钮在 panel-soft 内变成"黑底黑字 / 米黄底玄色字",文字看不见.
+ 强制恢复 .btn-primary / .btn-secondary 的原色. */
+.panel-soft .btn-primary { color: var(--background); }
+.panel-soft .btn-secondary { color: var(--foreground); }
 
 /* Secondary — outlined */
 .btn-secondary {
