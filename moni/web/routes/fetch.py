@@ -51,6 +51,32 @@ _CONFIG_PATH = Path(__file__).parent.parent.parent.parent / "config" / "sources.
 JOB_TIMEOUT_SECONDS = 600
 
 
+def _job_timeout(source_name: str) -> int:
+    """Per-source job timeout (seconds), read from sources.fetch_config['timeout_sec'].
+
+    Falls back to ``JOB_TIMEOUT_SECONDS`` (600) when unset or invalid.
+
+    v1.0.35.17: heavy sources like bestblogs (375-feed full sweep ~880s) were
+    finishing the whole run but got falsely marked 'timeout after 10min' because
+    the global 600s budget was tighter than a legit full sweep. Making the budget
+    per-source (configurable in /config fetch_config) fixes that false positive
+    without cutting coverage.
+    """
+    try:
+        conn = get_db()
+        row = conn.execute(
+            "SELECT fetch_config FROM sources WHERE name = ?", (source_name,)
+        ).fetchone()
+        if row and row["fetch_config"]:
+            cfg = json.loads(row["fetch_config"])
+            val = cfg.get("timeout_sec")
+            if isinstance(val, int) and val > 0:
+                return val
+    except Exception as exc:
+        logger.debug("[%s] failed to read timeout_sec: %s", source_name, exc)
+    return JOB_TIMEOUT_SECONDS
+
+
 def _load_sources() -> list[dict[str, Any]]:
     """Load source configs from config/sources.yaml."""
     if not _CONFIG_PATH.exists():
@@ -263,7 +289,8 @@ def _run_fetch_job(
 
     jobs = FetchJobStore()
     started = time.monotonic()
-    deadline = started + JOB_TIMEOUT_SECONDS
+    timeout_sec = _job_timeout(source_name)
+    deadline = started + timeout_sec
 
     try:
         _ensure_sources_loaded()
@@ -296,10 +323,10 @@ def _run_fetch_job(
             except Exception as exc:
                 logger.debug("[%s] progress persist failed: %s", source_name, exc)
             # Check timeout opportunistically — keeps the job from
-            # running past 10 minutes even if downstream httpx hangs.
+            # running past its budget even if downstream httpx hangs.
             if time.monotonic() > deadline:
                 raise TimeoutError(
-                    f"Fetch exceeded {JOB_TIMEOUT_SECONDS}s timeout"
+                    f"Fetch exceeded {timeout_sec}s timeout"
                 )
 
         fetcher.progress_callback = _persist_progress
@@ -685,7 +712,8 @@ def _run_batch_job(
 
         try:
             started = time.monotonic()
-            deadline = started + JOB_TIMEOUT_SECONDS
+            timeout_sec = _job_timeout(source_name)
+            deadline = started + timeout_sec
 
             fetcher = _FETCHER_REGISTRY[source_name]()
             if date_from:
@@ -710,7 +738,7 @@ def _run_batch_job(
                     logger.debug("[%s] progress persist failed: %s", source_name, exc)
                 if time.monotonic() > deadline:
                     raise TimeoutError(
-                        f"Fetch exceeded {JOB_TIMEOUT_SECONDS}s timeout"
+                        f"Fetch exceeded {timeout_sec}s timeout"
                     )
 
             fetcher.progress_callback = _persist_progress
