@@ -99,7 +99,12 @@ class TestFetchJobStore:
         store.mark_timeout(job_id)
         job = store.get(job_id)
         assert job["status"] == "timeout"
-        assert "timeout" in job["error"].lower()
+        # v1.0.35.17: default message carries how far the fetch got instead of
+        # a hardcoded "timeout after 10min" (a full sweep that ran past budget
+        # is "too slow", not an abort).
+        assert "已抓" in job["error"]
+        # created job has articles_so_far=0
+        assert "0" in job["error"]
 
     def test_has_running_true_only_for_running_status(self, fresh_db):
         store = FetchJobStore()

@@ -24,12 +24,49 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# v1.0.7.6 zombie fix: jobs older than this with status=running are
-# considered dead (the daemon thread crashed or the process was killed
-# mid-fetch) and should be swept to 'stale' on the next request.
-# Must be > JOB_TIMEOUT_SECONDS (10min) so in-thread timeout can finish
-# first; 15min catches post-restart zombies without waiting 2h.
+# v1.0.7.6 zombie fix: running jobs older than this are considered dead
+# (the daemon thread crashed or the process was killed mid-fetch) and swept
+# to 'stale' on the next request. Minimum floor — the effective threshold is
+# computed dynamically by get_stale_threshold() so it always stays ABOVE the
+# largest per-source timeout budget (else a legit still-running job with a
+# stretched timeout would be mis-swept as a zombie and allow a duplicate
+# full-fetch thread to start). v1.0.35.17: bestblogs timeout_sec=1800 makes
+# this reach 2100.
 STALE_THRESHOLD_SECONDS = 900
+
+
+def _global_max_timeout() -> int:
+    """Largest per-source timeout budget across all sources (seconds).
+
+    Reads ``timeout_sec`` from every source's ``fetch_config``; defaults to
+    600 (== fetch.JOB_TIMEOUT_SECONDS) when nothing is configured so the
+    threshold never collapses toward zero.
+    """
+    global_max = 600
+    try:
+        rows = get_db().execute(
+            "SELECT fetch_config FROM sources WHERE fetch_config IS NOT NULL"
+        ).fetchall()
+        for row in rows:
+            try:
+                cfg = json.loads(row["fetch_config"])
+                val = cfg.get("timeout_sec")
+                if isinstance(val, int) and val > 0 and val > global_max:
+                    global_max = val
+            except (ValueError, TypeError):
+                continue
+    except Exception:
+        pass
+    return global_max
+
+
+def get_stale_threshold() -> int:
+    """Effective zombie-sweep cutoff: max(timeout_budget) + 300, floored at 900.
+
+    The sweep must wait longer than the slowest configured source so an
+    in-flight configurable-timeout job is never marked stale and relaunched.
+    """
+    return max(STALE_THRESHOLD_SECONDS, _global_max_timeout() + 300)
 
 
 def _row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -133,7 +170,14 @@ class FetchJobStore:
             current_feed=None,
         )
 
-    def mark_timeout(self, job_id: str, error: str = "timeout after 10min") -> None:
+    def mark_timeout(self, job_id: str, error: str | None = None) -> None:
+        if error is None:
+            # Include how far the fetch actually got — a source that finished
+            # a full sweep but ran past its budget is a "too slow" signal, not
+            # a hard abort. v1.0.35.17: no more hardcoded "timeout after 10min".
+            row = self.get_raw(job_id)
+            n = (row or {}).get("articles_so_far") or 0
+            error = f"超过超时预算 (已抓 {n} 篇)"
         self._atomic_update(
             job_id,
             status="timeout",
@@ -155,7 +199,7 @@ class FetchJobStore:
             finished_at=_now_iso(),
             error=(
                 "Aborted: daemon thread presumed dead (no progress for "
-                f">{STALE_THRESHOLD_SECONDS // 3600}h). "
+                f">{STALE_THRESHOLD_SECONDS // 60}min). "
                 "Likely SQLite contention or process restart."
             )[:2000],
             current_feed=None,
@@ -367,14 +411,15 @@ class FetchJobStore:
         return row is not None
 
     def sweep_zombies(self) -> int:
-        """Mark any 'running' job older than STALE_THRESHOLD_SECONDS as 'stale'.
+        """Mark any 'running' job older than get_stale_threshold() as 'stale'.
 
         Returns the number of jobs swept. Safe to call on every
         /api/fetch/sources/{name}/run request — idempotent and cheap
         (a single UPDATE statement).
         """
         from datetime import timedelta
-        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=STALE_THRESHOLD_SECONDS)).isoformat()
+        threshold = get_stale_threshold()
+        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=threshold)).isoformat()
         cur = get_db().execute(
             "SELECT id FROM fetch_jobs WHERE status = 'running' AND started_at < ?",
             (cutoff,),
