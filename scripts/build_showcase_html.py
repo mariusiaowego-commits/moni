@@ -1630,6 +1630,12 @@ def assemble(html: str, css: str, scripts: list[str], alpine: str, gsap: str, ic
     assets = load_showcase_assets()
     if assets:
         assets_json = json.dumps(assets, ensure_ascii=False)
+        # v1.0.35.16.2: html_landing 是完整 HTML 文档, 内部含 </script> ——
+        # JSON 里原样保留会提前终止外层 <script type="application/json">,
+        # 导致 html_landing 的 </head><body><div class="wrap">... 泄漏成裸 DOM
+        # 平铺在每个页面下方. 与 mock_js() 同款, 把 </ 转义成 <\/ (JSON 合法,
+        # script 块不早闭).
+        assets_json = assets_json.replace("</", "<\\/")
         deferred_block = (
             '\n<script type="application/json" id="deferred-artifacts">'
             + assets_json
