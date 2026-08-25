@@ -4,6 +4,15 @@
 
 ---
 
+## 当前状态: **v1.0.35.17 — bestblogs 超时假警报修复** (2026-08-25 SHIPPED)
+
+**主分支**: main @ `de9e922` (squash of PR #130; 超时按源配置化)
+**Tag 链 (本次)**: **v1.0.35.17 @ `de9e922`** (当前)
+
+> **v1.0.35.17 (2026-08-25)** fix issue #129: bestblogs 整轮跑完 1875 篇(883s>600s)被全局 JOB_TIMEOUT=600 事后打成 `timeout after 10min` = **假警报非漏抓**。超时按源配置化: `_job_timeout(source)` 读 `sources.fetch_config.timeout_sec`(缺省 600); `STALE_THRESHOLD` → 动态 `get_stale_threshold()=max(全局 timeout)+300`(≥900); `mark_timeout` 文案带已抓计数; bestblogs `timeout_sec=1800` + 4 个 bestblog* `fetch_interval_min` 5→120(防叠跑)。全量 **780 passed + 2 skip**。8900 PID 14325→71613。
+
+---
+
 ## 当前状态: **v1.0.35.16.5 — sprint-16.7 demo 修复 + 历史版本管理建立** (2026-08-25 SHIPPED)
 
 **主分支**: main @ `29442a5` (squash of PR #128; demo 修复 + history目录建立)
