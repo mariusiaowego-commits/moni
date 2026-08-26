@@ -4,6 +4,26 @@
 
 ---
 
+## 当前状态: **v1.0.35.18 — demo HTML 合规化** (2026-08-26 SHIPPED)
+
+**主分支**: main @ `1dad030` (squash of PR #132; demo 合规化, 隐藏海外信源/LLM provider)
+**Tag 链 (本次)**: **v1.0.35.18 @ `1dad030`** (当前)
+
+> **v1.0.35.18 (2026-08-26)** demo 合规化 = 隐藏外部 ai 智能体接入痕迹。SNAP JSON 用 `json.dumps` 重写: sources 14→11 (去 `bestblog-x`/`bestblog-yt`/`xwatch`), providers 6→4 (去 Google Gemini/OpenRouter), models 6→3; SOURCE_ORDER / sortOrder / DEMO_RESULTS 同步清理; 13 处 UI 文案 placeholder 改国内合规例子。agy 双 agent audit: 用 json.dumps 重写 SNAP + 保留 base64 iconMap (无害死代码)。verify: JSON parse + `node --check` 3 个 inline script + grep 海外关键词 UI 层残留=0。纯 demo 改动，**未动生产代码** (8900 无需重启)。
+
+**Demo 历史目录** (`docs/moni-web-showcase-history/`, dad 8-25 约定):
+- `v1.0.35.2-final-2026-08-21.html` — 微信附件 baseline (md5 `926312d`), 参赛版
+- `v1.0.35.17.1-baseline-2026-08-26.html` — 合规化前 baseline (md5 `ff38066`), 8-26 早晨
+- `v1.0.35.18-compliance-preverify-2026-08-26.html` — 合规化版本 (md5 `dcf382be`), dad 验证通过
+- `v1.0.35.2-git-069b4cc-2026-08-19.html` — git 官方 v1.0.35.2-hotfix @ `069b4cc` (md5 `dd49bae`)
+- `v1.0.35.16.4-before-btn-fix-2026-08-25.html` — v1.0.35.16.4 当前 demo (md5 `926312d`)
+- `README.md` — 命名约定 + 流程
+
+**测试**: 未改生产代码, 无需跑 pytest
+**生产**: 8900 PID 71613 running (v1.0.35.17 代码, v1.0.35.18 demo 改动是 demo-only)
+
+---
+
 ## 当前状态: **v1.0.35.17 — bestblogs 超时假警报修复** (2026-08-25 SHIPPED)
 
 **主分支**: main @ `de9e922` (squash of PR #130; 超时按源配置化)
