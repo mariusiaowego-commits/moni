@@ -4,12 +4,19 @@
 
 ---
 
-## 当前状态: **v1.0.35.18 — demo HTML 合规化** (2026-08-26 SHIPPED)
+## 当前状态: **v1.0.35.19 — 竞赛成果数据支撑** (2026-08-26 SHIPPED)
 
-**主分支**: main @ `1dad030` (squash of PR #132; demo 合规化, 隐藏海外信源/LLM provider)
-**Tag 链 (本次)**: **v1.0.35.18 @ `1dad030`** (当前)
+**主分支**: main @ `5e66984` (squash of PR #133; 批量提取CLI + 成果看板 + 案例库闭环 + 关键词反选)
+**Tag 链 (本次)**: **v1.0.35.19 @ `5e66984`** (当前)
 
-> **v1.0.35.18 (2026-08-26)** demo 合规化 = 隐藏外部 ai 智能体接入痕迹。SNAP JSON 用 `json.dumps` 重写: sources 14→11 (去 `bestblog-x`/`bestblog-yt`/`xwatch`), providers 6→4 (去 Google Gemini/OpenRouter), models 6→3; SOURCE_ORDER / sortOrder / DEMO_RESULTS 同步清理; 13 处 UI 文案 placeholder 改国内合规例子。agy 双 agent audit: 用 json.dumps 重写 SNAP + 保留 base64 iconMap (无害死代码)。verify: JSON parse + `node --check` 3 个 inline script + grep 海外关键词 UI 层残留=0。纯 demo 改动，**未动生产代码** (8900 无需重启)。
+> **v1.0.35.19 (2026-08-26)** 竞赛申报成果数据支撑 (领导要求: 追踪多少同业/多少参考价值案例)。
+> - P0 管道: `resolve_active_model()` (llm_settings 回退链, minimax-cn 恢复可用 dad 指定优先; ark 5h 配额易 429) + cases 占位机制 (mark_processing 防重复烧 LLM) + events/cron 去 minimax 硬编码
+> - P1 CLI: `moni extract cases|events` (dry-run/source/limit/resume/skipped/failed) — 试点 mpaypass 100 篇 29.3min 提取 44 案例
+> - P2 API: `/api/stats/cases-dashboard` (period=all 累计) + `/api/stats/data-funnel` + 案例 confirm/reject/PATCH/DELETE(软删 archived) + keywords CRUD
+> - P2 前端 (grok): /stats 2 分区 (累计成效全景/周期运行监控) + 数据漏斗 4 数字 + 高价值榜单 (摘要/置信度/来源) + 排除标签反选 v1 + 案例编辑/删除/标签
+> - schema v31 (031_case_keywords.sql) + 修复: case_id 脏字符/alias substring 越界/migration 断言
+> - 数据现状: 案例 95 / 同业 123 / 高价值 40 / 漏斗 3583→666→95→89; 测试 798 passed + 2 skip
+> - sprint-18 待开: 案例关键词 LLM 打标 + tag 双维度 + 反选升级 (plan: docs/plans/2026-08-26-sprint-18-case-keywords-plan.md)
 
 **Demo 历史目录** (`docs/moni-web-showcase-history/`, dad 8-25 约定):
 - `v1.0.35.2-final-2026-08-21.html` — 微信附件 baseline (md5 `926312d`), 参赛版
