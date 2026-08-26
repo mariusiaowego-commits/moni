@@ -156,15 +156,16 @@ def _regex_extract_event(obj_str: str) -> dict[str, Any] | None:
 def extract_events_for_article(
     article: dict[str, Any],
     *,
-    provider: str = "minimax-cn",
-    model: str = "MiniMax-M3",
+    provider: str | None = None,
+    model: str | None = None,
     llm_call_fn: Any | None = None,
 ) -> dict[str, Any]:
     """为单篇文章提取事件（三层事务管道）。
 
     Args:
         article: 文章 dict，至少包含 id, title, raw_content
-        provider: LLM provider name
+        provider: LLM provider name (缺省时从 llm_settings 解析激活模型,
+                  v1.0.35.19 起不再硬编码 minimax-cn — 该 provider 已 429)
         model: LLM model id
         llm_call_fn: 可选的 LLM 调用函数（用于测试 mock）
             签名：fn(prompt: str) -> str
@@ -185,6 +186,9 @@ def extract_events_for_article(
         if llm_call_fn is not None:
             raw_reply = llm_call_fn(prompt)
         else:
+            if provider is None or model is None:
+                from ..llm.client import resolve_active_model
+                provider, model = resolve_active_model()
             raw_reply = call_llm(provider, model, prompt)
 
         # 2. 解析 JSON
@@ -310,8 +314,8 @@ def extract_events_for_article(
 def extract_events_batch(
     *,
     batch_size: int = 20,
-    provider: str = "minimax-cn",
-    model: str = "MiniMax-M3",
+    provider: str | None = None,
+    model: str | None = None,
     llm_call_fn: Any | None = None,
 ) -> dict[str, Any]:
     """批量提取事件（调度器调用入口）。
@@ -320,7 +324,7 @@ def extract_events_batch(
 
     Args:
         batch_size: 每批处理的文章数
-        provider: LLM provider
+        provider: LLM provider (缺省解析激活模型, v1.0.35.19 不再硬编码)
         model: LLM model
         llm_call_fn: 可选的 mock LLM 函数
 

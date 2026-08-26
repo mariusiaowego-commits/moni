@@ -420,8 +420,8 @@ def _parse_tags_from_reply(reply: str) -> list[str]:
 def extract_events_pending(
     *,
     batch_size: int = 20,
-    provider: str = "minimax-cn",
-    model: str = "MiniMax-M3",
+    provider: str | None = None,
+    model: str | None = None,
 ) -> dict[str, Any] | None:
     """为新入库的文章批量抽取行业事件（F5 行业事件日历）。
 
@@ -432,9 +432,9 @@ def extract_events_pending(
     ----------
     batch_size : int
         每批处理的文章数（默认 20）。
-    provider : str
-        LLM provider 名称。
-    model : str
+    provider : str | None
+        LLM provider 名称 (缺省解析激活模型, v1.0.35.19 不再硬编码 minimax-cn)。
+    model : str | None
         LLM 模型 ID。
 
     Logging

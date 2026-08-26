@@ -18,7 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 30  # v1.0.34.2: 删除 4 行 ghost sources (030 cleanup)
+_CURRENT_VERSION = 31  # v1.0.35.19: 案例关键词表 (031_case_keywords)
 
 
 def current_version(conn: sqlite3.Connection) -> int:

@@ -166,12 +166,11 @@ def extract_cases_for_article(
         if llm_call_fn is not None:
             raw_reply = llm_call_fn(prompt)
         else:
-            # 默认 provider/model — 与 F5 events.pipeline 一致
+            # v1.0.35.19: provider/model 缺省时从 llm_settings 解析激活模型
+            # (此前硬编码 minimax-cn 已 429 配额耗尽, 默认参数必失败)
             if provider is None or model is None:
-                raise ValueError(
-                    "extract_cases_for_article 需要 provider 和 model 参数 "
-                    "(或注入 llm_call_fn 用于测试)"
-                )
+                from ..llm.client import resolve_active_model
+                provider, model = resolve_active_model()
             raw_reply = call_llm(provider, model, prompt)
 
         # 解析
@@ -189,12 +188,20 @@ def extract_cases_for_article(
 
         if not raw_cases:
             # 没案例不算失败 (可能文章本身无案例)
-            conn.execute(
-                """UPDATE cases SET extraction_status = 'skipped', updated_at = ?
-                   WHERE article_id = ? AND extraction_status = 'processing'""",
-                (datetime_iso(), article_id),
-            )
-            conn.commit()
+            # v1.0.35.19: 落 skipped 占位行 (此前 UPDATE 0 行, "未提取过"
+            # 无法判定 → 批量提取会重复烧 LLM)
+            conn.execute("BEGIN")
+            try:
+                CaseRepository.mark_processing(conn, article_id)
+                CaseRepository.set_extraction_status(
+                    conn, article_id, "skipped",
+                    error="no cases extracted",
+                    attempts_increment=1,
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
             return {"status": "no_cases", "case_count": 0, "error": None}
 
         # 归一化 + 插入 (同一事务)
@@ -205,16 +212,31 @@ def extract_cases_for_article(
                 normalized.append(cs)
 
         if not normalized:
+            # 全部被 normalize 过滤 (主体为空/无法判定) — 同样落 skipped 占位
+            conn.execute("BEGIN")
+            try:
+                CaseRepository.mark_processing(conn, article_id)
+                CaseRepository.set_extraction_status(
+                    conn, article_id, "skipped",
+                    error="all cases filtered by normalize",
+                    attempts_increment=1,
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
             return {"status": "no_cases", "case_count": 0, "error": None}
 
         # 事务开始
         with conn:
-            # 清理该 article 的旧案例 (重试场景)
+            CaseRepository.mark_processing(conn, article_id)
+            # 清理该 article 的旧案例 (重试场景) + 占位行
             conn.execute(
                 "DELETE FROM cases WHERE article_id = ?",
                 (article_id,),
             )
             inserted = CaseRepository.insert_cases(conn, article_id, normalized)
+            CaseRepository.clear_processing_placeholder(conn, article_id)
 
         return {
             "status": "completed",
@@ -233,26 +255,56 @@ def datetime_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-async def extract_cases_for_article_async(article: dict[str, Any]) -> dict[str, Any]:
+async def extract_cases_for_article_async(
+    article: dict[str, Any],
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+    llm_call_fn: Any = None,
+) -> dict[str, Any]:
     """异步抽取一篇文章的案例 (带并发限流).
 
     同步 LLM 调用的 async 包装, 不阻塞主流程.
+    v1.0.35.19: 透传 provider/model (此前不传 → 必 ValueError).
     """
     async with _LLM_SEMAPHORE:
         # call_llm 是同步的, 用 run_in_executor 异步执行
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, extract_cases_for_article, article)
+        return await loop.run_in_executor(
+            None,
+            lambda: extract_cases_for_article(
+                article, provider=provider, model=model, llm_call_fn=llm_call_fn,
+            ),
+        )
 
 
 def extract_cases_for_articles_batch(
     articles: list[dict[str, Any]],
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+    llm_call_fn: Any = None,
 ) -> list[dict[str, Any]]:
     """批量同步抽取.
 
+    v1.0.35.19: 透传 provider/model (此前不传 → 每篇 ValueError).
+    缺省时统一走 resolve_active_model (llm_settings → ark).
+
     Args:
         articles: 文章列表
+        provider: LLM provider (缺省自动解析激活模型)
+        model: LLM model id
+        llm_call_fn: 测试用注入函数 (prompt) -> str
 
     Returns:
         每个 article 抽取结果的 list
     """
-    return [extract_cases_for_article(a) for a in articles]
+    if provider is None or model is None:
+        from ..llm.client import resolve_active_model
+        provider, model = resolve_active_model()
+    return [
+        extract_cases_for_article(
+            a, provider=provider, model=model, llm_call_fn=llm_call_fn,
+        )
+        for a in articles
+    ]

@@ -295,6 +295,8 @@ function app() {
     _viewToPath: {
       articles: '/articles',
       calendar: '/calendar',
+      cases:    '/cases',
+      stats:    '/stats',
       crud:     '/crud',
       cron:     '/cron',
       fetch:    '/fetch',
@@ -307,6 +309,8 @@ function app() {
     _pathToView: {
       '/articles': 'articles',
       '/calendar': 'calendar',
+      '/cases':    'cases',
+      '/stats':    'stats',
       '/crud':     'crud',
       '/cron':     'cron',
       '/fetch':    'fetch',
@@ -380,6 +384,7 @@ function app() {
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
       else if (view === 'calendar') { this.initCalendarPage(); }
       else if (view === 'cases')    { this.initCasesPage(); }
+      else if (view === 'stats')    { this.loadAll(); }
       else if (view === 'config') {
         if (!this.configTab) this.configTab = 'sources';
         this.switchConfigTab(this.configTab);
@@ -423,6 +428,7 @@ function app() {
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
       else if (view === 'calendar') { this.initCalendarPage(); }
       else if (view === 'cases')    { this.initCasesPage(); }
+      else if (view === 'stats')    { this.loadAll(); }
       else if (view === 'config') {
         this.switchConfigTab(this.configTab || 'sources');
       }
@@ -3534,7 +3540,7 @@ function app() {
       this.navigate(view);
       // Replace history entry after navigate so deep-link is the current entry
       try {
-        const path = window.location.pathname;
+        const path = window.location.pathname + (window.location.search || '');
         window.history.replaceState(
           { view: this.currentView, configTab: this.configTab },
           '',

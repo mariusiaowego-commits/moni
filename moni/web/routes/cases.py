@@ -16,6 +16,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Query
+from pydantic import BaseModel
 
 from moni.db.connection import get_db
 from moni.cases.repository import CaseRepository
@@ -199,3 +200,117 @@ def retry_extraction(
         "case_count": result["case_count"],
         "error": result.get("error"),
     }
+
+
+@router.post("/{case_id}/confirm")
+def confirm_case(case_id: str) -> dict[str, Any]:
+    """人工核验案例 (review_status pending → confirmed + lifecycle draft → verified).
+
+    v1.0.35.19: 激活此前死代码 CaseRepository.confirm/update_lifecycle,
+    照 events confirm 范式补单条闭环 (grok F1: 案例库无 review 闭环)。
+    申报"已核验案例"口径 = 本端点确认过的案例。
+    """
+    conn = get_db()
+    with conn:
+        ok = CaseRepository.confirm(conn, case_id)
+        if ok:
+            CaseRepository.update_lifecycle(conn, case_id, "verified")
+    if not ok:
+        raise NotFoundError(
+            message=f"Case {case_id!r} not found or already reviewed"
+        )
+    return {
+        "case_id": case_id,
+        "review_status": "confirmed",
+        "case_lifecycle": "verified",
+    }
+
+
+@router.post("/{case_id}/reject")
+def reject_case(
+    case_id: str,
+    reason: str | None = Query(None, description="驳回原因 (可选)"),
+) -> dict[str, Any]:
+    """人工驳回案例 (review_status pending → rejected).
+
+    v1.0.35.19: 照 events reject 范式。
+    """
+    conn = get_db()
+    ok = CaseRepository.reject(conn, case_id, reason)
+    conn.commit()
+    if not ok:
+        raise NotFoundError(
+            message=f"Case {case_id!r} not found or already reviewed"
+        )
+    return {"case_id": case_id, "review_status": "rejected"}
+
+
+# ── 编辑 / 软删除 / 关键词 (v1.0.35.19 agy v3 评审) ──────────────────
+
+class CaseUpdateBody(BaseModel):
+    """案例编辑请求体 (字段白名单在 repository 层校验)."""
+
+    subject: str | None = None
+    subject_raw: str | None = None
+    case_type: str | None = None
+    case_action: str | None = None
+    counterparty: str | None = None
+    amount: str | None = None
+    reference_value: str | None = None
+    reference_rationale: str | None = None
+    summary: str | None = None
+    evidence_snippet: str | None = None
+    case_date: str | None = None
+    case_date_precision: str | None = None
+
+
+@router.patch("/{case_id}")
+def update_case(case_id: str, body: CaseUpdateBody) -> dict[str, Any]:
+    """编辑案例字段 (v1.0.35.19 agy v3 需求1)."""
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    ok = CaseRepository.update_case(case_id, updates)
+    if not ok:
+        raise NotFoundError(message=f"Case {case_id!r} not found or no editable field")
+    return {"case_id": case_id, "updated": sorted(updates.keys())}
+
+
+@router.delete("/{case_id}")
+def delete_case(case_id: str) -> dict[str, Any]:
+    """软删除案例 (lifecycle → archived, 可恢复)."""
+    ok = CaseRepository.soft_delete_case(case_id)
+    if not ok:
+        raise NotFoundError(message=f"Case {case_id!r} not found or already archived")
+    return {"case_id": case_id, "case_lifecycle": "archived"}
+
+
+@router.get("/{case_id}/keywords")
+def list_case_keywords(case_id: str) -> dict[str, Any]:
+    """案例关键词列表 (v1.0.35.19 agy v3 需求3)."""
+    if CaseRepository.get_case(case_id) is None:
+        raise NotFoundError(message=f"Case {case_id!r} not found")
+    return {"case_id": case_id, "items": CaseRepository.list_keywords(case_id)}
+
+
+class KeywordBody(BaseModel):
+    keyword: str
+    weight: int = 1
+
+
+@router.post("/{case_id}/keywords")
+def add_case_keyword(case_id: str, body: KeywordBody) -> dict[str, Any]:
+    """添加人工关键词 (manual_user)."""
+    if CaseRepository.get_case(case_id) is None:
+        raise NotFoundError(message=f"Case {case_id!r} not found")
+    new_id = CaseRepository.add_keyword(case_id, body.keyword, weight=body.weight)
+    return {"case_id": case_id, "keyword": body.keyword.strip(), "id": new_id}
+
+
+@router.delete("/{case_id}/keywords/{keyword}")
+def remove_case_keyword(case_id: str, keyword: str) -> dict[str, Any]:
+    """删除人工关键词 (manual_user 才可删)."""
+    ok = CaseRepository.remove_keyword(case_id, keyword)
+    if not ok:
+        raise NotFoundError(
+            message=f"Keyword {keyword!r} not found on {case_id!r} or not manual_user"
+        )
+    return {"case_id": case_id, "keyword": keyword, "deleted": True}

@@ -20,7 +20,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css?v=20260813019">
+  <link rel="stylesheet" href="css/main.css?v=20260826026">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -1641,8 +1641,8 @@
           </select>
         </div>
 
-        <!-- 搜索结果 (覆盖默认列表) -->
-        <template x-if="casesSearch.trim()">
+        <!-- 搜索结果 (覆盖默认列表; 看板跳转填 subject 但不进 FTS 覆盖层) -->
+        <template x-if="casesSearch.trim() && casesSearchActive">
           <div>
             <div class="cal-card-title" style="margin-bottom: 12px;">
               搜索结果 (<span x-text="casesSearchResults.length"></span>)
@@ -1650,6 +1650,8 @@
             <div class="case-list">
               <template x-for="cs in casesSearchResults" :key="cs.case_id">
                 <div class="case-card" @click="casesOpenDetail(cs)">
+                  <button type="button" class="case-card-del" title="删除"
+                          @click.stop="casesDelete(cs.case_id, $event)" aria-label="删除">×</button>
                   <div class="case-card-head">
                     <span class="case-id" x-text="cs.case_id"></span>
                     <span class="case-subject" x-text="cs.subject"></span>
@@ -1663,6 +1665,12 @@
                           :style="{ background: caseReferenceColor(cs.reference_value), color: '#fff' }"
                           x-text="'参考价值: ' + caseReferenceLabel(cs.reference_value)"></span>
                   </div>
+                  <div class="row-actions" x-show="cs.review_status === 'pending'" @click.stop>
+                    <button class="btn btn-primary btn-sm" :disabled="casesReviewBusy"
+                            @click="casesConfirm(cs.case_id, $event)">核验通过</button>
+                    <button class="btn btn-danger btn-sm" :disabled="casesReviewBusy"
+                            @click="casesReject(cs.case_id, $event)">驳回</button>
+                  </div>
                 </div>
               </template>
               <div x-show="casesSearchResults.length === 0" class="case-empty">
@@ -1672,18 +1680,20 @@
           </div>
         </template>
 
-        <!-- 默认列表 (无搜索时显示) -->
-        <template x-if="!casesSearch.trim()">
+        <!-- 默认列表 (无 FTS 覆盖时显示, 含看板跳转的 subject 筛选) -->
+        <template x-if="!(casesSearch.trim() && casesSearchActive)">
           <div class="case-layout">
             <div class="case-main">
               <div class="case-list">
                 <template x-for="cs in cases" :key="cs.case_id">
                   <div class="case-card" @click="casesOpenDetail(cs)">
+                    <button type="button" class="case-card-del" title="删除"
+                            @click.stop="casesDelete(cs.case_id, $event)" aria-label="删除">×</button>
                     <div class="case-card-head">
                       <span class="case-id" x-text="cs.case_id"></span>
                       <span class="case-subject" x-text="cs.subject"></span>
                       <span class="cal-type-chip"
-                            style="margin-left: auto;"
+                            style="margin-inline-start: auto;"
                             :style="{ background: caseTypeColor(cs.case_type), color: '#fff' }"
                             x-text="caseTypeLabel(cs.case_type)"></span>
                     </div>
@@ -1707,6 +1717,12 @@
                           对手方: <span x-text="cs.counterparty"></span>
                         </span>
                       </template>
+                    </div>
+                    <div class="row-actions" x-show="cs.review_status === 'pending'" @click.stop>
+                      <button class="btn btn-primary btn-sm" :disabled="casesReviewBusy"
+                              @click="casesConfirm(cs.case_id, $event)">核验通过</button>
+                      <button class="btn btn-danger btn-sm" :disabled="casesReviewBusy"
+                              @click="casesReject(cs.case_id, $event)">驳回</button>
                     </div>
                   </div>
                 </template>
@@ -1759,12 +1775,22 @@
                 <div class="case-detail-head">
                   <div>
                     <div class="case-detail-id" x-text="casesDetail.case_id"></div>
-                    <div class="case-detail-subject" x-text="casesDetail.subject"></div>
+                    <div class="case-detail-subject" x-show="!casesEditing" x-text="casesDetail.subject"></div>
+                    <input x-show="casesEditing" type="text" class="case-edit-input"
+                           x-model="casesEditForm.subject" placeholder="主体">
                   </div>
-                  <button @click="casesCloseDetail()" class="cal-popover-close" aria-label="关闭">×</button>
+                  <div class="case-detail-head-actions">
+                    <button type="button" class="btn btn-secondary btn-sm" x-show="!casesEditing"
+                            @click="casesStartEdit()">编辑</button>
+                    <button type="button" class="btn btn-primary btn-sm" x-show="casesEditing"
+                            :disabled="casesEditBusy" @click="casesSaveEdit()">保存</button>
+                    <button type="button" class="btn btn-ghost btn-sm" x-show="casesEditing"
+                            :disabled="casesEditBusy" @click="casesCancelEdit()">取消</button>
+                    <button @click="casesCloseDetail()" class="cal-popover-close" aria-label="关闭">×</button>
+                  </div>
                 </div>
 
-                <div class="case-chips">
+                <div class="case-chips" x-show="!casesEditing">
                   <span class="cal-type-chip"
                         :style="{ background: caseTypeColor(casesDetail.case_type), color: '#fff' }"
                         x-text="caseTypeLabel(casesDetail.case_type)"></span>
@@ -1775,10 +1801,30 @@
                         style="background: var(--muted); color: var(--card-fg);"
                         x-text="caseActionLabel(casesDetail.case_action)"></span>
                 </div>
+                <div class="case-edit-row" x-show="casesEditing">
+                  <div class="case-edit-field">
+                    <label>动作</label>
+                    <select x-model="casesEditForm.case_action">
+                      <template x-for="a in caseActionOptions()" :key="'act-' + a.value">
+                        <option :value="a.value" x-text="a.label"></option>
+                      </template>
+                    </select>
+                  </div>
+                  <div class="case-edit-field">
+                    <label>参考价值</label>
+                    <select x-model="casesEditForm.reference_value">
+                      <template x-for="r in caseReferenceOptions()" :key="'ref-' + r.value">
+                        <option :value="r.value" x-text="r.label"></option>
+                      </template>
+                    </select>
+                  </div>
+                </div>
 
-                <div class="case-detail-section" x-show="casesDetail.summary">
+                <div class="case-detail-section" x-show="casesEditing || casesDetail.summary">
                   <div class="case-detail-label">案例摘要</div>
-                  <div class="case-detail-value" x-text="casesDetail.summary"></div>
+                  <div class="case-detail-value" x-show="!casesEditing" x-text="casesDetail.summary"></div>
+                  <textarea x-show="casesEditing" x-model="casesEditForm.summary" rows="4"
+                            class="case-edit-input" placeholder="摘要"></textarea>
                 </div>
 
                 <template x-if="casesDetail.reference_rationale">
@@ -1788,9 +1834,9 @@
                   </div>
                 </template>
 
-                <div class="case-detail-section" x-show="casesDetail.case_date || casesDetail.amount || casesDetail.counterparty">
+                <div class="case-detail-section" x-show="casesEditing || casesDetail.case_date || casesDetail.amount || casesDetail.counterparty">
                   <div class="case-detail-label">关键信息</div>
-                  <div class="case-detail-value">
+                  <div class="case-detail-value" x-show="!casesEditing">
                     <template x-if="casesDetail.case_date">
                       <div>时间: <span x-text="casesDetail.case_date"></span></div>
                     </template>
@@ -1801,6 +1847,32 @@
                       <div>对手方: <span x-text="casesDetail.counterparty"></span></div>
                     </template>
                   </div>
+                  <div class="case-edit-field" x-show="casesEditing">
+                    <label>对手方</label>
+                    <input type="text" class="case-edit-input" x-model="casesEditForm.counterparty" placeholder="对手方（可空）">
+                  </div>
+                </div>
+
+                <div class="case-detail-section">
+                  <div class="case-detail-label">标签</div>
+                  <div class="case-kw-list">
+                    <template x-for="kw in casesTags" :key="(kw.id || kw.keyword)">
+                      <span class="case-kw-chip">
+                        <span x-text="kw.keyword"></span>
+                        <button type="button" x-show="kw.source_type === 'manual_user'"
+                                class="case-kw-x" title="删除标签"
+                                :disabled="casesTagBusy"
+                                @click="casesRemoveTag(kw)">×</button>
+                      </span>
+                    </template>
+                    <span class="stats-outcomes-hint" x-show="!casesTags.length">暂无标签</span>
+                  </div>
+                  <div class="case-kw-add">
+                    <input type="text" x-model="casesTagInput" placeholder="添加关键词"
+                           @keydown.enter.prevent="casesAddTag()">
+                    <button type="button" class="btn btn-secondary btn-sm" :disabled="casesTagBusy"
+                            @click="casesAddTag()">+</button>
+                  </div>
                 </div>
 
                 <div class="case-detail-section" x-show="casesDetail.evidence_snippet">
@@ -1809,6 +1881,17 @@
                 </div>
 
                 <div class="case-detail-actions">
+                  <template x-if="casesDetail.review_status === 'pending'">
+                    <button class="btn btn-primary btn-sm" :disabled="casesReviewBusy"
+                            @click="casesConfirm(casesDetail.case_id, $event)">核验通过</button>
+                  </template>
+                  <template x-if="casesDetail.review_status === 'pending'">
+                    <button class="btn btn-danger btn-sm" :disabled="casesReviewBusy"
+                            @click="casesReject(casesDetail.case_id, $event)">驳回</button>
+                  </template>
+                  <button class="btn btn-danger btn-sm" :disabled="casesReviewBusy"
+                          @click="casesDelete(casesDetail.case_id, $event)">删除</button>
+                  <span class="case-detail-actions-spacer"></span>
                   <button class="btn btn-primary btn-sm" @click="casesGoToArticle(casesDetail.article_id)">查看原文</button>
                   <button class="btn btn-ghost btn-sm" @click="casesCloseDetail()">关闭</button>
                 </div>
@@ -1827,17 +1910,171 @@
           </div>
         </div>
 
-        <div class="stats-toolbar">
-          <span class="stats-toolbar-label">时间窗口</span>
-          <div class="stats-toolbar-period">
-            <button :class="{ active: period === '7d' }"  @click="setPeriod('7d')">7 天</button>
-            <button :class="{ active: period === '30d' }" @click="setPeriod('30d')">30 天</button>
-            <button :class="{ active: period === '90d' }" @click="setPeriod('90d')">90 天</button>
+        <div x-show="error" class="stats-error" x-text="error"></div>
+
+        <!-- 分区1: 累计成效全景 (不受 7/30/90 天 toolbar 影响) -->
+        <div class="stats-section-cumulative">
+          <div class="stats-section-head">
+            <h3 class="stats-section-title">累计成效全景</h3>
+            <span class="stats-waterfall-label">累计全量实测 (不受时间窗口切换影响)</span>
           </div>
-          <span class="stats-toolbar-label-input" x-text="loading ? '加载中...' : ''"></span>
+        <div class="stats-outcomes" id="stats-outcomes">
+
+          <!-- Section A: 数据漏斗 -->
+          <section class="stats-outcome-block" aria-labelledby="stats-funnel-title">
+            <div class="stats-outcomes-head">
+              <h4 class="stats-outcomes-title" id="stats-funnel-title">数据漏斗</h4>
+              <span class="stats-outcomes-hint">累计入库 → 抽取事件 → 案例 → 简报生成</span>
+            </div>
+            <div class="stats-funnel">
+              <div class="stats-funnel-step">
+                <div class="stats-funnel-value" x-text="fmt(dataFunnel.articles_total)"></div>
+                <div class="stats-funnel-label">累计入库</div>
+                <div class="stats-funnel-unit">篇文章</div>
+              </div>
+              <div class="stats-funnel-step">
+                <div class="stats-funnel-value" x-text="fmt(dataFunnel.events_total)"></div>
+                <div class="stats-funnel-label">抽取事件</div>
+                <div class="stats-funnel-unit">条事件</div>
+              </div>
+              <div class="stats-funnel-step">
+                <div class="stats-funnel-value" x-text="fmt(dataFunnel.cases_total)"></div>
+                <div class="stats-funnel-label">案例</div>
+                <div class="stats-funnel-unit">个案例</div>
+              </div>
+              <div class="stats-funnel-step">
+                <div class="stats-funnel-value" x-text="fmt(dataFunnel.share_tasks_done)"></div>
+                <div class="stats-funnel-label">简报生成</div>
+                <div class="stats-funnel-unit">次完成</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Section B: 成果指标 4 卡 -->
+          <section class="stats-outcome-block" aria-labelledby="stats-kpi-title">
+            <div class="stats-outcomes-head">
+              <h4 class="stats-outcomes-title" id="stats-kpi-title">成果指标</h4>
+              <span class="stats-waterfall-label" x-text="casesDashboard.display_label || '待核验'"></span>
+            </div>
+            <div class="stats-outcomes-cards">
+              <div class="stats-card">
+                <div class="stats-card-label">累计追踪同业</div>
+                <div class="stats-card-value" x-text="fmt(casesDashboard.total_institutions)"></div>
+                <div class="stats-card-sub">主体+对手方去重</div>
+              </div>
+              <div class="stats-card">
+                <div class="stats-card-label">累计案例</div>
+                <div class="stats-card-value" x-text="fmt(casesDashboard.total_cases)"></div>
+                <div class="stats-card-sub">
+                  待确认 <span x-text="fmt(casesDashboard.pending_review)"></span>
+                </div>
+              </div>
+              <div class="stats-card">
+                <div class="stats-card-label">高价值案例</div>
+                <div class="stats-card-value" x-text="fmt(casesDashboard.high_value_cases)"></div>
+                <div class="stats-card-sub">reference_value = high</div>
+              </div>
+              <div class="stats-card">
+                <div class="stats-card-label">累计抓取文章</div>
+                <div class="stats-card-value" x-text="fmt(casesDashboard.fetch_total)"></div>
+                <div class="stats-card-sub">cron 增量合计</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Section C: 高价值案例榜单 -->
+          <section class="stats-outcome-block" aria-labelledby="stats-rank-title">
+            <div class="stats-outcomes-head">
+              <h4 class="stats-outcomes-title" id="stats-rank-title">高价值案例榜单</h4>
+              <span class="stats-outcomes-hint">后端已按参考价值 · 置信度 · 时间排序</span>
+              <span class="stats-exclude-badge" x-show="excludedCaseTags.length">
+                已排除 <span x-text="excludedCaseTags.length"></span> 个标签 ·
+                过滤 <span x-text="excludedRankCount()"></span> 条案例
+                <button type="button" class="btn btn-ghost btn-sm" @click="resetExcludedTags()">重置</button>
+              </span>
+              <div class="stats-exclude-wrap">
+                <button type="button" class="btn btn-ghost btn-sm"
+                        :aria-expanded="excludePanelOpen"
+                        @click="toggleExcludePanel()">排除标签 ▾</button>
+                <div class="stats-exclude-panel" x-show="excludePanelOpen" @click.stop
+                     x-transition.opacity.duration.120ms>
+                  <div class="stats-outcomes-hint" x-show="!excludeKeywordList().length">
+                    暂无标签 (自动打标将在批量提取时生成)
+                  </div>
+                  <template x-for="kw in excludeKeywordList()" :key="kw">
+                    <label class="stats-exclude-item">
+                      <input type="checkbox"
+                             :checked="excludedCaseTags.includes(kw)"
+                             @change="toggleExcludedTag(kw)">
+                      <span x-text="kw"></span>
+                    </label>
+                  </template>
+                </div>
+              </div>
+            </div>
+            <div class="stats-outcomes-rank">
+              <table class="stats-usage-table stats-outcome-rank-table"
+                     x-show="filteredHighValueRanking().length > 0">
+                <thead>
+                  <tr>
+                    <th>主体</th>
+                    <th>摘要</th>
+                    <th>置信度</th>
+                    <th>来源</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="row in filteredHighValueRanking()" :key="row.case_id">
+                    <tr>
+                      <td>
+                        <div class="stats-outcome-rank-subject" x-text="row.subject"></div>
+                        <div class="stats-outcome-rank-sub" x-show="row.counterparty" x-text="row.counterparty"></div>
+                      </td>
+                      <td x-text="_shortLabel(row.summary, 80)"></td>
+                      <td>
+                        <span :class="outcomeConfidenceClass(row.extraction_confidence)"
+                              x-text="outcomeConfidencePct(row.extraction_confidence)"></span>
+                      </td>
+                      <td>
+                        <a class="link" x-show="row.article_url"
+                           :href="row.article_url" target="_blank" rel="noopener noreferrer"
+                           x-text="row.article_title || row.article_url"></a>
+                        <span x-show="!row.article_url" x-text="row.article_title || '—'"></span>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+              <div class="stats-outcomes-empty"
+                   x-show="!(casesDashboard.high_value_ranking || []).length">
+                暂无高价值案例
+              </div>
+              <div class="stats-outcomes-empty"
+                   x-show="(casesDashboard.high_value_ranking || []).length > 0 && filteredHighValueRanking().length === 0">
+                当前排除条件下无案例
+              </div>
+            </div>
+          </section>
+        </div>
         </div>
 
-        <div x-show="error" class="stats-error" x-text="error"></div>
+        <!-- 分区2: 周期运行监控 (toolbar 只控制本分区) -->
+        <div class="stats-section-periodic">
+          <div class="stats-period-toolbar-wrap">
+            <div class="stats-period-toolbar-copy">
+              <h3 class="stats-section-title">周期运行监控</h3>
+              <span class="stats-outcomes-hint">以下监控数据按所选周期聚合</span>
+            </div>
+            <div class="stats-toolbar">
+              <span class="stats-toolbar-label">时间窗口</span>
+              <div class="stats-toolbar-period">
+                <button :class="{ active: period === '7d' }"  @click="setPeriod('7d')">7 天</button>
+                <button :class="{ active: period === '30d' }" @click="setPeriod('30d')">30 天</button>
+                <button :class="{ active: period === '90d' }" @click="setPeriod('90d')">90 天</button>
+              </div>
+              <span class="stats-toolbar-label-input" x-text="loading ? '加载中...' : ''"></span>
+            </div>
+          </div>
 
         <!-- 顶部三卡: 基线 / 当前 / 目标 -->
         <div class="stats-cards">
@@ -1950,7 +2187,7 @@
                 <template x-for="(item, i) in (factCheckMethod.by_method || [])" :key="item.method + '-' + i">
                   <li>
                     <span class="stats-method-color" :class="'stats-method-' + item.method"></span>
-                    <span x-text="methodLabel(item.method)"></span>
+                    <span class="stats-method-legend-label" x-text="methodLabel(item.method)" :title="methodLabel(item.method)"></span>
                     <strong x-text="fmt(item.article_count) + ' (' + (item.percentage ?? 0) + '%)'"></strong>
                   </li>
                 </template>
@@ -2042,6 +2279,7 @@
           <div class="stats-waterfall-empty" x-show="efficiency.display_status !== 'ok' || savingsWaterfall().length === 0">
             数据积累中 (任务数 &lt; <span x-text="efficiency.threshold"></span>)
           </div>
+        </div>
         </div>
 
       </section>
@@ -3358,10 +3596,10 @@
   <script src="js/toast.js?v=1785000000"></script>
   <script src="js/modal.js?v=1785000000"></script>
   <script src="js/calendar.js?v=20260810001"></script>
-  <script src="js/cases.js?v=20260808004"></script>
-  <script src="js/stats.js?v=20260809"></script>
+  <script src="js/cases.js?v=20260826023"></script>
+  <script src="js/stats.js?v=20260826025"></script>
   <script src="js/theme.js?v=20260813019"></script>
-  <script src="js/app.js?v=20260813018"></script>
+  <script src="js/app.js?v=20260826019"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <script src="js/pin_anim.js?v=1785000000"></script>
 </body>
