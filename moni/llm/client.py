@@ -47,6 +47,61 @@ def estimate_tokens(text: str) -> int:
     return cn * 2 // 3 + other // 4
 
 
+def resolve_active_model(key: str = "active_summary_model_id") -> tuple[str, str]:
+    """从 llm_settings 解析当前激活 (provider, model_id)。
+
+    v1.0.35.19: 抽取管道统一入口。此前 cases/events pipeline 硬编码
+    minimax-cn/MiniMax-M3 (2026-08-24 已 429 配额耗尽), 导致批量提取必失败。
+    回退链: 指定 key → active_summary_model_id → 任意 active provider 模型。
+
+    Args:
+        key: llm_settings 中的模型 key (默认 active_summary_model_id,
+            与案例/事件抽取同为"长文→结构化"任务)。
+
+    Returns:
+        (hermes_provider, model_id) e.g. ("ark", "ark-code-latest")
+
+    Raises:
+        RuntimeError: 没有任何可用模型配置。
+    """
+    from moni.db.connection import get_db
+
+    conn = get_db()
+    keys = (key, "active_summary_model_id") if key != "active_summary_model_id" else (key,)
+    for k in keys:
+        row = conn.execute(
+            "SELECT value FROM llm_settings WHERE key = ?", (k,)
+        ).fetchone()
+        if not row or not row["value"]:
+            continue
+        model_row = conn.execute(
+            """
+            SELECT m.model_id, p.hermes_provider
+            FROM llm_models m
+            JOIN llm_providers p ON p.id = m.provider_id
+            WHERE m.id = ?
+            """,
+            (row["value"],),
+        ).fetchone()
+        if model_row:
+            return model_row["hermes_provider"], model_row["model_id"]
+
+    # 兜底: 任意 active provider 的启用模型
+    row = conn.execute(
+        """
+        SELECT m.model_id, p.hermes_provider
+        FROM llm_models m
+        JOIN llm_providers p ON p.id = m.provider_id
+        WHERE p.is_active = 1 AND m.enabled = 1
+        ORDER BY m.created_at DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    if row:
+        return row["hermes_provider"], row["model_id"]
+    raise RuntimeError("No active LLM model configured in llm_settings")
+
+
 def call_llm(
     provider: str,
     model: str,

@@ -259,7 +259,13 @@ def normalize_date(raw_date: str | None) -> tuple[str | None, str]:
 
 
 def normalize_subject(raw_subject: str | None) -> str | None:
-    """主体别名归一 (TOP 100+).  返回 None  主体无效."""
+    """主体别名归一 (TOP 100+).  返回 None  主体无效.
+
+    v1.0.35.19 修: 关键词 substring 替换会越界, e.g. "意大利人民银行" 里
+    "人民银行" 被 alias 替换成 "中国人民银行" → "意大利中国人民银行".
+    新规则: alias 须出现在 subject 开头, 或前面是非中文+非字母数字 (即
+    alias 边界是行首/标点/数字, 不在中文串内). 避开"土耳其X"/"意大利X".
+    """
     if not raw_subject:
         return None
 
@@ -267,17 +273,35 @@ def normalize_subject(raw_subject: str | None) -> str | None:
     if not raw_subject:
         return None
 
-    # 先看别名映射
+    # 先看别名映射 (精确匹配)
     if raw_subject in BANK_ALIAS_MAP:
         return BANK_ALIAS_MAP[raw_subject]
 
-    # 关键词匹配 (如 "招行某业务部" → 招行 → 招商银行)
+    # 关键词匹配:
+    # - alias 在 subject 开头 → 允许后接任何字符 ("招行某业务部" → "招商银行某业务部")
+    # - alias 不在开头 → 必须前后都不是中文 (避 "意大利人民银行" → "意大利中国人民银行")
     for alias, canonical in BANK_ALIAS_MAP.items():
-        if alias in raw_subject and len(alias) >= 2:
-            # 替换主体别名
-            return raw_subject.replace(alias, canonical)
+        if alias not in raw_subject or len(alias) < 2:
+            continue
+        idx = raw_subject.find(alias)
+        end = idx + len(alias)
+        if idx == 0:
+            # 开头别名: 后接任何字符都 OK (业务场景: "招行某业务部" 等)
+            return raw_subject[:idx] + canonical + raw_subject[end:]
+        # 不在开头: 前缀和后缀都不能是 CJK
+        if not _is_cjk(raw_subject[idx - 1]) and (
+            end == len(raw_subject) or not _is_cjk(raw_subject[end])
+        ):
+            return raw_subject[:idx] + canonical + raw_subject[end:]
 
     return raw_subject
+
+
+def _is_cjk(ch: str) -> bool:
+    """判断字符是否在 CJK 统一表意文字区 (避免 substring alias 越界)."""
+    if not ch:
+        return False
+    return "\u4e00" <= ch <= "\u9fff"
 
 
 def normalize_case_action(raw_action: str | None) -> str:

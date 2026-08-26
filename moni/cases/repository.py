@@ -29,10 +29,14 @@ def _generate_case_id(case_type: str, case_date: str | None) -> str:
 
     Returns:
         'MN-AI-2608-0042' 风格
+
+    v1.0.35.19 fix: 非日期串 (如 normalize_date 返 '2025-上半年' / '4 年底')
+    走 prefix 拼接会产出非法 case_id 含中文+空格. 强制要求 YYYY-MM 前缀,
+    否则回退当前年月. 加全数字白名单防 prefix 残留脏字符.
     """
-    if case_date and len(case_date) >= 7 and case_date[:4].isdigit():
-        # YYYY-MM-DD[:7] = YYYY-MM, 然后取 YYYY-MM 后 4 位 (YYMM)
-        # 只认合法日期前缀 (YYYY-...) — 'relative'/'unknown' 等非日期串走 else
+    import re as _re
+
+    if case_date and _re.match(r"^\d{4}-\d{2}", case_date):
         yymm = case_date[:7].replace("-", "")[-4:]
     else:
         now = datetime.now(timezone.utc)
@@ -63,6 +67,7 @@ class CaseRepository:
         cases: Sequence[dict[str, Any]],
         *,
         normalize_version: int = 1,
+        auto_verify_threshold: int = 80,
     ) -> int:
         """批量插入归一化后的案例 (同事务内调用).
 
@@ -70,6 +75,11 @@ class CaseRepository:
             conn: 数据库连接 (调用方管理事务)
             article_id: 关联的文章 ID
             cases: 归一化后的案例列表
+            normalize_version: 当前归一化 schema 版本
+            auto_verify_threshold: v1.0.35.19 agy v3 评审: extraction_confidence
+                ≥ 该阈值的案例默认入库为 review_status='confirmed' +
+                case_lifecycle='verified' (开箱即显真成果); 否则保持 pending/draft
+                走人工复核漏斗. 阈值 = 0 关闭自动核验, =100 仅 100 分置信才放行.
 
         Returns:
             实际插入的行数
@@ -82,6 +92,15 @@ class CaseRepository:
 
         for cs in cases:
             case_id = _generate_case_id(cs["case_type"], cs.get("case_date"))
+
+            # v1.0.35.19: 置信度阈值分流, 自动核验高质案例 (agy v3 评审 1.1)
+            conf = int(cs.get("extraction_confidence") or 0)
+            if conf >= auto_verify_threshold:
+                review_status = "confirmed"
+                case_lifecycle = "verified"
+            else:
+                review_status = "pending"
+                case_lifecycle = "draft"
 
             try:
                 conn.execute(
@@ -97,8 +116,7 @@ class CaseRepository:
                          extraction_attempts, last_error, extracted_at,
                          normalize_version, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?, 'completed', 'pending',
-                            'draft',
+                            ?, ?, ?, ?, ?, 'completed', ?, ?,
                             1, NULL, ?, ?, ?, ?)
                     """,
                     (
@@ -110,9 +128,8 @@ class CaseRepository:
                         cs.get("reference_value"), cs.get("reference_rationale"),
                         cs.get("summary"), cs.get("evidence_snippet"),
                         cs.get("extraction_confidence"),
-                        now,
-                        normalize_version,
-                        now, now,
+                        review_status, case_lifecycle,
+                        now, normalize_version, now, now,
                     ),
                 )
                 if conn.execute("SELECT changes()").fetchone()[0] > 0:
@@ -124,6 +141,141 @@ class CaseRepository:
         return inserted
 
     # ── 状态机 ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def set_extraction_status(
+        conn: sqlite3.Connection,
+        article_id: str,
+        status: str,
+        *,
+        error: str | None = None,
+        attempts_increment: int = 0,
+    ) -> bool:
+        """更新某篇文章所有案例行的 extraction_status（同事务内调用）。
+
+        v1.0.35.19: 从 events 范式移植。cases 侧此前无占位机制,
+        no_cases 分支 UPDATE 0 行, 导致"未提取过"无法判定, 批量重复烧 LLM。
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        cur = conn.execute(
+            """
+            UPDATE cases
+            SET extraction_status = ?,
+                last_error = ?,
+                extraction_attempts = extraction_attempts + ?,
+                extracted_at = ?
+            WHERE article_id = ?
+            """,
+            (status, error, attempts_increment, now, article_id),
+        )
+        return cur.rowcount > 0
+
+    @staticmethod
+    def mark_processing(
+        conn: sqlite3.Connection,
+        article_id: str,
+    ) -> bool:
+        """原子标记某篇文章为 processing（占位行抢占, 防重复处理）。
+
+        v1.0.35.19: 照 events.mark_processing 范式。无案例行时插入
+        subject='__processing__' 占位行, 依赖 UNIQUE(article_id, subject,
+        case_type, case_action) 防并发重复抢占。真实案例插入后由
+        clear_processing_placeholder 删除。
+        """
+        now = datetime.now(timezone.utc).isoformat()
+
+        row = conn.execute(
+            "SELECT 1 FROM cases WHERE article_id = ? LIMIT 1",
+            (article_id,),
+        ).fetchone()
+
+        if row:
+            status_row = conn.execute(
+                "SELECT extraction_status FROM cases WHERE article_id = ? LIMIT 1",
+                (article_id,),
+            ).fetchone()
+            if status_row and status_row["extraction_status"] == "processing":
+                return False  # 正在处理中
+            conn.execute(
+                "UPDATE cases SET extraction_status = 'processing' WHERE article_id = ?",
+                (article_id,),
+            )
+            return True
+
+        # 无行 → 插入 processing 占位行
+        case_id = _generate_case_id("AI", None)
+        try:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO cases
+                    (case_id, article_id, case_date, case_date_precision,
+                     subject, subject_raw, case_type, case_action,
+                     counterparty, amount, reference_value,
+                     summary, evidence_snippet, extraction_confidence,
+                     extraction_status, review_status, case_lifecycle,
+                     extraction_attempts, last_error, extracted_at,
+                     normalize_version, created_at, updated_at)
+                VALUES (?, ?, NULL, 'unknown', '__processing__', NULL, 'AI',
+                        'launch', NULL, NULL, 'medium', NULL, NULL, NULL,
+                        'processing', 'pending', 'draft',
+                        1, NULL, ?, 1, ?, ?)
+                """,
+                (case_id, article_id, now, now, now),
+            )
+            return conn.execute("SELECT changes()").fetchone()[0] > 0
+        except Exception:
+            return False
+
+    @staticmethod
+    def clear_processing_placeholder(
+        conn: sqlite3.Connection,
+        article_id: str,
+    ) -> None:
+        """删除 __processing__ 占位行（成功插入真实案例后调用）。"""
+        conn.execute(
+            "DELETE FROM cases WHERE article_id = ? AND subject = '__processing__'",
+            (article_id,),
+        )
+
+    @staticmethod
+    def get_pending_articles(
+        batch_size: int = 20,
+        *,
+        source: str | None = None,
+        min_content_len: int = 100,
+        after_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """获取待提取案例的文章列表（无任何 cases 行的新文章）。
+
+        v1.0.35.19: CLI 批量提取选文入口。占位行 (skipped/processing) 也是
+        cases 行, 因此已处理过 (含无案例) 的文章天然被排除, 不重复烧 LLM。
+
+        Args:
+            batch_size: 每批文章数
+            source: 只选指定信源
+            min_content_len: raw_content 最短长度 (过滤无正文文章)
+            after_id: resume 游标 (只取 id > after_id 的文章)
+        """
+        conn = get_db()
+        sql = """
+            SELECT a.id, a.title, a.raw_content, a.source, a.published_at, a.fetched_at
+            FROM articles a
+            LEFT JOIN cases c ON c.article_id = a.id
+            WHERE c.article_id IS NULL
+              AND a.raw_content IS NOT NULL
+              AND length(a.raw_content) >= ?
+        """
+        params: list[Any] = [min_content_len]
+        if source:
+            sql += " AND a.source = ?"
+            params.append(source)
+        if after_id:
+            sql += " AND a.id > ?"
+            params.append(after_id)
+        sql += " ORDER BY a.fetched_at DESC LIMIT ?"
+        params.append(batch_size)
+        rows = conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
 
     @staticmethod
     def update_lifecycle(
@@ -282,6 +434,101 @@ class CaseRepository:
             (article_id,),
         ).fetchall()
         return [dict(row) for row in rows]
+
+    # ── 编辑 / 软删除 (v1.0.35.19 agy v3 评审需求1) ────────────────
+
+    # 允许人工编辑的字段白名单 (防任意列注入)
+    EDITABLE_FIELDS = (
+        "subject", "subject_raw", "case_type", "case_action", "counterparty",
+        "amount", "reference_value", "reference_rationale", "summary",
+        "evidence_snippet", "case_date", "case_date_precision",
+    )
+
+    @staticmethod
+    def update_case(case_id: str, updates: dict[str, Any]) -> bool:
+        """更新案例可编辑字段 (白名单校验).
+
+        软删除/状态机走 update_lifecycle / confirm / reject, 不走这里.
+        """
+        allowed = {k: v for k, v in updates.items() if k in CaseRepository.EDITABLE_FIELDS}
+        if not allowed:
+            return False
+        now = datetime.now(timezone.utc).isoformat()
+        sets = ", ".join(f"{k} = ?" for k in allowed)
+        params: list[Any] = list(allowed.values()) + [now, case_id]
+        conn = get_db()
+        cur = conn.execute(
+            f"UPDATE cases SET {sets}, updated_at = ? WHERE case_id = ?",
+            params,
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+    @staticmethod
+    def soft_delete_case(case_id: str) -> bool:
+        """软删除: case_lifecycle draft/verified → archived (agy 评审 1.2).
+
+        列表/看板聚合默认过滤 archived (list_cases + count_cases 加条件).
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        conn = get_db()
+        cur = conn.execute(
+            """UPDATE cases SET case_lifecycle = 'archived', updated_at = ?
+               WHERE case_id = ? AND case_lifecycle != 'archived'""",
+            (now, case_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+    # ── 案例关键词 (v1.0.35.19 agy v3 评审需求3, 方案 B) ────────────
+
+    @staticmethod
+    def list_keywords(case_id: str) -> list[dict[str, Any]]:
+        """某案例的关键词列表 (人工优先排序)."""
+        conn = get_db()
+        rows = conn.execute(
+            """SELECT id, keyword, source_type, weight, created_at
+               FROM case_keywords WHERE case_id = ?
+               ORDER BY (source_type = 'manual_user') DESC, weight DESC, id""",
+            (case_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    @staticmethod
+    def add_keyword(case_id: str, keyword: str, *, source_type: str = "manual_user", weight: int = 1) -> int | None:
+        """添加关键词 (返回新行 id; 已存在返回 None)."""
+        if not keyword or not keyword.strip():
+            return None
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        conn = get_db()
+        try:
+            cur = conn.execute(
+                """INSERT OR IGNORE INTO case_keywords
+                       (case_id, keyword, source_type, weight, created_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (case_id, keyword.strip(), source_type, weight, now),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT id FROM case_keywords WHERE case_id = ? AND keyword = ?",
+                (case_id, keyword.strip()),
+            ).fetchone()
+            return row["id"] if row else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def remove_keyword(case_id: str, keyword: str) -> bool:
+        """删除关键词 (仅 manual_user 可删, 防误删 auto_llm 底层标签)."""
+        conn = get_db()
+        cur = conn.execute(
+            """DELETE FROM case_keywords
+               WHERE case_id = ? AND keyword = ? AND source_type = 'manual_user'""",
+            (case_id, keyword),
+        )
+        conn.commit()
+        return cur.rowcount > 0
 
     @staticmethod
     def search_fts(query: str, limit: int = 50) -> list[dict[str, Any]]:

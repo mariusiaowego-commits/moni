@@ -449,3 +449,88 @@ class TestAPIRoutes:
         r = client.get("/api/stats/timeseries?metric=invalid")
         assert r.status_code == 200
         assert r.json()["display_status"] == "invalid_metric"
+
+
+# ---------------------------------------------------------------------------
+# TestCasesDashboard — 竞赛成果指标 (v1.0.35.19)
+# ---------------------------------------------------------------------------
+
+class TestCasesDashboard:
+
+    def test_baseline_seed(self, seed_minimal):
+        """seed_minimal: 6 条 cases (全 medium/pending/draft) → 计数正确."""
+        from moni.stats.repository import cases_dashboard_stats
+        d = cases_dashboard_stats("all")
+        assert d["total_cases"] == 6
+        assert d["high_value_cases"] == 0
+        assert d["verified_cases"] == 0
+        assert d["pending_review"] == 6
+        assert d["total_institutions"] == 6  # subject 案例0..5 各 1 家
+        assert d["period"] == "all"
+
+    def test_high_value_and_verified(self, seed_minimal):
+        """加 1 条 high + 1 条 confirmed → 计数反映."""
+        from moni.stats.repository import cases_dashboard_stats
+        conn = get_db()
+        now = _iso_now()
+        conn.execute(
+            "UPDATE cases SET reference_value = 'high' WHERE case_id = 'MN-AI-2608-0000'"
+        )
+        conn.execute(
+            "UPDATE cases SET review_status = 'confirmed', case_lifecycle = 'verified' "
+            "WHERE case_id = 'MN-AI-2608-0001'"
+        )
+        conn.commit()
+        d = cases_dashboard_stats("all")
+        assert d["high_value_cases"] == 1
+        assert d["verified_cases"] == 1
+        assert d["pending_review"] == 5
+        assert d["display_label"] == "待核验"
+
+    def test_institution_split_counts(self, seed_minimal):
+        """subject ∪ counterparty 拆分: "A、B" → 2 家."""
+        from moni.stats.repository import cases_dashboard_stats
+        conn = get_db()
+        conn.execute(
+            "UPDATE cases SET counterparty = '美国银行、摩根大通' "
+            "WHERE case_id = 'MN-AI-2608-0000'"
+        )
+        conn.execute(
+            "UPDATE cases SET subject = '招商银行' "
+            "WHERE case_id = 'MN-AI-2608-0001'"
+        )
+        conn.commit()
+        d = cases_dashboard_stats("all")
+        # 案例0: subject 案例0 + counterparty 拆 2 = 3; 案例1: 招商银行 → 1
+        # 合计 = 3 + 1 + 案例2..5 (案例2,3,4,5) 4 家 = 8
+        assert d["total_institutions"] == 8
+
+    def test_period_all_ignores_toolbar(self, seed_minimal):
+        """默认 all = 累计, 7d/30d 过滤后计数不同 (extracted_at 是 now)."""
+        from moni.stats.repository import cases_dashboard_stats
+        d_all = cases_dashboard_stats("all")
+        assert d_all["total_cases"] == 6
+        # 30d 窗口 (extracted_at=now 在内) → 也是 6
+        d_30 = cases_dashboard_stats("30d")
+        assert d_30["total_cases"] == 6
+
+
+class TestSplitInstitutions:
+
+    def test_split_comma_and(self):
+        from moni.stats.repository import _split_institutions
+        assert _split_institutions("美国银行、摩根大通") == ["美国银行", "摩根大通"]
+        assert _split_institutions("Visa、万事达卡、渣打银行、贝莱德等11家机构") == [
+            "Visa", "万事达卡", "渣打银行", "贝莱德",
+        ]
+
+    def test_alias_normalize(self):
+        from moni.stats.repository import _split_institutions
+        assert _split_institutions("招行") == ["招商银行"]
+        assert _split_institutions("工行与建行") == ["工商银行", "建设银行"]
+
+    def test_empty_and_none(self):
+        from moni.stats.repository import _split_institutions
+        assert _split_institutions(None) == []
+        assert _split_institutions("") == []
+        assert _split_institutions("   ") == []

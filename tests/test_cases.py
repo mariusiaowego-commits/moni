@@ -184,9 +184,25 @@ class TestNormalizeSubject:
         assert normalize_subject(None) is None
 
     def test_alias_in_longer_string(self):
-        # 关键词匹配 (长字符串中含别名)
+        # 关键词匹配 (长字符串中含别名) - 必须在开头才替换
         result = normalize_subject("招行某业务部")
         assert "招商银行" in result
+
+    def test_alias_substring_does_not_overreach(self):
+        """v1.0.35.19: '人民银行' alias 不应污染 '意大利人民银行' / '土耳其人民银行'.
+
+        旧 substring 替换会把 '意大利人民银行' → '意大利中国人民银行'.
+        修后: alias 不在 subject 开头时, 前缀和后缀都不能是 CJK.
+        """
+        assert normalize_subject("意大利人民银行") == "意大利人民银行"
+        assert normalize_subject("土耳其人民银行") == "土耳其人民银行"
+        # 但 '央行" 在句首仍应替换
+        assert normalize_subject("央行") == "中国人民银行"
+
+    def test_alias_at_start_followed_by_cjk(self):
+        """alias 在开头 → 后接 CJK 仍替换 (业务场景: '招行某业务部')."""
+        result = normalize_subject("招行某业务部")
+        assert result is not None and "招商银行" in result
 
 
 class TestNormalizeCaseType:
@@ -381,7 +397,7 @@ class TestCaseRepository:
             "amount": None, "counterparty": None,
             "reference_value": "medium",
             "reference_rationale": "", "summary": "test",
-            "evidence_snippet": "", "extraction_confidence": 80,
+            "evidence_snippet": "", "extraction_confidence": 70,
         }]
         conn = get_db()
         CaseRepository.insert_cases(conn, sample_article, cases)
@@ -402,7 +418,7 @@ class TestCaseRepository:
             "amount": None, "counterparty": None,
             "reference_value": "medium",
             "reference_rationale": "", "summary": "test",
-            "evidence_snippet": "", "extraction_confidence": 80,
+            "evidence_snippet": "", "extraction_confidence": 70,
         }]
         conn = get_db()
         # 第一次插入
@@ -421,7 +437,7 @@ class TestCaseRepository:
             "case_type": "AI", "case_action": "launch",
             "amount": None, "counterparty": None,
             "reference_value": "medium", "reference_rationale": "",
-            "summary": "test", "evidence_snippet": "", "extraction_confidence": 80,
+            "summary": "test", "evidence_snippet": "", "extraction_confidence": 70,
         }]
         conn = get_db()
         CaseRepository.insert_cases(conn, sample_article, cases)
@@ -441,7 +457,7 @@ class TestCaseRepository:
             "case_type": "AI", "case_action": "launch",
             "amount": None, "counterparty": None,
             "reference_value": "medium", "reference_rationale": "",
-            "summary": "test", "evidence_snippet": "", "extraction_confidence": 80,
+            "summary": "test", "evidence_snippet": "", "extraction_confidence": 70,
         }]
         conn = get_db()
         CaseRepository.insert_cases(conn, sample_article, cases)
@@ -458,7 +474,7 @@ class TestCaseRepository:
             "case_type": "AI", "case_action": "launch",
             "amount": None, "counterparty": None,
             "reference_value": "medium", "reference_rationale": "",
-            "summary": "test", "evidence_snippet": "", "extraction_confidence": 80,
+            "summary": "test", "evidence_snippet": "", "extraction_confidence": 70,
         }]
         conn = get_db()
         CaseRepository.insert_cases(conn, sample_article, cases)
@@ -516,7 +532,7 @@ class TestFTSSearch:
             "amount": None, "counterparty": None,
             "reference_value": "medium", "reference_rationale": "",
             "summary": "工行完成核心系统转型",
-            "evidence_snippet": "", "extraction_confidence": 80,
+            "evidence_snippet": "", "extraction_confidence": 70,
         }]
         conn = get_db()
         CaseRepository.insert_cases(conn, sample_article, cases)
@@ -534,7 +550,7 @@ class TestFTSSearch:
             "case_type": "AI", "case_action": "launch",
             "amount": None, "counterparty": None,
             "reference_value": "medium", "reference_rationale": "",
-            "summary": "test", "evidence_snippet": "", "extraction_confidence": 80,
+            "summary": "test", "evidence_snippet": "", "extraction_confidence": 70,
         }]
         conn = get_db()
         CaseRepository.insert_cases(conn, sample_article, cases)
@@ -647,6 +663,172 @@ class TestCaseAPI:
     def test_get_by_id_404(self, client):
         resp = client.get("/api/cases/MN-AI-2099-9999")
         assert resp.status_code == 404
+
+    def test_confirm_flow(self, client, sample_article):
+        """confirm → review_status=confirmed + lifecycle=verified (v1.0.35.19)."""
+        from moni.cases.repository import CaseRepository
+        cases = [{
+            "subject": "招商银行", "subject_raw": "招行",
+            "case_date": "2026-08-07", "case_date_precision": "exact",
+            "case_type": "AI", "case_action": "launch",
+            "amount": None, "counterparty": None,
+            "reference_value": "high", "reference_rationale": "",
+            "summary": "招行上线 AI 投顾", "evidence_snippet": "",
+            "extraction_confidence": 70,  # < 80 阈值 → 保持 pending 走人工 confirm 流程
+        }]
+        conn = get_db()
+        CaseRepository.insert_cases(conn, sample_article, cases)
+        conn.commit()
+        case_id = conn.execute("SELECT case_id FROM cases").fetchone()[0]
+
+        resp = client.post(f"/api/cases/{case_id}/confirm")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["review_status"] == "confirmed"
+        assert body["case_lifecycle"] == "verified"
+
+        row = conn.execute(
+            "SELECT review_status, case_lifecycle FROM cases WHERE case_id = ?",
+            (case_id,),
+        ).fetchone()
+        assert row["review_status"] == "confirmed"
+        assert row["case_lifecycle"] == "verified"
+
+        # 重复 confirm → 404 (已 review 过)
+        resp2 = client.post(f"/api/cases/{case_id}/confirm")
+        assert resp2.status_code == 404
+
+    def test_reject_flow(self, client, sample_article):
+        """reject → review_status=rejected (v1.0.35.19)."""
+        from moni.cases.repository import CaseRepository
+        cases = [{
+            "subject": "工商银行", "subject_raw": "工行",
+            "case_date": "2026-08-08", "case_date_precision": "exact",
+            "case_type": "AI", "case_action": "scale",
+            "amount": None, "counterparty": None,
+            "reference_value": "medium", "reference_rationale": "",
+            "summary": "工行推广", "evidence_snippet": "",
+            "extraction_confidence": 70,
+        }]
+        conn = get_db()
+        CaseRepository.insert_cases(conn, sample_article, cases)
+        conn.commit()
+        case_id = conn.execute("SELECT case_id FROM cases").fetchone()[0]
+
+        resp = client.post(f"/api/cases/{case_id}/reject?reason=重复报道")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["review_status"] == "rejected"
+
+        row = conn.execute(
+            "SELECT review_status FROM cases WHERE case_id = ?", (case_id,),
+        ).fetchone()
+        assert row["review_status"] == "rejected"
+
+        # 生命周期不变 (reject 不改 lifecycle)
+        row2 = conn.execute(
+            "SELECT case_lifecycle FROM cases WHERE case_id = ?", (case_id,),
+        ).fetchone()
+        assert row2["case_lifecycle"] == "draft"
+
+    def test_confirm_404(self, client):
+        resp = client.post("/api/cases/MN-AI-2099-0000/confirm")
+        assert resp.status_code == 404
+
+    def test_patch_update_case(self, client, sample_article):
+        """PATCH /api/cases/{id} 编辑字段 (v1.0.35.19)."""
+        from moni.cases.repository import CaseRepository
+        cases = [{
+            "subject": "招商银行", "subject_raw": "招行",
+            "case_date": "2026-08-07", "case_date_precision": "exact",
+            "case_type": "AI", "case_action": "launch",
+            "amount": None, "counterparty": None,
+            "reference_value": "medium", "reference_rationale": "",
+            "summary": "原摘要", "evidence_snippet": "",
+            "extraction_confidence": 70,
+        }]
+        conn = get_db()
+        CaseRepository.insert_cases(conn, sample_article, cases)
+        conn.commit()
+        case_id = conn.execute("SELECT case_id FROM cases").fetchone()[0]
+
+        resp = client.patch(f"/api/cases/{case_id}", json={
+            "summary": "新摘要", "reference_value": "high",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["updated"] == ["reference_value", "summary"]
+
+        row = conn.execute(
+            "SELECT summary, reference_value FROM cases WHERE case_id = ?", (case_id,)
+        ).fetchone()
+        assert row["summary"] == "新摘要"
+        assert row["reference_value"] == "high"
+
+    def test_delete_case_soft(self, client, sample_article):
+        """DELETE /api/cases/{id} 软删除 → archived (v1.0.35.19)."""
+        from moni.cases.repository import CaseRepository
+        cases = [{
+            "subject": "工商银行", "subject_raw": "工行",
+            "case_date": "2026-08-08", "case_date_precision": "exact",
+            "case_type": "AI", "case_action": "launch",
+            "amount": None, "counterparty": None,
+            "reference_value": "low", "reference_rationale": "",
+            "summary": "工行案例", "evidence_snippet": "",
+            "extraction_confidence": 70,
+        }]
+        conn = get_db()
+        CaseRepository.insert_cases(conn, sample_article, cases)
+        conn.commit()
+        case_id = conn.execute("SELECT case_id FROM cases").fetchone()[0]
+
+        resp = client.delete(f"/api/cases/{case_id}")
+        assert resp.status_code == 200
+        assert resp.json()["case_lifecycle"] == "archived"
+
+        row = conn.execute(
+            "SELECT case_lifecycle FROM cases WHERE case_id = ?", (case_id,)
+        ).fetchone()
+        assert row["case_lifecycle"] == "archived"
+
+    def test_keywords_crud(self, client, sample_article):
+        """案例关键词 CRUD (v1.0.35.19 agy v3 需求3)."""
+        from moni.cases.repository import CaseRepository
+        cases = [{
+            "subject": "农业银行", "subject_raw": "农行",
+            "case_date": "2026-08-09", "case_date_precision": "exact",
+            "case_type": "AI", "case_action": "pilot",
+            "amount": None, "counterparty": None,
+            "reference_value": "high", "reference_rationale": "",
+            "summary": "农行大模型试点", "evidence_snippet": "",
+            "extraction_confidence": 70,
+        }]
+        conn = get_db()
+        CaseRepository.insert_cases(conn, sample_article, cases)
+        conn.commit()
+        case_id = conn.execute("SELECT case_id FROM cases").fetchone()[0]
+
+        # 添加人工关键词
+        resp = client.post(f"/api/cases/{case_id}/keywords", json={"keyword": "智能风控"})
+        assert resp.status_code == 200
+        assert resp.json()["id"] is not None
+
+        # 列表
+        resp = client.get(f"/api/cases/{case_id}/keywords")
+        assert resp.status_code == 200
+        items = resp.json()["items"]
+        assert len(items) == 1
+        assert items[0]["keyword"] == "智能风控"
+        assert items[0]["source_type"] == "manual_user"
+
+        # 重复添加 → 幂等 (INSERT OR IGNORE)
+        resp2 = client.post(f"/api/cases/{case_id}/keywords", json={"keyword": "智能风控"})
+        assert resp2.status_code == 200
+        assert len(client.get(f"/api/cases/{case_id}/keywords").json()["items"]) == 1
+
+        # 删除 (manual_user 可删)
+        resp3 = client.delete(f"/api/cases/{case_id}/keywords/智能风控")
+        assert resp3.status_code == 200
+        assert len(client.get(f"/api/cases/{case_id}/keywords").json()["items"]) == 0
 
     def test_search(self, client, sample_article):
         from moni.cases.repository import CaseRepository
@@ -829,3 +1011,33 @@ class TestPipeline:
         result = extract_cases_for_article(article, llm_call_fn=fake_llm)
         # subject 空被 normalize_case 返回 None, 整条丢弃
         assert result["case_count"] == 0
+
+
+class TestGenerateCaseId:
+    """v1.0.35.19: case_id 防脏字符 (中文/空格会污染 prefix).
+
+    试点发现 normalize_date 返 '2025-上半年' / '4 年底' 时,
+    _generate_case_id 拼出非法 case_id 含中文+空格.
+    强制 YYYY-MM 前缀否则回退当前年月.
+    """
+
+    def test_iso_date_uses_yyyymm(self):
+        from moni.cases.repository import _generate_case_id
+        cid = _generate_case_id("AI", "2026-08-15")
+        assert cid.startswith("MN-AI-2608-"), cid
+
+    def test_chinese_date_falls_back_to_today(self):
+        from datetime import datetime, timezone
+        from moni.cases.repository import _generate_case_id
+        cid = _generate_case_id("AI", "2025-上半年")
+        expected_yymm = f"{datetime.now(timezone.utc).year % 100:02d}{datetime.now(timezone.utc).month:02d}"
+        assert cid.startswith(f"MN-AI-{expected_yymm}-"), cid
+        # 关键: 不含中文+空格
+        assert " " not in cid and not any('\u4e00' <= c <= '\u9fff' for c in cid)
+
+    def test_none_date_falls_back(self):
+        from datetime import datetime, timezone
+        from moni.cases.repository import _generate_case_id
+        cid = _generate_case_id("PI", None)
+        expected_yymm = f"{datetime.now(timezone.utc).year % 100:02d}{datetime.now(timezone.utc).month:02d}"
+        assert cid.startswith(f"MN-PI-{expected_yymm}-"), cid

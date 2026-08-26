@@ -26,6 +26,8 @@ from moni.stats.repository import (
     extract_layer_stats,
     usage_layer_stats,
     fact_check_method_layer_stats,
+    cases_dashboard_stats,
+    data_funnel_stats,
     overview,
     timeseries,
 )
@@ -68,6 +70,30 @@ def get_timeseries(
     if granularity not in ("daily", "weekly", "monthly"):
         granularity = "daily"
     return timeseries(metric, period, granularity)
+
+
+@router.get("/cases-dashboard")
+def get_cases_dashboard(
+    period: str = Query("all", description="时间窗口: all (默认, 累计) / 7d / 30d / 90d"),
+) -> dict[str, Any]:
+    """竞赛成果指标 (v1.0.35.19, 申报书数据支撑).
+
+    领导口径: 累计追踪同业数 / 高价值案例 / 同业分布 / 高价值榜单。
+    默认 all (累计), 不受 7/30/90 天 toolbar 影响 (grok F7)。
+    """
+    if period not in ("all", "7d", "30d", "90d"):
+        period = "all"
+    return cases_dashboard_stats(period)
+
+
+@router.get("/data-funnel")
+def get_data_funnel() -> dict[str, Any]:
+    """数据漏斗 4 数字 (v1.0.35.19 dad review).
+
+    累计入库文章 → 抽取事件 → 案例 → 简报生成次数 (全量累计).
+    不渲染漏斗图, 仅展示数字链路 (better-layout §1 空间分组).
+    """
+    return data_funnel_stats()
 
 
 @router.get("/llm")

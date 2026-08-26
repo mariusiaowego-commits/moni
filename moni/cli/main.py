@@ -667,6 +667,34 @@ def cmd_fetch(source_name: str | None, dry_run: bool, health: bool) -> None:
     raise SystemExit(exit_code)
 
 
+# ── extract subcommand (v1.0.35.19) ───────────────────────────────────────────
+# 批量提取案例/事件 (竞赛成果数据支撑 P1)。实现在 moni/cli/extract.py。
+
+extract_parser = SUB.add_parser(
+    "extract", help="批量提取案例/事件 (v1.0.35.19+): moni extract cases|events"
+)
+extract_sub = extract_parser.add_subparsers(dest="extract_kind", required=True)
+
+for _kind in ("cases", "events"):
+    _p = extract_sub.add_parser(_kind, help=f"批量提取 {_kind} (LLM 抽取 → normalize → 入库)")
+    _p.add_argument("--source", dest="source", metavar="NAME", help="只提取指定信源")
+    _p.add_argument("--limit", type=int, default=None, help="最多处理 N 篇 (默认全部候选)")
+    _p.add_argument("--dry-run", action="store_true", help="只出候选报告, 不调用 LLM")
+    _p.add_argument("--include-skipped", action="store_true", help="重新处理 skipped 的文章")
+    _p.add_argument("--retry-failed", action="store_true", help="重新处理 failed 的文章")
+    _p.add_argument("--after-id", dest="after_id", help="resume: 只处理 id > 此值的文章")
+    _p.add_argument(
+        "--min-content-len", type=int, default=100,
+        help="raw_content 最短长度 (过滤无正文文章, 默认 100)",
+    )
+
+
+def cmd_extract(args) -> int:
+    """Dispatch to moni.cli.extract.run_extract."""
+    from moni.cli.extract import run_extract
+    return run_extract(args.extract_kind, args)
+
+
 # ── dispatch ─────────────────────────────────────────────────────────────────
 
 def main(argv: list[str] | None = None) -> int:
@@ -704,6 +732,9 @@ def main(argv: list[str] | None = None) -> int:
             health=getattr(args, "health", False),
         )
         return 0
+
+    if args.subcmd == "extract":
+        return cmd_extract(args)
 
     if args.subcmd == "clean-articles":
         cmd_clean_articles()

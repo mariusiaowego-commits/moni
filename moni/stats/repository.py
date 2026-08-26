@@ -13,6 +13,7 @@ v1.0.19: moni-B §四.7 路线图 W1 申报包装。
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -668,4 +669,165 @@ def overview(period: str = "30d") -> dict[str, Any]:
             "usage": usage,
             "efficiency": savings,
         },
+    }
+
+
+# ── 成果指标 (竞赛申报) ────────────────────────────────────────────────
+# v1.0.35.19: 领导要求的成果数据 (追踪同业数/高价值案例/同业分布/榜单)。
+
+# 拆分算法独立到 .split_institutions (2026-08-26 dad review: 让 repository
+# 保持聚合职责, 不与 normalize 耦合). 测试仍可从 repository 导入 (重导出).
+from .split_institutions import (
+    split_institutions as _split_institutions,
+)
+
+
+def distinct_institutions_only(rows: list[tuple[str | None, str | None]]) -> list[str]:
+    """保持向后兼容的薄包装 — 直接走 split_institutions 模块的 distinct_institutions."""
+    from .split_institutions import distinct_institutions
+    return distinct_institutions(rows)
+
+
+def _institution_distribution(rows: list[tuple[str | None, str | None]], top_n: int = 5) -> list[dict[str, Any]]:
+    """保留供独立调用 (不计入 cases_dashboard, 但 dashboard_stats 现已不用).
+
+    dad 8-26 review: 同业分布"没意义", 删除.
+    保留函数以兼容可能存在的外部调用, 但内部 dashboard 已切换 distinct_institutions.
+    """
+    from collections import Counter
+    from .split_institutions import distinct_institutions
+
+    counter: Counter[str] = Counter()
+    for subject, counterparty in rows:
+        for name in _split_institutions(subject):
+            counter[name] += 1
+        for name in _split_institutions(counterparty):
+            counter[name] += 1
+
+    distinct = distinct_institutions(rows)
+    top_names = set(distinct[:top_n])
+    top_dist = [
+        {"name": name, "count": counter[name], "pct": round(counter[name] / max(counter.total(), 1) * 100, 1)}
+        for name in distinct[:top_n]
+    ]
+    others = sum(c for n, c in counter.items() if n not in top_names)
+    if others > 0:
+        top_dist.append({"name": "其他", "count": others, "pct": round(others / max(counter.total(), 1) * 100, 1)})
+    return top_dist
+
+
+def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
+    """竞赛成果指标 (领导口径, 申报书 §五 数据支撑).
+
+    period: 'all' (默认, 累计) / '7d' / '30d' / '90d'。
+    成果数字是累计口径, 前端成果模块默认 all, 不受 toolbar 7/30/90 影响
+    (grok F7)。排除 __processing__ 占位行。
+
+    Returns:
+        {period, total_cases, total_institutions, high_value_cases,
+         verified_cases, published_cases, pending_review,
+         institution_distribution (TOP5+其他), high_value_ranking,
+         action_distribution, by_type}
+    """
+    conn = get_db()
+    where = "subject != '__processing__'"
+    start: str | None = None
+    if period != "all":
+        start = _period_iso(period)
+        if start:
+            where += " AND COALESCE(extracted_at, created_at) >= ?"
+
+    params: tuple[Any, ...] = (start,) if start else ()
+
+    total_cases = conn.execute(
+        f"SELECT COUNT(*) FROM cases WHERE {where}", params
+    ).fetchone()[0]
+    high_value_cases = conn.execute(
+        f"SELECT COUNT(*) FROM cases WHERE {where} AND reference_value = 'high'", params
+    ).fetchone()[0]
+    verified_cases = conn.execute(
+        f"SELECT COUNT(*) FROM cases WHERE {where} AND review_status = 'confirmed'", params
+    ).fetchone()[0]
+    published_cases = conn.execute(
+        f"SELECT COUNT(*) FROM cases WHERE {where} AND case_lifecycle = 'published'", params
+    ).fetchone()[0]
+    pending_review = conn.execute(
+        f"SELECT COUNT(*) FROM cases WHERE {where} AND review_status = 'pending'", params
+    ).fetchone()[0]
+
+    # 同业机构数: 走"主体+对手方拆分后 DISTINCT" 算法 (agy 评审盲点1 + grok F4 共识).
+    # SQL 拆分方案 (dad 拍板 8-26), 不建 case_institutions 关联表. v2 方案附录A 留演进.
+    from moni.stats.split_institutions import distinct_institutions
+    inst_rows = conn.execute(
+        f"SELECT subject, counterparty FROM cases WHERE {where}", params
+    ).fetchall()
+    distinct_insts = distinct_institutions([(r["subject"], r["counterparty"]) for r in inst_rows])
+    total_institutions = len(distinct_insts)
+
+    display_label = "待核验" if pending_review > 0 else "已核验"
+
+    # 高价值案例榜单 (TOP10, 加 summary/article_title/url 让前端能渲染内容预览;
+    # 排序: 高价值优先 → 置信度高 → 最新 (dad 8-26 review: extracted_at desc 默认
+    # 等同"最新"没意义, 必须按 reference_value + confidence 重排)
+    rank_sql = """
+        SELECT c.case_id, c.subject, c.counterparty, c.case_action,
+               c.reference_value, c.extraction_confidence, c.extracted_at,
+               c.summary, c.evidence_snippet,
+               a.title AS article_title, a.url AS article_url,
+               a.source AS article_source,
+               (SELECT GROUP_CONCAT(at.tag_name, ',')
+                FROM article_tags at WHERE at.article_id = c.article_id) AS tags
+        FROM cases c
+        JOIN articles a ON a.id = c.article_id
+        WHERE c.subject != '__processing__' AND c.reference_value = 'high'
+        ORDER BY
+            CASE c.reference_value WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+            c.extraction_confidence DESC,
+            c.extracted_at DESC
+        LIMIT 10
+    """
+    high_value_ranking = [dict(r) for r in conn.execute(rank_sql).fetchall()]
+
+    return {
+        "period": period,
+        "display_label": display_label,
+        "total_cases": total_cases,
+        "total_institutions": total_institutions,
+        "high_value_cases": high_value_cases,
+        "verified_cases": verified_cases,
+        "published_cases": published_cases,
+        "pending_review": pending_review,
+        "fetch_total": _fetch_total(),
+        "high_value_ranking": high_value_ranking,
+    }
+
+
+def _fetch_total() -> int:
+    """累计抓取文章数 (cron_runs.new_articles 全量求和, 与 period 解耦)."""
+    conn = get_db()
+    row = conn.execute("SELECT COALESCE(SUM(new_articles), 0) FROM cron_runs").fetchone()
+    return int(row[0] or 0)
+
+
+def data_funnel_stats() -> dict[str, Any]:
+    """数据漏斗 4 数字链路 (dad 8-26 review): 累计入库 → 抽取事件 → 案例 → 简报.
+
+    不用漏斗图形, 只展示数据 (better-layout 评审共识: 数字靠空间分组不靠分隔线).
+    各数字全量累计, 不绑 period, 与成果指标一致 (默认 all 累计口径).
+
+    Returns:
+        {articles_total, events_total, cases_total, share_tasks_done}
+    """
+    conn = get_db()
+    return {
+        "articles_total": conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0],
+        "events_total": conn.execute(
+            "SELECT COUNT(*) FROM events WHERE subject != '__processing__'"
+        ).fetchone()[0],
+        "cases_total": conn.execute(
+            "SELECT COUNT(*) FROM cases WHERE subject != '__processing__'"
+        ).fetchone()[0],
+        "share_tasks_done": conn.execute(
+            "SELECT COUNT(*) FROM share_tasks WHERE status = 'done'"
+        ).fetchone()[0],
     }

@@ -294,7 +294,11 @@ class TestPipeline:
                 "SELECT id, title, raw_content, source, published_at FROM articles WHERE id=?",
                 ("art_success",),
             ).fetchone())
-            result = extract_events_for_article(art_row)
+            # v1.0.35.19: provider/model 缺省走 llm_settings resolve;
+            # 测试环境无配置, 显式传假值 (call_llm 已被 mock, 不会真调用)
+            result = extract_events_for_article(
+                art_row, provider="test-provider", model="test-model",
+            )
 
         assert result["status"] == "completed"
         assert result["event_count"] == 2
@@ -358,14 +362,19 @@ class TestPipeline:
                 "SELECT id, title, raw_content, source, published_at FROM articles WHERE id=?",
                 ("art_unique",),
             ).fetchone())
-            extract_events_for_article(art_row)
+            # v1.0.35.19: 测试环境无 llm_settings, 显式传假 provider/model
+            extract_events_for_article(
+                art_row, provider="test-provider", model="test-model",
+            )
             count1 = conn.execute(
                 "SELECT COUNT(*) FROM events WHERE article_id='art_unique' AND subject != '__processing__'"
             ).fetchone()[0]
             # 再跑一次（模拟重试）
             conn.execute("DELETE FROM events WHERE article_id='art_unique'")
             conn.commit()
-            extract_events_for_article(art_row)
+            extract_events_for_article(
+                art_row, provider="test-provider", model="test-model",
+            )
             count2 = conn.execute(
                 "SELECT COUNT(*) FROM events WHERE article_id='art_unique' AND subject != '__processing__'"
             ).fetchone()[0]
