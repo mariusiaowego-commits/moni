@@ -78,8 +78,9 @@ docs/screenshots/*.png
 docs/screenshots/*.zip
 docs/screenshots/**/*.png
 docs/screenshots/**/*.zip
-# 申报材料目录: gitignore 但本地保留 (dad 手动归档)
-docs/moni-screenshots-申报/
+# 申报材料目录: gitignore 但本地保留 (dad 手动归档, 2026-08-26 mv 到 ~/Documents/moni-archive-20260826/)
+docs/moni-screenshots-*/
+docs/moni-screenshots-*.zip
 
 # 散落临时废料 (v1.0.9.10 收尾清理, 6/12-6/29 期间积累)
 /tmp/
