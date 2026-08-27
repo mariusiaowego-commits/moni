@@ -83,10 +83,13 @@ function statsModule() {
       share_tasks_done: 0,
     },
 
-    // 高价值榜单排除标签 (localStorage: moni_excluded_case_tags)
-    excludedCaseTags: [],
+    // 高价值榜单双维反选 (localStorage v2: moni_case_exclusions_v2)
+    caseExclusions: { version: 2, keywords: [], countries: [], regions: [] },
     excludeKeywordOptions: [],
     excludePanelOpen: false,
+    excludeTab: 'keywords',
+    excludeSearch: '',
+    excludeCollapsedRegions: [],
 
     // ── lifecycle ──────────────────────────────────────────
     async init() {
@@ -160,8 +163,14 @@ function statsModule() {
         if (!r.ok) throw new Error(`cases-dashboard ${r.status}`);
         const d = await r.json();
         this.casesDashboard = Object.assign({}, this.casesDashboard, d);
-        this._restoreExcludedTags();
-        await this.loadRankingKeywords();
+        this._normalizeRankingRows();
+        this._restoreExclusions();
+        if (Array.isArray(d.keyword_options) && d.keyword_options.length) {
+          this.excludeKeywordOptions = d.keyword_options
+            .map((s) => String(s).trim()).filter(Boolean);
+        } else {
+          await this.loadRankingKeywords();
+        }
       } catch (e) {
         console.error('[stats] cases-dashboard', e);
       }
@@ -393,40 +402,148 @@ function statsModule() {
       return 'stats-outcome-conf-low';
     },
 
-    // ── 排除标签反选 ─────────────────────────────────────────
-    // 匹配策略: 案例已有 case_keywords → 精确匹配;
-    // 尚未打标时 fallback 文本包含 (subject+counterparty+summary).
-    // auto_llm 回填后自动走精确分支, 无需改 UI.
+    // ── 双维精确反选 (sprint-19 PR #136) ───────────────────────
+    // 关键词精确 Set + country_code + region, 任一命中剔除.
+    // 不做 substring. localStorage v2; v1 moni_excluded_case_tags → keywords.
+    _EXCLUSIONS_V2_KEY: 'moni_case_exclusions_v2',
     _EXCLUDED_TAGS_KEY: 'moni_excluded_case_tags',
+    _GEO_CHIP_GROUPS: [
+      {
+        region: 'APAC', label: '亚太',
+        countries: [
+          { code: 'CN', name: '中国' }, { code: 'HK', name: '中国香港' },
+          { code: 'MO', name: '中国澳门' }, { code: 'TW', name: '中国台湾' },
+          { code: 'SG', name: '新加坡' }, { code: 'JP', name: '日本' },
+          { code: 'KR', name: '韩国' }, { code: 'AU', name: '澳大利亚' },
+          { code: 'VN', name: '越南' }, { code: 'ID', name: '印度尼西亚' },
+          { code: 'MY', name: '马来西亚' }, { code: 'IN', name: '印度' },
+          { code: 'TH', name: '泰国' }, { code: 'PH', name: '菲律宾' },
+        ],
+      },
+      {
+        region: 'NAM', label: '北美',
+        countries: [
+          { code: 'US', name: '美国' }, { code: 'CA', name: '加拿大' },
+        ],
+      },
+      {
+        region: 'EMEA', label: '欧洲中东非洲',
+        countries: [
+          { code: 'GB', name: '英国' }, { code: 'DE', name: '德国' },
+          { code: 'FR', name: '法国' }, { code: 'CH', name: '瑞士' },
+          { code: 'IT', name: '意大利' }, { code: 'NL', name: '荷兰' },
+          { code: 'ES', name: '西班牙' }, { code: 'AE', name: '阿联酋' },
+          { code: 'SA', name: '沙特阿拉伯' },
+        ],
+      },
+      {
+        region: 'LATAM', label: '拉美',
+        countries: [
+          { code: 'BR', name: '巴西' }, { code: 'MX', name: '墨西哥' },
+          { code: 'AR', name: '阿根廷' }, { code: 'CL', name: '智利' },
+        ],
+      },
+      {
+        region: 'GLOBAL', label: '全球',
+        countries: [
+          { code: 'GLOBAL', name: '全球' },
+        ],
+      },
+    ],
 
-    _restoreExcludedTags() {
+    _emptyExclusions() {
+      return { version: 2, keywords: [], countries: [], regions: [] };
+    },
+
+    _parseKeywords(raw) {
+      if (Array.isArray(raw)) {
+        return raw.map((s) => String(s).trim()).filter(Boolean);
+      }
+      if (typeof raw === 'string') {
+        const s = raw.trim();
+        if (!s) return [];
+        if (s.charAt(0) === '[') {
+          try {
+            const arr = JSON.parse(s);
+            if (Array.isArray(arr)) {
+              return arr.map((x) => String(x).trim()).filter(Boolean);
+            }
+          } catch (e) { /* fall through */ }
+        }
+        return s.split(',').map((p) => p.trim()).filter(Boolean);
+      }
+      return [];
+    },
+
+    _normalizeRankingRows() {
+      const rows = this.casesDashboard.high_value_ranking || [];
+      rows.forEach((row) => {
+        row.keywords = this._parseKeywords(row.keywords);
+      });
+    },
+
+    _restoreExclusions() {
       try {
-        const raw = window.localStorage.getItem(this._EXCLUDED_TAGS_KEY);
-        const arr = raw ? JSON.parse(raw) : [];
-        this.excludedCaseTags = Array.isArray(arr)
+        const v2raw = window.localStorage.getItem(this._EXCLUSIONS_V2_KEY);
+        if (v2raw) {
+          const obj = JSON.parse(v2raw) || {};
+          const clean = (arr) => Array.isArray(arr)
+            ? arr.map((s) => String(s).trim()).filter(Boolean)
+            : [];
+          this.caseExclusions = {
+            version: 2,
+            keywords: clean(obj.keywords),
+            countries: clean(obj.countries),
+            regions: clean(obj.regions),
+          };
+          return;
+        }
+        const v1raw = window.localStorage.getItem(this._EXCLUDED_TAGS_KEY);
+        const arr = v1raw ? JSON.parse(v1raw) : [];
+        const keywords = Array.isArray(arr)
           ? arr.map((s) => String(s).trim()).filter(Boolean)
           : [];
+        this.caseExclusions = {
+          version: 2, keywords, countries: [], regions: [],
+        };
+        if (keywords.length) this._persistExclusions();
       } catch (e) {
-        this.excludedCaseTags = [];
+        this.caseExclusions = this._emptyExclusions();
       }
     },
 
-    _persistExcludedTags() {
+    _persistExclusions() {
       try {
-        window.localStorage.setItem(
-          this._EXCLUDED_TAGS_KEY,
-          JSON.stringify(this.excludedCaseTags || [])
-        );
+        const payload = {
+          version: 2,
+          keywords: this.caseExclusions.keywords || [],
+          countries: this.caseExclusions.countries || [],
+          regions: this.caseExclusions.regions || [],
+        };
+        window.localStorage.setItem(this._EXCLUSIONS_V2_KEY, JSON.stringify(payload));
       } catch (e) { /* quota / private mode */ }
+    },
+
+    _setExclusion(dim, arr) {
+      const next = Object.assign({}, this.caseExclusions);
+      next[dim] = arr;
+      this.caseExclusions = next;
+      this._persistExclusions();
     },
 
     async loadRankingKeywords() {
       const rows = this.casesDashboard.high_value_ranking || [];
       this.excludeKeywordOptions = [];
       if (!rows.length) return;
+      const already = rows.some((r) => (r.keywords || []).length);
+      if (already) {
+        const set = new Set();
+        rows.forEach((r) => (r.keywords || []).forEach((k) => set.add(k)));
+        this.excludeKeywordOptions = Array.from(set).sort();
+        return;
+      }
       const set = new Set();
       const withKw = (row, keywords) => Object.assign({}, row, { keywords });
-      // 只拉榜单 TOP (≤10). 先探测 1 条, 表未建/500 时不再连打
       try {
         const r0 = await fetch(
           `/api/cases/${encodeURIComponent(rows[0].case_id)}/keywords`,
@@ -460,26 +577,89 @@ function statsModule() {
 
     excludeKeywordList() {
       const set = new Set(this.excludeKeywordOptions || []);
-      (this.excludedCaseTags || []).forEach((k) => set.add(k));
+      (this.caseExclusions.keywords || []).forEach((k) => set.add(k));
       return Array.from(set).sort();
     },
 
-    _rowHitsExcluded(row, ex) {
-      if (!ex || !ex.length) return false;
-      const kws = (row.keywords || []).map((k) => String(k).toLowerCase());
-      if (kws.length) {
-        return ex.some((e) => kws.includes(String(e).toLowerCase()));
+    filteredKeywordOptions() {
+      const q = (this.excludeSearch || '').trim().toLowerCase();
+      const all = this.excludeKeywordList();
+      if (!q) return all;
+      return all.filter((k) => String(k).toLowerCase().includes(q));
+    },
+
+    geoChipGroups() {
+      const extra = {};
+      const dist = ((this.casesDashboard || {}).geo_distribution || {}).by_country || [];
+      dist.forEach((c) => {
+        const code = String(c.country_code || '').trim();
+        const region = String(c.region || '').trim().toUpperCase();
+        if (!code || !region) return;
+        extra[region] = extra[region] || [];
+        extra[region].push({
+          code,
+          name: c.country_name || code,
+        });
+      });
+      return this._GEO_CHIP_GROUPS.map((g) => {
+        const known = new Set(g.countries.map((c) => c.code));
+        const more = (extra[g.region] || []).filter((c) => !known.has(c.code));
+        return {
+          region: g.region,
+          label: g.label,
+          countries: g.countries.concat(more),
+        };
+      });
+    },
+
+    _geoLabel(code) {
+      const key = String(code || '');
+      for (let i = 0; i < this._GEO_CHIP_GROUPS.length; i++) {
+        const g = this._GEO_CHIP_GROUPS[i];
+        if (g.region === key) return g.label;
+        for (let j = 0; j < g.countries.length; j++) {
+          if (g.countries[j].code === key) return g.countries[j].name;
+        }
       }
-      const blob = [row.subject, row.counterparty, row.summary]
-        .map((s) => String(s || '').toLowerCase())
-        .join('\n');
-      return ex.some((e) => e && blob.includes(String(e).toLowerCase()));
+      return key;
+    },
+
+    _rowKeywordSet(row) {
+      const set = new Set();
+      this._parseKeywords(row && row.keywords).forEach((k) => set.add(k.toLowerCase()));
+      return set;
+    },
+
+    _rowHitsExcluded(row, excluded) {
+      if (!excluded) return false;
+      const kwsEx = excluded.keywords || [];
+      const ctryEx = excluded.countries || [];
+      const regEx = excluded.regions || [];
+      if (!kwsEx.length && !ctryEx.length && !regEx.length) return false;
+      const kws = this._rowKeywordSet(row);
+      if (kwsEx.some((e) => {
+        const t = String(e || '').trim().toLowerCase();
+        return t && kws.has(t);
+      })) return true;
+      const code = String((row && row.country_code) || '').trim().toUpperCase();
+      if (code && ctryEx.some((c) => String(c || '').trim().toUpperCase() === code)) {
+        return true;
+      }
+      const region = String((row && row.region) || '').trim().toUpperCase();
+      if (region && regEx.some((r) => String(r || '').trim().toUpperCase() === region)) {
+        return true;
+      }
+      return false;
     },
 
     filteredHighValueRanking() {
       const rows = this.casesDashboard.high_value_ranking || [];
-      const ex = this.excludedCaseTags || [];
-      if (!ex.length) return rows;
+      const ex = this.caseExclusions || this._emptyExclusions();
+      if (!(ex.keywords || []).length
+          && !(ex.countries || []).length
+          && !(ex.regions || []).length) {
+        return rows;
+      }
       return rows.filter((row) => !this._rowHitsExcluded(row, ex));
     },
 
@@ -488,34 +668,114 @@ function statsModule() {
       return Math.max(0, all - this.filteredHighValueRanking().length);
     },
 
-    toggleExcludedTag(kw) {
-      const cur = this.excludedCaseTags || [];
-      if (cur.includes(kw)) {
-        this.excludedCaseTags = cur.filter((k) => k !== kw);
-      } else {
-        this.excludedCaseTags = cur.concat([kw]);
-      }
-      this._persistExcludedTags();
+    excludedItemCount() {
+      const ex = this.caseExclusions || this._emptyExclusions();
+      return (ex.keywords || []).length
+        + (ex.countries || []).length
+        + (ex.regions || []).length;
     },
 
-    resetExcludedTags() {
-      this.excludedCaseTags = [];
-      this._persistExcludedTags();
+    excludeBadgeText() {
+      const ex = this.caseExclusions || this._emptyExclusions();
+      const k = (ex.keywords || []).length;
+      const m = (ex.countries || []).length;
+      const r = (ex.regions || []).length;
+      const parts = [];
+      if (k) parts.push(k + ' 关键词');
+      if (m) parts.push(m + ' 国家');
+      if (r) parts.push(r + ' 区域');
+      if (!parts.length) return '';
+      return '已排除 ' + parts.join(' · ') + ' · 过滤 ' + this.excludedRankCount() + ' 条';
+    },
+
+    excludedChips() {
+      const ex = this.caseExclusions || this._emptyExclusions();
+      const chips = [];
+      (ex.keywords || []).forEach((k) => {
+        chips.push({ dim: 'keywords', value: k, label: k, key: 'k:' + k });
+      });
+      (ex.countries || []).forEach((c) => {
+        chips.push({ dim: 'countries', value: c, label: this._geoLabel(c), key: 'c:' + c });
+      });
+      (ex.regions || []).forEach((r) => {
+        chips.push({ dim: 'regions', value: r, label: this._geoLabel(r), key: 'r:' + r });
+      });
+      return chips;
+    },
+
+    isKeywordExcluded(kw) {
+      return (this.caseExclusions.keywords || []).includes(kw);
+    },
+    isCountryExcluded(code) {
+      return (this.caseExclusions.countries || []).includes(code);
+    },
+    isRegionExcluded(region) {
+      return (this.caseExclusions.regions || []).includes(region);
+    },
+
+    toggleKeyword(kw) {
+      const cur = this.caseExclusions.keywords || [];
+      this._setExclusion('keywords',
+        cur.includes(kw) ? cur.filter((k) => k !== kw) : cur.concat([kw]));
+    },
+    toggleCountry(code) {
+      const cur = this.caseExclusions.countries || [];
+      this._setExclusion('countries',
+        cur.includes(code) ? cur.filter((c) => c !== code) : cur.concat([code]));
+    },
+    toggleRegion(region) {
+      const cur = this.caseExclusions.regions || [];
+      this._setExclusion('regions',
+        cur.includes(region) ? cur.filter((r) => r !== region) : cur.concat([region]));
+    },
+    removeExclusion(chip) {
+      const cur = this.caseExclusions[chip.dim] || [];
+      this._setExclusion(chip.dim, cur.filter((x) => x !== chip.value));
+    },
+    resetExclusions() {
+      this.caseExclusions = this._emptyExclusions();
+      this._persistExclusions();
+    },
+
+    isRegionCollapsed(region) {
+      return (this.excludeCollapsedRegions || []).includes(region);
+    },
+    toggleRegionGroup(region) {
+      const cur = this.excludeCollapsedRegions || [];
+      this.excludeCollapsedRegions = cur.includes(region)
+        ? cur.filter((r) => r !== region)
+        : cur.concat([region]);
+    },
+
+    closeExcludePanel() {
+      this.excludePanelOpen = false;
+      if (this._excludeDocHandler) {
+        document.removeEventListener('pointerdown', this._excludeDocHandler);
+        this._excludeDocHandler = null;
+      }
     },
 
     toggleExcludePanel() {
-      this.excludePanelOpen = !this.excludePanelOpen;
       if (this.excludePanelOpen) {
-        const onDoc = (ev) => {
-          const wrap = ev.target && ev.target.closest
-            ? ev.target.closest('.stats-exclude-wrap')
-            : null;
-          if (wrap) return;
-          this.excludePanelOpen = false;
-          document.removeEventListener('pointerdown', onDoc);
-        };
-        setTimeout(() => document.addEventListener('pointerdown', onDoc), 0);
+        this.closeExcludePanel();
+        return;
       }
+      this.excludePanelOpen = true;
+      this.excludeTab = 'keywords';
+      this.excludeSearch = '';
+      this.$nextTick(() => {
+        const el = this.$refs.excludeSearch;
+        if (el && typeof el.focus === 'function') el.focus();
+      });
+      const onDoc = (ev) => {
+        const wrap = ev.target && ev.target.closest
+          ? ev.target.closest('.stats-exclude-wrap')
+          : null;
+        if (wrap) return;
+        this.closeExcludePanel();
+      };
+      this._excludeDocHandler = onDoc;
+      setTimeout(() => document.addEventListener('pointerdown', onDoc), 0);
     },
   };
 }

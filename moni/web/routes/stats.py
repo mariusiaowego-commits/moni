@@ -80,6 +80,8 @@ def get_cases_dashboard(
 
     领导口径: 累计追踪同业数 / 高价值案例 / 同业分布 / 高价值榜单。
     默认 all (累计), 不受 7/30/90 天 toolbar 影响 (grok F7)。
+    v1.0.37: 榜单行带 keywords + country_code/country_name/region,
+    另附 keyword_options 与 geo_distribution (by_region / by_country).
     """
     if period not in ("all", "7d", "30d", "90d"):
         period = "all"
