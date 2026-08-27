@@ -20,7 +20,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css?v=20260826026">
+  <link rel="stylesheet" href="css/main.css?v=20260827001">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -1987,28 +1987,105 @@
             <div class="stats-outcomes-head">
               <h4 class="stats-outcomes-title" id="stats-rank-title">高价值案例榜单</h4>
               <span class="stats-outcomes-hint">后端已按参考价值 · 置信度 · 时间排序</span>
-              <span class="stats-exclude-badge" x-show="excludedCaseTags.length">
-                已排除 <span x-text="excludedCaseTags.length"></span> 个标签 ·
-                过滤 <span x-text="excludedRankCount()"></span> 条案例
-                <button type="button" class="btn btn-ghost btn-sm" @click="resetExcludedTags()">重置</button>
+              <span class="stats-exclude-badge" x-show="excludeBadgeText()">
+                <span x-text="excludeBadgeText()"></span>
+                <button type="button" class="btn btn-ghost btn-sm" @click="resetExclusions()">重置</button>
               </span>
               <div class="stats-exclude-wrap">
                 <button type="button" class="btn btn-ghost btn-sm"
                         :aria-expanded="excludePanelOpen"
+                        aria-haspopup="dialog"
                         @click="toggleExcludePanel()">排除标签 ▾</button>
-                <div class="stats-exclude-panel" x-show="excludePanelOpen" @click.stop
+                <div class="stats-exclude-panel" role="dialog"
+                     aria-labelledby="stats-exclude-title"
+                     x-show="excludePanelOpen" x-cloak @click.stop
+                     @keydown.escape.window="excludePanelOpen && closeExcludePanel()"
                      x-transition.opacity.duration.120ms>
-                  <div class="stats-outcomes-hint" x-show="!excludeKeywordList().length">
-                    暂无标签 (自动打标将在批量提取时生成)
+                  <div class="stats-exclude-bar">
+                    <span id="stats-exclude-title" class="stats-exclude-bar-count">
+                      已排除 <span x-text="excludedItemCount()"></span> 项
+                    </span>
+                    <div class="stats-exclude-bar-actions">
+                      <button type="button" class="btn btn-ghost btn-sm"
+                              @click="resetExclusions()">一键重置</button>
+                      <button type="button" class="btn btn-ghost btn-sm"
+                              aria-label="关闭" @click="closeExcludePanel()">关闭 ✕</button>
+                    </div>
                   </div>
-                  <template x-for="kw in excludeKeywordList()" :key="kw">
-                    <label class="stats-exclude-item">
-                      <input type="checkbox"
-                             :checked="excludedCaseTags.includes(kw)"
-                             @change="toggleExcludedTag(kw)">
-                      <span x-text="kw"></span>
-                    </label>
-                  </template>
+                  <div class="stats-exclude-selected" x-show="excludedItemCount()">
+                    <template x-for="chip in excludedChips()" :key="chip.key">
+                      <button type="button" class="stats-exclude-chip is-excluded"
+                              @click="removeExclusion(chip)">
+                        <span class="stats-exclude-ban" aria-hidden="true">🚫</span>
+                        <span x-text="chip.label"></span>
+                      </button>
+                    </template>
+                  </div>
+                  <div class="stats-exclude-tabs" role="tablist">
+                    <button type="button" class="stats-exclude-tab" role="tab"
+                            :class="{ 'is-active': excludeTab === 'keywords' }"
+                            :aria-selected="excludeTab === 'keywords'"
+                            @click="excludeTab = 'keywords'">业务关键词</button>
+                    <button type="button" class="stats-exclude-tab" role="tab"
+                            :class="{ 'is-active': excludeTab === 'geo' }"
+                            :aria-selected="excludeTab === 'geo'"
+                            @click="excludeTab = 'geo'">国家与区域</button>
+                  </div>
+                  <input type="text" class="stats-exclude-search" x-ref="excludeSearch"
+                         x-show="excludeTab === 'keywords'"
+                         x-model="excludeSearch"
+                         placeholder="搜索关键词…"
+                         aria-label="搜索关键词">
+                  <div class="stats-exclude-grid" role="tabpanel"
+                       x-show="excludeTab === 'keywords'">
+                    <div class="stats-outcomes-hint" x-show="!filteredKeywordOptions().length"
+                         style="grid-column: 1 / -1">
+                      暂无匹配关键词
+                    </div>
+                    <template x-for="kw in filteredKeywordOptions()" :key="kw">
+                      <button type="button" class="stats-exclude-item"
+                              :class="{ 'is-excluded': isKeywordExcluded(kw) }"
+                              :aria-pressed="isKeywordExcluded(kw)"
+                              @click="toggleKeyword(kw)">
+                        <span class="stats-exclude-ban" x-show="isKeywordExcluded(kw)" aria-hidden="true">🚫</span>
+                        <span x-text="kw"></span>
+                      </button>
+                    </template>
+                  </div>
+                  <div class="stats-exclude-geo" role="tabpanel"
+                       x-show="excludeTab === 'geo'">
+                    <template x-for="group in geoChipGroups()" :key="group.region">
+                      <div class="stats-exclude-region">
+                        <button type="button" class="stats-exclude-region-head"
+                                @click="toggleRegionGroup(group.region)">
+                          <span x-text="group.label"></span>
+                          <span class="stats-exclude-region-count"
+                                x-text="'(' + group.countries.length + ')'"></span>
+                          <span class="stats-exclude-region-toggle"
+                                x-text="isRegionCollapsed(group.region) ? '▸' : '▾'"></span>
+                        </button>
+                        <div class="stats-exclude-grid"
+                             x-show="!isRegionCollapsed(group.region)">
+                          <button type="button" class="stats-exclude-item"
+                                  :class="{ 'is-excluded': isRegionExcluded(group.region) }"
+                                  :aria-pressed="isRegionExcluded(group.region)"
+                                  @click="toggleRegion(group.region)">
+                            <span class="stats-exclude-ban" x-show="isRegionExcluded(group.region)" aria-hidden="true">🚫</span>
+                            <span x-text="group.label"></span>
+                          </button>
+                          <template x-for="c in group.countries" :key="c.code">
+                            <button type="button" class="stats-exclude-item"
+                                    :class="{ 'is-excluded': isCountryExcluded(c.code) }"
+                                    :aria-pressed="isCountryExcluded(c.code)"
+                                    @click="toggleCountry(c.code)">
+                              <span class="stats-exclude-ban" x-show="isCountryExcluded(c.code)" aria-hidden="true">🚫</span>
+                              <span x-text="c.name"></span>
+                            </button>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
                 </div>
               </div>
             </div>
@@ -3597,7 +3674,7 @@
   <script src="js/modal.js?v=1785000000"></script>
   <script src="js/calendar.js?v=20260810001"></script>
   <script src="js/cases.js?v=20260826023"></script>
-  <script src="js/stats.js?v=20260826025"></script>
+  <script src="js/stats.js?v=20260827001"></script>
   <script src="js/theme.js?v=20260813019"></script>
   <script src="js/app.js?v=20260826019"></script>
   <script src="js/icons.js?v=1785000000"></script>

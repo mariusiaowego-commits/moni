@@ -12,6 +12,7 @@ v1.0.19: moni-B §四.7 路线图 W1 申报包装。
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import sqlite3
@@ -769,6 +770,7 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
     # 高价值案例榜单 (TOP10, 加 summary/article_title/url 让前端能渲染内容预览;
     # 排序: 高价值优先 → 置信度高 → 最新 (dad 8-26 review: extracted_at desc 默认
     # 等同"最新"没意义, 必须按 reference_value + confidence 重排)
+    # v1.0.37: keywords (case_keywords) + 主地理 (case_geography is_primary)
     rank_sql = """
         SELECT c.case_id, c.subject, c.counterparty, c.case_action,
                c.reference_value, c.extraction_confidence, c.extracted_at,
@@ -776,9 +778,18 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
                a.title AS article_title, a.url AS article_url,
                a.source AS article_source,
                (SELECT GROUP_CONCAT(at.tag_name, ',')
-                FROM article_tags at WHERE at.article_id = c.article_id) AS tags
+                FROM article_tags at WHERE at.article_id = c.article_id) AS tags,
+               (SELECT json_group_array(ck.keyword)
+                FROM case_keywords ck WHERE ck.case_id = c.case_id) AS keywords,
+               g.country_code, g.country_name, g.region
         FROM cases c
         JOIN articles a ON a.id = c.article_id
+        LEFT JOIN case_geography g ON g.id = (
+            SELECT g2.id FROM case_geography g2
+            WHERE g2.case_id = c.case_id
+            ORDER BY g2.is_primary DESC, g2.id
+            LIMIT 1
+        )
         WHERE c.subject != '__processing__' AND c.reference_value = 'high'
         ORDER BY
             CASE c.reference_value WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
@@ -786,7 +797,19 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
             c.extracted_at DESC
         LIMIT 10
     """
-    high_value_ranking = [dict(r) for r in conn.execute(rank_sql).fetchall()]
+    high_value_ranking = []
+    for r in conn.execute(rank_sql).fetchall():
+        row = dict(r)
+        row["keywords"] = _parse_keyword_list(row.get("keywords"))
+        high_value_ranking.append(row)
+
+    keyword_options = [
+        str(r[0]) for r in conn.execute(
+            "SELECT DISTINCT keyword FROM case_keywords "
+            "WHERE keyword IS NOT NULL AND keyword != '' "
+            "ORDER BY keyword"
+        ).fetchall()
+    ]
 
     return {
         "period": period,
@@ -799,7 +822,82 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
         "pending_review": pending_review,
         "fetch_total": _fetch_total(),
         "high_value_ranking": high_value_ranking,
+        "keyword_options": keyword_options,
+        "geo_distribution": _geo_distribution(conn),
     }
+
+
+def _parse_keyword_list(raw: Any) -> list[str]:
+    """json_group_array / 逗号串 → 去空 trim 列表."""
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [str(x).strip() for x in raw if str(x).strip()]
+    s = str(raw).strip()
+    if not s:
+        return []
+    if s[0] == "[":
+        try:
+            arr = json.loads(s)
+            if isinstance(arr, list):
+                return [str(x).strip() for x in arr if str(x).strip()]
+        except json.JSONDecodeError:
+            pass
+    return [p.strip() for p in s.split(",") if p.strip()]
+
+
+def _geo_distribution(conn: sqlite3.Connection) -> dict[str, list[dict[str, Any]]]:
+    """案例地理聚合: by_region + by_country (COUNT DISTINCT case_id)."""
+    by_region = [
+        {"region": r["region"], "count": int(r["count"])}
+        for r in conn.execute(
+            "SELECT region, COUNT(DISTINCT case_id) AS count "
+            "FROM case_geography GROUP BY region ORDER BY count DESC, region"
+        ).fetchall()
+    ]
+    by_country = [
+        {
+            "country_code": r["country_code"],
+            "country_name": r["country_name"],
+            "region": r["region"],
+            "count": int(r["count"]),
+        }
+        for r in conn.execute(
+            "SELECT country_code, country_name, region, "
+            "COUNT(DISTINCT case_id) AS count "
+            "FROM case_geography GROUP BY country_code "
+            "ORDER BY count DESC, country_code"
+        ).fetchall()
+    ]
+    return {"by_region": by_region, "by_country": by_country}
+
+
+def row_hits_excluded(row: dict[str, Any], excluded: dict[str, Any] | None) -> bool:
+    """双维精确反选: 关键词 Set / country_code / region 任一命中 → True.
+
+    与前端 stats.js _rowHitsExcluded 合同一口径 (sprint-19 PR #136).
+    关键词拆分 trim 后大小写不敏感精确匹配, 不做 substring.
+    """
+    if not excluded:
+        return False
+    keywords = excluded.get("keywords") or []
+    countries = excluded.get("countries") or []
+    regions = excluded.get("regions") or []
+    if not keywords and not countries and not regions:
+        return False
+
+    kws = {k.lower() for k in _parse_keyword_list(row.get("keywords"))}
+    if any(str(e).strip().lower() in kws for e in keywords if str(e).strip()):
+        return True
+
+    code = str(row.get("country_code") or "").strip().upper()
+    if code and any(str(c).strip().upper() == code for c in countries):
+        return True
+
+    region = str(row.get("region") or "").strip().upper()
+    if region and any(str(r).strip().upper() == region for r in regions):
+        return True
+    return False
 
 
 def _fetch_total() -> int:
