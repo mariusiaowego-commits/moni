@@ -795,7 +795,6 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
             CASE c.reference_value WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
             c.extraction_confidence DESC,
             c.extracted_at DESC
-        LIMIT 10
     """
     high_value_ranking = []
     for r in conn.execute(rank_sql).fetchall():
@@ -872,11 +871,76 @@ def _geo_distribution(conn: sqlite3.Connection) -> dict[str, list[dict[str, Any]
     return {"by_region": by_region, "by_country": by_country}
 
 
+# 无 geo 时文本兜底用的国家别名 (与 stats.js _COUNTRY_TEXT_ALIASES 同步).
+# 不含 ISO-2 短码, 避免 "US"/"IN" 误伤. Pix 是 dad 指定的巴西支付别名.
+COUNTRY_TEXT_ALIASES: dict[str, tuple[str, ...]] = {
+    "CN": ("中国", "国内", "境内", "China", "PRC"),
+    "HK": ("中国香港", "香港", "Hong Kong"),
+    "MO": ("中国澳门", "澳门", "Macau"),
+    "TW": ("中国台湾", "台湾", "Taiwan"),
+    "SG": ("新加坡", "狮城", "Singapore"),
+    "JP": ("日本", "Japan"),
+    "KR": ("韩国", "Korea"),
+    "AU": ("澳大利亚", "澳洲", "Australia"),
+    "VN": ("越南", "Vietnam"),
+    "ID": ("印度尼西亚", "印尼", "Indonesia"),
+    "MY": ("马来西亚", "马来", "Malaysia"),
+    "IN": ("印度", "India"),
+    "TH": ("泰国", "Thailand"),
+    "PH": ("菲律宾",),
+    "US": ("美国", "美利坚", "USA", "America", "United States", "华尔街"),
+    "CA": ("加拿大", "Canada"),
+    "GB": ("英国", "英格兰", "United Kingdom"),
+    "DE": ("德国", "Germany"),
+    "FR": ("法国", "France"),
+    "CH": ("瑞士", "Switzerland"),
+    "IT": ("意大利", "Italy"),
+    "NL": ("荷兰",),
+    "ES": ("西班牙",),
+    "AE": ("阿联酋", "迪拜", "UAE"),
+    "SA": ("沙特", "沙特阿拉伯"),
+    "BR": ("巴西", "Brazil", "Pix"),
+    "MX": ("墨西哥", "Mexico"),
+    "AR": ("阿根廷",),
+    "CL": ("智利",),
+    "GLOBAL": ("全球", "国际", "跨国"),
+}
+
+
+def _row_text_blob(row: dict[str, Any]) -> str:
+    summary = str(row.get("summary") or "")[:100]
+    return "\n".join(
+        [
+            str(row.get("subject") or ""),
+            str(row.get("counterparty") or ""),
+            summary,
+        ]
+    )
+
+
+def _text_hits_country(blob: str, code: str) -> bool:
+    aliases = COUNTRY_TEXT_ALIASES.get(str(code or "").strip().upper()) or ()
+    if not blob or not aliases:
+        return False
+    low = blob.lower()
+    for alias in aliases:
+        if not alias:
+            continue
+        if alias.isascii():
+            if alias.lower() in low:
+                return True
+        elif alias in blob:
+            return True
+    return False
+
+
 def row_hits_excluded(row: dict[str, Any], excluded: dict[str, Any] | None) -> bool:
     """双维精确反选: 关键词 Set / country_code / region 任一命中 → True.
 
     与前端 stats.js _rowHitsExcluded 合同一口径 (sprint-19 PR #136).
     关键词拆分 trim 后大小写不敏感精确匹配, 不做 substring.
+    无 country_code 时按 subject/counterparty/summary[:100] 扫国家别名
+    (v1.0.37.2: 巴西无 geo 漏网).
     """
     if not excluded:
         return False
@@ -897,6 +961,15 @@ def row_hits_excluded(row: dict[str, Any], excluded: dict[str, Any] | None) -> b
     region = str(row.get("region") or "").strip().upper()
     if region and any(str(r).strip().upper() == region for r in regions):
         return True
+
+    if not code and countries:
+        blob = _row_text_blob(row)
+        if any(
+            _text_hits_country(blob, c)
+            for c in countries
+            if str(c).strip()
+        ):
+            return True
     return False
 
 

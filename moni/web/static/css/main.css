@@ -3219,6 +3219,12 @@ label { font-size: 0.85rem; }
 .stats-outcome-conf-high { color: var(--success); font-weight: 600; }
 .stats-outcome-conf-mid  { color: var(--warning); font-weight: 600; }
 .stats-outcome-conf-low  { color: var(--muted-fg); }
+.stats-rank-pager { margin-top: 8px; padding: 8px 0; }
+.stats-rank-pagebtn.is-active {
+  border-color: var(--foreground);
+  color: var(--foreground);
+  background: var(--muted);
+}
 
 /* 高价值榜单: 双维精确反选面板 (v1.0.37 sprint-19) */
 .stats-exclude-wrap {

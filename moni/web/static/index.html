@@ -20,7 +20,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css?v=20260827001">
+  <link rel="stylesheet" href="css/main.css?v=20260827002">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -2101,7 +2101,7 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <template x-for="row in filteredHighValueRanking()" :key="row.case_id">
+                  <template x-for="row in pagedHighValueRanking()" :key="row.case_id">
                     <tr>
                       <td>
                         <div class="stats-outcome-rank-subject" x-text="row.subject"></div>
@@ -2122,6 +2122,37 @@
                   </template>
                 </tbody>
               </table>
+              <div class="pagination-bar stats-rank-pager"
+                   x-show="filteredHighValueRanking().length > 0">
+                <div class="pagination-left">
+                  <label class="pagination-label">
+                    每页
+                    <select class="pagination-select"
+                            :value="rankPageSize"
+                            @change="setRankPageSize($event.target.value)">
+                      <template x-for="n in rankPageSizeOptions" :key="n">
+                        <option :value="n" :selected="n === rankPageSize" x-text="n + ' 条'"></option>
+                      </template>
+                    </select>
+                  </label>
+                  <span class="pagination-info"
+                        x-text="'共 ' + filteredHighValueRanking().length + ' 条'"></span>
+                  <span class="pagination-info"
+                        x-text="'第 ' + rankDisplayPage() + ' / ' + rankPageCount() + ' 页'"></span>
+                </div>
+                <div class="pagination-right">
+                  <button type="button" class="btn btn-secondary btn-sm"
+                          @click="rankPrevPage()" :disabled="rankDisplayPage() <= 1">上一页</button>
+                  <template x-for="p in rankPageNumbers()" :key="p">
+                    <button type="button" class="btn btn-ghost btn-sm stats-rank-pagebtn"
+                            :class="{ 'is-active': p === rankDisplayPage() }"
+                            @click="goRankPage(p)" x-text="p"></button>
+                  </template>
+                  <button type="button" class="btn btn-secondary btn-sm"
+                          @click="rankNextPage()"
+                          :disabled="rankDisplayPage() >= rankPageCount()">下一页</button>
+                </div>
+              </div>
               <div class="stats-outcomes-empty"
                    x-show="!(casesDashboard.high_value_ranking || []).length">
                 暂无高价值案例
@@ -3674,7 +3705,7 @@
   <script src="js/modal.js?v=1785000000"></script>
   <script src="js/calendar.js?v=20260810001"></script>
   <script src="js/cases.js?v=20260826023"></script>
-  <script src="js/stats.js?v=20260827001"></script>
+  <script src="js/stats.js?v=20260827002"></script>
   <script src="js/theme.js?v=20260813019"></script>
   <script src="js/app.js?v=20260826019"></script>
   <script src="js/icons.js?v=1785000000"></script>

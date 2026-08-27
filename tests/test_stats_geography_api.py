@@ -206,3 +206,53 @@ class TestRowHitsExcluded:
         assert row_hits_excluded(
             row, {"keywords": ["无"], "countries": ["US"], "regions": ["NAM"]}
         ) is False
+
+    def test_no_geo_subject_brazil_fallback(self):
+        """无 country_code: subject 含「巴西」命中排除 BR (MN-AI-2602-0002)."""
+        row = {
+            "keywords": [],
+            "country_code": None,
+            "country_name": None,
+            "region": None,
+            "subject": "巴西",
+            "counterparty": "",
+            "summary": "Pix 覆盖",
+        }
+        assert row_hits_excluded(row, {"countries": ["BR"]}) is True
+
+    def test_no_geo_banco_central_brazil(self):
+        """巴西央行 subject 含子串「巴西」."""
+        row = {
+            "keywords": [],
+            "country_code": "",
+            "subject": "巴西央行",
+            "counterparty": "",
+            "summary": "即时支付",
+        }
+        assert row_hits_excluded(row, {"countries": ["BR"]}) is True
+
+    def test_no_geo_pix_alias(self):
+        row = {
+            "keywords": [],
+            "country_code": None,
+            "subject": "某机构",
+            "counterparty": "",
+            "summary": "Pix即时支付系统覆盖1.7亿用户",
+        }
+        assert row_hits_excluded(row, {"countries": ["BR"]}) is True
+
+    def test_no_geo_unrelated_not_hit(self):
+        row = {
+            "keywords": [],
+            "country_code": None,
+            "subject": "招商银行",
+            "counterparty": "腾讯",
+            "summary": "数字人民币试点",
+        }
+        assert row_hits_excluded(row, {"countries": ["BR"]}) is False
+
+    def test_geo_present_skips_text_fallback(self):
+        """已有 country_code 时不扫文本, 即使 subject 含巴西."""
+        row = self._row(subject="巴西央行", country_code="CN", region="APAC")
+        assert row_hits_excluded(row, {"countries": ["BR"]}) is False
+        assert row_hits_excluded(row, {"countries": ["CN"]}) is True

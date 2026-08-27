@@ -90,6 +90,9 @@ function statsModule() {
     excludeTab: 'keywords',
     excludeSearch: '',
     excludeCollapsedRegions: [],
+    rankPage: 1,
+    rankPageSize: 20,
+    rankPageSizeOptions: [20, 50],
 
     // ── lifecycle ──────────────────────────────────────────
     async init() {
@@ -450,6 +453,39 @@ function statsModule() {
         ],
       },
     ],
+    // 无 geo 文本兜底别名 (与 repository.COUNTRY_TEXT_ALIASES 同步; 不含 ISO-2)
+    _COUNTRY_TEXT_ALIASES: {
+      CN: ['中国', '国内', '境内', 'China', 'PRC'],
+      HK: ['中国香港', '香港', 'Hong Kong'],
+      MO: ['中国澳门', '澳门', 'Macau'],
+      TW: ['中国台湾', '台湾', 'Taiwan'],
+      SG: ['新加坡', '狮城', 'Singapore'],
+      JP: ['日本', 'Japan'],
+      KR: ['韩国', 'Korea'],
+      AU: ['澳大利亚', '澳洲', 'Australia'],
+      VN: ['越南', 'Vietnam'],
+      ID: ['印度尼西亚', '印尼', 'Indonesia'],
+      MY: ['马来西亚', '马来', 'Malaysia'],
+      IN: ['印度', 'India'],
+      TH: ['泰国', 'Thailand'],
+      PH: ['菲律宾'],
+      US: ['美国', '美利坚', 'USA', 'America', 'United States', '华尔街'],
+      CA: ['加拿大', 'Canada'],
+      GB: ['英国', '英格兰', 'United Kingdom'],
+      DE: ['德国', 'Germany'],
+      FR: ['法国', 'France'],
+      CH: ['瑞士', 'Switzerland'],
+      IT: ['意大利', 'Italy'],
+      NL: ['荷兰'],
+      ES: ['西班牙'],
+      AE: ['阿联酋', '迪拜', 'UAE'],
+      SA: ['沙特', '沙特阿拉伯'],
+      BR: ['巴西', 'Brazil', 'Pix'],
+      MX: ['墨西哥', 'Mexico'],
+      AR: ['阿根廷'],
+      CL: ['智利'],
+      GLOBAL: ['全球', '国际', '跨国'],
+    },
 
     _emptyExclusions() {
       return { version: 2, keywords: [], countries: [], regions: [] };
@@ -529,6 +565,7 @@ function statsModule() {
       next[dim] = arr;
       this.caseExclusions = next;
       this._persistExclusions();
+      this.rankPage = 1;
     },
 
     async loadRankingKeywords() {
@@ -630,6 +667,45 @@ function statsModule() {
       return set;
     },
 
+    _aliasesForCode(code) {
+      const c = String(code || '').trim().toUpperCase();
+      const base = this._COUNTRY_TEXT_ALIASES[c] || [];
+      const names = base.slice();
+      const dist = ((this.casesDashboard || {}).geo_distribution || {}).by_country || [];
+      dist.forEach((row) => {
+        if (String(row.country_code || '').trim().toUpperCase() === c && row.country_name) {
+          names.push(String(row.country_name));
+        }
+      });
+      const chip = this._geoLabel(c);
+      if (chip && chip !== c) names.push(chip);
+      const seen = new Set();
+      return names.filter((n) => {
+        const k = String(n).trim();
+        if (!k || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+    },
+
+    _rowTextBlob(row) {
+      const summary = String((row && row.summary) || '').slice(0, 100);
+      return [row && row.subject, row && row.counterparty, summary]
+        .map((s) => String(s || ''))
+        .join('\n');
+    },
+
+    _textHitsCountry(blob, code) {
+      if (!blob) return false;
+      const aliases = this._aliasesForCode(code);
+      const low = blob.toLowerCase();
+      return aliases.some((alias) => {
+        if (!alias) return false;
+        if (/^[\x00-\x7F]+$/.test(alias)) return low.includes(alias.toLowerCase());
+        return blob.includes(alias);
+      });
+    },
+
     _rowHitsExcluded(row, excluded) {
       if (!excluded) return false;
       const kwsEx = excluded.keywords || [];
@@ -648,6 +724,11 @@ function statsModule() {
       const region = String((row && row.region) || '').trim().toUpperCase();
       if (region && regEx.some((r) => String(r || '').trim().toUpperCase() === region)) {
         return true;
+      }
+      // 无 geo: subject/counterparty/summary[:100] 扫被排除国家别名
+      if (!code && ctryEx.length) {
+        const blob = this._rowTextBlob(row);
+        if (ctryEx.some((c) => this._textHitsCountry(blob, c))) return true;
       }
       return false;
     },
@@ -735,6 +816,58 @@ function statsModule() {
     resetExclusions() {
       this.caseExclusions = this._emptyExclusions();
       this._persistExclusions();
+      this.rankPage = 1;
+    },
+
+    rankPageCount() {
+      const n = this.filteredHighValueRanking().length;
+      const size = Number(this.rankPageSize) || 20;
+      if (n <= 0) return 1;
+      return Math.ceil(n / size);
+    },
+
+    rankDisplayPage() {
+      const max = this.rankPageCount();
+      const page = Number(this.rankPage) || 1;
+      if (page > max) return max;
+      if (page < 1) return 1;
+      return page;
+    },
+
+    pagedHighValueRanking() {
+      const rows = this.filteredHighValueRanking();
+      const size = Number(this.rankPageSize) || 20;
+      const page = this.rankDisplayPage();
+      const start = (page - 1) * size;
+      return rows.slice(start, start + size);
+    },
+
+    rankPageNumbers() {
+      const n = this.rankPageCount();
+      const pages = [];
+      for (let i = 1; i <= n; i++) pages.push(i);
+      return pages;
+    },
+
+    setRankPageSize(size) {
+      const n = Number(size);
+      this.rankPageSize = (n === 50) ? 50 : 20;
+      this.rankPage = 1;
+    },
+
+    goRankPage(p) {
+      const page = Number(p);
+      if (!page) return;
+      const max = this.rankPageCount();
+      this.rankPage = Math.min(Math.max(page, 1), max);
+    },
+
+    rankPrevPage() {
+      this.goRankPage(this.rankDisplayPage() - 1);
+    },
+
+    rankNextPage() {
+      this.goRankPage(this.rankDisplayPage() + 1);
     },
 
     isRegionCollapsed(region) {
