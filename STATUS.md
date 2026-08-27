@@ -4,6 +4,57 @@
 
 ---
 
+## 当前状态: **v1.0.37.6 — sprint-19 案例地理维度 + 反选面板大区域重构** (2026-08-27 SHIPPED)
+
+**主分支**: main @ `85ed1f9` (PR #135 + #136 合并 + 4 hotfix, 6 commits 链路)
+**Tag 链 (本次)**: v1.0.37.6 @ `85ed1f9` (当前) ← v1.0.37.5 / .4 / .3 / .2 / .1 / v1.0.37
+**PR 链路**: #134 (v1.0.36 sprint-18 关键词) → #135 (v1.0.37 sprint-19 地理后端) → #136 (v1.0.37.2 反选面板)
+
+> **v1.0.37.6 (2026-08-27) sprint-19 + 4 hotfix** (dad 8-27 拍板: 案例国家/地区维度 + 反选面板展开太小)
+> - **PR #135** v1.0.37: 案例地理维度 (国家+全球大区) 后端基础设施
+>   - Migration 032 `case_geography` 表 (ISO 3166-1 alpha-2 + 中文名 + 5 大区 + is_primary 跨境 1:N)
+>   - `GEO_ALIAS_MAP` (50+ 别名) + `SUBJECT_GEO_DEFAULTS` (70+ 银行主体 0-token 推断)
+>   - `normalize_geo()` 入参兼容 str/list/dict/None
+>   - pipeline 透传 country → 同事务写 case_geography (auto_llm/auto_rule)
+>   - CLI `moni extract geo` (规则优先 + LLM 补 + dry-run 零写 + overwrite 保护 manual_user)
+>   - prompt 加 country 字段 + few-shot 3 例 (境内/海外/全球)
+>   - agy 二审 **Approve** (2 LOW 非阻断)
+> - **PR #136** v1.0.37.2: 反选面板大区域重构 + 双维精确反选引擎
+>   - 排除标签 Popover 520px 3 列 Chip grid + 双 Tab (业务关键词/国家与区域) + 搜索框
+>   - localStorage v2 `{keywords, countries, regions}` + v1 自动迁移
+>   - 精确 Set 反选: 关键词 + country_code + region 任一命中剔除
+>   - 徽章: "已排除 N 关键词 · M 国家 · K 区域 · 过滤 X 条" (0 维省略)
+>   - 后端: 榜单行带 keywords + 主地理字段 + geo_distribution 聚合
+>   - agy 二审 **Approve** (2 LOW: 搜索 debounce + 焦点还原)
+> - **hotfix v1.0.37.1**: thread-local 连接 — 修 8900 并发 sqlite3.InterfaceError
+>   - 根因: singleton `_CON` 跨线程共享 + `check_same_thread=False`, FastAPI threadpool 两线程交错 execute 同一连接 → "bad parameter or other API misuse"
+>   - 修: get_db() 返回 calling thread 专属连接 (threading.local), 每线程懒建; close_db() 只 retire 当前线程连接
+>   - 验证: 8 线程 × 200 并发写 = 1600 行 0 错
+> - **hotfix v1.0.37.3**: 反选文本 fallback 修无 geo 漏网 + 榜单分页
+>   - P0 bug: dad 反馈排除巴西后仍有巴西资讯 — 102/319 case 无 case_geography, 反选只匹配 country_code 导致漏网
+>   - 修: `_rowHitsExcluded` 加别名文本 fallback (BR→巴西/Brazil/Pix), 无 geo 时扫 subject/counterparty/summary
+>   - 需求: 榜单分页 20/50 每页 + 翻页控件, 筛选后行数减少但每页容量不变
+> - **hotfix v1.0.37.4**: 反选面板加大 (520→720px 宽, 360→520px 高, 3→4 列 grid) — dad 反馈"展开太小看得累"
+> - **hotfix v1.0.37.5**: thread-local 路径感知 + 修测试悬挂锁 — 864 测试全绿
+>   - 双根因 (agy 诊断): (1) test_api.py:417 缺 `conn.commit()` → 悬挂写锁 → anyio worker thread 等5s 超时; (2) thread-local 跨 pytest test 复用 worker thread 时, 旧 conn 指向已换掉的 tmp db 文件 → `no such table`
+>   - 修: connection.py get_db() 加 db_path 感知自愈 (cached_path != curr_path 自动 drop + 重建); test_api.py 补 `conn.commit()` 立即释放锁
+> - **hotfix v1.0.37.6** (grok 独立诊断加固): close_db 真 close + 删 30s 误导注释
+>   - close_db 之前只把 conn 推到 `_RETIRED` 不 `.close()`, fd/锁泄漏 — 修: 显式 rollback + `.close()`
+>   - 注释里 "测试 30s timeout override via conftest.py" 是空头支票 (conftest.py 不存在) — 删 + 改正说明指向 v1.0.37.5 commit
+> - **数据现状**: 案例 319 / 同业 446 / 高价值 116; 关键词 537 个; 地理 330 行覆盖 302 case (94.7%), APAC 224 / NAM 58 / EMEA 29 / GLOBAL 14 / LATAM 5; 测试 **864 passed + 2 skipped**
+> - **双 agent 交叉验证**: agy (v1.0.37.5) + grok (v1.0.37.6) 独立诊断, 核心共识 (commit + path-aware), grok 额外补 2 个技术债 (close_db + 误导注释)
+
+## 当前状态: **v1.0.36 — sprint-18 案例关键词 LLM 打标** (2026-08-27 SHIPPED, PR #134)
+
+> **v1.0.36 (2026-08-27) sprint-18 P0**: 关键词 LLM 打标 + `moni cases verify-all` CLI
+> - CLI `moni extract keywords` (--source/--limit/--dry-run/--overwrite-auto, --source-filter 分流)
+> - 规则阶段: `normalize_keywords()` (KEY_KEYWORD_MAP 别名库) + subject/counterparty 主体库兜底
+> - LLM 阶段: prompt 增强 (Few-shot 3 例) + 429 重试 (time.sleep(5) 单次)
+> - `--overwrite-auto` 范围安全 (只删 auto_rule/auto_llm, 保护 manual_user) + dry-run 零写
+> - sprint-17 hotfix 落地 (spy call_llm e2e 测试钉死 prompt 类复发)
+> - **数据现状**: 关键词 537 个入库 (auto_llm 536 + manual_user 1), 试点 mpaypass 500 篇提取 224 case; 测试 814 passed + 2 skip
+> - agy + grok 双审计 **Approve**
+
 ## 当前状态: **v1.0.35.19 — 竞赛成果数据支撑** (2026-08-26 SHIPPED)
 
 **主分支**: main @ `5e66984` (squash of PR #133; 批量提取CLI + 成果看板 + 案例库闭环 + 关键词反选)

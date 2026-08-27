@@ -1141,3 +1141,44 @@ GET /api/stats/timeseries?metric=fetch|llm|... # 趋势数据
 
 - 趋势图无 X 轴日期标签 / Y 轴刻度 (申报场景够用; 后续可加 chart.js)
 - 瀑布图只显示前 5 个 task_type (节省 TOP-5)
+
+---
+
+## 案例库地理维度 + 反选面板升级 (v1.0.37, 2026-08-27 新增)
+
+### 地理维度 (案例库新增)
+
+每个案例自动打上**国家 + 全球大区**标签, 用于申报书量化「境内 vs 境外同业对标」「全球金融科技创新区域分布」。
+
+- **5 大区**: APAC (亚太) / NAM (北美) / EMEA (欧洲·中东·非洲) / LATAM (拉美) / GLOBAL (全球/多边)
+- **国家**: ISO 3166-1 alpha-2 (CN/US/JP/GB/SG/...) + 中文名 (中国/美国/日本/...)
+- **跨境 1:N**: 一个案例可关联多个国家 (例 mBridge 多边项目关联中泰阿), is_primary 区分主/协同发生地
+- **智能推断**: 70+ 银行主体 (招商/工行/JPMorgan/汇丰/星展/Visa/Mastercard...) 规则库 0-token 命中; 未命中走 LLM 抽
+
+### 反选面板 (大区域重构)
+
+`/stats` 页 "排除标签 ▾" 升级为 **720px 宽 Popover + 4 列 Chip grid + 双 Tab**:
+
+- **Tab 1 业务关键词**: 532+ 关键词一屏可见 (4 列 × 10+ 行), 顶部搜索框快速定位
+- **Tab 2 国家与区域**: 按大区分组折叠 (APAC/NAM/EMEA/LATAM/GLOBAL) + 主要国家 chips
+- **精确反选**: Set O(1) 匹配关键词 (杜绝「支付」误伤「跨境支付」子串)
+- **文本 fallback** (v1.0.37.3): 无 geo 的 case 扫 subject/counterparty 文本别名 (巴西/Brazil/Pix) → 命中即剔除
+- **持久化**: localStorage v2 `{keywords, countries, regions}`, v1 自动迁移
+- **分页** (v1.0.37.3): 榜单默认 20 条/页, 可选 50 条; 筛选后行数减少但每页容量不变
+
+### CLI 命令
+
+```bash
+# 关键词回填 (sprint-18)
+moni extract keywords --source mpaypass --limit 132
+
+# 地理回填 (sprint-19, 规则优先 + LLM 补)
+moni extract geo [--source /--dry-run /--overwrite]
+
+# 查看案例地理分布
+sqlite3 data/news.db "SELECT region, COUNT(DISTINCT case_id) FROM case_geography GROUP BY region ORDER BY 2 DESC"
+```
+
+### API 端点 (地理新增)
+
+- `GET /api/stats/cases-dashboard` 返回 `geo_distribution` (`by_region` + `by_country` 聚合) + 榜单行带 `country_code` / `country_name` / `region` / `keywords`
