@@ -111,11 +111,12 @@ def _new_connection() -> sqlite3.Connection:
     except sqlite3.OperationalError:
         pass  # another connection is mid-switch; WAL persists once set
     # busy_timeout + foreign_keys are per-connection, set every time.
-    # NOTE: v1.0.37.1 thread-local connections exposed a flake catalogue
-    # in test_api / test_pins (cross-thread writer contention on the
-    # same fresh-db file). 5 s timeout works in production where
-    # write traffic is single-actor; tests get 30 s via a fixture-side
-    # override (see tests/conftest.py / _set_busy_timeout_for_test()).
+    # 5 s is enough for production where write traffic is single-actor;
+    # tests that race the FastAPI TestClient anyio worker threadpool
+    # must ``commit()`` their DML before any ``client.*`` call, or the
+    # worker waits the full 5 s for the dangling write lock.  Adding
+    # busy_timeout in tests is not the answer — see v1.0.37.5 commit
+    # message for the recipe.
     con.execute("PRAGMA busy_timeout = 5000")
     con.execute("PRAGMA foreign_keys = ON")
     return con
@@ -163,14 +164,25 @@ def get_db() -> sqlite3.Connection:
 
 
 def close_db() -> None:
-    """Retire this thread's connection; the next get_db() reopens fresh.
+    """Close this thread's connection; the next get_db() rebuilds fresh.
 
-    Only the calling thread's connection is closed here (deferred to
-    process exit via _RETIRED, matching the old SIGSEGV-safe
-    behaviour).  Other threads keep their own connections — they are
-    bounded by the threadpool size and stay safely referenced.
+    Best-effort rollback any uncommitted DML (releases the write lock
+    synchronously, no busy_timeout wait), then ``.close()`` to free
+    the file descriptor.  The closed Connection goes to ``_RETIRED``
+    for the bounded burst case where another thread might still hold
+    a reference; ``_close_retired`` is called at process exit to drain
+    any straggler connections (other threads' that this thread never
+    touched).
     """
     conn = getattr(_LOCAL, "conn", None)
     if conn is not None:
+        try:
+            try:
+                conn.rollback()
+            except sqlite3.OperationalError:
+                pass
+            conn.close()
+        except Exception:  # noqa: BLE001 — best-effort close
+            pass
         _RETIRED.append(conn)
         _LOCAL.conn = None
