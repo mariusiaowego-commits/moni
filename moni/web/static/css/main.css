@@ -3236,9 +3236,9 @@ label { font-size: 0.85rem; }
   inset-inline-end: 0;
   inset-block-start: calc(100% + 4px);
   z-index: 6;
-  width: min(520px, 92vw);
-  max-width: calc(100vw - 32px);
-  max-height: 360px;
+  width: min(720px, 94vw);
+  max-width: calc(100vw - 24px);
+  max-height: 520px;
   overflow: hidden;
   background: var(--card);
   border: 1px solid var(--border);
@@ -3271,7 +3271,7 @@ label { font-size: 0.85rem; }
   flex-wrap: wrap;
   gap: 6px;
   flex-shrink: 0;
-  max-height: 52px;
+  max-height: 84px;
   overflow-y: auto;
 }
 .stats-exclude-chip {
@@ -3334,11 +3334,14 @@ label { font-size: 0.85rem; }
 }
 .stats-exclude-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px 8px;
   overflow-y: auto;
   min-height: 0;
   flex: 1;
+}
+@media (max-width: 1024px) {
+  .stats-exclude-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 .stats-exclude-geo {
   display: flex;
