@@ -491,6 +491,301 @@ def normalize_keywords(raw_keywords: Any) -> list[str]:
     return out
 
 
+# ── 地理维度 (sprint-19) ──────────────────────────────────────────────
+# (ISO-2, 规范中文名, 大区, 次区域)
+GEO_ALIAS_MAP: dict[str, tuple[str, str, str, str | None]] = {
+    # ── 中国及港澳台 ──
+    "中国": ("CN", "中国", "APAC", "东亚"),
+    "国内": ("CN", "中国", "APAC", "东亚"),
+    "境内": ("CN", "中国", "APAC", "东亚"),
+    "China": ("CN", "中国", "APAC", "东亚"),
+    "CN": ("CN", "中国", "APAC", "东亚"),
+    "PRC": ("CN", "中国", "APAC", "东亚"),
+    "中国香港": ("HK", "中国香港", "APAC", "东亚"),
+    "香港": ("HK", "中国香港", "APAC", "东亚"),
+    "HK": ("HK", "中国香港", "APAC", "东亚"),
+    "Hong Kong": ("HK", "中国香港", "APAC", "东亚"),
+    "中国澳门": ("MO", "中国澳门", "APAC", "东亚"),
+    "澳门": ("MO", "中国澳门", "APAC", "东亚"),
+    "Macau": ("MO", "中国澳门", "APAC", "东亚"),
+    "中国台湾": ("TW", "中国台湾", "APAC", "东亚"),
+    "台湾": ("TW", "中国台湾", "APAC", "东亚"),
+    "Taiwan": ("TW", "中国台湾", "APAC", "东亚"),
+    # ── 亚太其他 ──
+    "新加坡": ("SG", "新加坡", "APAC", "东南亚"),
+    "狮城": ("SG", "新加坡", "APAC", "东南亚"),
+    "Singapore": ("SG", "新加坡", "APAC", "东南亚"),
+    "SG": ("SG", "新加坡", "APAC", "东南亚"),
+    "日本": ("JP", "日本", "APAC", "东亚"),
+    "Japan": ("JP", "日本", "APAC", "东亚"),
+    "JP": ("JP", "日本", "APAC", "东亚"),
+    "韩国": ("KR", "韩国", "APAC", "东亚"),
+    "Korea": ("KR", "韩国", "APAC", "东亚"),
+    "KR": ("KR", "韩国", "APAC", "东亚"),
+    "澳大利亚": ("AU", "澳大利亚", "APAC", "大洋洲"),
+    "澳洲": ("AU", "澳大利亚", "APAC", "大洋洲"),
+    "Australia": ("AU", "澳大利亚", "APAC", "大洋洲"),
+    "AU": ("AU", "澳大利亚", "APAC", "大洋洲"),
+    "越南": ("VN", "越南", "APAC", "东南亚"),
+    "Vietnam": ("VN", "越南", "APAC", "东南亚"),
+    "印尼": ("ID", "印度尼西亚", "APAC", "东南亚"),
+    "印度尼西亚": ("ID", "印度尼西亚", "APAC", "东南亚"),
+    "Indonesia": ("ID", "印度尼西亚", "APAC", "东南亚"),
+    "马来西亚": ("MY", "马来西亚", "APAC", "东南亚"),
+    "马来": ("MY", "马来西亚", "APAC", "东南亚"),
+    "Malaysia": ("MY", "马来西亚", "APAC", "东南亚"),
+    "印度": ("IN", "印度", "APAC", "南亚"),
+    "India": ("IN", "印度", "APAC", "南亚"),
+    "泰国": ("TH", "泰国", "APAC", "东南亚"),
+    "Thailand": ("TH", "泰国", "APAC", "东南亚"),
+    "菲律宾": ("PH", "菲律宾", "APAC", "东南亚"),
+    "东南亚": ("ASEAN", "东南亚", "APAC", "东南亚"),
+    "东盟": ("ASEAN", "东南亚", "APAC", "东南亚"),
+    "亚太": ("APAC", "亚太", "APAC", None),
+    "APAC": ("APAC", "亚太", "APAC", None),
+    # ── 北美 ──
+    "美国": ("US", "美国", "NAM", "北美"),
+    "美利坚": ("US", "美国", "NAM", "北美"),
+    "USA": ("US", "美国", "NAM", "北美"),
+    "US": ("US", "美国", "NAM", "北美"),
+    "America": ("US", "美国", "NAM", "北美"),
+    "United States": ("US", "美国", "NAM", "北美"),
+    "U.S.": ("US", "美国", "NAM", "北美"),
+    "U.S.A.": ("US", "美国", "NAM", "北美"),
+    "华尔街": ("US", "美国", "NAM", "北美"),
+    "加拿大": ("CA", "加拿大", "NAM", "北美"),
+    "Canada": ("CA", "加拿大", "NAM", "北美"),
+    "CA": ("CA", "加拿大", "NAM", "北美"),
+    "北美": ("NAM", "北美", "NAM", "北美"),
+    "NAM": ("NAM", "北美", "NAM", "北美"),
+    # ── 欧洲 ──
+    "英国": ("GB", "英国", "EMEA", "西欧"),
+    "英格兰": ("GB", "英国", "EMEA", "西欧"),
+    "UK": ("GB", "英国", "EMEA", "西欧"),
+    "GB": ("GB", "英国", "EMEA", "西欧"),
+    "United Kingdom": ("GB", "英国", "EMEA", "西欧"),
+    "德国": ("DE", "德国", "EMEA", "西欧"),
+    "Germany": ("DE", "德国", "EMEA", "西欧"),
+    "DE": ("DE", "德国", "EMEA", "西欧"),
+    "法国": ("FR", "法国", "EMEA", "西欧"),
+    "France": ("FR", "法国", "EMEA", "西欧"),
+    "FR": ("FR", "法国", "EMEA", "西欧"),
+    "瑞士": ("CH", "瑞士", "EMEA", "中欧"),
+    "Switzerland": ("CH", "瑞士", "EMEA", "中欧"),
+    "意大利": ("IT", "意大利", "EMEA", "南欧"),
+    "Italy": ("IT", "意大利", "EMEA", "南欧"),
+    "荷兰": ("NL", "荷兰", "EMEA", "西欧"),
+    "西班牙": ("ES", "西班牙", "EMEA", "南欧"),
+    "欧洲": ("EU", "欧洲", "EMEA", "欧洲"),
+    "欧盟": ("EU", "欧洲", "EMEA", "欧洲"),
+    "EU": ("EU", "欧洲", "EMEA", "欧洲"),
+    "EMEA": ("EMEA", "欧洲中东非洲", "EMEA", None),
+    "西欧": ("EU", "欧洲", "EMEA", "西欧"),
+    # ── 中东 ──
+    "阿联酋": ("AE", "阿联酋", "EMEA", "中东"),
+    "迪拜": ("AE", "阿联酋", "EMEA", "中东"),
+    "UAE": ("AE", "阿联酋", "EMEA", "中东"),
+    "沙特": ("SA", "沙特阿拉伯", "EMEA", "中东"),
+    "沙特阿拉伯": ("SA", "沙特阿拉伯", "EMEA", "中东"),
+    "中东": ("ME", "中东", "EMEA", "中东"),
+    # ── 拉美 ──
+    "巴西": ("BR", "巴西", "LATAM", "南美"),
+    "Brazil": ("BR", "巴西", "LATAM", "南美"),
+    "墨西哥": ("MX", "墨西哥", "LATAM", "北美"),
+    "Mexico": ("MX", "墨西哥", "LATAM", "北美"),
+    "阿根廷": ("AR", "阿根廷", "LATAM", "南美"),
+    "智利": ("CL", "智利", "LATAM", "南美"),
+    "LATAM": ("LATAM", "拉美", "LATAM", None),
+    "拉美": ("LATAM", "拉美", "LATAM", None),
+    # ── 跨国 / 全球组织 ──
+    "全球": ("GLOBAL", "全球", "GLOBAL", None),
+    "国际": ("GLOBAL", "全球", "GLOBAL", None),
+    "跨国": ("GLOBAL", "全球", "GLOBAL", None),
+    "多边": ("GLOBAL", "全球", "GLOBAL", None),
+    "多国": ("GLOBAL", "全球", "GLOBAL", None),
+    "BIS": ("GLOBAL", "国际清算银行", "GLOBAL", None),
+    "国际清算银行": ("GLOBAL", "国际清算银行", "GLOBAL", None),
+    "SWIFT": ("GLOBAL", "SWIFT", "GLOBAL", None),
+    "mBridge": ("GLOBAL", "多边央行数字货币桥", "GLOBAL", None),
+    "IMF": ("GLOBAL", "国际货币基金组织", "GLOBAL", None),
+    "世界银行": ("GLOBAL", "世界银行", "GLOBAL", None),
+    "GLOBAL": ("GLOBAL", "全球", "GLOBAL", None),
+}
+
+_CN = ("CN", "中国", "APAC", "东亚")
+_US = ("US", "美国", "NAM", "北美")
+_GB = ("GB", "英国", "EMEA", "西欧")
+_SG = ("SG", "新加坡", "APAC", "东南亚")
+_AU = ("AU", "澳大利亚", "APAC", "大洋洲")
+_JP = ("JP", "日本", "APAC", "东亚")
+_HK = ("HK", "中国香港", "APAC", "东亚")
+_GL = ("GLOBAL", "全球", "GLOBAL", None)
+
+SUBJECT_GEO_DEFAULTS: dict[str, tuple[str, str, str, str | None]] = {}
+for _n in (
+    "工商银行", "农业银行", "中国银行", "建设银行", "交通银行", "邮储银行",
+    "招商银行", "兴业银行", "浦发银行", "中信银行", "光大银行", "民生银行",
+    "平安银行", "华夏银行", "浙商银行", "渤海银行", "广发银行", "恒丰银行",
+    "北京银行", "上海银行", "江苏银行", "宁波银行", "南京银行", "杭州银行",
+    "长沙银行", "成都银行", "重庆银行", "贵阳银行", "青岛银行", "齐鲁银行",
+    "苏州银行", "微众银行", "网商银行", "新网银行", "众邦银行", "百信银行",
+    "招银理财", "兴银理财", "信银理财", "平安理财", "光大理财", "华夏理财",
+    "民生理财", "浦银理财", "中银理财", "工银理财", "农银理财", "建信理财",
+    "交银理财", "邮储理财", "中邮理财",
+    "华泰证券", "中信证券", "国泰君安", "海通证券", "招商证券", "广发证券",
+    "申万宏源", "银河证券", "中信建投", "国信证券", "中金公司",
+    "中国平安", "中国人寿", "中国太保", "新华保险", "泰康保险", "中国人民保险",
+    "众安保险",
+    "蚂蚁集团", "腾讯", "腾讯金融", "微信支付", "京东", "京东数科", "京东科技",
+    "度小满", "百度", "字节跳动", "美团", "金融壹账通", "华为", "阿里巴巴", "阿里云",
+    "中国人民银行", "国家金融监督管理总局", "中国证监会",
+    "上海证券交易所", "深圳证券交易所", "北京证券交易所",
+    "中国华融", "中国长城资产", "中国东方资产", "中国信达",
+):
+    SUBJECT_GEO_DEFAULTS[_n] = _CN
+for _n in (
+    "摩根大通", "高盛", "摩根士丹利", "花旗", "花旗银行", "美国银行", "富国银行",
+    "Visa", "Mastercard", "PayPal", "Stripe",
+    "JPMorgan", "Goldman Sachs", "Morgan Stanley", "Citibank",
+    "Bank of America", "Wells Fargo",
+):
+    SUBJECT_GEO_DEFAULTS[_n] = _US
+for _n in ("汇丰银行", "渣打银行", "巴克莱", "HSBC", "Standard Chartered", "Barclays", "劳埃德银行"):
+    SUBJECT_GEO_DEFAULTS[_n] = _GB
+for _n in ("星展银行", "大华银行", "华侨银行", "GrabPay", "DBS", "UOB", "OCBC"):
+    SUBJECT_GEO_DEFAULTS[_n] = _SG
+for _n in ("西太平洋银行", "Westpac", "澳新银行", "ANZ", "麦格理", "Macquarie", "联邦银行"):
+    SUBJECT_GEO_DEFAULTS[_n] = _AU
+for _n in ("三菱日联", "三井住友", "瑞穗", "MUFG"):
+    SUBJECT_GEO_DEFAULTS[_n] = _JP
+for _n in ("国际清算银行", "SWIFT", "世界银行", "国际货币基金组织", "BIS", "IMF"):
+    SUBJECT_GEO_DEFAULTS[_n] = _GL
+
+_GEO_ALIAS_LOWER = {k.lower(): v for k, v in GEO_ALIAS_MAP.items()}
+
+
+def _lookup_geo_alias(token: str) -> tuple[str, str, str, str | None] | None:
+    t = (token or "").strip()
+    if not t:
+        return None
+    if t in GEO_ALIAS_MAP:
+        return GEO_ALIAS_MAP[t]
+    return _GEO_ALIAS_LOWER.get(t.lower())
+
+
+def _lookup_subject_geo(name: str | None) -> tuple[str, str, str, str | None] | None:
+    if not name:
+        return None
+    raw = name.strip()
+    if not raw:
+        return None
+    if raw in SUBJECT_GEO_DEFAULTS:
+        return SUBJECT_GEO_DEFAULTS[raw]
+    canon = normalize_subject(raw)
+    if canon and canon in SUBJECT_GEO_DEFAULTS:
+        return SUBJECT_GEO_DEFAULTS[canon]
+    best = None
+    best_len = 0
+    hay = (canon or raw)
+    for inst, geo in SUBJECT_GEO_DEFAULTS.items():
+        if len(inst) >= 4 and hay.startswith(inst) and len(inst) > best_len:
+            best, best_len = geo, len(inst)
+    return best
+
+
+def _tuple_to_geo(
+    t: tuple[str, str, str, str | None],
+    *,
+    is_primary: int = 1,
+    source_type: str = "auto_rule",
+) -> dict[str, Any]:
+    code, cname, region, sub = t
+    return {
+        "country_code": code,
+        "country_name": cname,
+        "region": region,
+        "sub_region": sub,
+        "is_primary": is_primary,
+        "source_type": source_type,
+    }
+
+
+def _coerce_geo_tokens(raw_geo: Any) -> list[str]:
+    if raw_geo is None:
+        return []
+    if isinstance(raw_geo, dict):
+        for key in ("country", "country_code", "country_name", "name"):
+            v = raw_geo.get(key)
+            if v:
+                return [str(v)]
+        return []
+    if isinstance(raw_geo, str):
+        s = raw_geo.strip()
+        if not s:
+            return []
+        if s.startswith("["):
+            try:
+                parsed = json.loads(s)
+                if isinstance(parsed, list):
+                    return [str(x) for x in parsed if x]
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return [p.strip() for p in re.split(r"[,，;；、/|]+", s) if p.strip()]
+    if isinstance(raw_geo, (list, tuple, set)):
+        out: list[str] = []
+        for x in raw_geo:
+            if isinstance(x, dict):
+                out.extend(_coerce_geo_tokens(x))
+            elif x is not None and str(x).strip():
+                out.append(str(x).strip())
+        return out
+    return [str(raw_geo).strip()] if str(raw_geo).strip() else []
+
+
+def normalize_geos(
+    raw_geo: Any = None,
+    *,
+    subject: str | None = None,
+    counterparty: str | None = None,
+) -> list[dict[str, Any]]:
+    """解析 0..N 条地理记录. 首条 is_primary=1. 无命中返回 []."""
+    seen: set[str] = set()
+    geos: list[dict[str, Any]] = []
+    from_llm = False
+    for tok in _coerce_geo_tokens(raw_geo):
+        hit = _lookup_geo_alias(tok)
+        if not hit:
+            continue
+        from_llm = True
+        if hit[0] in seen:
+            continue
+        seen.add(hit[0])
+        src = "auto_llm"
+        geos.append(_tuple_to_geo(hit, is_primary=1 if not geos else 0, source_type=src))
+    if not geos:
+        for name in (subject, counterparty):
+            hit = _lookup_subject_geo(name)
+            if hit and hit[0] not in seen:
+                seen.add(hit[0])
+                geos.append(_tuple_to_geo(hit, is_primary=1 if not geos else 0, source_type="auto_rule"))
+                break
+    return geos
+
+
+def normalize_geo(
+    raw_geo: Any = None,
+    *,
+    subject: str | None = None,
+    counterparty: str | None = None,
+) -> dict[str, Any] | None:
+    """归一化单条地理. 无命中返回 None.
+
+    优先 GEO_ALIAS_MAP, 再 SUBJECT_GEO_DEFAULTS (subject 然后 counterparty).
+    """
+    geos = normalize_geos(raw_geo, subject=subject, counterparty=counterparty)
+    return geos[0] if geos else None
+
+
 def normalize_reference_value(raw_value: str | None) -> str:
     """reference_value 高/中/低 映射.  默认 medium."""
     if not raw_value:
@@ -538,4 +833,9 @@ def normalize_case(raw: dict[str, Any]) -> dict[str, Any] | None:
         "evidence_snippet": (raw.get("evidence_snippet") or "")[:400],
         "extraction_confidence": int(raw.get("extraction_confidence") or 70),
         "keywords": normalize_keywords(raw.get("keywords")),
+        "geography": normalize_geos(
+            raw.get("country") if raw.get("country") not in (None, "") else raw.get("geography"),
+            subject=subject,
+            counterparty=counterparty,
+        ),
     }
