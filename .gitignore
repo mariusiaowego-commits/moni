@@ -21,6 +21,13 @@ env/
 build/
 dist/
 
+# LLM 测试副产物 (root, v1.0.37+; grok/hermes agent LLM 调试时偶尔 dump 到根目录)
+# body.txt: hermes chat 调试测试用 body
+# test.json: LLM 调试 JSON 临时输出 (sprint-19 LLM 配额诊断时产生)
+# 治标: 删除 + 治本: ignore
+/body.txt
+/test.json
+
 # Worktrees + pending (v1.0.2 后)
 wt/
 .worktrees/
