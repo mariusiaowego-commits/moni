@@ -137,6 +137,9 @@ class CaseRepository:
                     CaseRepository._insert_auto_keywords(
                         conn, case_id, cs.get("keywords") or [], now=now,
                     )
+                    CaseRepository._insert_geography_rows(
+                        conn, case_id, cs.get("geography") or [], now=now,
+                    )
             except sqlite3.IntegrityError as e:
                 logger.warning("插入案例失败 (%s): %s", case_id, e)
                 continue
@@ -173,6 +176,87 @@ class CaseRepository:
             if cur.rowcount > 0:
                 n += 1
         return n
+
+    @staticmethod
+    def _insert_geography_rows(
+        conn: sqlite3.Connection,
+        case_id: str,
+        geos: Sequence[Any],
+        *,
+        now: str | None = None,
+    ) -> int:
+        """同事务写 case_geography. UNIQUE(case_id, country_code) IGNORE 防重."""
+        if not geos:
+            return 0
+        ts = now or datetime.now(timezone.utc).isoformat()
+        n = 0
+        for g in geos:
+            if not isinstance(g, dict):
+                continue
+            code = str(g.get("country_code") or "").strip()
+            if not code:
+                continue
+            src = g.get("source_type") or "auto_rule"
+            if src not in ("auto_rule", "auto_llm", "manual_user"):
+                src = "auto_rule"
+            cur = conn.execute(
+                """INSERT OR IGNORE INTO case_geography
+                       (case_id, country_code, country_name, region, sub_region,
+                        is_primary, source_type, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    case_id, code,
+                    g.get("country_name") or code,
+                    g.get("region") or "GLOBAL",
+                    g.get("sub_region"),
+                    1 if g.get("is_primary", 1) else 0,
+                    src, ts,
+                ),
+            )
+            if cur.rowcount > 0:
+                n += 1
+        return n
+
+    @staticmethod
+    def add_geography(
+        case_id: str,
+        country_code: str,
+        country_name: str,
+        region: str,
+        sub_region: str | None = None,
+        is_primary: int = 1,
+        source_type: str = "manual_user",
+    ) -> int | None:
+        """UI 手动加地理. 返回新行 id; 已存在 IGNORE 后仍返回现有 id."""
+        conn = get_db()
+        now = datetime.now(timezone.utc).isoformat()
+        src = source_type if source_type in ("auto_rule", "auto_llm", "manual_user") else "manual_user"
+        conn.execute(
+            """INSERT OR IGNORE INTO case_geography
+                   (case_id, country_code, country_name, region, sub_region,
+                    is_primary, source_type, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (case_id, country_code, country_name, region, sub_region,
+             1 if is_primary else 0, src, now),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT id FROM case_geography WHERE case_id = ? AND country_code = ?",
+            (case_id, country_code),
+        ).fetchone()
+        return int(row["id"]) if row else None
+
+    @staticmethod
+    def list_geography(case_id: str) -> list[dict[str, Any]]:
+        conn = get_db()
+        rows = conn.execute(
+            """SELECT id, case_id, country_code, country_name, region, sub_region,
+                      is_primary, source_type, created_at
+               FROM case_geography WHERE case_id = ?
+               ORDER BY is_primary DESC, id""",
+            (case_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     @staticmethod
     def restore_manual_keywords(

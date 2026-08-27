@@ -701,13 +701,28 @@ kw_p.add_argument(
     help="覆盖已有 auto_llm 关键词 (manual_user 保留, 强制重抽)"
 )
 
+geo_p = extract_sub.add_parser(
+    "geo",
+    help="存量案例地理回填 (规则推断 + LLM → case_geography)",
+)
+geo_p.add_argument("--source", dest="source", metavar="NAME", help="只回填指定信源的案例")
+geo_p.add_argument("--limit", type=int, default=None, help="最多处理 N 条案例")
+geo_p.add_argument("--dry-run", action="store_true", help="只统计候选, 不写库")
+geo_p.add_argument(
+    "--overwrite", action="store_true",
+    help="覆盖已有 auto_rule/auto_llm 地理 (manual_user 保留)",
+)
+
 
 def cmd_extract(args) -> int:
-    """Dispatch to moni.cli.extract.run_extract / extract_keywords."""
+    """Dispatch to moni.cli.extract.run_extract / extract_keywords / extract_geo."""
     from moni.cli.extract import run_extract
     from moni.cli.extract_keywords import run_extract_keywords
     if args.extract_kind == "keywords":
         return run_extract_keywords(args)
+    if args.extract_kind == "geo":
+        from moni.cli.extract_geo import run_extract_geo
+        return run_extract_geo(args)
     return run_extract(args.extract_kind, args)
 
 

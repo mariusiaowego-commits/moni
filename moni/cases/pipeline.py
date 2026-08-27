@@ -213,6 +213,7 @@ def extract_cases_for_article(
             return {"status": "no_cases", "case_count": 0, "error": None}
 
         # 归一化 + 插入 (同一事务)
+        # country 字段经 json.loads 留在 raw 上, normalize_case → geography 列表
         normalized = []
         for raw in raw_cases:
             cs = normalize_case(raw)

@@ -22,6 +22,7 @@
 10. 原文证据（evidence_snippet）：直接引用文章中支撑该案例的 1-2 句原文
 11. 置信度（extraction_confidence）：0-100 的整数
 12. 关键词（keywords）：3-5 个中文业务关键词，必须精准体现具体业务子场景（如"智能投顾"、"跨境支付"、"反欺诈"），不要宏观分类
+13. 发生地国家（country）：案例发生或主要落地的国家或组织（如"中国"、"美国"、"新加坡"、"英国"、"全球"）。跨境可给数组如 ["中国","美国"]。未明确提海外则填主体所在国
 
 严格要求：
 - 只抽取文章中明确提到的案例，不要推测或脑补
@@ -53,7 +54,8 @@ few-shot 示例：
       "summary": "招行全量上线 AI 智能投顾系统覆盖高净值用户",
       "evidence_snippet": "招商银行 2026 年 8 月 1 日正式上线 AI 智能投顾系统",
       "extraction_confidence": 95,
-      "keywords": ["智能投顾", "财富管理", "大模型应用", "智能客服"]
+      "keywords": ["智能投顾", "财富管理", "大模型应用", "智能客服"],
+      "country": "中国"
     }
   ]
 }
@@ -77,7 +79,8 @@ few-shot 示例：
       "summary": "网商银行试点面向农户的数字化信贷产品",
       "evidence_snippet": "网商银行与某农业产业链平台合作，试运行面向农户的数字化信贷产品",
       "extraction_confidence": 85,
-      "keywords": ["数字化信贷", "农户贷款", "供应链金融"]
+      "keywords": ["数字化信贷", "农户贷款", "供应链金融"],
+      "country": "中国"
     }
   ]
 }
@@ -101,7 +104,8 @@ few-shot 示例：
       "summary": "工行完成全行核心系统数字化转型覆盖 1.7 万网点",
       "evidence_snippet": "工商银行宣布完成全行核心系统数字化转型",
       "extraction_confidence": 90,
-      "keywords": ["核心系统", "系统改造", "网点智能化"]
+      "keywords": ["核心系统", "系统改造", "网点智能化"],
+      "country": "中国"
     }
   ]
 }
@@ -123,7 +127,58 @@ few-shot 示例：
       "summary": "...",
       "evidence_snippet": "...",
       "extraction_confidence": 95,
-      "keywords": ["智能投顾", "财富管理", "大模型应用"]
+      "keywords": ["智能投顾", "财富管理", "大模型应用"],
+      "country": "中国"
+    }
+  ]
+}
+```
+
+示例 4 (海外投行, 美国 / NAM):
+文章："摩根大通 2026 年在纽约推出企业级生成式 AI 助手，覆盖投资银行业务线。"
+输出：
+```json
+{
+  "cases": [
+    {
+      "subject": "摩根大通",
+      "case_type": "AI",
+      "case_action": "launch",
+      "case_date": "2026",
+      "counterparty": "",
+      "amount": "",
+      "reference_value": "high",
+      "reference_rationale": "华尔街投行大模型落地，对境内同业有对标价值",
+      "summary": "摩根大通推出覆盖投行业务线的生成式 AI 助手",
+      "evidence_snippet": "摩根大通 2026 年在纽约推出企业级生成式 AI 助手",
+      "extraction_confidence": 90,
+      "keywords": ["大模型应用", "智能体", "投行数字化"],
+      "country": "美国"
+    }
+  ]
+}
+```
+
+示例 5 (多边机构, GLOBAL):
+文章："国际清算银行宣布扩大 mBridge 多边央行数字货币桥试点，覆盖更多跨境支付走廊。"
+输出：
+```json
+{
+  "cases": [
+    {
+      "subject": "国际清算银行",
+      "case_type": "PI",
+      "case_action": "pilot",
+      "case_date": "",
+      "counterparty": "",
+      "amount": "",
+      "reference_value": "high",
+      "reference_rationale": "多边数字货币清算基础设施，属全球对标案例",
+      "summary": "国际清算银行扩大 mBridge 多边央行数字货币桥试点",
+      "evidence_snippet": "国际清算银行宣布扩大 mBridge 多边央行数字货币桥试点",
+      "extraction_confidence": 88,
+      "keywords": ["数字人民币", "跨境支付", "多边清算"],
+      "country": "全球"
     }
   ]
 }
