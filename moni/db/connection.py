@@ -1,34 +1,40 @@
-"""SQLite singleton connection for moni — thread-safe lifecycle.
+"""SQLite connections for moni — thread-local, thread-safe.
 
 The DB file lives at data/news.db (gitignored).  Call get_db() to get
-the open sqlite3.Connection.  It is kept open for the lifetime of the
-process; close it with close_db().
+an open sqlite3.Connection bound to the *calling thread*.
 
-Why this design (fix for intermittent SIGSEGV, Python 3.12):
+Why thread-local (fix for v1.0.37 prod crash):
 
-The previous implementation closed the connection immediately on
-close_db() and reset the module singleton, which let the GC destroy the
-sqlite3.Connection (pysqlite_connection_close -> stmt/lru_cache dealloc)
-while a background thread was still executing SQL on it.  That
-use-after-free crashed the interpreter with EXC_BAD_ACCESS (SIGSEGV,
-KERN_INVALID_ADDRESS at 0x8) in _pysqlite_query_execute.
+The previous design shared ONE singleton connection across all threads
+(check_same_thread=False) with the claim that "concurrent execute()
+calls are serialized by the GIL".  That claim is wrong: the GIL only
+serializes individual bytecodes, not a full statement lifecycle.  When
+two FastAPI worker threads execute() on the same sqlite3.Connection
+interleaved (one thread's statement binding params while the other
+thread runs its own execute), sqlite3 raises:
 
-Mitigations in this version:
+    sqlite3.InterfaceError: bad parameter or other API misuse
 
-* The singleton connection is created under a lock so concurrent first
-  calls never race.
-* close_db() never destroys a connection that another thread may still
-  be executing on.  It only *retires* the current connection (future
-  get_db() calls build a fresh one) and defers the actual close to
-  process exit (atexit), when no user threads are running.  Old
-  connections are kept referenced (deque) so the GC can't touch them
-  mid-execute either.
-* check_same_thread=False stays: the connection is shared across
-  threads by design.  Concurrent execute() calls are serialized by the
-  GIL; the dangerous race (close vs execute) is eliminated above.
+observed on /api/cases/<id>/keywords under concurrent load in the
+8900 prod process (v1.0.37).
 
-WAL mode + busy_timeout keep cross-connection (and cross-process,
-e.g. the 8900/8901 dev-prod pair) writes from deadlocking.
+New design:
+
+* get_db() returns a connection owned by the calling thread
+  (threading.local).  Each thread builds its own connection lazily
+  under a lock, so first-call races are impossible.
+* close_db() closes only the current thread's connection and retires
+  it; other threads' connections are left open (bounded by the
+  threadpool size, ~40 in FastAPI — well under macOS fd limits).
+* check_same_thread stays default True per-thread ownership; the
+  dangerous cross-thread execute interleave is structurally gone.
+* WAL mode + busy_timeout keep cross-connection (and cross-process,
+  e.g. the 8900/8901 dev-prod pair) writes from deadlocking.
+
+Historical note: the pre-thread-local close_db() used to destroy the
+connection while a background thread was mid-execute, crashing the
+interpreter with EXC_BAD_ACCESS (SIGSEGV).  Thread-local ownership
+eliminates that race class entirely.
 """
 
 from __future__ import annotations
@@ -42,8 +48,10 @@ from pathlib import Path
 from typing import Optional
 
 _DB_PATH: Optional[Path] = None
-_CON: Optional[sqlite3.Connection] = None
 _CREATE_LOCK = threading.Lock()
+
+#: Thread-local connections: each thread gets its own sqlite3.Connection.
+_LOCAL = threading.local()
 
 #: Retired connections awaiting process-exit close.  Bounded small so a
 #: long test run (one close_db per test) can't exhaust file descriptors
@@ -93,7 +101,7 @@ def get_db_path() -> Path:
 def _new_connection() -> sqlite3.Connection:
     path = get_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(str(path), check_same_thread=False)
+    con = sqlite3.connect(str(path))
     con.row_factory = sqlite3.Row
     # WAL is persistent per-db file; only switch when not already WAL.
     try:
@@ -109,30 +117,34 @@ def _new_connection() -> sqlite3.Connection:
 
 
 def get_db() -> sqlite3.Connection:
-    """Return the singleton sqlite3.Connection, creating it if necessary.
+    """Return a sqlite3.Connection owned by the calling thread.
 
-    Enables:
-    - WAL mode for better concurrent read performance
-    - busy_timeout so connections wait up to 5 s for locks before raising
-    - foreign keys enforcement
+    Each thread lazily builds its own connection (under a lock, so
+    concurrent first calls never race).  Thread-local ownership makes
+    cross-thread execute() interleaving — the v1.0.37 prod
+    sqlite3.InterfaceError — structurally impossible.
+
+    WAL mode + busy_timeout make multi-connection writes safe.
     """
-    global _CON
-    if _CON is None:
+    conn = getattr(_LOCAL, "conn", None)
+    if conn is None:
         with _CREATE_LOCK:
-            if _CON is None:
-                _CON = _new_connection()
-    return _CON
+            conn = getattr(_LOCAL, "conn", None)
+            if conn is None:
+                conn = _new_connection()
+                _LOCAL.conn = conn
+    return conn
 
 
 def close_db() -> None:
-    """Retire the singleton connection; the next get_db() reopens fresh.
+    """Retire this thread's connection; the next get_db() reopens fresh.
 
-    The old connection is NOT closed here — another thread may still be
-    executing on it, and closing mid-execute is exactly the race that
-    caused the SIGSEGV.  It is kept referenced and closed at process
-    exit (see _close_retired).
+    Only the calling thread's connection is closed here (deferred to
+    process exit via _RETIRED, matching the old SIGSEGV-safe
+    behaviour).  Other threads keep their own connections — they are
+    bounded by the threadpool size and stay safely referenced.
     """
-    global _CON
-    if _CON is not None:
-        _RETIRED.append(_CON)
-        _CON = None
+    conn = getattr(_LOCAL, "conn", None)
+    if conn is not None:
+        _RETIRED.append(conn)
+        _LOCAL.conn = None
