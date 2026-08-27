@@ -54,10 +54,21 @@ def _render_prompt(article: dict[str, Any]) -> str:
     )
 
 
+def _json_value_at(s: str, idx: int) -> Any | None:
+    """从 s[idx] 起用 JSONDecoder.raw_decode, 不怕 keywords 数组里的 ]."""
+    try:
+        data, _ = json.JSONDecoder().raw_decode(s, idx)
+        return data
+    except json.JSONDecodeError:
+        return None
+
+
 def _parse_cases_from_reply(raw_reply: str) -> list[dict[str, Any]]:
     """从 LLM 回复中解析案例列表 (三策略 regex parse).
 
     F5→F6 改进: 加 Strategy 4 = 宽松 JSON 解析 (匹配 {...} 中包含 "case_type" 的对象数组)
+    sprint-18: json.loads / raw_decode 保留每条 cs["keywords"] 原样,
+    后续 normalize_case 归一后交给 insert_cases.
     """
     if not raw_reply:
         return []
@@ -81,15 +92,12 @@ def _parse_cases_from_reply(raw_reply: str) -> list[dict[str, Any]]:
         except json.JSONDecodeError:
             pass
 
-    # Strategy 2: 找 "cases" 键的数组
-    m = re.search(r'"cases"\s*:\s*(\[.*?\])', raw_reply, re.DOTALL)
+    # Strategy 2: 找 "cases" 键的数组 (raw_decode, 不被 keywords 内 ] 截断)
+    m = re.search(r'"cases"\s*:\s*\[', raw_reply)
     if m:
-        try:
-            data = json.loads(m.group(1))
-            if isinstance(data, list):
-                return data
-        except json.JSONDecodeError:
-            pass
+        data = _json_value_at(raw_reply, m.end() - 1)
+        if isinstance(data, list) and data:
+            return data
 
     # Strategy 3: 整个 JSON 对象
     m = re.search(r"\{.*\}", raw_reply, re.DOTALL)
@@ -227,6 +235,20 @@ def extract_cases_for_article(
                 raise
             return {"status": "no_cases", "case_count": 0, "error": None}
 
+        # 重试会 DELETE cases → FK CASCADE 清 keywords; 先把 manual_user 快照,
+        # 插入后再按 (subject, type, action) 贴回, 避免 auto_llm 覆盖人工词.
+        manual_rows = conn.execute(
+            """
+            SELECT c.subject, c.case_type, c.case_action, k.keyword, k.weight
+            FROM case_keywords k
+            JOIN cases c ON c.case_id = k.case_id
+            WHERE c.article_id = ?
+              AND k.source_type = 'manual_user'
+              AND c.subject != '__processing__'
+            """,
+            (article_id,),
+        ).fetchall()
+
         # 事务开始
         with conn:
             CaseRepository.mark_processing(conn, article_id)
@@ -237,6 +259,7 @@ def extract_cases_for_article(
             )
             inserted = CaseRepository.insert_cases(conn, article_id, normalized)
             CaseRepository.clear_processing_placeholder(conn, article_id)
+            CaseRepository.restore_manual_keywords(conn, article_id, manual_rows)
 
         return {
             "status": "completed",

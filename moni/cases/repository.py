@@ -134,11 +134,91 @@ class CaseRepository:
                 )
                 if conn.execute("SELECT changes()").fetchone()[0] > 0:
                     inserted += 1
+                    CaseRepository._insert_auto_keywords(
+                        conn, case_id, cs.get("keywords") or [], now=now,
+                    )
             except sqlite3.IntegrityError as e:
                 logger.warning("插入案例失败 (%s): %s", case_id, e)
                 continue
 
         return inserted
+
+    @staticmethod
+    def _insert_auto_keywords(
+        conn: sqlite3.Connection,
+        case_id: str,
+        keywords: Sequence[Any],
+        *,
+        now: str | None = None,
+    ) -> int:
+        """同事务写入 auto_llm 关键词.
+
+        UNIQUE(case_id, keyword) + INSERT OR IGNORE: 已有 manual_user 同行
+        不会被覆盖 (source_type 保持人工). list_keywords 仍按 manual_user 优先.
+        """
+        if not keywords:
+            return 0
+        ts = now or datetime.now(timezone.utc).isoformat()
+        n = 0
+        for kw in keywords:
+            token = str(kw).strip() if kw is not None else ""
+            if not token:
+                continue
+            cur = conn.execute(
+                """INSERT OR IGNORE INTO case_keywords
+                       (case_id, keyword, source_type, weight, created_at)
+                   VALUES (?, ?, 'auto_llm', 1, ?)""",
+                (case_id, token, ts),
+            )
+            if cur.rowcount > 0:
+                n += 1
+        return n
+
+    @staticmethod
+    def restore_manual_keywords(
+        conn: sqlite3.Connection,
+        article_id: str,
+        snapshot: Sequence[Any],
+    ) -> int:
+        """重抽后把 snapshot 里的 manual_user 贴回匹配案例.
+
+        ON CONFLICT(case_id, keyword) 把 auto_llm 同行改回 manual_user,
+        保证人工词不被覆盖.
+        """
+        if not snapshot:
+            return 0
+        ts = datetime.now(timezone.utc).isoformat()
+        n = 0
+        for rec in snapshot:
+            subject = rec["subject"] if not isinstance(rec, tuple) else rec[0]
+            case_type = rec["case_type"] if not isinstance(rec, tuple) else rec[1]
+            case_action = rec["case_action"] if not isinstance(rec, tuple) else rec[2]
+            keyword = rec["keyword"] if not isinstance(rec, tuple) else rec[3]
+            weight = rec["weight"] if not isinstance(rec, tuple) else rec[4]
+            row = conn.execute(
+                """
+                SELECT case_id FROM cases
+                WHERE article_id = ? AND subject = ? AND case_type = ?
+                  AND case_action = ? AND subject != '__processing__'
+                """,
+                (article_id, subject, case_type, case_action),
+            ).fetchone()
+            if row is None:
+                continue
+            case_id = row["case_id"] if not isinstance(row, tuple) else row[0]
+            conn.execute(
+                """
+                INSERT INTO case_keywords
+                    (case_id, keyword, source_type, weight, created_at)
+                VALUES (?, ?, 'manual_user', ?, ?)
+                ON CONFLICT(case_id, keyword) DO UPDATE SET
+                    source_type = 'manual_user',
+                    weight = excluded.weight
+                """,
+                (case_id, keyword, int(weight or 1), ts),
+            )
+            n += 1
+        return n
 
     # ── 状态机 ──────────────────────────────────────────────────────
 
@@ -496,7 +576,12 @@ class CaseRepository:
 
     @staticmethod
     def add_keyword(case_id: str, keyword: str, *, source_type: str = "manual_user", weight: int = 1) -> int | None:
-        """添加关键词 (返回新行 id; 已存在返回 None)."""
+        """添加关键词 (返回新行 id; 已存在升级 source_type).
+
+        v1.0.36 sprint-18: 改为 INSERT ... ON CONFLICT DO UPDATE, 已存在的
+        auto_llm 同 keyword 升级为 manual_user (保证人工标签不被覆盖).
+        旧实现 INSERT OR IGNORE 会导致 add_keyword 静默失败 (auto_llm 优先).
+        """
         if not keyword or not keyword.strip():
             return None
         from datetime import datetime, timezone
@@ -504,14 +589,17 @@ class CaseRepository:
         conn = get_db()
         try:
             cur = conn.execute(
-                """INSERT OR IGNORE INTO case_keywords
+                """INSERT INTO case_keywords
                        (case_id, keyword, source_type, weight, created_at)
-                   VALUES (?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(case_id, keyword) DO UPDATE SET
+                       source_type = excluded.source_type,
+                       weight = excluded.weight""",
                 (case_id, keyword.strip(), source_type, weight, now),
             )
             conn.commit()
             row = conn.execute(
-                "SELECT id FROM case_keywords WHERE case_id = ? AND keyword = ?",
+                "SELECT id, source_type FROM case_keywords WHERE case_id = ? AND keyword = ?",
                 (case_id, keyword.strip()),
             ).fetchone()
             return row["id"] if row else None
