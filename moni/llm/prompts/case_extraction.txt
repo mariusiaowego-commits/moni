@@ -76,7 +76,8 @@ few-shot 示例：
       "reference_rationale": "县域数字化信贷试点，规模适中，对同业有一定借鉴",
       "summary": "网商银行试点面向农户的数字化信贷产品",
       "evidence_snippet": "网商银行与某农业产业链平台合作，试运行面向农户的数字化信贷产品",
-      "extraction_confidence": 85
+      "extraction_confidence": 85,
+      "keywords": ["数字化信贷", "农户贷款", "供应链金融"]
     }
   ]
 }
@@ -99,7 +100,8 @@ few-shot 示例：
       "reference_rationale": "国有大行核心系统转型规模最大，是同业数字化标杆",
       "summary": "工行完成全行核心系统数字化转型覆盖 1.7 万网点",
       "evidence_snippet": "工商银行宣布完成全行核心系统数字化转型",
-      "extraction_confidence": 90
+      "extraction_confidence": 90,
+      "keywords": ["核心系统", "系统改造", "网点智能化"]
     }
   ]
 }
