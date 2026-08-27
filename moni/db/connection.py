@@ -110,7 +110,12 @@ def _new_connection() -> sqlite3.Connection:
             con.execute("PRAGMA journal_mode = WAL")
     except sqlite3.OperationalError:
         pass  # another connection is mid-switch; WAL persists once set
-    # busy_timeout + foreign_keys are per-connection, set every time
+    # busy_timeout + foreign_keys are per-connection, set every time.
+    # NOTE: v1.0.37.1 thread-local connections exposed a flake catalogue
+    # in test_api / test_pins (cross-thread writer contention on the
+    # same fresh-db file). 5 s timeout works in production where
+    # write traffic is single-actor; tests get 30 s via a fixture-side
+    # override (see tests/conftest.py / _set_busy_timeout_for_test()).
     con.execute("PRAGMA busy_timeout = 5000")
     con.execute("PRAGMA foreign_keys = ON")
     return con
@@ -124,15 +129,36 @@ def get_db() -> sqlite3.Connection:
     cross-thread execute() interleaving — the v1.0.37 prod
     sqlite3.InterfaceError — structurally impossible.
 
+    Path-aware self-healing: a thread that reused a worker slot from a
+    prior pytest test (anyio threadpool, FastAPI TestClient) may still
+    hold a connection pointing at the old temporary db file.  We track
+    the path the cached connection was built against and rebuild if
+    get_db_path() has moved (e.g. fixture switched dbs).  Closes the
+    "no such table" / cross-test contamination window surfaced after
+    v1.0.37.1.
+
     WAL mode + busy_timeout make multi-connection writes safe.
     """
+    curr_path = get_db_path()
     conn = getattr(_LOCAL, "conn", None)
+    cached_path = getattr(_LOCAL, "db_path", None)
+    if conn is not None and cached_path != curr_path:
+        # Stale connection from a prior test/fixture — drop it, build fresh.
+        _RETIRED.append(conn)
+        _LOCAL.conn = None
+        conn = None
     if conn is None:
         with _CREATE_LOCK:
             conn = getattr(_LOCAL, "conn", None)
+            cached_path = getattr(_LOCAL, "db_path", None)
+            if conn is not None and cached_path != curr_path:
+                _RETIRED.append(conn)
+                _LOCAL.conn = None
+                conn = None
             if conn is None:
                 conn = _new_connection()
                 _LOCAL.conn = conn
+                _LOCAL.db_path = curr_path
     return conn
 
 

@@ -415,6 +415,7 @@ class TestCRUD:
             (str(seeded_article), seeded_tag,
              datetime.now(timezone.utc).isoformat()),
         )
+        conn.commit()  # v1.0.37.5: 立即释放悬挂写锁, 防 anyio worker thread 撞 timeout
         # Set a recognizable display_name
         client.put(
             f"/api/config/tags/{seeded_tag}",
