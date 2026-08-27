@@ -688,11 +688,80 @@ for _kind in ("cases", "events"):
         help="raw_content 最短长度 (过滤无正文文章, 默认 100)",
     )
 
+# 关键词回填子命令 (v1.0.36 sprint-18 P0)
+kw_p = extract_sub.add_parser(
+    "keywords",
+    help="存量案例关键词回填 (LLM 抽取 → case_keywords, 只针对无关键词的案例)"
+)
+kw_p.add_argument("--source", dest="source", metavar="NAME", help="只回填指定信源的案例")
+kw_p.add_argument("--limit", type=int, default=None, help="最多处理 N 条案例 (默认全部候选)")
+kw_p.add_argument("--dry-run", action="store_true", help="只统计候选, 不调用 LLM")
+kw_p.add_argument(
+    "--overwrite-auto", action="store_true",
+    help="覆盖已有 auto_llm 关键词 (manual_user 保留, 强制重抽)"
+)
+
 
 def cmd_extract(args) -> int:
-    """Dispatch to moni.cli.extract.run_extract."""
+    """Dispatch to moni.cli.extract.run_extract / extract_keywords."""
     from moni.cli.extract import run_extract
+    from moni.cli.extract_keywords import run_extract_keywords
+    if args.extract_kind == "keywords":
+        return run_extract_keywords(args)
     return run_extract(args.extract_kind, args)
+
+
+# ── cases subcommand (v1.0.36 sprint-18, auto_verify 一键) ──────────────
+
+def cmd_cases_verify_all(args) -> int:
+    """auto-verify pending 案例按 confidence 阈值批量 verified.
+
+    v1.0.35.19 auto_verify_threshold 默认 80 (agy 评审), 这条 CLI 让
+    dad 在跑完新一批 LLM 抽取后一键审核, 不必逐条点 confirm.
+    """
+    from datetime import datetime, timezone
+    from moni.db.connection import get_db
+
+    conn = get_db()
+    threshold = args.threshold
+    base_where = (
+        "review_status='pending' "
+        "AND (subject != '__processing__' OR subject IS NULL) "
+        "AND extraction_confidence >= ?"
+    )
+
+    if args.dry_run:
+        row = conn.execute(
+            f"SELECT COUNT(*) FROM cases WHERE {base_where}", (threshold,)
+        ).fetchone()
+        print(f"[dry-run] 将核验 confidence >= {threshold}: {row[0]} 条")
+        return 0
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    cur = conn.execute(
+        f"UPDATE cases SET review_status='confirmed', case_lifecycle='verified', updated_at=? "
+        f"WHERE {base_where}",
+        (now_iso, threshold),
+    )
+    conn.commit()
+    pending_after = conn.execute(
+        "SELECT COUNT(*) FROM cases WHERE review_status='pending'"
+    ).fetchone()[0]
+    print(f"已核验: {cur.rowcount} 条 | 仍 pending: {pending_after} 条")
+    return 0
+
+
+cases_parser = SUB.add_parser("cases", help="案例管理 (auto_verify 等)")
+cases_sub = cases_parser.add_subparsers(dest="cases_subcmd", required=True)
+verify_all_p = cases_sub.add_parser(
+    "verify-all", help="按 confidence 阈值批量 verified"
+)
+verify_all_p.add_argument(
+    "--threshold", type=int, default=80, help="confidence >= 阈值 (默认 80)"
+)
+verify_all_p.add_argument(
+    "--dry-run", action="store_true", help="只统计不写入"
+)
 
 
 # ── dispatch ─────────────────────────────────────────────────────────────────
@@ -735,6 +804,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.subcmd == "extract":
         return cmd_extract(args)
+
+    if args.subcmd == "cases":
+        if args.cases_subcmd == "verify-all":
+            return cmd_cases_verify_all(args)
+        cases_parser.print_help()
+        return 1
 
     if args.subcmd == "clean-articles":
         cmd_clean_articles()

@@ -20,10 +20,12 @@ v1 normalize 规则:
 5. amount 归一 (提取数字 + 单位, 标准化 "X 亿元" 格式)
 6. counterparty 主体别名归一
 7. reference_value 高/中/低 (默认 medium)
+8. keywords 归一 (别名 / 去泛词 / 去重截断 5)
 """
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
 from typing import Any
@@ -375,6 +377,120 @@ def normalize_amount(raw_amount: str | None) -> str | None:
     return raw_amount
 
 
+# ── 案例关键词归一 (sprint-18) ─────────────────────────────────────────
+KEYWORD_ALIAS_MAP: dict[str, str] = {
+    "跨境清算": "跨境支付",
+    "跨境结算": "跨境支付",
+    "跨境汇款": "跨境支付",
+    "数字货币跨境": "跨境支付",
+    "数币跨境": "跨境支付",
+    "P2P支付": "移动支付",
+    "二维码支付": "移动支付",
+    "刷脸支付": "生物支付",
+    "大语言模型": "大模型应用",
+    "生成式AI": "大模型应用",
+    "LLM": "大模型应用",
+    "AI Agent": "智能体",
+    "AI智能体": "智能体",
+    "Agentic AI": "智能体",
+    "智能投研": "智能投顾",
+    "AI投顾": "智能投顾",
+    "行为反欺诈": "智能风控",
+    "行为生物识别": "智能风控",
+    "反洗钱系统": "反洗钱",
+    "AML": "反洗钱",
+    "KYC认证": "合规KYC",
+    "身份核验": "合规KYC",
+    "信用卡核心": "核心系统",
+    "新一代核心": "核心系统",
+    "微服务重构": "系统改造",
+    "分布式架构": "系统改造",
+}
+
+# 单独出现即不合格的泛词 (prompt 约束 + 写入侧兜底)
+_KEYWORD_BANNED = frozenset({
+    "银行", "金融", "系统", "创新", "业务", "AI", "ai", "支付",
+})
+
+_KEYWORD_SPLIT_RE = re.compile(r"[,，;；、/|]+")
+_KEYWORD_LEAD_NUM_RE = re.compile(r"^[\d]+[\.．、\)）:：]\s*")
+_KEYWORD_WRAP_RE = re.compile(r"^[\(\[（【「『\"'“‘]+|[\)\]）】」』\"'”’]+$")
+
+
+def _coerce_keyword_list(raw_keywords: Any) -> list[str]:
+    """把 LLM 各种形状的 keywords 收成字符串列表."""
+    if raw_keywords is None:
+        return []
+    if isinstance(raw_keywords, str):
+        s = raw_keywords.strip()
+        if not s:
+            return []
+        if s.startswith("["):
+            try:
+                parsed = json.loads(s)
+                if isinstance(parsed, list):
+                    return [str(x) for x in parsed]
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return [p for p in _KEYWORD_SPLIT_RE.split(s) if p.strip()]
+    if isinstance(raw_keywords, (list, tuple, set)):
+        return [str(x) for x in raw_keywords]
+    return [str(raw_keywords)]
+
+
+def _clean_keyword_token(raw: str) -> str:
+    """去前缀编号 / 包裹标点 / 引号."""
+    s = raw.strip()
+    s = _KEYWORD_LEAD_NUM_RE.sub("", s).strip()
+    # 反复剥一层包裹标点
+    for _ in range(3):
+        nxt = _KEYWORD_WRAP_RE.sub("", s).strip()
+        if nxt == s:
+            break
+        s = nxt
+    s = s.strip(".,;:，。；、 ")
+    return s.strip()
+
+
+def _alias_keyword(token: str) -> str:
+    if token in KEYWORD_ALIAS_MAP:
+        return KEYWORD_ALIAS_MAP[token]
+    lower = token.lower()
+    for alias, canonical in KEYWORD_ALIAS_MAP.items():
+        if alias.lower() == lower:
+            return canonical
+    return token
+
+
+def normalize_keywords(raw_keywords: Any) -> list[str]:
+    """归一化关键词列表.
+
+    - 兼容字符串/数组输入
+    - 过滤空串/单字/长度 < 2 (防 'AI'/'银行'/'支付' 误伤)
+    - 字符清洗 (去前缀数字编号/标点/英文引号)
+    - KEYWORD_ALIAS_MAP 归一
+    - 去重, 截断前 5 个
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in _coerce_keyword_list(raw_keywords):
+        token = _clean_keyword_token(raw)
+        if not token:
+            continue
+        token = _alias_keyword(token)
+        if len(token) < 2:
+            continue
+        if token in _KEYWORD_BANNED or token.lower() in _KEYWORD_BANNED:
+            continue
+        if token in seen:
+            continue
+        seen.add(token)
+        out.append(token)
+        if len(out) >= 5:
+            break
+    return out
+
+
 def normalize_reference_value(raw_value: str | None) -> str:
     """reference_value 高/中/低 映射.  默认 medium."""
     if not raw_value:
@@ -421,4 +537,5 @@ def normalize_case(raw: dict[str, Any]) -> dict[str, Any] | None:
         "summary": (raw.get("summary") or "")[:200],
         "evidence_snippet": (raw.get("evidence_snippet") or "")[:400],
         "extraction_confidence": int(raw.get("extraction_confidence") or 70),
+        "keywords": normalize_keywords(raw.get("keywords")),
     }

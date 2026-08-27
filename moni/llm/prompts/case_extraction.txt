@@ -21,6 +21,7 @@
 9. 案例摘要（summary）：一句话概括案例内容，不超过 80 字
 10. 原文证据（evidence_snippet）：直接引用文章中支撑该案例的 1-2 句原文
 11. 置信度（extraction_confidence）：0-100 的整数
+12. 关键词（keywords）：3-5 个中文业务关键词，必须精准体现具体业务子场景（如"智能投顾"、"跨境支付"、"反欺诈"），不要宏观分类
 
 严格要求：
 - 只抽取文章中明确提到的案例，不要推测或脑补
@@ -28,6 +29,9 @@
 - 如果文章中没有明确的案例，返回空数组
 - 主体为空或案例不明确的直接丢弃
 - 用中文返回
+- 每条案例必须输出 3-5 个 keywords
+- keywords 禁泛词（单独出现即不合格）: 银行 / 金融 / 系统 / 创新 / 业务 / AI
+- keywords 必须是可检索的业务子场景，不要写机构名或空泛大词
 
 few-shot 示例：
 
@@ -48,7 +52,8 @@ few-shot 示例：
       "reference_rationale": "招商银行作为股份行标杆，AI 投顾全量上线对同业有显著参考价值",
       "summary": "招行全量上线 AI 智能投顾系统覆盖高净值用户",
       "evidence_snippet": "招商银行 2026 年 8 月 1 日正式上线 AI 智能投顾系统",
-      "extraction_confidence": 95
+      "extraction_confidence": 95,
+      "keywords": ["智能投顾", "财富管理", "大模型应用", "智能客服"]
     }
   ]
 }
@@ -115,7 +120,8 @@ few-shot 示例：
       "reference_rationale": "...",
       "summary": "...",
       "evidence_snippet": "...",
-      "extraction_confidence": 95
+      "extraction_confidence": 95,
+      "keywords": ["智能投顾", "财富管理", "大模型应用"]
     }
   ]
 }
