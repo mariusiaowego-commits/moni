@@ -3250,14 +3250,12 @@
                 <label>标识 name <span class="required">*</span>
                   <small class="muted">系统主键，创建后不可改；英文/短横线</small>
                 </label>
-                <!-- v1.0.5.12: name was locked whenever the modal was
-                     opened with a target (truthy check), but for a
-                     "new tag" the target is {} (empty object) which
-                     is still truthy — so the input was disabled even
-                     when creating a brand-new tag.  Lock only when
-                     name is set (= we're editing an existing row). -->
+                <!-- v1.0.39: disabled 判断绑 configModalTargetOriginal (是否编辑已有
+                     tag), 不能绑 !!name — x-model 每次输入立即写回 name,
+                     新建时敲第一个字符 !!name 即变 true → 输入框立刻锁死.
+                     用 original 判断则新建全程可改, 编辑已有才锁定. -->
                 <input type="text" x-model="configModalTarget.name"
-                       :disabled="!!configModalTarget.name" placeholder="e.g. banking">
+                       :disabled="!!configModalTargetOriginal" placeholder="e.g. banking">
               </div>
               <div class="form-row">
                 <label>显示名 display_name
@@ -3542,9 +3540,8 @@
                   <small class="muted">英文逗号分隔</small>
                 </label>
                 <input type="text"
-                       :value="(configModalTarget.keywords || []).join(', ')"
-                       @input="configModalTarget.keywords = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)"
-                       placeholder="游戏, 明星, 美食">
+                       x-model="configModalTarget.keywordsText"
+                       placeholder="游戏,明星,美食">
               </div>
               <div class="form-row">
                 <label class="checkbox-row">
@@ -3559,7 +3556,7 @@
             </div>
             <div class="modal-footer">
               <button class="btn-secondary" @click="closeConfigModal()">取消</button>
-              <button class="btn-primary" @click="configSaveFilter(configModalTarget, !!configModalTarget.id)">保存</button>
+              <button class="btn-primary" @click="configModalTarget.keywords = (configModalTarget.keywordsText || '').replace(/，/g, ',').split(',').map(s => s.trim()).filter(Boolean); configSaveFilter(configModalTarget, !!configModalTarget.id)">保存</button>
             </div>
           </div>
         </template>
