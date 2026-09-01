@@ -3248,14 +3248,26 @@
             <div class="modal-body">
               <div class="form-row">
                 <label>标识 name <span class="required">*</span>
-                  <small class="muted">系统主键，创建后不可改；英文/短横线</small>
+                  <small class="muted">系统主键，创建后不可改；英文/数字/短横线</small>
                 </label>
-                <!-- v1.0.39: disabled 判断绑 configModalTargetOriginal (是否编辑已有
-                     tag), 不能绑 !!name — x-model 每次输入立即写回 name,
-                     新建时敲第一个字符 !!name 即变 true → 输入框立刻锁死.
-                     用 original 判断则新建全程可改, 编辑已有才锁定. -->
-                <input type="text" x-model="configModalTarget.name"
-                       :disabled="!!configModalTargetOriginal" placeholder="e.g. banking">
+                <!-- v1.0.40: tag name 确认状态机 (audit S1 + #6) -->
+                <div class="input-with-action">
+                  <input type="text" x-model="configModalTarget.name"
+                         @input="onTagNameInput()"
+                         :disabled="!!configModalTargetOriginal || !!configModalTarget.nameConfirmed"
+                         placeholder="e.g. banking">
+                  <template x-if="!configModalTargetOriginal">
+                    <button type="button" class="btn btn-secondary btn-sm"
+                            :class="{ 'btn-confirmed': configModalTarget.nameConfirmed }"
+                            @click="toggleConfirmTagName()">
+                      <span x-text="configModalTarget.nameConfirmed ? '✏️ 修改' : '✓ 确定标识'"></span>
+                    </button>
+                  </template>
+                  <template x-if="!!configModalTargetOriginal">
+                    <span class="badge-locked" title="系统主键，已固化不可修改">🔒 已固化</span>
+                  </template>
+                </div>
+                <small class="text-danger" x-show="configModalTarget.nameError" x-text="configModalTarget.nameError"></small>
               </div>
               <div class="form-row">
                 <label>显示名 display_name
@@ -3308,22 +3320,46 @@
               </div>
               <div class="form-row">
                 <label>关键词 keywords
-                  <small class="muted">一行一个；OR 匹配标题+正文</small>
+                  <small class="muted">输入后按回车/逗号生成标签，支持批量粘贴；OR 匹配标题+正文</small>
                 </label>
-                <textarea x-model="configModalTarget.keywordsText" rows="4"
-                          placeholder="银行&#10;支付&#10;跨境支付"></textarea>
+                <!-- v1.0.40: 关键词 Chip CRUD 组件 (Filter + Tag 统一) -->
+                <div class="keyword-chip-container"
+                     x-data="keywordChipEditor()"
+                     @click="$el.querySelector('.chip-inline-input')?.focus()">
+                  <template x-for="(kw, idx) in items" :key="idx">
+                    <span class="chip-item">
+                      <span class="chip-text" x-text="kw"></span>
+                      <button type="button" class="chip-remove" @click.stop="removeKeyword(idx)" title="删除">×</button>
+                    </span>
+                  </template>
+                  <input type="text"
+                         class="chip-inline-input"
+                         x-model="newKeyword"
+                         @keydown="handleKeydown($event)"
+                         @input="handleInput($event)"
+                         @paste="handlePaste($event)"
+                         @blur="addKeyword()"
+                         placeholder="输入关键词按回车/逗号...">
+                </div>
+                <div class="keyword-chip-meta">
+                  <span class="muted" x-text="`已配置 ${(configModalTarget.keywords || []).length} 个关键词`"></span>
+                  <button type="button" class="link-btn text-danger"
+                          x-show="(configModalTarget.keywords || []).length > 0"
+                          @click="configModalTarget.keywords = []">清空</button>
+                </div>
                 <small class="muted">留空 = 仅作分类展示、不参与抓取门控。配了关键词后，绑定此 tag 的源的文章必须命中至少一个词才入库。</small>
               </div>
             </div>
             <div class="modal-footer">
               <button class="btn-secondary" @click="closeConfigModal()">取消</button>
               <button class="btn-primary"
+                      :disabled="!configModalTargetOriginal && !configModalTarget.nameConfirmed"
                       @click="configSaveTag({
                         name: configModalTarget.name,
                         display_name: configModalTarget.display_name || null,
                         description: configModalTarget.description || null,
                         color: configModalTarget.color || null,
-                        keywords: (configModalTarget.keywordsText || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+                        keywords: (configModalTarget.keywords || []).map(s => s.trim()).filter(Boolean)
                       }, !!configModalTargetOriginal, configModalTargetOriginal)">
                 保存
               </button>
@@ -3537,11 +3573,33 @@
               </div>
               <div class="form-row">
                 <label>关键词 keywords <span class="required">*</span>
-                  <small class="muted">英文逗号分隔</small>
+                  <small class="muted">输入后按回车/逗号生成标签，支持批量粘贴</small>
                 </label>
-                <input type="text"
-                       x-model="configModalTarget.keywordsText"
-                       placeholder="游戏,明星,美食">
+                <!-- v1.0.40: 关键词 Chip CRUD 组件 (Filter + Tag 统一) -->
+                <div class="keyword-chip-container"
+                     x-data="keywordChipEditor()"
+                     @click="$el.querySelector('.chip-inline-input')?.focus()">
+                  <template x-for="(kw, idx) in items" :key="idx">
+                    <span class="chip-item">
+                      <span class="chip-text" x-text="kw"></span>
+                      <button type="button" class="chip-remove" @click.stop="removeKeyword(idx)" title="删除">×</button>
+                    </span>
+                  </template>
+                  <input type="text"
+                         class="chip-inline-input"
+                         x-model="newKeyword"
+                         @keydown="handleKeydown($event)"
+                         @input="handleInput($event)"
+                         @paste="handlePaste($event)"
+                         @blur="addKeyword()"
+                         placeholder="输入关键词按回车/逗号...">
+                </div>
+                <div class="keyword-chip-meta">
+                  <span class="muted" x-text="`已配置 ${(configModalTarget.keywords || []).length} 个关键词`"></span>
+                  <button type="button" class="link-btn text-danger"
+                          x-show="(configModalTarget.keywords || []).length > 0"
+                          @click="configModalTarget.keywords = []">清空</button>
+                </div>
               </div>
               <div class="form-row">
                 <label class="checkbox-row">
@@ -3556,7 +3614,7 @@
             </div>
             <div class="modal-footer">
               <button class="btn-secondary" @click="closeConfigModal()">取消</button>
-              <button class="btn-primary" @click="configModalTarget.keywords = (configModalTarget.keywordsText || '').replace(/，/g, ',').split(',').map(s => s.trim()).filter(Boolean); configSaveFilter(configModalTarget, !!configModalTarget.id)">保存</button>
+              <button class="btn-primary" @click="configModalTarget.keywords = (configModalTarget.keywords || []).map(s => s.trim()).filter(Boolean); configSaveFilter(configModalTarget, !!configModalTarget.id)">保存</button>
             </div>
           </div>
         </template>

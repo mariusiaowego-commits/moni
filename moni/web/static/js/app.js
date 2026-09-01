@@ -61,6 +61,67 @@ class FetchParticle {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// v1.0.40: Reusable Keyword Chip CRUD Component (Sprint-20 PR1)
+// ═══════════════════════════════════════════════════════════════
+function keywordChipEditor() {
+  return {
+    newKeyword: '',
+    get items() {
+      if (!this.configModalTarget) return [];
+      if (!Array.isArray(this.configModalTarget.keywords)) {
+        this.configModalTarget.keywords = [];
+      }
+      return this.configModalTarget.keywords;
+    },
+    addKeyword(val) {
+      const raw = (val !== undefined ? val : this.newKeyword) || '';
+      // 支持中英文逗号、换行、分号、顿号批量拆分
+      const parts = raw.split(/[\n,，;；、]/).map(s => s.trim()).filter(Boolean);
+      if (!parts.length) return;
+      if (!this.configModalTarget) return;
+      if (!Array.isArray(this.configModalTarget.keywords)) {
+        this.configModalTarget.keywords = [];
+      }
+      for (const p of parts) {
+        if (!this.configModalTarget.keywords.includes(p)) {
+          this.configModalTarget.keywords.push(p);
+        }
+      }
+      this.newKeyword = '';
+    },
+    removeKeyword(index) {
+      if (!this.configModalTarget || !Array.isArray(this.configModalTarget.keywords)) return;
+      this.configModalTarget.keywords.splice(index, 1);
+    },
+    handleKeydown(e) {
+      if (e.isComposing) return; // 保护中文输入法拼音输入中
+      if (e.key === 'Enter' || e.key === ',' || e.key === '，' || e.key === '、') {
+        e.preventDefault();
+        this.addKeyword();
+      } else if (e.key === 'Backspace' && !this.newKeyword && this.items.length > 0) {
+        this.removeKeyword(this.items.length - 1);
+      }
+    },
+    handleInput(e) {
+      if (e && e.isComposing) return;
+      if (/[\n,，;；、]/.test(this.newKeyword)) {
+        this.addKeyword();
+      }
+    },
+    handlePaste(e) {
+      e.preventDefault();
+      const pasteText = (e.clipboardData || window.clipboardData).getData('text');
+      this.addKeyword(pasteText);
+    },
+    clearAll() {
+      if (this.configModalTarget) {
+        this.configModalTarget.keywords = [];
+      }
+    }
+  };
+}
+
 function app() {
   return {
     // ── Theme engine (from theme.js) ──
@@ -655,9 +716,42 @@ function app() {
     if (!r.ok) return r.text().then(t => { throw new Error(t || `HTTP ${r.status}`); });
     return r.json();
       }).then(() => {
-    this.configLoadTags();
-    this.closeConfigModal();
+        this.configLoadTags();
+        this.closeConfigModal();
       }).catch(err => this._notify('error', '保存失败: ' + err.message));
+    },
+    validateTagName(name) {
+      if (!name || !name.trim()) return '标识 name 不能为空';
+      const val = name.trim();
+      if (!/^[a-z0-9_-]+$/.test(val)) return '格式错误：仅限小写英文、数字、短横线与下划线 (^[a-z0-9_-]+$)';
+      const exists = (this.configTags || []).some(t => t.name.toLowerCase() === val.toLowerCase() && t.name !== this.configModalTargetOriginal);
+      if (exists) return `标识 "${val}" 已存在，请换一个`;
+      return '';
+    },
+    onTagNameInput() {
+      if (!this.configModalTarget) return;
+      if (!this.configModalTargetOriginal) {
+        // S1: name 一旦被修改，立即回退 nameConfirmed = false，保存按钮重新 disabled
+        this.configModalTarget.nameConfirmed = false;
+        // #6: 实时校验格式与重名
+        this.configModalTarget.nameError = this.validateTagName(this.configModalTarget.name);
+      }
+    },
+    toggleConfirmTagName() {
+      if (!this.configModalTarget) return;
+      if (this.configModalTarget.nameConfirmed) {
+        // 解锁修改
+        this.configModalTarget.nameConfirmed = false;
+        this.configModalTarget.nameError = this.validateTagName(this.configModalTarget.name);
+      } else {
+        // 校验并确定标识
+        const err = this.validateTagName(this.configModalTarget.name);
+        this.configModalTarget.nameError = err;
+        if (!err) {
+          this.configModalTarget.name = this.configModalTarget.name.trim();
+          this.configModalTarget.nameConfirmed = true;
+        }
+      }
     },
 
     // ── Sources CRUD ───────────────────────────────────────────────
@@ -866,21 +960,36 @@ function app() {
       // Deep clone to avoid mutating the table row
       this.configModalTarget = target ? JSON.parse(JSON.stringify(target)) : {};
       // Track original identifiers for PUT semantics (tag name, source id)
-      if (target && type === 'tag') {
-        this.configModalTargetOriginal = target.name;
-        // v1.0.5.4: the tag carries an optional ``keywords`` list; the
-        // modal shows them as one-per-line text.  Pre-populate the
-        // textarea so the user sees (and can edit) what's saved.
-        const kws = Array.isArray(target.keywords) ? target.keywords : [];
-        this.configModalTarget.keywordsText = kws.join('\n');
-      } else if (target && type === 'source' && target.id) {
+      if (type === 'tag') {
+        if (target && target.name) {
+          this.configModalTargetOriginal = target.name;
+          const kws = Array.isArray(target.keywords) ? [...target.keywords] : [];
+          this.configModalTarget.keywords = kws;
+          this.configModalTarget.nameConfirmed = true;
+          this.configModalTarget.nameError = '';
+        } else {
+          this.configModalTargetOriginal = null;
+          this.configModalTarget = {
+            name: '', display_name: '', description: '', color: '',
+            keywords: [], is_active: true,
+            nameConfirmed: false, nameError: '',
+          };
+        }
+      } else if (type === 'source' && target && target.id) {
         this.configModalTargetOriginal = target.id;
-      } else if (target && type === 'filter' && target.id) {
-        this.configModalTargetOriginal = target.id;
-        // v1.0.39: filter 关键词用逗号分隔文本中转 (替代 :value/@input 双绑)
-        // 避免 join(', ') 与 split(',') 不对称导致输入被覆盖重渲染
-        const kws = Array.isArray(target.keywords) ? target.keywords : [];
-        this.configModalTarget.keywordsText = kws.join(',');
+      } else if (type === 'filter') {
+        if (target && target.id) {
+          this.configModalTargetOriginal = target.id;
+          const kws = Array.isArray(target.keywords) ? [...target.keywords] : [];
+          this.configModalTarget.keywords = kws;
+        } else {
+          this.configModalTargetOriginal = null;
+          this.configModalTarget = {
+            source_id: this.configSources[0]?.id || '',
+            mode: 'blacklist', match_field: 'title+content',
+            keywords: [], is_active: true, notes: '',
+          };
+        }
       } else {
         this.configModalTargetOriginal = null;
       }
@@ -888,13 +997,6 @@ function app() {
         this.configModalTarget = {
           id: '', name: '', display_name: '', source_type: 'html', url: '',
           fetch_interval_min: 30, is_active: true, notes: '',
-        };
-      } else if (type === 'filter' && !target) {
-        this.configModalTarget = {
-          source_id: this.configSources[0]?.id || '',
-          mode: 'blacklist', match_field: 'title+content',
-          keywords: [], is_active: true, notes: '',
-          keywordsText: '',  // v1.0.39: 新 filter 关键词文本初始为空
         };
       } else if (type === 'sourceTags' && target) {
         this.configModalTarget = {
