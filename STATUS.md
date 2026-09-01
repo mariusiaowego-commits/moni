@@ -4,7 +4,24 @@
 
 ---
 
-## 当前状态: **v1.0.39 — config 黑名单关键词输入锁死 + 业务 tag name 锁死修复** (2026-09-01 SHIPPED)
+## 当前状态: **v1.0.40 — config 交互升级 (sprint-20 完整交付)** (2026-09-01 SHIPPED)
+
+**主分支**: main @ `d7e6fa3` (PR #138 + #139 squash-merged, tag v1.0.40 `d7e6fa3` force push)
+**Tag 链**: v1.0.40 → v1.0.39 → v1.0.37.7 → ...
+**PR 链路**: #138 (3.3 + 4.1 纯前端) + #139 (3.4 全栈管线)
+**Prod**: 8900 pid 47612 (新代码已生效; migration 033 落库; `/api/config/global-filters` 200)
+
+> **v1.0.40 (2026-09-01) config 交互升级 (sprint-20)** — 3 需求一次性解决:
+> - **3.3 关键词输入改 Chip/Tag CRUD** (Filter + Tag 两处复用 `keywordChipEditor` Alpine.data 组件, 增/删/批量粘贴拆分/去重, 用 moni 设计 token), 后端 keywords 接口未动。
+> - **4.1 业务 tag name 提交确认状态机**: 新建 tag 加「✓ 确定标识 / ✏️ 修改」按钮 + `nameConfirmed` 状态机; audit S1「改 name 自动回退 confirmed」修掉漏洞; 编辑已有 tag 永久锁 + 🔒 徽章。
+> - **3.4 全局关键词 (跨信源)**: migration 033 新表 `global_keyword_filters` (方案 A 独立表, 零破坏 source_keyword_filters), 5 层管线优先级铁律 (全局黑→源黑→全局白→源白→tag门控, 黑并集/白交集/match_field 各自独立), fetch_log `ALTER TABLE` 加 3 列全局计数列 (dropped_global_blacklist / dropped_global_whitelist / global_filters_applied), 端到端从 filters.py → base.py → cron 链路完整落库 (audit 抓出的 blocker), 全局面板在 /config + 全局白名单弹 ⚠️ 警告。
+> - **验证**: agy Playwright + 真实 Chrome 9/9 通过 (PR1) + 全量 pytest **880 passed + 2 skipped, 0 failed** (PR2 后) + moni-audit 二审 (PR1: ✅ 可 merge; PR2 复审: ✅ 可 merge, 0 严重)。
+> - **风险**: 全局白名单误配过窄会误杀全源 (后端空词 400 + 前端 Warning + 默认推荐黑名单三重护)。
+> - **数据现状**: 测试 880 pass + 2 skip; schema_version 32 → 33 (033_global_keyword_filters.sql + ALTER fetch_log 3 列); data/news.db global_keyword_filters 表已建。
+
+---
+
+## 历史: **v1.0.39 — config 黑名单关键词输入锁死 + 业务 tag name 锁死修复** (2026-09-01 SHIPPED)
 
 **主分支**: main @ `516b322` (PR #137 squash-merged, tag v1.0.39 `516b322` push)
 **Tag 链**: v1.0.39 → v1.0.37.7 → ...
