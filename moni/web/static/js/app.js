@@ -877,6 +877,10 @@ function app() {
         this.configModalTargetOriginal = target.id;
       } else if (target && type === 'filter' && target.id) {
         this.configModalTargetOriginal = target.id;
+        // v1.0.39: filter 关键词用逗号分隔文本中转 (替代 :value/@input 双绑)
+        // 避免 join(', ') 与 split(',') 不对称导致输入被覆盖重渲染
+        const kws = Array.isArray(target.keywords) ? target.keywords : [];
+        this.configModalTarget.keywordsText = kws.join(',');
       } else {
         this.configModalTargetOriginal = null;
       }
@@ -890,6 +894,7 @@ function app() {
           source_id: this.configSources[0]?.id || '',
           mode: 'blacklist', match_field: 'title+content',
           keywords: [], is_active: true, notes: '',
+          keywordsText: '',  // v1.0.39: 新 filter 关键词文本初始为空
         };
       } else if (type === 'sourceTags' && target) {
         this.configModalTarget = {
