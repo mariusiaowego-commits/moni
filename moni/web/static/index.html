@@ -2521,7 +2521,8 @@
             <button class="btn-refresh" @click="configLoadFilters()">刷新</button>
             <select x-model="configFilterSourceFilter" @change="filterFiltersBySource()"
                     style="margin-left: 12px; padding: 4px 8px;">
-              <option value="">所有 source</option>
+              <option value="">所有 source (含全局)</option>
+              <option value="__global__">🌐 全局通用规则 (所有信源)</option>
               <template x-for="s in configSources" :key="s.id">
                 <option :value="s.id" x-text="s.name"></option>
               </template>
@@ -2540,10 +2541,17 @@
                 </tr>
               </thead>
               <tbody>
-                <template x-for="f in configFilters" :key="f.id">
+                <template x-for="f in configFilters" :key="(f.is_global ? 'g-' : 's-') + f.id">
                   <tr>
                     <td x-text="f.id"></td>
-                    <td x-text="f.source_id"></td>
+                    <td>
+                      <template x-if="f.is_global || f.source_id === '__global__'">
+                        <span class="badge-global">🌐 全局生效</span>
+                      </template>
+                      <template x-if="!f.is_global && f.source_id !== '__global__'">
+                        <span x-text="f.source_id"></span>
+                      </template>
+                    </td>
                     <td>
                       <span class="status-badge"
                             :class="f.mode === 'blacklist' ? 'status-paused' : 'status-ok'"
@@ -3539,18 +3547,23 @@
         <template x-if="configModalType === 'filter'">
           <div>
             <div class="modal-header">
-              <h3 x-text="configModalTarget?.id ? '编辑关键词过滤' : '新建关键词过滤'"></h3>
+              <h3 x-text="configModalTarget?.id ? (configModalTarget.is_global || configModalTarget.source_id === '__global__' ? '编辑全局关键词过滤' : '编辑关键词过滤') : (configModalTarget?.source_id === '__global__' ? '新建全局关键词过滤' : '新建关键词过滤')"></h3>
             </div>
             <div class="modal-body">
               <div class="form-row">
                 <label>所属抓取源 source <span class="required">*</span>
-                  <small class="muted">规则只作用于该源</small>
+                  <small class="muted">选择特定源或全局生效 (全局规则对所有信源生效)</small>
                 </label>
                 <select x-model="configModalTarget.source_id" :disabled="!!configModalTarget.id">
+                  <option value="__global__">🌐 [ 全局通用 (所有信源) ]</option>
                   <template x-for="s in configSources" :key="s.id">
                     <option :value="s.id" x-text="s.name"></option>
                   </template>
                 </select>
+              </div>
+              <div class="banner-warning" style="margin-bottom: 16px;"
+                   x-show="(configModalTarget.source_id === '__global__' || configModalTarget.is_global) && configModalTarget.mode === 'whitelist'">
+                ⚠️ <strong>全局白名单</strong>将对所有信源生效，未命中的文章将全部被过滤丢弃，请确保关键词覆盖度足够广。
               </div>
               <div class="form-row">
                 <label>模式 mode <span class="required">*</span>

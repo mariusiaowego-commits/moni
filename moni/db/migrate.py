@@ -18,7 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 32  # v1.0.37: 案例地理维度 (032_case_geography)
+_CURRENT_VERSION = 33  # v1.0.40: 全局关键词过滤 (033_global_keyword_filters)
 
 
 def current_version(conn: sqlite3.Connection) -> int:

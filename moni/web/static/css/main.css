@@ -3631,3 +3631,22 @@ label { font-size: 0.85rem; }
   border-color: var(--success) !important;
 }
 
+.badge-global {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  border-radius: 6px;
+  background: oklch(from var(--accent) l c h / 0.16);
+  color: var(--foreground);
+  border: 1px solid oklch(from var(--accent) l c h / 0.4);
+  white-space: nowrap;
+}
+.dark .badge-global {
+  background: oklch(from var(--accent) l c h / 0.25);
+  border-color: oklch(from var(--accent) l c h / 0.5);
+  color: var(--foreground);
+}
+

@@ -525,6 +525,39 @@ class KeywordFilterUpdate(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Config: global_keyword_filters (v1.0.40 / sprint-20 PR2)
+# ---------------------------------------------------------------------------
+
+
+class GlobalKeywordFilter(BaseModel):
+    """全局关键词白/黑名单 filter (跨源生效)."""
+    id: int
+    mode: str                       # 'whitelist' | 'blacklist'
+    match_field: str = "title+content"
+    keywords: list[str] = []
+    is_active: bool = True
+    notes: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class GlobalKeywordFilterCreate(BaseModel):
+    mode: str
+    match_field: str = "title+content"
+    keywords: list[str] = []
+    is_active: bool = True
+    notes: str | None = None
+
+
+class GlobalKeywordFilterUpdate(BaseModel):
+    mode: str | None = None
+    match_field: str | None = None
+    keywords: list[str] | None = None
+    is_active: bool | None = None
+    notes: str | None = None
+
+
+# ---------------------------------------------------------------------------
 # Standard ErrorResponse
 # ---------------------------------------------------------------------------
 
@@ -602,4 +635,5 @@ __all__ = [
     "Tag", "TagCreate", "TagUpdate",
     "Source", "SourceCreate", "SourceUpdate", "SourceWithTags",
     "KeywordFilter", "KeywordFilterCreate", "KeywordFilterUpdate",
+    "GlobalKeywordFilter", "GlobalKeywordFilterCreate", "GlobalKeywordFilterUpdate",
 ]
