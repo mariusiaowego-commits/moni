@@ -156,6 +156,10 @@ def fetch_all_sources() -> dict[str, Any] | None:
 
             # Calculate deduped: articles that were parsed but not inserted
             # and not filtered out (i.e., already existed in DB)
+            # NOTE: dropped_blacklist / dropped_whitelist 已含 global 子项
+            # (filters.py 里 global+source 累加到同一计数器)。
+            # dropped_global_* 是独立 breakdown, 别在这里再加进 dropped_total,
+            # 否则会重复扣减 deduped。
             dropped_total = dropped_blacklist + dropped_whitelist + dropped_tag_filter
             deduped = max(0, parsed - inserted - dropped_total)
 
