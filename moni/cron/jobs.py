@@ -146,13 +146,20 @@ def fetch_all_sources() -> dict[str, Any] | None:
             filtered = result.get("filtered", 0)
             dropped_blacklist = result.get("dropped_blacklist", 0)
             dropped_whitelist = result.get("dropped_whitelist", 0)
+            dropped_global_blacklist = result.get("dropped_global_blacklist", 0)
+            dropped_global_whitelist = result.get("dropped_global_whitelist", 0)
             dropped_tag_filter = result.get("dropped_tag_filter", 0)
             filters_applied = result.get("filters_applied", 0)
+            global_filters_applied = result.get("global_filters_applied", 0)
             tags_used = result.get("tags_used", 0)
             error = result.get("error")
 
             # Calculate deduped: articles that were parsed but not inserted
             # and not filtered out (i.e., already existed in DB)
+            # NOTE: dropped_blacklist / dropped_whitelist 已含 global 子项
+            # (filters.py 里 global+source 累加到同一计数器)。
+            # dropped_global_* 是独立 breakdown, 别在这里再加进 dropped_total,
+            # 否则会重复扣减 deduped。
             dropped_total = dropped_blacklist + dropped_whitelist + dropped_tag_filter
             deduped = max(0, parsed - inserted - dropped_total)
 
@@ -185,8 +192,11 @@ def fetch_all_sources() -> dict[str, Any] | None:
                     filtered=filtered,
                     dropped_blacklist=dropped_blacklist,
                     dropped_whitelist=dropped_whitelist,
+                    dropped_global_blacklist=dropped_global_blacklist,
+                    dropped_global_whitelist=dropped_global_whitelist,
                     dropped_tag_filter=dropped_tag_filter,
                     filters_applied=filters_applied,
+                    global_filters_applied=global_filters_applied,
                     tags_used=tags_used,
                     deduped=deduped,
                     error=error,

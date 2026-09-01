@@ -11,6 +11,7 @@ from fastapi import APIRouter
 from moni.web.routes.articles import router as articles_router
 from moni.web.routes.basket import router as basket_router
 from moni.web.routes.config_filters import router as config_filters_router
+from moni.web.routes.config_global_filters import router as config_global_filters_router
 from moni.web.routes.config_sources import router as config_sources_router
 from moni.web.routes.config_tags import router as config_tags_router
 from moni.web.routes.cases import router as cases_router
@@ -35,6 +36,7 @@ _routers: list[APIRouter] = [
     basket_router,
     cases_router,  # v1.0.17: F6 同业案例库
     config_filters_router,
+    config_global_filters_router,
     config_sources_router,
     config_tags_router,
     cron_router,

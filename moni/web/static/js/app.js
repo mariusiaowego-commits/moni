@@ -918,33 +918,83 @@ function app() {
     // ── Filters CRUD ───────────────────────────────────────────────
     configLoadFilters() {
       const sourceId = this.configFilterSourceFilter || '';
-      const url = sourceId
-        ? `/api/config/filters?source_id=${encodeURIComponent(sourceId)}`
-        : '/api/config/filters';
-      fetch(url, { credentials: 'same-origin' })
-        .then(r => r.json())
-        .then(data => { this.configFilters = Array.isArray(data) ? data : []; })
-        .catch(err => { console.error('Failed to load filters:', err); this.configFilters = []; });
+      // 注意 (v1.0.40 PR2 review): 配置管理页 (admin) 需拉取全部规则 (含已停用 is_active=false 的规则),
+      // 保证用户在界面上可以查看、编辑、恢复启用或删除已停用的全局/源规则，避免规则停用后直接从界面消失导致无法管理。
+      if (sourceId === '__global__') {
+        // Only load global filters
+        fetch('/api/config/global-filters?include_inactive=true', { credentials: 'same-origin' })
+          .then(r => r.json())
+          .then(data => {
+            const list = Array.isArray(data) ? data : [];
+            this.configFilters = list.map(f => ({ ...f, is_global: true, source_id: '__global__' }));
+          })
+          .catch(err => { console.error('Failed to load global filters:', err); this.configFilters = []; });
+      } else if (sourceId) {
+        // Specific source filters
+        fetch(`/api/config/filters?source_id=${encodeURIComponent(sourceId)}&include_inactive=true`, { credentials: 'same-origin' })
+          .then(r => r.json())
+          .then(data => {
+            const list = Array.isArray(data) ? data : [];
+            this.configFilters = list.map(f => ({ ...f, is_global: false }));
+          })
+          .catch(err => { console.error('Failed to load filters:', err); this.configFilters = []; });
+      } else {
+        // All sources: load both global and source filters, placing global at top!
+        Promise.all([
+          fetch('/api/config/global-filters?include_inactive=true', { credentials: 'same-origin' }).then(r => r.json()).catch(() => []),
+          fetch('/api/config/filters?include_inactive=true', { credentials: 'same-origin' }).then(r => r.json()).catch(() => []),
+        ]).then(([globals, sources]) => {
+          const gList = (Array.isArray(globals) ? globals : []).map(f => ({ ...f, is_global: true, source_id: '__global__' }));
+          const sList = (Array.isArray(sources) ? sources : []).map(f => ({ ...f, is_global: false }));
+          this.configFilters = [...gList, ...sList];
+        }).catch(err => {
+          console.error('Failed to load filters:', err);
+          this.configFilters = [];
+        });
+      }
+    },
+    filterFiltersBySource() {
+      this.configLoadFilters();
     },
     configCreateFilter() { this.openConfigModal('filter', null); },
     configEditFilter(filter) { this.openConfigModal('filter', filter); },
     async configDeleteFilter(filter) {
-      if (!(await moniModal.confirm(`确定删除 filter id=${filter.id}?`, { title: '删除 filter', okLabel: '删除', danger: true }))) return;
-      fetch(`/api/config/filters/${filter.id}`, {
+      const isGlobal = filter.is_global || filter.source_id === '__global__';
+      const label = isGlobal ? `全局 filter id=${filter.id}` : `filter id=${filter.id}`;
+      if (!(await moniModal.confirm(`确定删除 ${label}?`, { title: '删除 filter', okLabel: '删除', danger: true }))) return;
+      const url = isGlobal ? `/api/config/global-filters/${filter.id}` : `/api/config/filters/${filter.id}`;
+      fetch(url, {
         method: 'DELETE', credentials: 'same-origin',
       })
         .then(r => { if (!r.ok) throw new Error('Delete failed'); this.configLoadFilters(); })
         .catch(err => this._notify('error', '删除失败: ' + err.message));
     },
     configSaveFilter(body, isEdit) {
-      const url = isEdit
-        ? `/api/config/filters/${body.id}`
-        : '/api/config/filters';
+      const isGlobal = body.is_global || body.source_id === '__global__';
+      const url = isGlobal
+        ? (isEdit ? `/api/config/global-filters/${body.id}` : '/api/config/global-filters')
+        : (isEdit ? `/api/config/filters/${body.id}` : '/api/config/filters');
       const method = isEdit ? 'PUT' : 'POST';
+      const payload = isGlobal
+        ? {
+            mode: body.mode,
+            match_field: body.match_field,
+            keywords: (body.keywords || []).map(s => String(s).trim()).filter(Boolean),
+            is_active: !!body.is_active,
+            notes: body.notes || null,
+          }
+        : {
+            source_id: body.source_id,
+            mode: body.mode,
+            match_field: body.match_field,
+            keywords: (body.keywords || []).map(s => String(s).trim()).filter(Boolean),
+            is_active: !!body.is_active,
+            notes: body.notes || null,
+          };
       return fetch(url, {
         method, credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(payload),
       }).then(r => {
         if (!r.ok) return r.text().then(t => { throw new Error(t || `HTTP ${r.status}`); });
         return r.json();
@@ -982,10 +1032,16 @@ function app() {
           this.configModalTargetOriginal = target.id;
           const kws = Array.isArray(target.keywords) ? [...target.keywords] : [];
           this.configModalTarget.keywords = kws;
+          this.configModalTarget.is_global = !!target.is_global || target.source_id === '__global__';
+          this.configModalTarget.source_id = this.configModalTarget.is_global ? '__global__' : target.source_id;
         } else {
           this.configModalTargetOriginal = null;
+          const defaultSource = (this.configFilterSourceFilter === '__global__')
+            ? '__global__'
+            : (this.configFilterSourceFilter || (this.configSources[0]?.id || '__global__'));
           this.configModalTarget = {
-            source_id: this.configSources[0]?.id || '',
+            source_id: defaultSource,
+            is_global: defaultSource === '__global__',
             mode: 'blacklist', match_field: 'title+content',
             keywords: [], is_active: true, notes: '',
           };

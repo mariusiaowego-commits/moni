@@ -90,8 +90,11 @@ class CronRunHistory:
         filtered: int = 0,
         dropped_blacklist: int = 0,
         dropped_whitelist: int = 0,
+        dropped_global_blacklist: int = 0,
+        dropped_global_whitelist: int = 0,
         dropped_tag_filter: int = 0,
         filters_applied: int = 0,
+        global_filters_applied: int = 0,
         tags_used: int = 0,
         deduped: int = 0,
         error: Optional[str] = None,
@@ -107,10 +110,13 @@ class CronRunHistory:
             parse_errors:   Number of parse errors
             cleaned:        Number of articles with boilerplate cleaned
             filtered:       Number of articles that passed filters
-            dropped_blacklist: Articles dropped by blacklist filter
-            dropped_whitelist: Articles dropped by whitelist filter
+            dropped_blacklist: Articles dropped by blacklist filter (global + source)
+            dropped_whitelist: Articles dropped by whitelist filter (global + source)
+            dropped_global_blacklist: Articles dropped by global blacklist
+            dropped_global_whitelist: Articles dropped by global whitelist
             dropped_tag_filter: Articles dropped by tag filter
-            filters_applied: Number of filter rules checked
+            filters_applied: Number of filter rules checked (global + source)
+            global_filters_applied: Number of global filter rules checked
             tags_used:      Number of tag keywords matched
             deduped:        Articles skipped as duplicates (already in DB)
             error:          Exception message if the source fetch failed
@@ -121,9 +127,10 @@ class CronRunHistory:
             INSERT INTO fetch_log
                 (cron_run_rowid, source, fetched, parsed, inserted,
                  parse_errors, cleaned, filtered, dropped_blacklist,
-                 dropped_whitelist, dropped_tag_filter, filters_applied,
+                 dropped_whitelist, dropped_global_blacklist, dropped_global_whitelist,
+                 dropped_tag_filter, filters_applied, global_filters_applied,
                  tags_used, deduped, error)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 cron_run_rowid,
@@ -136,8 +143,11 @@ class CronRunHistory:
                 filtered,
                 dropped_blacklist,
                 dropped_whitelist,
+                dropped_global_blacklist,
+                dropped_global_whitelist,
                 dropped_tag_filter,
                 filters_applied,
+                global_filters_applied,
                 tags_used,
                 deduped,
                 error,

@@ -46,7 +46,7 @@ _start() {
     # v1.0.5.10: dev port shares the prod DB by default.  Set
     # MONI_DATA_DIR=/path/to/wt/data when running inside a worktree
     # if you want DB isolation.
-    python3 -c "
+    /usr/local/bin/python3 -c "
 import uvicorn
 from moni.web.server import create_app
 uvicorn.run(create_app(), host='127.0.0.1', port=$PORT, log_level='warning')

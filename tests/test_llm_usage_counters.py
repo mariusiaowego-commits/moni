@@ -112,7 +112,7 @@ def _seed_llm_jobs() -> None:
 
 
 def test_migration_029_adds_usage_columns(fresh_db):
-    assert current_version(get_db()) == 32  # v1.0.37: schema 升到 v32 (migration 032 案例地理)
+    assert current_version(get_db()) == 33  # v1.0.40: schema 升到 v33 (migration 033 全局关键词)
     cols = {
         r["name"]
         for r in get_db().execute("PRAGMA table_info(llm_jobs)").fetchall()
@@ -120,7 +120,7 @@ def test_migration_029_adds_usage_columns(fresh_db):
     assert "input_tokens" in cols
     assert "output_tokens" in cols
     assert "cost_usd" in cols
-    assert _CURRENT_VERSION == 32  # v1.0.37: schema 升到 v32 (migration 032 案例地理)
+    assert _CURRENT_VERSION == 33  # v1.0.40: schema 升到 v33 (migration 033 全局关键词)
 
 
 # ── worker_llm.parse_usage_file ───────────────────────────────────────────

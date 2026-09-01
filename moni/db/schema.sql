@@ -121,3 +121,16 @@ CREATE INDEX IF NOT EXISTS idx_basket_source ON basket(source);
 CREATE INDEX IF NOT EXISTS idx_basket_created ON basket(created_at);
 CREATE INDEX IF NOT EXISTS idx_basket_rescued ON basket(rescued_at);
 
+-- global_keyword_filters table (v1.0.40) — 全局关键词黑/白名单规则
+CREATE TABLE IF NOT EXISTS global_keyword_filters (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    mode            TEXT NOT NULL,                           -- 'whitelist' | 'blacklist'
+    match_field     TEXT NOT NULL DEFAULT 'title+content',   -- 'title' | 'content' | 'title+content'
+    keywords        TEXT NOT NULL,                           -- JSON array of strings
+    is_active       INTEGER NOT NULL DEFAULT 1,
+    notes           TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_global_kw_active ON global_keyword_filters(is_active);
+

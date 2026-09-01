@@ -221,13 +221,16 @@ class BaseFetcher(ABC):
         if filter_stats["filters_applied"] > 0:
             logger.info(
                 "[%s] keyword filter: %d input, %d kept, "
-                "%d dropped_blacklist, %d dropped_whitelist (%d filter(s) active)",
+                "%d dropped_blacklist (%d global), %d dropped_whitelist (%d global) (%d filter(s) active, %d global)",
                 source,
                 filter_stats["input"],
                 filter_stats["kept"],
                 filter_stats["dropped_blacklist"],
+                filter_stats.get("dropped_global_blacklist", 0),
                 filter_stats["dropped_whitelist"],
+                filter_stats.get("dropped_global_whitelist", 0),
                 filter_stats["filters_applied"],
+                filter_stats.get("global_filters_applied", 0),
             )
 
         # ── tag-keyword filter (v1.0.5.4) ────────────────────────────────
@@ -277,6 +280,9 @@ class BaseFetcher(ABC):
             "filtered": filter_stats["kept"],
             "dropped_blacklist": filter_stats["dropped_blacklist"],
             "dropped_whitelist": filter_stats["dropped_whitelist"],
+            "dropped_global_blacklist": filter_stats.get("dropped_global_blacklist", 0),
+            "dropped_global_whitelist": filter_stats.get("dropped_global_whitelist", 0),
+            "global_filters_applied": filter_stats.get("global_filters_applied", 0),
             "filters_applied": filter_stats["filters_applied"],
             "dropped_tag_filter": tag_stats["dropped_tag_filter"],
             "tags_used": tag_stats["tags_used"],
