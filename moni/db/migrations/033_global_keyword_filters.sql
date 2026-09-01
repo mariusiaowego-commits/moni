@@ -13,3 +13,8 @@ CREATE TABLE IF NOT EXISTS global_keyword_filters (
 );
 
 CREATE INDEX IF NOT EXISTS idx_global_kw_active ON global_keyword_filters(is_active);
+
+-- 透出全局过滤统计到 fetch_log
+ALTER TABLE fetch_log ADD COLUMN dropped_global_blacklist INTEGER DEFAULT 0;
+ALTER TABLE fetch_log ADD COLUMN dropped_global_whitelist INTEGER DEFAULT 0;
+ALTER TABLE fetch_log ADD COLUMN global_filters_applied INTEGER DEFAULT 0;

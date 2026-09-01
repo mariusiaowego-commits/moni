@@ -918,6 +918,8 @@ function app() {
     // ── Filters CRUD ───────────────────────────────────────────────
     configLoadFilters() {
       const sourceId = this.configFilterSourceFilter || '';
+      // 注意 (v1.0.40 PR2 review): 配置管理页 (admin) 需拉取全部规则 (含已停用 is_active=false 的规则),
+      // 保证用户在界面上可以查看、编辑、恢复启用或删除已停用的全局/源规则，避免规则停用后直接从界面消失导致无法管理。
       if (sourceId === '__global__') {
         // Only load global filters
         fetch('/api/config/global-filters?include_inactive=true', { credentials: 'same-origin' })

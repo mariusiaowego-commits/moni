@@ -2556,6 +2556,9 @@
                       <span class="status-badge"
                             :class="f.mode === 'blacklist' ? 'status-paused' : 'status-ok'"
                             x-text="f.mode === 'blacklist' ? '黑名单' : (f.mode === 'whitelist' ? '白名单' : f.mode)"></span>
+                      <template x-if="!f.is_active">
+                        <span class="status-badge status-muted" style="margin-left: 4px;">已停用</span>
+                      </template>
                     </td>
                     <td x-text="f.match_field === 'title+content' ? '标题+正文'
                       : (f.match_field === 'title' ? '标题'

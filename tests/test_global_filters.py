@@ -340,3 +340,146 @@ def test_pipeline_no_global_filters_passthrough():
     assert len(kept) == 1
     assert stats["dropped_global_blacklist"] == 0
     assert stats["dropped_global_whitelist"] == 0
+
+
+# ── 9. Inactive Global Filter Ignored ──────────────────────────────────────
+
+
+def test_pipeline_inactive_global_filter_ignored():
+    conn = get_db()
+    # Insert inactive global blacklist: "已停用词"
+    conn.execute(
+        """
+        INSERT INTO global_keyword_filters
+            (mode, match_field, keywords, is_active, notes, created_at, updated_at)
+        VALUES ('blacklist', 'title+content', '[\"已停用词\"]', 0, 'test', 'now', 'now')
+        """
+    )
+    # Insert inactive global whitelist: "必须包含词"
+    conn.execute(
+        """
+        INSERT INTO global_keyword_filters
+            (mode, match_field, keywords, is_active, notes, created_at, updated_at)
+        VALUES ('whitelist', 'title+content', '[\"必须包含词\"]', 0, 'test', 'now', 'now')
+        """
+    )
+    conn.commit()
+
+    articles = [
+        {"source": "mpaypass", "url": "http://example.com/in1", "title": "包含已停用词的文章", "content": "内容"},
+        {"source": "mpaypass", "url": "http://example.com/in2", "title": "不含必须包含词的文章", "content": "内容"},
+    ]
+
+    kept, stats, _ = apply_keyword_filters("mpaypass", articles)
+    # Both articles should be kept because filters are is_active = 0
+    assert len(kept) == 2
+    assert stats["global_filters_applied"] == 0
+    assert stats["dropped_global_blacklist"] == 0
+    assert stats["dropped_global_whitelist"] == 0
+
+
+# ── 10. Multiple Global Filters of Same Mode (OR Union) ───────────────────
+
+
+def test_pipeline_multiple_global_filters_or_union():
+    conn = get_db()
+    # Insert two active global blacklist filters
+    conn.execute(
+        """
+        INSERT INTO global_keyword_filters
+            (mode, match_field, keywords, is_active, notes, created_at, updated_at)
+        VALUES ('blacklist', 'title+content', '[\"违禁A\"]', 1, 'rule 1', 'now', 'now')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO global_keyword_filters
+            (mode, match_field, keywords, is_active, notes, created_at, updated_at)
+        VALUES ('blacklist', 'title+content', '[\"违禁B\"]', 1, 'rule 2', 'now', 'now')
+        """
+    )
+    conn.commit()
+
+    articles = [
+        {"source": "36kr_rss", "url": "http://example.com/m1", "title": "命中违禁A", "content": "ok"},
+        {"source": "36kr_rss", "url": "http://example.com/m2", "title": "命中违禁B", "content": "ok"},
+        {"source": "36kr_rss", "url": "http://example.com/m3", "title": "安全干净文章", "content": "ok"},
+    ]
+
+    kept, stats, hits = apply_keyword_filters("36kr_rss", articles)
+    assert len(kept) == 1
+    assert kept[0]["url"] == "http://example.com/m3"
+    assert stats["dropped_global_blacklist"] == 2
+    assert stats["global_filters_applied"] == 2
+
+
+# ── 11. Fetch Log & BaseFetcher Metrics Logging ───────────────────────────
+
+
+def test_fetch_log_and_base_fetcher_metrics():
+    from moni.cron.run_history import CronRunHistory
+    from moni.fetch.base import BaseFetcher
+
+    class DummyFetcher(BaseFetcher):
+        source_name = "test_src"
+
+        def fetch(self):
+            return [
+                {"source": "test_src", "url": "http://example.com/k1", "title": "正常科技文", "content": "ok"},
+                {"source": "test_src", "url": "http://example.com/k2", "title": "包含拦截词的文章", "content": "bad"},
+            ]
+
+        def parse(self, raw_items):
+            return raw_items
+
+    history = CronRunHistory()
+    cron_run_id = history.log_run("test_job")
+
+    conn = get_db()
+    # Add active global blacklist
+    conn.execute(
+        """
+        INSERT INTO global_keyword_filters
+            (mode, match_field, keywords, is_active, notes, created_at, updated_at)
+        VALUES ('blacklist', 'title+content', '[\"拦截词\"]', 1, 'test', 'now', 'now')
+        """
+    )
+    conn.commit()
+
+    fetcher = DummyFetcher()
+
+    result = fetcher.run(dry_run=True)
+    assert result["dropped_global_blacklist"] == 1
+    assert result["global_filters_applied"] == 1
+    assert result["filtered"] == 1
+
+    # Log to fetch_log
+    history = CronRunHistory()
+    history.log_fetch(
+        cron_run_rowid=cron_run_id,
+        source="test_src",
+        fetched=result["fetched"],
+        parsed=result["parsed"],
+        inserted=result["inserted"],
+        parse_errors=result["parse_errors"],
+        cleaned=result["cleaned"],
+        filtered=result["filtered"],
+        dropped_blacklist=result["dropped_blacklist"],
+        dropped_whitelist=result["dropped_whitelist"],
+        dropped_global_blacklist=result["dropped_global_blacklist"],
+        dropped_global_whitelist=result["dropped_global_whitelist"],
+        dropped_tag_filter=result["dropped_tag_filter"],
+        filters_applied=result["filters_applied"],
+        global_filters_applied=result["global_filters_applied"],
+        tags_used=result["tags_used"],
+        deduped=0,
+    )
+
+    log_row = conn.execute(
+        "SELECT dropped_global_blacklist, dropped_global_whitelist, global_filters_applied FROM fetch_log WHERE cron_run_rowid = ?",
+        (cron_run_id,),
+    ).fetchone()
+    assert log_row is not None
+    assert log_row[0] == 1  # dropped_global_blacklist
+    assert log_row[1] == 0  # dropped_global_whitelist
+    assert log_row[2] == 1  # global_filters_applied
