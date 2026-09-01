@@ -4,7 +4,23 @@
 
 ---
 
-## 当前状态: **v1.0.37.6 — sprint-19 案例地理维度 + 反选面板大区域重构** (2026-08-27 SHIPPED)
+## 当前状态: **v1.0.39 — config 黑名单关键词输入锁死 + 业务 tag name 锁死修复** (2026-09-01 SHIPPED)
+
+**主分支**: main @ `516b322` (PR #137 squash-merged, tag v1.0.39 `516b322` push)
+**Tag 链**: v1.0.39 → v1.0.37.7 → ...
+**PR 链路**: #137 (v1.0.39 config 前端 bugfix)
+
+> **v1.0.39 (2026-09-01) config 前端 3 bug + 1 加固** (纯前端, moni/web/static/)
+> - **黑名单 filter 关键词半角逗号输不进去**: 根因 `:value=join(', ')` + `@input=split(',')` 双绑不对称, :value 每次重算覆盖、光标跳走。修复: 改 `x-model` 绑独立 `keywordsText` 字符串字段, 用户打字自由 (app.js openConfigModal filter 分支初始化 + 新 filter 默认 '').
+> - **逗号后的空格消除**: `join(', ')` 是渲染副作用, DB 数据层一直干净 list. 改 `join(',')` 无空格 + 保存时 trim 兜底.
+> - **全角逗号兼容加固**: 保存时 `.replace(/，/g, ',')` 转半角再 split.
+> - **业务 tag name 输一个字符就锁死**: 根因 `:disabled=!!configModalTarget.name` + x-model 每敲一键写回 name → 首字符后 !name 变 true 禁用. 修复: 改 `:disabled=!!configModalTargetOriginal`, 新建全程可改, 编辑已有才锁定.
+> - 验证: agy 用 Playwright + 真实 Chrome 对 127.0.0.1:8901 端到端实测 4/4 通过 (半角/全角逗号分隔+落库, 空格消除, tag name 新建可输/编辑锁定).
+> - **数据现状**: 同 v1.0.37.6 (案例 319 / 同业 446 / 高价值 116; 关键词 537; 测试 864 passed + 2 skip). 本次纯 UI 改动无 schema/数据变更, 无新增测试 (UI 任务, dad 约定 UI 不跑 pytest only 生产代码改动才跑).
+
+---
+
+## 历史: **v1.0.37.6 — sprint-19 案例地理维度 + 反选面板大区域重构** (2026-08-27 SHIPPED)
 
 **主分支**: main @ `85ed1f9` (PR #135 + #136 合并 + 4 hotfix, 6 commits 链路)
 **Tag 链 (本次)**: v1.0.37.6 @ `85ed1f9` (当前) ← v1.0.37.5 / .4 / .3 / .2 / .1 / v1.0.37

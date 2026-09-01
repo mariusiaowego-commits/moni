@@ -165,6 +165,7 @@ topnav 右侧显示服务状态：
 **v1.0.5.14 起**:`display_name` 字段是给 UI 展示用的中文名(可改),`name` 仍是 PK 英文标识(不可改,改了引用全断)。前端"业务 tag"和"抓取源"两处都按 `display_name || name` 兜底。
 
 **新建 tag**: 点"+ 新建 tag" → 填 name (英数下划线) / display_name (可选, 中文展示名) / description / **color (8 色 swatch 单选, v1.0.5.12)** → 保存
+**v1.0.39**: 新建 tag 时 name 全程可自由输入到保存才提交, 不会再输一个字符就锁死 (此前 bug)。
 **改名**: 选中后点编辑 → 改 display_name 即可(name 字段灰着不可改)
 **删 tag**: 会级联清 source_tags + article_tags 引用
 
@@ -177,7 +178,8 @@ topnav 右侧显示服务状态：
 | 36kr_rss | blacklist | title+content | 入境游/文娱/明星/游戏/影视/电商/消费/美食 |
 | qbitai | blacklist | title+content | 机器人/自动驾驶/波士顿动力/Tesla |
 
-**新建 filter**: 点"+ 新建 filter" → 选 source + mode (blacklist/whitelist) + 填 keywords (逗号分隔) → 保存
+**新建 filter**: 点"+ 新建 filter" → 选 source + mode (blacklist/whitelist) + 填 keywords (英/全角逗号均可分隔, v1.0.39 起兼容全角) → 保存
+**v1.0.39**: 关键词输入不再锁死 (半角逗号可正常输入), 显示无多余空格, 全角逗号「，」也能正确分隔。
 **改 source 下拉**: 顶部下拉框可只看某源的 filter
 
 **filter 行为**:
