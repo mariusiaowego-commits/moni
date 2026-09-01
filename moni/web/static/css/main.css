@@ -3517,3 +3517,117 @@ label { font-size: 0.85rem; }
 }
 
 .modal-backdrop-dim { background: oklch(from var(--foreground) l c h / 0.4); }
+
+/* ═══════════════════════════════════════════════════════════════
+   v1.0.40: Config Chip CRUD & Tag Name Confirmation (Sprint-20 PR1)
+   ═══════════════════════════════════════════════════════════════ */
+.keyword-chip-container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  cursor: text;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 1px 3px oklch(0 0 0 / 0.03);
+}
+.keyword-chip-container:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.12), 0 2px 8px oklch(0 0 0 / 0.08);
+}
+.keyword-chip-container .chip-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--muted);
+  color: var(--foreground);
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.35;
+  border: 1px solid oklch(from var(--border) l c h / 0.8);
+  user-select: none;
+}
+.dark .keyword-chip-container .chip-item {
+  background: oklch(from var(--muted) l c h / 0.8);
+  border-color: oklch(from var(--border) l c h / 0.4);
+}
+.keyword-chip-container .chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted-fg);
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+.keyword-chip-container .chip-remove:hover {
+  color: var(--destructive);
+  background: oklch(from var(--destructive) l c h / 0.15);
+}
+.keyword-chip-container .chip-inline-input {
+  flex: 1 1 140px;
+  min-width: 100px;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  padding: 4px 6px !important;
+  margin: 0 !important;
+  background: transparent !important;
+  color: var(--foreground) !important;
+  font-size: 0.85rem !important;
+}
+.keyword-chip-container .chip-inline-input::placeholder {
+  color: var(--muted-fg);
+  font-size: 0.82rem;
+}
+.keyword-chip-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+  font-size: 0.8rem;
+}
+.input-with-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.input-with-action input {
+  flex: 1;
+  min-width: 0;
+}
+.badge-locked {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border-radius: 8px;
+  background: var(--muted);
+  color: var(--muted-fg);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.btn-confirmed {
+  background: var(--success-muted) !important;
+  color: var(--success-muted-fg) !important;
+  border-color: var(--success) !important;
+}
+
