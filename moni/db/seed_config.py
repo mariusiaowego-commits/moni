@@ -229,6 +229,27 @@ _DEFAULT_SOURCES = [
             "skip_existing_urls": True,
         }, ensure_ascii=False),
     },
+    # v1.0.41 / sprint-21: follow-builders — 中央日更 curated X feed (feed-x.json)。
+    # 试验性源: 默认 disabled (is_active=0), 用户在 /config 打开才抓。
+    # bypass_keyword_filters=true: 双层短路全局/源级关键词门控 + tag 关键词 OR 门控,
+    # 使精选英文推文 100% 入库, 由 _DEFAULT_SOURCE_TAGS 绑定 ai-fintech 合成打 tag。
+    # 跨源软去重由 FetcherFollowBuilders 在插入前做全局 URL EXISTS, 不改 UNIQUE。
+    {
+        "id": "src-follow-builders",
+        "name": "follow_builders",
+        "display_name": "Follow Builders (精选 X)",
+        "source_type": "json",
+        "url": "https://raw.githubusercontent.com/zarazhangrui/follow-builders/main/feed-x.json",
+        "fetch_interval_min": 360,
+        "is_active": 0,
+        "notes": "follow-builders 中央日更 curated X 推文 (26 AI builders)。试验源默认关，/config 打开才抓。",
+        "fetch_config": json.dumps({
+            "bypass_keyword_filters": True,
+            "timeout_sec": 60,
+            "http_timeout": 15.0,
+            "skip_existing_urls": True,
+        }, ensure_ascii=False),
+    },
 ]
 
 
@@ -271,6 +292,8 @@ _DEFAULT_SOURCE_TAGS = [
     # (源目标域就是腾讯生态, 任何关键词黑名单都可能误伤).
     ("src-xwatch", "wechat"),
     ("src-xwatch", "miniprogram"),
+    # v1.0.41 / sprint-21: follow_builders → ai-fintech tag (bypass 合成打 tag)
+    ("src-follow-builders", "ai-fintech"),
 ]
 
 
@@ -368,14 +391,17 @@ def seed() -> None:
     # NULL when the source dict doesn't carry fetch_config — existing
     # sources (36kr_rss, mpaypass, ...) stay NULL so no behaviour
     # change for them.
+    # v1.0.41: honor per-source `is_active` (follow_builders seeds 0 /
+    # disabled).  Omitted elsewhere defaults to 1 as before.
     for src in _DEFAULT_SOURCES:
+        seed_active = src.get("is_active", 1)
         conn.execute(
             """
             INSERT INTO sources
                 (id, name, display_name, source_type, url,
                  fetch_interval_min, is_active, notes,
                  fetch_config, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name               = excluded.name,
                 display_name       = excluded.display_name,
@@ -387,7 +413,7 @@ def seed() -> None:
                 updated_at         = excluded.updated_at
             """,
             (src["id"], src["name"], src["display_name"], src["source_type"],
-             src["url"], src["fetch_interval_min"], src["notes"],
+             src["url"], src["fetch_interval_min"], seed_active, src["notes"],
              src.get("fetch_config"), now, now),
         )
 

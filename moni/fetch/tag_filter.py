@@ -52,8 +52,28 @@ from datetime import datetime, timezone
 from typing import Any
 
 from moni.db.connection import get_db
+from .filters import _is_source_bypassed
 
 logger = logging.getLogger(__name__)
+
+
+def _load_bound_tag_names_for_source(source_name: str) -> list[str]:
+    """Return the tag names bound to a source (for synthetic bypass hits)."""
+    try:
+        conn = get_db()
+        rows = conn.execute(
+            """
+            SELECT t.name
+            FROM source_tags st
+            JOIN sources s        ON s.id = st.source_id
+            JOIN tag_definitions t ON t.name = st.tag_name
+            WHERE s.name = ? AND t.is_active = 1
+            """,
+            (source_name,),
+        ).fetchall()
+        return [r["name"] for r in rows]
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def _insert_basket(art: dict, reason: str, dropped_by: str) -> None:
@@ -157,6 +177,28 @@ def apply_tag_keyword_filter(
     }
     if not articles:
         return articles, stats, []
+
+    # ── Sprint-21 bypass: skip tag-keyword OR gate + synthesize bound tags ──
+    if _is_source_bypassed(source):
+        logger.info(
+            "[%s] bypass_keyword_filters — skipping tag filter and synthesizing hits",
+            source,
+        )
+        bound_tags = _load_bound_tag_names_for_source(source)
+        synthetic_hits: list[dict[str, Any]] = []
+        for art in articles:
+            art_url = art.get("url", "")
+            for tag_name in bound_tags:
+                synthetic_hits.append({
+                    "article_url": art_url,
+                    "keyword": "(bypass)",
+                    "tag_name": tag_name,
+                    "filter_id": None,
+                    "hit_field": "bypass",
+                })
+        stats["kept"] = len(articles)
+        stats["tags_used"] = len(bound_tags)
+        return articles, stats, synthetic_hits
 
     tag_keywords = _load_tag_keywords_for_source(source)
     # 合并所有 tag 的关键词用于过滤（OR 语义）

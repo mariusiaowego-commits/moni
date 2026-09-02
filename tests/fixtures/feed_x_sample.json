@@ -1,0 +1,60 @@
+{
+  "generatedAt": "2026-09-01T06:42:22.120Z",
+  "lookbackHours": 24,
+  "x": [
+    {
+      "source": "x",
+      "name": "Thibault Sottiaux",
+      "handle": "thsottiaux",
+      "bio": "Codex & ChatGPT @OpenAI",
+      "tweets": [
+        {
+          "id": "2094588317245509959",
+          "text": "If you still haven't tried Codex, this is your sign: run it on a real financial-services codebase and watch the churn drop.",
+          "createdAt": "2026-09-01T00:49:05.000Z",
+          "url": "https://x.com/thsottiaux/status/2094588317245509959",
+          "likes": 2344,
+          "retweets": 42,
+          "replies": 1816,
+          "isQuote": false,
+          "quotedTweetId": null
+        },
+        {
+          "id": "2099999999999999999",
+          "text": "Line one of a long tweet.\nLine two with more context that should not reach the title.",
+          "createdAt": "2026-08-31T22:10:00.000Z",
+          "url": "https://twitter.com/thsottiaux/status/2099999999999999999?s=20&t=abc",
+          "likes": 88,
+          "retweets": 3,
+          "replies": 7,
+          "isQuote": false,
+          "quotedTweetId": null
+        },
+        {
+          "id": "2098888888888888888",
+          "text": "",
+          "createdAt": "2026-08-31T20:00:00.000Z",
+          "url": "https://mobile.twitter.com/thsottiaux/status/2098888888888888888",
+          "likes": 0,
+          "retweets": 0,
+          "replies": 0,
+          "isQuote": true,
+          "quotedTweetId": "1"
+        }
+      ]
+    },
+    {
+      "source": "x",
+      "name": "",
+      "handle": "missing_handle",
+      "bio": "",
+      "tweets": [
+        {
+          "id": "",
+          "text": "tweet without id and url should be skipped",
+          "createdAt": "2026-08-31T18:00:00.000Z"
+        }
+      ]
+    }
+  ]
+}
