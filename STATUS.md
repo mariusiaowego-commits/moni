@@ -6,7 +6,7 @@
 
 ## 当前状态: **v1.0.41 — follow_builders 新源接入 (sprint-21)** (2026-09-02 SHIPPED)
 
-**主分支**: main @ `d0bb86d` (PR #140 squash-merged, tag v1.0.41)
+**主分支**: main @ `023c1e3` (PR #140 squash-merged, tag v1.0.41)
 **Tag 链**: v1.0.41 → v1.0.40 → v1.0.39 → v1.0.37.7 → ...
 **PR 链路**: #140 (follow_builders 新源 + test_global_filters 隔离修复)
 **Prod**: 8900 pid 6346 (新代码已生效; follow_builders 仍默关 is_active=0)

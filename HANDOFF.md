@@ -2,7 +2,7 @@
 
 ## [2026-09-02] v1.0.41 — follow_builders 新源接入 (sprint-21, PR #140, SHIPPED)
 
-**status**: ✅ **SHIPPED** — PR #140 @ `d0bb86d`, tag v1.0.41. 全量 pytest 889 pass + 2 skip. prod 8900 已重启 pid 6346, 源仍默关 (is_active=0).
+**status**: ✅ **SHIPPED** — PR #140 @ `023c1e3`, tag v1.0.41. 全量 pytest 889 pass + 2 skip. prod 8900 已重启 pid 6346, 源仍默关 (is_active=0).
 
 **问题**: 接入 follow-builders 精选 X/Twitter feed (feed-x.json) 作为第 12 个 source, 走试验源路径 (默认 enabled=false, 用户 /config 手动开).
 

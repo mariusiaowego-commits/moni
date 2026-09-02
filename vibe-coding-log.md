@@ -2,7 +2,7 @@
 
 ## [2026-09-02] v1.0.41 — follow_builders 新源接入 (sprint-21, PR #140, SHIPPED)
 
-**v1.0.41 ship**: sprint-21 完整, PR #140 squash-merged, main @ `d0bb86d`, tag v1.0.41. 全量 pytest 889 pass + 2 skip. prod 8900 已重启 pid 6346, 源仍默关 (is_active=0).
+**v1.0.41 ship**: sprint-21 完整, PR #140 squash-merged, main @ `023c1e3`, tag v1.0.41. 全量 pytest 889 pass + 2 skip. prod 8900 已重启 pid 6346, 源仍默关 (is_active=0).
 
 **交付**:
 - `moni/fetch/sources/follow_builders.py` FetcherFollowBuilders: GET feed-x.json → 扁平化 tweets → URL 归一化 → 跨源软去重 → bypass keyword/tag filter → 显式合成 ai-fintech tag
