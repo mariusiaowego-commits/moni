@@ -4,7 +4,25 @@
 
 ---
 
-## 当前状态: **v1.0.40 — config 交互升级 (sprint-20 完整交付)** (2026-09-01 SHIPPED)
+## 当前状态: **v1.0.41 — follow_builders 新源接入 (sprint-21)** (2026-09-02 SHIPPED)
+
+**主分支**: main @ `d0bb86d` (PR #140 squash-merged, tag v1.0.41)
+**Tag 链**: v1.0.41 → v1.0.40 → v1.0.39 → v1.0.37.7 → ...
+**PR 链路**: #140 (follow_builders 新源 + test_global_filters 隔离修复)
+**Prod**: 8900 pid 6346 (新代码已生效; follow_builders 仍默关 is_active=0)
+
+> **v1.0.41 (2026-09-02) follow_builders 新源接入 (sprint-21)** — 试验源路径:
+> - **新源 follow_builders**: GET `feed-x.json` → 扁平化 tweets → URL 归一化 (x.com/twitter.com/mobile.twitter.com + 剥 tracking params) → 跨源软去重 (全局 EXISTS) → bypass keyword/tag filter → 显式合成 ai-fintech tag
+> - **试验源策略**: `sources.yaml enabled: false` + DB `is_active=0`，用户 /config 手动开
+> - **三处注册**: `config/sources.yaml` + `seed_config.py` + `sources/__init__.py`
+> - **测试**: `tests/test_follow_builders_fetch.py` 9 个 test + `tests/fixtures/feed_x_sample.json`; `tests/test_global_filters.py` 隔离修复 (tmp-DB, _seed_source 强制 INSERT)
+> - **验证**: 全量 pytest **889 passed + 2 skipped, 0 failed**; 手动 POST /run force=true 实测 38 篇入库; prod 8900 已重启 pid 6346 源仍默关
+> - **踩坑**: test_global_filters 原 fixture 打真库 (prod 36kr_rss/qbitai 被改 example.com) → 修 tmp_path 隔离; 手动抓取 force=true 不看 is_active; git LibreSSL EOF; seed_config 被拦改 sqlite INSERT
+> - **遗留**: seed 是临时 sqlite INSERT 未走官方 seed_config.py; follow_builders 仍默关
+
+---
+
+## 历史: **v1.0.40 — config 交互升级 (sprint-20 完整交付)** (2026-09-01 SHIPPED)
 
 **主分支**: main @ `d7e6fa3` (PR #138 + #139 squash-merged, tag v1.0.40 `d7e6fa3` force push)
 **Tag 链**: v1.0.40 → v1.0.39 → v1.0.37.7 → ...

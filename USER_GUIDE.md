@@ -144,6 +144,7 @@ topnav 右侧显示服务状态：
 | bestblog-podcast | OPML 聚合 | BestBlogs 播客 (60 feeds) | 5 min |
 | bestblog-yt | OPML 聚合 | BestBlogs YouTube (20 feeds) | 5 min |
 | bestblog-x | 本地 OPML | BestBlogs X/Twitter (160 feeds) | 5 min |
+| follow_builders (默认关) | feed-x.json | follow-builders 精选 X (试验源) | 360 min |
 
 **新建源**: 点"+ 新建 source" → 填 id / name / url / type / interval → 保存
 **改 tags**: 行内 "改 tags" 按钮 → 多选弹窗
