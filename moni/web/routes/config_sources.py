@@ -73,6 +73,12 @@ _FETCH_CONFIG_DEFAULTS: dict[str, dict] = {
         "ddg_circuit_minutes": 60.0,
         "skip_existing_urls": True,
     },
+    "follow_builders": {
+        "bypass_keyword_filters": True,
+        "timeout_sec": 60,
+        "http_timeout": 15.0,
+        "skip_existing_urls": True,
+    },
 }
 
 

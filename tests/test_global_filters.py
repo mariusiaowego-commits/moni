@@ -24,16 +24,36 @@ from moni.fetch.filters import apply_keyword_filters
 from moni.web.server import create_app
 
 
+def _seed_source(conn, name):
+    """INSERT the source into sources if missing (id 'src-<name>'), so source_keyword_filters can always be attached."""
+    src_id = "src-" + name
+    # Remove any pre-existing row so we can re-seed freely
+    conn.execute("DELETE FROM source_tags WHERE source_id=?", (src_id,))
+    conn.execute("DELETE FROM sources WHERE id=? OR name=?", (src_id, name))
+    conn.commit()
+    conn.execute(
+        "INSERT INTO sources (id, name, display_name, source_type, url, "
+        "fetch_interval_min, is_active, notes, fetch_config, created_at, updated_at) "
+        "VALUES (?, ?, ?, 'json', ?, ?, ?, ?, ?, '2026-01-01', '2026-01-01')",
+        (src_id, name, name, "https://example.com/" + name,
+         360, 1, "test", None),
+    )
+    conn.commit()
+    return src_id
+
+
 @pytest.fixture(autouse=True)
 def _setup_test_db():
-    """Ensure migration 033 is applied and clean up global_keyword_filters after each test."""
+    """Ensure migration 033 is applied and clean up global_keyword_filters + source_keyword_filters after each test."""
     migrate()
     conn = get_db()
     conn.execute("DELETE FROM global_keyword_filters")
+    conn.execute("DELETE FROM source_keyword_filters WHERE notes='test'")
     conn.commit()
     yield
     conn = get_db()
     conn.execute("DELETE FROM global_keyword_filters")
+    conn.execute("DELETE FROM source_keyword_filters WHERE notes='test'")
     conn.commit()
 
 
@@ -227,18 +247,16 @@ def test_pipeline_blacklist_union():
         VALUES ('blacklist', 'title+content', '[\"全局违禁\"]', 1, 'test', 'now', 'now')
         """
     )
-    # 2. Source blacklist on 36kr_rss (source_id='src-36kr-rss' or via lookup): "源级违禁"
-    src_row = conn.execute("SELECT id FROM sources WHERE name = '36kr_rss'").fetchone()
-    if src_row:
-        src_id = src_row[0]
-        conn.execute(
-            """
-            INSERT INTO source_keyword_filters
-                (source_id, mode, match_field, keywords, is_active, notes, created_at, updated_at)
-            VALUES (?, 'blacklist', 'title+content', '[\"源级违禁\"]', 1, 'test', 'now', 'now')
-            """,
-            (src_id,),
-        )
+    # 2. Source blacklist on 36kr_rss: "源级违禁"
+    src_id = _seed_source(conn, "36kr_rss")
+    conn.execute(
+        """
+        INSERT INTO source_keyword_filters
+            (source_id, mode, match_field, keywords, is_active, notes, created_at, updated_at)
+        VALUES (?, 'blacklist', 'title+content', '[\"源级违禁\"]', 1, 'test', 'now', 'now')
+        """,
+        (src_id,),
+    )
     conn.commit()
 
     try:
@@ -253,9 +271,8 @@ def test_pipeline_blacklist_union():
         assert stats["dropped_global_blacklist"] == 1
         assert stats["dropped_blacklist"] == 2
     finally:
-        if src_row:
-            conn.execute("DELETE FROM source_keyword_filters WHERE source_id = ? AND notes = 'test'", (src_row[0],))
-            conn.commit()
+        conn.execute("DELETE FROM source_keyword_filters WHERE notes = 'test'")
+        conn.commit()
 
 
 # ── 6. Pipeline: Whitelist Intersection (Global + Source) ─────────────────
@@ -272,17 +289,15 @@ def test_pipeline_whitelist_intersection():
         """
     )
     # Source whitelist on qbitai: "AI"
-    src_row = conn.execute("SELECT id FROM sources WHERE name = 'qbitai'").fetchone()
-    if src_row:
-        src_id = src_row[0]
-        conn.execute(
-            """
-            INSERT INTO source_keyword_filters
-                (source_id, mode, match_field, keywords, is_active, notes, created_at, updated_at)
-            VALUES (?, 'whitelist', 'title+content', '[\"AI\"]', 1, 'test', 'now', 'now')
-            """,
-            (src_id,),
-        )
+    src_id = _seed_source(conn, "qbitai")
+    conn.execute(
+        """
+        INSERT INTO source_keyword_filters
+            (source_id, mode, match_field, keywords, is_active, notes, created_at, updated_at)
+        VALUES (?, 'whitelist', 'title+content', '[\"AI\"]', 1, 'test', 'now', 'now')
+        """,
+        (src_id,),
+    )
     conn.commit()
 
     try:
@@ -296,9 +311,8 @@ def test_pipeline_whitelist_intersection():
         assert len(kept) == 1
         assert kept[0]["url"] == "http://example.com/both"
     finally:
-        if src_row:
-            conn.execute("DELETE FROM source_keyword_filters WHERE source_id = ? AND notes = 'test'", (src_row[0],))
-            conn.commit()
+        conn.execute("DELETE FROM source_keyword_filters WHERE notes = 'test'")
+        conn.commit()
 
 
 # ── 7. Pipeline: Independent match_field Semantics ────────────────────────

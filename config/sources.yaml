@@ -65,3 +65,9 @@ sources:
   fetch_interval_min: 30
   enabled: true
   crawler_type: rss
+- source_name: follow_builders
+  type: json
+  feed_url: https://raw.githubusercontent.com/zarazhangrui/follow-builders/main/feed-x.json
+  fetch_interval_min: 360
+  enabled: false
+  crawler_type: rss

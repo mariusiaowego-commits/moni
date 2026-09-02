@@ -31,6 +31,30 @@ from moni.db.connection import get_db
 logger = logging.getLogger(__name__)
 
 
+def _is_source_bypassed(source_name: str) -> bool:
+    """Return True if a source has ``bypass_keyword_filters`` (or the
+    alias ``bypass_tag_filter``) set in its ``sources.fetch_config``.
+
+    Used to short-circuit the keyword (filters.py) AND tag (tag_filter.py)
+    gates for sources like ``follow_builders`` whose content is already
+    centrally curated and must land regardless of global/source whitelists
+    or a tag-keyword OR gate (sprint-21 / v1.0.41).
+    """
+    try:
+        conn = get_db()
+        row = conn.execute(
+            "SELECT fetch_config FROM sources WHERE name = ?",
+            (source_name,),
+        ).fetchone()
+        if row and row["fetch_config"]:
+            cfg = json.loads(row["fetch_config"])
+            if isinstance(cfg, dict):
+                return bool(cfg.get("bypass_keyword_filters") or cfg.get("bypass_tag_filter"))
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
 def _insert_basket(art: dict, reason: str, dropped_by: str) -> None:
     """将被过滤丢弃的文章写入 basket 表."""
     conn = get_db()
@@ -206,6 +230,15 @@ def apply_keyword_filters(
         "filters_applied": 0,
         "global_filters_applied": 0,
     }
+
+    # ── 0. Sprint-21 bypass: centrally-curated sources skip keyword gates ──
+    if _is_source_bypassed(source_name):
+        logger.info(
+            "[%s] bypass_keyword_filters — skipping global/source black/whitelists",
+            source_name,
+        )
+        stats["kept"] = len(articles)
+        return articles, stats, []
 
     global_filters = _load_active_global_filters()
     source_id = _resolve_source_id(source_name)
