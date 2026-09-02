@@ -18,18 +18,22 @@ from typing import Any, Dict, List
 import pytest
 from fastapi.testclient import TestClient
 
-from moni.db.connection import get_db
+from moni.db.connection import close_db, get_db, set_db_path
 from moni.db.migrate import current_version, migrate
 from moni.fetch.filters import apply_keyword_filters
 from moni.web.server import create_app
 
 
 def _seed_source(conn, name):
-    """INSERT the source into sources if missing (id 'src-<name>'), so source_keyword_filters can always be attached."""
+    """INSERT the source into the (tmp) db so source_keyword_filters can always be attached."""
     src_id = "src-" + name
-    # Remove any pre-existing row so we can re-seed freely
+    # Remove any pre-existing binding (FK to sources) so we can re-seed freely
     conn.execute("DELETE FROM source_tags WHERE source_id=?", (src_id,))
-    conn.execute("DELETE FROM sources WHERE id=? OR name=?", (src_id, name))
+    conn.commit()
+    conn.execute(
+        "DELETE FROM sources WHERE id=? OR name=?",
+        (src_id, name),
+    )
     conn.commit()
     conn.execute(
         "INSERT INTO sources (id, name, display_name, source_type, url, "
@@ -43,8 +47,11 @@ def _seed_source(conn, name):
 
 
 @pytest.fixture(autouse=True)
-def _setup_test_db():
-    """Ensure migration 033 is applied and clean up global_keyword_filters + source_keyword_filters after each test."""
+def _setup_test_db(tmp_path):
+    """Isolate every test against a fresh tmp sqlite so prod sources are never touched."""
+    close_db()  # drop any stale thread-local connection from a prior test
+    db_path = tmp_path / "news.db"
+    set_db_path(db_path)
     migrate()
     conn = get_db()
     conn.execute("DELETE FROM global_keyword_filters")
@@ -55,6 +62,7 @@ def _setup_test_db():
     conn.execute("DELETE FROM global_keyword_filters")
     conn.execute("DELETE FROM source_keyword_filters WHERE notes='test'")
     conn.commit()
+    close_db()
 
 
 @pytest.fixture
