@@ -1,10 +1,16 @@
 """FetchJobStore — async fetch job tracking (v1.0.7.6).
 
-Used by /api/fetch/sources/{name}/run to return a job_id immediately while
+Used in /api/fetch/sources/{name}/run to return a job_id immediately while
 the actual fetch runs in a background thread. The frontend polls
 GET /api/fetch/jobs/{job_id} every 5s to render a progress bar.
 
-Lifecycle: pending → running → (done | failed | timeout)
+Lifecycle: pending → running → (done | failed | timeout | stale | cancelled)
+
+v1.0.42 (sprint-22): 心跳制 lease 取代 wall-clock 起点判死。
+- 所有终态写走 ``moni.db.leases.finish(fenced)``;迟到写者天然被拒
+- ``sweep_expired`` 取代 ``sweep_zombies``:基于 heartbeat,不再耦合 timeout 预算
+- bestblogs timeout_sec=2100s 假警报的根因(``get_stale_threshold()``)
+  随 ``STALE_THRESHOLD_SECONDS`` 一起删除
 
 Single source per job. Multi-source orchestration goes through
 /api/fetch/all/run which uses cron_runs + fetch_log and is unaffected.
@@ -18,55 +24,17 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..db.connection import get_db
+from ..db import leases
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# v1.0.7.6 zombie fix: running jobs older than this are considered dead
-# (the daemon thread crashed or the process was killed mid-fetch) and swept
-# to 'stale' on the next request. Minimum floor — the effective threshold is
-# computed dynamically by get_stale_threshold() so it always stays ABOVE the
-# largest per-source timeout budget (else a legit still-running job with a
-# stretched timeout would be mis-swept as a zombie and allow a duplicate
-# full-fetch thread to start). v1.0.35.17: bestblogs timeout_sec=1800 makes
-# this reach 2100.
-STALE_THRESHOLD_SECONDS = 900
-
-
-def _global_max_timeout() -> int:
-    """Largest per-source timeout budget across all sources (seconds).
-
-    Reads ``timeout_sec`` from every source's ``fetch_config``; defaults to
-    600 (== fetch.JOB_TIMEOUT_SECONDS) when nothing is configured so the
-    threshold never collapses toward zero.
-    """
-    global_max = 600
-    try:
-        rows = get_db().execute(
-            "SELECT fetch_config FROM sources WHERE fetch_config IS NOT NULL"
-        ).fetchall()
-        for row in rows:
-            try:
-                cfg = json.loads(row["fetch_config"])
-                val = cfg.get("timeout_sec")
-                if isinstance(val, int) and val > 0 and val > global_max:
-                    global_max = val
-            except (ValueError, TypeError):
-                continue
-    except Exception:
-        pass
-    return global_max
-
-
-def get_stale_threshold() -> int:
-    """Effective zombie-sweep cutoff: max(timeout_budget) + 300, floored at 900.
-
-    The sweep must wait longer than the slowest configured source so an
-    in-flight configurable-timeout job is never marked stale and relaunched.
-    """
-    return max(STALE_THRESHOLD_SECONDS, _global_max_timeout() + 300)
+# v1.0.42: 心跳 grace 窗口。grace = 3×心跳间隔 (90s)。
+# 30s 心跳:bestblogs 整轮跑 880s 时,任意 30s 内必有心跳续约;
+# sweep 只 reap 真僵尸(进程死掉/卡死不下心跳)。
+DEFAULT_LEASE_GRACE_SEC = 90
 
 
 def _row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -101,14 +69,22 @@ class FetchJobStore:
         """
         job_id = str(uuid.uuid4())
         conn = get_db()
+        # v1.0.42: write heartbeat at create time so the sweep doesn't
+        # immediately reap a brand-new row before the worker thread
+        # gets a chance to start heartbeating. Also write lease_owner so
+        # the worker thread can adopt the lease via fence-bump without
+        # having to re-acquire (which would race with sweep).
+        job_owner = uuid.uuid4().hex
         conn.execute(
             """
             INSERT INTO fetch_jobs (
                 id, source, status, total_feeds, done_feeds,
-                articles_so_far, started_at, batch_id
-            ) VALUES (?, ?, 'running', ?, 0, 0, ?, ?)
+                articles_so_far, started_at, batch_id,
+                lease_owner, lease_heartbeat_at
+            ) VALUES (?, ?, 'running', ?, 0, 0, ?, ?, ?,
+                      strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             """,
-            (job_id, source, total_feeds, _now_iso(), batch_id),
+            (job_id, source, total_feeds, _now_iso(), batch_id, job_owner),
         )
         conn.commit()
         return job_id
@@ -150,27 +126,72 @@ class FetchJobStore:
                 pass
         self._atomic_update(job_id, **fields)
 
-    # ── terminal updates ───────────────────────────────────────────────────
+    # ── terminal updates (v1.0.42: all fenced via leases.finish) ──────────
 
-    def mark_done(self, job_id: str, result: dict[str, Any]) -> None:
-        self._atomic_update(
-            job_id,
+    def mark_done(
+        self,
+        job_id: str,
+        result: dict[str, Any],
+        handle: leases.LeaseHandle | None = None,
+    ) -> bool:
+        """Mark job done. Returns True if the write actually landed.
+
+        If ``handle`` is provided (i.e. caller holds an active lease), the
+        write is fenced and a late writer's stale write is rejected.
+        If not provided, falls back to an unconditional write (used by
+        legacy call sites that don't hold a lease — see ``mark_done_raw``).
+        """
+        if handle is None:
+            # Legacy / cancel paths: no lease, just write.
+            self._atomic_update(
+                job_id,
+                status="done",
+                finished_at=_now_iso(),
+                result_json=json.dumps(result, ensure_ascii=False, default=str),
+                current_feed=None,
+            )
+            return True
+        return leases.finish(
+            handle,
             status="done",
-            finished_at=_now_iso(),
-            result_json=json.dumps(result, ensure_ascii=False, default=str),
-            current_feed=None,
+            extra_fields={
+                "finished_at": _now_iso(),
+                "result_json": json.dumps(result, ensure_ascii=False, default=str),
+                "current_feed": None,
+            },
         )
 
-    def mark_failed(self, job_id: str, error: str) -> None:
-        self._atomic_update(
-            job_id,
+    def mark_failed(
+        self,
+        job_id: str,
+        error: str,
+        handle: leases.LeaseHandle | None = None,
+    ) -> bool:
+        if handle is None:
+            self._atomic_update(
+                job_id,
+                status="failed",
+                finished_at=_now_iso(),
+                error=error[:2000],
+                current_feed=None,
+            )
+            return True
+        return leases.finish(
+            handle,
             status="failed",
-            finished_at=_now_iso(),
-            error=error[:2000],  # cap to keep DB lean
-            current_feed=None,
+            extra_fields={
+                "finished_at": _now_iso(),
+                "error": error[:2000],
+                "current_feed": None,
+            },
         )
 
-    def mark_timeout(self, job_id: str, error: str | None = None) -> None:
+    def mark_timeout(
+        self,
+        job_id: str,
+        error: str | None = None,
+        handle: leases.LeaseHandle | None = None,
+    ) -> bool:
         if error is None:
             # Include how far the fetch actually got — a source that finished
             # a full sweep but ran past its budget is a "too slow" signal, not
@@ -178,31 +199,56 @@ class FetchJobStore:
             row = self.get_raw(job_id)
             n = (row or {}).get("articles_so_far") or 0
             error = f"超过超时预算 (已抓 {n} 篇)"
-        self._atomic_update(
-            job_id,
+        if handle is None:
+            self._atomic_update(
+                job_id,
+                status="timeout",
+                finished_at=_now_iso(),
+                error=error[:2000],
+                current_feed=None,
+            )
+            return True
+        return leases.finish(
+            handle,
             status="timeout",
-            finished_at=_now_iso(),
-            error=error[:2000],
-            current_feed=None,
+            extra_fields={
+                "finished_at": _now_iso(),
+                "error": error[:2000],
+                "current_feed": None,
+            },
         )
 
-    def mark_stale(self, job_id: str) -> None:
-        """Mark a long-running job as 'stale' (daemon thread presumed dead).
+    def mark_stale(self, job_id: str, handle: leases.LeaseHandle | None = None) -> bool:
+        """Mark a job as 'stale' (lease heartbeat presumed dead).
 
-        Called by sweep_zombies() when a job has been 'running' for more
-        than STALE_THRESHOLD_SECONDS. The user-facing API surfaces this
-        as an error so the SPA knows to prompt the user to retry.
+        Called by sweep_expired() when heartbeat < now-grace. The user-facing
+        API surfaces this as an error so the SPA knows to prompt retry.
         """
-        self._atomic_update(
-            job_id,
+        # Sweep path always passes handle=None — sweep_expired already did the
+        # UPDATE directly. This method is also exposed for manual reap.
+        if handle is None:
+            self._atomic_update(
+                job_id,
+                status="stale",
+                finished_at=_now_iso(),
+                error=(
+                    "Aborted: daemon thread presumed dead (no heartbeat). "
+                    "Likely SQLite contention or process restart."
+                )[:2000],
+                current_feed=None,
+            )
+            return True
+        return leases.finish(
+            handle,
             status="stale",
-            finished_at=_now_iso(),
-            error=(
-                "Aborted: daemon thread presumed dead (no progress for "
-                f">{STALE_THRESHOLD_SECONDS // 60}min). "
-                "Likely SQLite contention or process restart."
-            )[:2000],
-            current_feed=None,
+            extra_fields={
+                "finished_at": _now_iso(),
+                "error": (
+                    "Aborted: daemon thread presumed dead (no heartbeat). "
+                    "Likely SQLite contention or process restart."
+                )[:2000],
+                "current_feed": None,
+            },
         )
 
     # ── queries (called from request thread) ───────────────────────────────
@@ -411,35 +457,29 @@ class FetchJobStore:
         return row is not None
 
     def sweep_zombies(self) -> int:
-        """Mark any 'running' job older than get_stale_threshold() as 'stale'.
+        """Mark any 'running' job whose heartbeat has expired as 'stale'.
 
-        Returns the number of jobs swept. Safe to call on every
-        /api/fetch/sources/{name}/run request — idempotent and cheap
-        (a single UPDATE statement).
+        v1.0.42: 重命名为 ``sweep_expired`` 的 thin wrapper 保留向后兼容;
+        调用方应改用 ``leases.sweep_expired('fetch_jobs')`` 直接走心跳制。
         """
-        from datetime import timedelta
-        threshold = get_stale_threshold()
-        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=threshold)).isoformat()
-        cur = get_db().execute(
-            "SELECT id FROM fetch_jobs WHERE status = 'running' AND started_at < ?",
-            (cutoff,),
-        )
-        stale_ids = [row["id"] for row in cur.fetchall()]
-        for jid in stale_ids:
-            self.mark_stale(jid)
-        return len(stale_ids)
+        return leases.sweep_expired("fetch_jobs", grace_sec=DEFAULT_LEASE_GRACE_SEC)
 
     # ── internals ──────────────────────────────────────────────────────────
 
-    def _atomic_update(self, job_id: str, **fields: Any) -> None:
+    def _atomic_update(self, job_id: str, **fields: Any) -> int:
+        """Raw UPDATE (no fence). For paths that don't hold an active lease.
+
+        Returns rowcount.
+        """
         if not fields:
-            return
+            return 0
         cols = ", ".join(f"{k} = ?" for k in fields)
         params = list(fields.values()) + [job_id]
-        get_db().execute(
+        cur = get_db().execute(
             f"UPDATE fetch_jobs SET {cols} WHERE id = ?", params
         )
         get_db().commit()
+        return cur.rowcount
 
     def _get_started_at(self, job_id: str) -> str | None:
         row = get_db().execute(

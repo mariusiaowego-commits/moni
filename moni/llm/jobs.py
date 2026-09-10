@@ -52,6 +52,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from moni.db.connection import get_db
+from moni.db import leases
 from moni.llm.client import call_llm
 from moni.llm.prompts import render_fact_check, render_fact_check_plus, render_summary
 # Re-export for backwards compat (Day 1 had DOMAIN_WHITELIST defined here;
@@ -186,10 +187,22 @@ def stop_worker() -> None:
 
 
 def _worker_loop() -> None:
-    """Drain the queue until ``_WORKER_STOP`` is set."""
+    """Drain the queue until ``_WORKER_STOP`` is set.
+
+    v1.0.42: also call ``leases.sweep_expired`` periodically so zombie
+    rows from a previous (dead) 8900 process get reaped back to pending
+    rather than permanently hanging in 'running' state. No fence conflict
+    since sweep only touches heartbeat-expired rows.
+    """
     logger.info("[llm_jobs] worker loop entered")
+    sweep_counter = 0
     while not _WORKER_STOP.is_set():
         try:
+            # Sweep every 30 polls (~60s) so a dead 8900's zombie rows
+            # get reaped within 2 minutes of restart.
+            if sweep_counter % 30 == 0:
+                leases.sweep_expired("llm_jobs", grace_sec=90)
+            sweep_counter += 1
             processed = _process_one_pending()
         except Exception as exc:
             # Defensive: never let the worker die because of an unexpected
@@ -210,6 +223,13 @@ def _process_one_pending() -> bool:
     sweep cancelled-while-pending rows aside as a separate "transition"
     step before the main claim, so the worker can't grab a row the user
     already abandoned.
+
+    v1.0.42 (sprint-22): claim is now atomic via ``leases.acquire`` — a
+    single-statement UPDATE that flips a pending row to running in one
+    round-trip, preventing two workers (8900 + 8901 + CLI) from
+    double-claiming the same row.  Fence token is returned on the handle
+    so finish() can reject late writers if the lease expired and was
+    re-claimed by another worker.
     """
     conn = get_db()
 
@@ -231,34 +251,36 @@ def _process_one_pending() -> bool:
             "[llm_jobs] swept %d cancelled-while-pending row(s)", len(cancelled)
         )
 
-    # 2. Atomic-ish claim: SELECT a pending row, flip to running, commit.
-    #    Two workers would race here, but we run exactly one per process.
-    row = conn.execute(
-        """
-        SELECT id, task_type, article_id, provider, model, attempts
-        FROM llm_jobs
-        WHERE status = 'pending'
-        ORDER BY created_at ASC
-        LIMIT 1
-        """
-    ).fetchone()
-    if row is None:
+    # 2. v1.0.42: atomic lease acquire. No more SELECT-then-UPDATE race.
+    handle = leases.acquire("llm_jobs", grace_sec=90)
+    if handle is None:
         return False
 
-    job_id = row["id"]
-    now = datetime.now(timezone.utc).isoformat()
-    conn.execute(
-        "UPDATE llm_jobs SET status = 'running', started_at = ? WHERE id = ?",
-        (now, job_id),
-    )
-    conn.commit()
+    # Read row by id (we already won the claim — safe read).
+    row = conn.execute(
+        "SELECT id, task_type, article_id, provider, model, attempts "
+        "FROM llm_jobs WHERE id = ?",
+        (handle.job_id,),
+    ).fetchone()
+    if row is None:
+        logger.warning(
+            "[llm_jobs] acquired lease for %s but row vanished — releasing",
+            handle.job_id[:8],
+        )
+        leases.finish(handle, status="pending")
+        return False
 
-    _run_job(dict(row))
+    _run_job(dict(row), handle)
     return True
 
 
-def _run_job(row: dict[str, Any]) -> None:
-    """Execute a single LLM call for a claimed job, write the outcome."""
+def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> None:
+    """Execute a single LLM call for a claimed job, write the outcome.
+
+    v1.0.42: takes an optional ``handle`` from ``leases.acquire`` so
+    terminal writes (done/failed/pending) are fenced — late writes
+    after lease expiry are rejected with rowcount=0.
+    """
     job_id: str = row["id"]
     task_type: str = row["task_type"]
     article_id: str = row["article_id"]
@@ -340,28 +362,30 @@ def _run_job(row: dict[str, Any]) -> None:
         except Exception:  # noqa: BLE001 — 记账失败不影响失败处理
             pass
         if attempt < MAX_ATTEMPTS:
-            # Re-queue for a retry.
+            # Re-queue for a retry. v1.0.42: fenced write via leases.finish;
+            # if our lease expired and someone else already took over,
+            # finish() returns False and we silently drop the write.
             logger.warning(
                 "[llm_jobs] job %s attempt %d/%d failed (%s) — requeueing",
                 job_id, attempt, MAX_ATTEMPTS, err_msg,
             )
-            conn.execute(
-                """
-                UPDATE llm_jobs
-                SET status = 'pending',
-                    attempts = ?,
-                    error = ?,
-                    duration_ms = ?,
-                    input_tokens = ?,
-                    output_tokens = ?,
-                    cost_usd = ?
-                WHERE id = ?
-                """,
-                (
-                    attempt, err_msg, duration_ms,
-                    input_tokens, output_tokens, cost_usd, job_id,
-                ),
+            ok = leases.finish(
+                handle,
+                status="pending",
+                extra_fields={
+                    "attempts": attempt,
+                    "error": err_msg,
+                    "duration_ms": duration_ms,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cost_usd": cost_usd,
+                },
             )
+            if not ok:
+                logger.info(
+                    "[llm_jobs] job %s requeue rejected (lease lost) — done writes dropped",
+                    job_id,
+                )
             conn.commit()
         else:
             _mark_failed(
@@ -370,6 +394,7 @@ def _run_job(row: dict[str, Any]) -> None:
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 cost_usd=cost_usd,
+                handle=handle,
             )
         _cleanup_usage_file(usage_file)
         return
@@ -440,25 +465,41 @@ def _run_job(row: dict[str, Any]) -> None:
         )
         return
 
-    conn.execute(
-        """
-        UPDATE llm_jobs
-        SET status      = 'done',
-            result      = ?,
-            attempts    = ?,
-            duration_ms = ?,
-            input_tokens = ?,
-            output_tokens = ?,
-            cost_usd    = ?,
-            finished_at = ?
-        WHERE id = ?
-        """,
-        (
-            result_text, attempt, duration_ms,
-            input_tokens, output_tokens, cost_usd, finished_at, job_id,
-        ),
-    )
-    conn.commit()
+    # v1.0.42: if we have a lease, release it (fenced status='done').
+    if handle is not None:
+        leases.finish(
+            handle,
+            status="done",
+            extra_fields={
+                "result": result_text,
+                "attempts": attempt,
+                "duration_ms": duration_ms,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cost_usd": cost_usd,
+                "finished_at": finished_at,
+            },
+        )
+    else:
+        conn.execute(
+            """
+            UPDATE llm_jobs
+            SET status      = 'done',
+                result      = ?,
+                attempts    = ?,
+                duration_ms = ?,
+                input_tokens = ?,
+                output_tokens = ?,
+                cost_usd    = ?,
+                finished_at = ?
+            WHERE id = ?
+            """,
+            (
+                result_text, attempt, duration_ms,
+                input_tokens, output_tokens, cost_usd, finished_at, job_id,
+            ),
+        )
+        conn.commit()
     logger.info(
         "[llm_jobs] job %s done (%s, %d ms, attempt %d)",
         job_id, task_type, duration_ms, attempt,
@@ -902,10 +943,32 @@ def _mark_failed(
     input_tokens: int = 0,
     output_tokens: int = 0,
     cost_usd: float = 0.0,
+    handle: leases.LeaseHandle | None = None,
 ) -> None:
-    """Mark a job as failed with the given error message."""
+    """Mark a job as failed with the given error message.
+
+    v1.0.42: takes optional ``handle`` so writes are fenced. Falls back
+    to unconditional UPDATE when no lease (legacy/manual caller paths).
+    """
     conn = get_db()
     finished_at = datetime.now(timezone.utc).isoformat()
+    if handle is not None:
+        leases.finish(
+            handle,
+            status="failed",
+            extra_fields={
+                "error": error_msg,
+                "attempts": attempts,
+                "duration_ms": duration_ms,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cost_usd": cost_usd,
+                "finished_at": finished_at,
+            },
+        )
+        conn.commit()
+        logger.warning("[llm_jobs] job %s failed (fenced): %s", job_id, error_msg)
+        return
     conn.execute(
         """
         UPDATE llm_jobs

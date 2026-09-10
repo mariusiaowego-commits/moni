@@ -437,18 +437,21 @@ class TestZombieSweep:
         from datetime import datetime, timedelta, timezone
         store = FetchJobStore()
         old_job = store.create("36kr_rss")
-        # Backdate started_at to 3h ago.
-        old_start = (
+        # v1.0.42: sweep_expired 走 heartbeat 而非 started_at。
+        # 把 heartbeat 推前 3h,模拟僵尸进程(进程死掉后停更心跳)。
+        old_hb = (
             datetime.now(timezone.utc) - timedelta(hours=3)
-        ).isoformat()
+        ).isoformat(timespec="microseconds").replace("+00:00", "Z")
+        if not old_hb.endswith("Z"):
+            old_hb += "Z"
         get_db = __import__("moni.db.connection", fromlist=["get_db"]).get_db
         get_db().execute(
-            "UPDATE fetch_jobs SET started_at = ? WHERE id = ?",
-            (old_start, old_job),
+            "UPDATE fetch_jobs SET lease_heartbeat_at = ? WHERE id = ?",
+            (old_hb, old_job),
         )
         get_db().commit()
 
-        new_job = store.create("mpaypass")  # fresh, just now
+        new_job = store.create("mpaypass")  # fresh, just now (insert 默认写 heartbeat=now)
 
         swept = store.sweep_zombies()
         assert swept == 1
@@ -457,7 +460,7 @@ class TestZombieSweep:
 
     def test_sweep_zombies_no_op_for_recent_jobs(self, fresh_db):
         store = FetchJobStore()
-        store.create("36kr_rss")  # just started, way under threshold
+        store.create("36kr_rss")  # just started, 默认 lease_heartbeat_at = now
         swept = store.sweep_zombies()
         assert swept == 0
 
@@ -467,17 +470,20 @@ class TestZombieSweep:
         from datetime import datetime, timedelta, timezone
         store = FetchJobStore()
         old_job = store.create("36kr_rss")
-        old_start = (
+        # v1.0.42: backdate heartbeat,模拟僵尸
+        old_hb = (
             datetime.now(timezone.utc) - timedelta(hours=3)
-        ).isoformat()
+        ).isoformat(timespec="microseconds").replace("+00:00", "Z")
+        if not old_hb.endswith("Z"):
+            old_hb += "Z"
         from moni.db.connection import get_db
         get_db().execute(
-            "UPDATE fetch_jobs SET started_at = ? WHERE id = ?",
-            (old_start, old_job),
+            "UPDATE fetch_jobs SET lease_heartbeat_at = ? WHERE id = ?",
+            (old_hb, old_job),
         )
         get_db().commit()
 
-        # Without sweep: would be True (job is 'running')
-        assert store.has_running("36kr_rss") is False  # sweep clears it first
-        # Stale, so a new fetch would be allowed
+        # sweep 会先 reap → has_running 返 False
+        assert store.has_running("36kr_rss") is False
+        # 再次确认(被 sweep 后变 stale,自然返 False)
         assert store.has_running("36kr_rss") is False

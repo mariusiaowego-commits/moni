@@ -282,20 +282,106 @@ def _run_fetch_job(
     Catches all exceptions to ensure the job row always reaches a
     terminal status (done | failed | timeout).  Uses a wall-clock
     deadline to enforce JOB_TIMEOUT_SECONDS.
+
+    v1.0.42 (sprint-22): heartbeat-driven lease.  Backend thread acquires
+    a lease (or falls back to raw write for legacy paths), keeps the
+    heartbeat alive every 30s via ``leases.heartbeat``, and uses the
+    ``LeaseHandle`` for the fenced terminal write so late writers after
+    a restart are rejected.
     """
     import time
+    import threading
 
     from datetime import datetime, timezone
+
+    from moni.db import leases
 
     jobs = FetchJobStore()
     started = time.monotonic()
     timeout_sec = _job_timeout(source_name)
     deadline = started + timeout_sec
 
+    # v1.0.42: take ownership of the lease that ``jobs.create()`` already
+    # minted. We don't run leases.acquire() here because that would race
+    # with sweep — the row was INSERTed with status='running' AND a fresh
+    # heartbeat; sweep won't reap us for 90s.
+    # Read the freshly-minted owner+fence and bump fence to claim it as
+    # our own (so finish() below has a handle to fence on).
+    from moni.db.connection import get_db as _get_db
+    row = _get_db().execute(
+        "SELECT lease_owner, fence FROM fetch_jobs WHERE id = ?",
+        (job_id,),
+    ).fetchone()
+    if row is None:
+        logger.warning("[%s] job %s vanished after create()", source_name, job_id[:8])
+        return
+    owner = row["lease_owner"] or ""
+    # Bump fence + refresh heartbeat atomically. RETURNING is fetched
+    # then we commit; the lease handle we hand to the heartbeat thread
+    # carries the new fence so finish() below can fence on it.
+    cur = _get_db().execute(
+        "UPDATE fetch_jobs SET fence = fence + 1, "
+        "lease_heartbeat_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+        "WHERE id = ?",
+        (job_id,),
+    )
+    _get_db().commit()
+    new_fence = cur.rowcount  # rowcount==1 means our UPDATE landed
+    # If we got 0 rows, the row was reaped between SELECT and UPDATE.
+    if new_fence != 1:
+        logger.warning(
+            "[%s] job %s vanished between SELECT and UPDATE — orphan",
+            source_name, job_id[:8],
+        )
+        return
+    # Read the freshly-bumped fence (separate query after commit).
+    new_fence = _get_db().execute(
+        "SELECT fence FROM fetch_jobs WHERE id = ?", (job_id,)
+    ).fetchone()["fence"]
+    handle = leases.LeaseHandle(job_id=job_id, owner=owner, fence=new_fence)
+    if not owner:
+        # If create() somehow didn't mint an owner (older schema path),
+        # use a fresh one and adopt it.
+        handle = leases.acquire("fetch_jobs", grace_sec=90)
+        if handle is None:
+            logger.warning(
+                "[%s] job %s could not be leased (already swept)",
+                source_name, job_id[:8],
+            )
+            return
+
+    # Heartbeat thread: renew lease every 30s so sweep won't reap us.
+    _heartbeat_stop = threading.Event()
+
+    def _heartbeat_loop() -> None:
+        while not _heartbeat_stop.is_set():
+            _heartbeat_stop.wait(30.0)
+            if _heartbeat_stop.is_set():
+                break
+            try:
+                if not leases.heartbeat(handle):
+                    # Lease lost — either we got swept (rare) or our fence
+                    # is stale (would only happen if acquire returned a
+                    # new handle while the old heartbeat was queued).
+                    # Either way, the worker has or will write a terminal
+                    # status; this thread just quietly exits.
+                    return
+            except Exception as exc:  # noqa: BLE001 — heartbeat never kills the thread
+                # Typical: row already finished → _table() ValueError
+                logger.debug("[%s] heartbeat stopped (%s)", source_name, exc)
+                return
+
+    hb_thread = threading.Thread(
+        target=_heartbeat_loop,
+        name=f"lease-hb-{source_name}-{job_id[:8]}",
+        daemon=True,
+    )
+    hb_thread.start()
+
     try:
         _ensure_sources_loaded()
         if source_name not in _FETCHER_REGISTRY:
-            jobs.mark_failed(job_id, f"No fetcher registered for {source_name!r}")
+            jobs.mark_failed(job_id, f"No fetcher registered for {source_name!r}", handle=handle)
             return
 
         fetcher = _FETCHER_REGISTRY[source_name]()
@@ -336,7 +422,7 @@ def _run_fetch_job(
         # Defensive: in case the fetcher didn't raise but we're past
         # the deadline, mark as timeout.
         if time.monotonic() > deadline:
-            jobs.mark_timeout(job_id)
+            jobs.mark_timeout(job_id, handle=handle)
             return
 
         if result is None:
@@ -347,17 +433,21 @@ def _run_fetch_job(
                     "status": "skipped",
                     "message": "Source not due for fetching",
                 },
+                handle=handle,
             )
             return
 
-        jobs.mark_done(job_id, result)
+        jobs.mark_done(job_id, result, handle=handle)
 
     except TimeoutError as exc:
         logger.warning("[%s] job %s timed out: %s", source_name, job_id[:8], exc)
-        jobs.mark_timeout(job_id, str(exc))
+        jobs.mark_timeout(job_id, str(exc), handle=handle)
     except Exception as exc:
         logger.exception("[%s] job %s failed", source_name, job_id[:8])
-        jobs.mark_failed(job_id, f"{type(exc).__name__}: {exc}")
+        jobs.mark_failed(job_id, f"{type(exc).__name__}: {exc}", handle=handle)
+    finally:
+        _heartbeat_stop.set()
+        hb_thread.join(timeout=2.0)
 
 
 # ── v1.0.7.6: fetch_jobs query endpoints (SPA polls these) ──────────────────

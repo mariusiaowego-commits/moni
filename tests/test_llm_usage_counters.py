@@ -112,7 +112,7 @@ def _seed_llm_jobs() -> None:
 
 
 def test_migration_029_adds_usage_columns(fresh_db):
-    assert current_version(get_db()) == 33  # v1.0.40: schema 升到 v33 (migration 033 全局关键词)
+    assert current_version(get_db()) == 35  # v1.0.42: schema 升到 v35 (migrations 034 租约 + 035 runner config)
     cols = {
         r["name"]
         for r in get_db().execute("PRAGMA table_info(llm_jobs)").fetchall()
@@ -120,7 +120,7 @@ def test_migration_029_adds_usage_columns(fresh_db):
     assert "input_tokens" in cols
     assert "output_tokens" in cols
     assert "cost_usd" in cols
-    assert _CURRENT_VERSION == 33  # v1.0.40: schema 升到 v33 (migration 033 全局关键词)
+    assert _CURRENT_VERSION == 35  # v1.0.42: schema 升到 v35 (migrations 034 租约 + 035 runner config)
 
 
 # ── worker_llm.parse_usage_file ───────────────────────────────────────────
@@ -166,21 +166,23 @@ def test_parse_usage_file_failure_and_missing(tmp_path):
 
 
 def test_run_hermes_usage_file_in_argv(monkeypatch, tmp_path):
-    """run_hermes 把 --usage-file 拼进 argv (生图任务记账)."""
+    """run_hermes 把 --usage-file 拼进 argv (生图任务记账).
+
+    v1.0.42: run_hermes routes through HardenedSubprocess. We patch the
+    runner's _invoke to capture argv shape and return a fake success.
+    """
     uf = tmp_path / "usage.json"
     captured: list[list[str]] = []
 
-    class _Fake:
-        returncode = 0
+    from moni.llm import runner as runner_mod
 
-        def communicate(self, timeout=None):
-            return "ok", ""
+    def fake_run(self):
+        captured.append(list(self.cmd))
+        return runner_mod.SubprocessResult(
+            stdout="ok", stderr="", returncode=0, duration_ms=10,
+        )
 
-    def fake_popen(argv, **kwargs):
-        captured.append(argv)
-        return _Fake()
-
-    monkeypatch.setattr(worker_llm.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(runner_mod.HardenedSubprocess, "run", fake_run)
     result = worker_llm.run_hermes("make png", usage_file=uf)
     assert result["exit_code"] == 0
     assert "--usage-file" in captured[0]
@@ -193,27 +195,37 @@ def test_run_hermes_usage_file_in_argv(monkeypatch, tmp_path):
 
 
 def test_call_llm_returns_usage(monkeypatch, tmp_path):
-    """call_llm 传 usage_file 时返回 (text, usage); argv 含 --usage-file."""
+    """call_llm 传 usage_file 时返回 (text, usage); argv 含 --usage-file.
+
+    v1.0.42: call_llm routes through FailoverRunner.call(), which calls
+    HardenedSubprocess.run(). We monkeypatch the runner to capture argv
+    and return a fake CompletedProcess.
+    """
     uf = tmp_path / "usage.json"
     captured: dict = {}
 
-    def fake_run(cmd, **kwargs):
-        captured["cmd"] = cmd
-        uf.write_text(
-            json.dumps(
-                {
-                    "estimated_cost_usd": 0.005,
-                    "input_tokens": 111,
-                    "output_tokens": 22,
-                    "model": "MiniMax-M3",
-                    "failed": False,
-                }
-            )
+    def fake_invoke(self, req, model_id):
+        # Build the same argv shape we used to capture via subprocess.run
+        captured["cmd"] = [
+            "hermes", "-z", req.prompt,
+            "--provider", req.provider, "-m", model_id,
+            *(req.extra_args or []),
+            *(["--usage-file", req.usage_file] if req.usage_file else []),
+        ]
+        # Write a fake usage file so the runner picks it up.
+        import json as _json
+        uf.write_text(_json.dumps(
+            {"estimated_cost_usd": 0.005, "input_tokens": 111, "output_tokens": 22}
+        ))
+        from moni.llm.runner import SubprocessResult
+        return SubprocessResult(
+            stdout="session_id: s\nhello\n",
+            stderr="", returncode=0, duration_ms=10,
+            input_tokens=111, output_tokens=22, cost_usd=0.005,
         )
-        import subprocess as sp
-        return sp.CompletedProcess(cmd, 0, stdout="session_id: s\nhello\n", stderr="")
 
-    monkeypatch.setattr("moni.llm.client.subprocess.run", fake_run)
+    from moni.llm import runner as runner_mod
+    monkeypatch.setattr(runner_mod.FailoverRunner, "_invoke", fake_invoke)
     text, usage = call_llm(
         "minimax-cn", "MiniMax-M3", "hi",
         usage_file=str(uf), usage=True,
@@ -227,13 +239,17 @@ def test_call_llm_returns_usage(monkeypatch, tmp_path):
 
 
 def test_call_llm_without_usage_file_still_returns_text(monkeypatch):
-    """不带 usage_file 的老调用方式: 返回 (text, usage-all-zero)."""
+    """不带 usage_file 的的老调用方式: 返回 (text, usage-all-zero)."""
 
-    def fake_run(cmd, **kwargs):
-        import subprocess as sp
-        return sp.CompletedProcess(cmd, 0, stdout="session_id: s\nhi there\n", stderr="")
+    def fake_invoke(self, req, model_id):
+        from moni.llm.runner import SubprocessResult
+        return SubprocessResult(
+            stdout="session_id: s\nhi there\n", stderr="",
+            returncode=0, duration_ms=10,
+        )
 
-    monkeypatch.setattr("moni.llm.client.subprocess.run", fake_run)
+    from moni.llm import runner as runner_mod
+    monkeypatch.setattr(runner_mod.FailoverRunner, "_invoke", fake_invoke)
     text, usage = call_llm("minimax-cn", "MiniMax-M3", "hi", usage=True)
     assert text == "hi there"
     assert usage["input_tokens"] == 0
@@ -244,19 +260,24 @@ def test_call_llm_without_usage_file_still_returns_text(monkeypatch):
 def test_call_llm_sets_hermes_profile_coder(monkeypatch):
     """v1.0.35.13: call_llm 必须在 subprocess env 设 HERMES_PROFILE=coder.
 
-    moni 播种的 provider (minimax-cn/google/openrouter/ark) 全定义在 coder
-    profile 的 config.yaml; 服务进程 (8900) 从 terminal 拉起时不带
-    HERMES_PROFILE, hermes 会 fallback 到 default profile —— 那个没有 ark,
-    `--provider ark` 报 "Unknown provider 'ark'"。这里钉死设 coder。
+    v1.0.42: HardenedSubprocess sets HERMES_PROFILE=coder on the env
+    passed to Popen. We verify by capturing env on Popen.
     """
+    import subprocess as sp
     captured: dict = {}
 
-    def fake_run(cmd, **kwargs):
-        captured["env"] = kwargs.get("env")
-        import subprocess as sp
-        return sp.CompletedProcess(cmd, 0, stdout="session_id: s\nok\n", stderr="")
+    real_popen = sp.Popen
 
-    monkeypatch.setattr("moni.llm.client.subprocess.run", fake_run)
+    def fake_popen(cmd, **kwargs):
+        captured["env"] = kwargs.get("env")
+        # Need a fast exit. Use echo.
+        if "--usage-file" in cmd:
+            cmd = [c for c in cmd if c != "--usage-file"]
+        # Just run /bin/echo with the first non-flag arg.
+        prompt_idx = next(i for i, c in enumerate(cmd) if not c.startswith("-") and c != "hermes" and i > 0)
+        return real_popen(["/bin/echo", "ok"], stdout=sp.PIPE, stderr=sp.PIPE, text=True, env=kwargs.get("env"))
+
+    monkeypatch.setattr(sp, "Popen", fake_popen)
     monkeypatch.delenv("HERMES_PROFILE", raising=False)
     call_llm("ark", "ark-code-latest", "hi")
     assert captured["env"] is not None
@@ -265,14 +286,16 @@ def test_call_llm_sets_hermes_profile_coder(monkeypatch):
 
 def test_call_llm_preserves_existing_hermes_profile(monkeypatch):
     """setdefault 语义: 若环境已有 HERMES_PROFILE, 不被覆盖."""
+    import subprocess as sp
     captured: dict = {}
 
-    def fake_run(cmd, **kwargs):
-        captured["env"] = kwargs.get("env")
-        import subprocess as sp
-        return sp.CompletedProcess(cmd, 0, stdout="session_id: s\nok\n", stderr="")
+    real_popen = sp.Popen
 
-    monkeypatch.setattr("moni.llm.client.subprocess.run", fake_run)
+    def fake_popen(cmd, **kwargs):
+        captured["env"] = kwargs.get("env")
+        return real_popen(["/bin/echo", "ok"], stdout=sp.PIPE, stderr=sp.PIPE, text=True, env=kwargs.get("env"))
+
+    monkeypatch.setattr(sp, "Popen", fake_popen)
     monkeypatch.setenv("HERMES_PROFILE", "work")
     call_llm("ark", "ark-code-latest", "hi")
     assert captured["env"]["HERMES_PROFILE"] == "work"
