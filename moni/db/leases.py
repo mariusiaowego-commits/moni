@@ -56,9 +56,10 @@ class LeaseHandle:
     job_id: str
     owner: str
     fence: int
+    table: str = ""
 
     def __str__(self) -> str:
-        return f"LeaseHandle(job={self.job_id[:8]} owner={self.owner} fence={self.fence})"
+        return f"LeaseHandle(table={self.table or '?'} job={self.job_id[:8]} owner={self.owner} fence={self.fence})"
 
 
 # ── 原语 1: acquire (原子认领 + 起心跳 + fence 单调递增) ──────────────────────
@@ -119,7 +120,7 @@ def acquire(
     conn.commit()
     if row is None:
         return None
-    return LeaseHandle(job_id=row["id"], owner=owner, fence=int(row["fence"]))
+    return LeaseHandle(job_id=row["id"], owner=owner, fence=int(row["fence"]), table=table)
 
 
 # ── 原语 2: heartbeat (续约) ────────────────────────────────────────────────
@@ -168,7 +169,10 @@ def finish(
         False = fence 失配(rowcount=0) — **这是正常的迟到拒绝**,不要 raise。
     """
     _check_table(handle)
-    table = _table(handle)
+    try:
+        table = _table(handle)
+    except ValueError:
+        return False
     fields = extra_fields or {}
     sets: list[str] = [
         "status = ?",
@@ -245,7 +249,8 @@ def sweep_expired(
 
 def _table(handle: LeaseHandle) -> str:
     """从 job_id 反查属于哪张表。出错就抛 ValueError。"""
-    # 这里走纯 SQL: 用 sqlite_master 不可行;走 UNION ALL 两表查 status。
+    if handle.table and handle.table in _LEASE_TABLES:
+        return handle.table
     conn = get_db()
     row = conn.execute(
         """

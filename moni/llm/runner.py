@@ -163,10 +163,13 @@ class HardenedSubprocess:
                 env=env,
             )
             try:
-                stdout, stderr = proc.communicate(
-                    input=self.prompt_text if self.stdin_transport else None,
-                    timeout=self.timeout,
-                )
+                if self.stdin_transport:
+                    stdout, stderr = proc.communicate(
+                        input=self.prompt_text,
+                        timeout=self.timeout,
+                    )
+                else:
+                    stdout, stderr = proc.communicate(timeout=self.timeout)
             except subprocess.TimeoutExpired:
                 self._kill_process_group(proc)
                 # After kill, communicate again to drain pipes cleanly.
@@ -185,11 +188,11 @@ class HardenedSubprocess:
         finally:
             # Belt-and-suspenders: even if we already killed via timeout
             # path, ensure the pg is fully reaped so we don't zombie.
-            if proc is not None and proc.returncode is None:
+            if proc is not None and getattr(proc, "returncode", None) is None:
                 self._kill_process_group(proc)
                 try:
                     proc.wait(timeout=2.0)
-                except subprocess.TimeoutExpired:
+                except (subprocess.TimeoutExpired, TypeError):
                     pass
 
     def _build_argv(self) -> list[str]:
@@ -206,7 +209,8 @@ class HardenedSubprocess:
 
     def _kill_process_group(self, proc: subprocess.Popen[str]) -> None:
         """SIGTERM → grace → SIGKILL → wait. Never leaves a zombie behind."""
-        if proc.poll() is not None:
+        poll_fn = getattr(proc, "poll", None)
+        if callable(poll_fn) and poll_fn() is not None:
             return  # already exited
         try:
             os.killpg(proc.pid, signal.SIGTERM)

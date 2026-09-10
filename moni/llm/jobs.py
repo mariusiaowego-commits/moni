@@ -465,25 +465,6 @@ def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> N
         )
         return
 
-    conn.execute(
-        """
-        UPDATE llm_jobs
-        SET status      = 'done',
-            result      = ?,
-            attempts    = ?,
-            duration_ms = ?,
-            input_tokens = ?,
-            output_tokens = ?,
-            cost_usd    = ?,
-            finished_at = ?
-        WHERE id = ?
-        """,
-        (
-            result_text, attempt, duration_ms,
-            input_tokens, output_tokens, cost_usd, finished_at, job_id,
-        ),
-    )
-    conn.commit()
     # v1.0.42: if we have a lease, release it (fenced status='done').
     if handle is not None:
         leases.finish(
@@ -499,6 +480,26 @@ def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> N
                 "finished_at": finished_at,
             },
         )
+    else:
+        conn.execute(
+            """
+            UPDATE llm_jobs
+            SET status      = 'done',
+                result      = ?,
+                attempts    = ?,
+                duration_ms = ?,
+                input_tokens = ?,
+                output_tokens = ?,
+                cost_usd    = ?,
+                finished_at = ?
+            WHERE id = ?
+            """,
+            (
+                result_text, attempt, duration_ms,
+                input_tokens, output_tokens, cost_usd, finished_at, job_id,
+            ),
+        )
+        conn.commit()
     logger.info(
         "[llm_jobs] job %s done (%s, %d ms, attempt %d)",
         job_id, task_type, duration_ms, attempt,
