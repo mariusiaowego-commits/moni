@@ -1,8 +1,15 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。**v1.0.35.16.5** (2026-08-25 SHIPPED) — sprint-16.7 demo 修复: 切到 dad 微信附件 demo (8-21 参赛版, md5 `926312d`) 作为 baseline; 建立 `docs/moni-web-showcase-history/` 历史目录保留所有 demo 版本; 修复 panel-soft 内 "打开产物" 按钮文字看不清 (`.panel-soft * { color: var(--fg) }` 通配覆盖 `.btn-primary` 字色). PR #128 squash @ `29442a5`, tag v1.0.35.16.5. 772 pass / 2 skip / 0 fail.
+> 同业信源自动抓取与本地新闻库。**v1.0.42** (2026-09-10 SHIPPED) — sprint-22 双 PR ship (PR #141 web 防御 + PR #142 核心租约+runner)。schema v33→v35。171/171 全部通过。
+
+> 本次新增 (sprint-22, 2026-09-10):
+> - **后台任务租约** — fetch_jobs / llm_jobs 任务运行期间每 30s 写入心跳, 心跳超期 sweep 标记为 stale (取代 v1.0.35.17 墙钟判死, 解决 bestblogs 187 篇跑完后被误杀 600s timeout 问题)
+> - **LLM 熔断器** — 同一 provider 连续失败 3 次熔断 60s, 自动切换到 fallback 链 (新增 4 个 llm_settings key: `fallback_chain` / `breaker_failure_threshold` / `breaker_reset_seconds` / `use_stdin_transport`)
+> - **LLM 子进程加固** — hermes 子进程超时 killpg 全组 (零孤儿), 200KB argv 预检防 E2BIG, 长 prompt 走 stdin
+> - **API 出栈脱敏** — `GET /api/config/sources` 自动把 URL 里的 token=eyJ… 打成 `…` (库内 URL 一字未动, 不影响抓取)
+> - **SPA 路径穿越遏制** — 静态资源路径严格校验, 拒绝 `..` / 反斜杠 / NUL / 绝对路径 (修前可读 `.env`, 修后 200/216024B SPA index.html)
+
 >
-> 本次新增: `moni/llm/client.py` 删 `--profile` flag; `moni/llm/jobs.py` fact_check_plus `extra_args` 去 `-Q --max-turns`; `.gitignore` 整目录截图入 ignore + 申报目录独立 ignore; 删 6 张 v1.0.19 量化看板截图。PR #109。  
 > 这份文档给**用户**（你自己）看 —— 怎么用 moni，不讲代码细节。
 
 ---

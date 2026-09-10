@@ -4,11 +4,23 @@
 
 ---
 
-## 当前状态: **v1.0.42 — 安全原语 PR (sprint-22)** (2026-09-10 · **PR 待 review**)
+## 当前状态: **v1.0.42 — sprint-22 双 PR 双 ship** (2026-09-10 · **SHIPPED**)
 
-**分支**: `feature/sprint-22-safety-primitives` @ `215d47e` → **PR #141** (base main, 待 dad review + merge)
-**基线**: main @ `3a5cc00` (tag v1.0.41)
-**Prod**: 8900 全程**停机未动**（另一泳道 migration 034 的停机窗口）；本次验证走 8898/8899 临时端口
+**主分支**: main @ `cbd0b6a` (PR #141 squash @ `b02d53c` + PR #142 squash @ `cbd0b6a`)
+**Tag 链**: v1.0.42 → v1.0.41 → v1.0.40 → ...
+**Prod**: 8900 pid 93202 (新代码已生效; schema 已迁移到 v35)
+**DB**: schema_version = 35 (migrations 034_leases + 035_llm_runner_config 全部应用; integrity_check=ok)
+
+> **v1.0.42 (2026-09-10) 统一租约运行时 + LLM 调用层完全体 (sprint-22)** — 来源 `docs/sprint-audit-2026/` 21 工单之 P0-3 / P0-4 / P1-5 / P1-6 / P1-7(合并执行)。M3(本次)+ DeepSeek(parallel)双 agent 同步 ship,叶子先行:
+> - **PR #141 (叶子: web 边界防御, 0 migration)** — `fix(web): v1.0.42 SPA 路径穿越遏制 + 源凭据出栈脱敏 + modal 转义`: P0-2 `resolve_static_path()` 替掉 `Path` `/` 拼接吞 base bug (实测修前可读 `.env` / `hosts`), P1-10 `redact.py` 出栈脱敏 token, P2-15 modal innerHTML 转义。PR #141 squash @ `b02d53c`.
+> - **PR #142 (核心: DB 租约 + LLM runner, 升库到 v35)** — `feat(core): v1.0.42 统一租约运行时 + LLM 调用层完全体`:
+>   - **S2-1 + P1-7 统一租约**: 新建 `moni/db/leases.py` (acquire/heartbeat/finish/sweep_expired 四原语, fence 单调递增防迟到写者覆盖, SQLite 端 strftime 跨进程钟差免疫, 表白名单防注入) + `moni/db/migrations/034_leases.sql` (fetch_jobs + llm_jobs 加 lease_owner / lease_heartbeat_at / fence 三列, 并发 SQL UPDATE 一次事务, F6 同业案例库表透明保留) + `moni/fetch/jobs.py` mark_* 全部 fence 化, `moni/llm/jobs.py` _run_job 接受 handle + worker_loop 加 sweep_expired, `moni/web/routes/fetch.py` 启动 fence-bump + 30s daemon heartbeat, 删 `STALE_THRESHOLD_SECONDS` / `get_stale_threshold()` 整套 v1.0.35.17 补丁(墙钟判死 → 心跳判死) + `tests/test_jobs_stale_threshold.py` 删.
+>   - **P1-5 + P1-6 + P0-4 LLM 调用层完全体**: 新建 `moni/llm/runner.py` (`HardenedSubprocess` 进程组 `killpg` SIGTERM→SIGKILL, 200KB argv 预检 `PromptTooLargeError` 而非 OSError E2BIG, stdin 协议可插拔; `CircuitBreaker` 内存态 CLOSED/OPEN/HALF_OPEN, 每 provider 独立计数; `FailoverRunner` 链式 `provider→备→失败` fallback) + `moni/db/migrations/035_llm_runner_config.sql` (4 个 llm_settings key: `fallback_chain` / `breaker_failure_threshold=3` / `breaker_reset_seconds=60` / `use_stdin_transport=1`) + `moni/llm/client.py` 收敛到 `runner.call(CallRequest)`, `estimate_tokens` 内联到 runner 避免循环 import, `ChatClient` 保留 DeprecationWarning(向后兼容) + `moni/share/worker_llm.py` `run_hermes` 走 `HardenedSubprocess`(`_build_argv` 内联 prompt 后剥掉, runner 自 append).
+>   - **测试净增**: `tests/test_db_leases.py` 17 用例 + `tests/test_llm_runner.py` 17 用例 (含真子进程复现 — 进程组击杀零孤儿) + bump 既有 `test_migration_030_ghost_cleanup` / `test_llm_usage_counters` / `test_fetch_jobs` schema_version 33→35.
+>   - **回归**: 9 套测试套件 171/171 全部通过 (`tests/test_source_url_redaction.py` + `test_spa_fallback.py` + `test_db_leases.py` + `test_llm_runner.py` + `test_llm_usage_counters.py` + `test_migration_030_ghost_cleanup.py` + `test_fetch_jobs.py` + `test_worker_llm_failure.py`).
+> - **踩坑**: (1) Migration 033→34→35 bump 必须同时更新 `tests/test_migration_030_ghost_cleanup.py` L114 / L248 + `tests/test_llm_usage_counters.py` L123 hard-coded `_CURRENT_VERSION == 33`; (2) `_run_fetch_job` 不能在 daemon thread 重新 `acquire`,应读 INSERT 时 mint 的 `lease_owner`/`fence` 然后 `finish` 一次性 fence-bump; (3) worker_llm `_invoke` 测试桩的 `SubprocessResult.input_tokens==0` 不能被 usage_file 重读覆盖,加 guard; (4) `gh pr merge` GraphQL EOF 时改用 REST `PUT /repos/.../pulls/.../merge`; (5) `worktree remove` cwd 在已删目录时报 "Unable to read current working directory" 但 worktree 实际已删; (6) SSL_ERROR_SYSCALL 偶发时 git push / curl 重试 30-45s 后通.
+
+**架构决策**: 9 月 9 日 dad 拍板合并执行 3 个核心工单 (P0-3 + P1-7 + P0-4 + P1-5 + P1-6), 共 1.5h 落地 PR-A + PR-B 两路并行 (M3 主跑, DeepSeek 副跑 web 防御 PR #141). PR-A 先 ship (24h 观察) 与 PR-B 同时 ship 的方案放弃, 改双 PR 并发同步 ship, 已由 dad 9-10 14:30 拍板. **教训**: 熔断器阈值默认 3/60s 是保守数字, 9-13 production 观察期后若仍有大量 false-positive, 应降为 5/120s.
 
 > **v1.0.42 (2026-09-10) 安全原语 (sprint-22)** — 来源 `docs/sprint-audit-2026/` 21 工单之 P0-2 / P1-10 / P2-15:
 > - **P0-2 SPA 路径穿越遏制**: `moni/web/server.py` 新增 `resolve_static_path()`，替掉 `STATIC_DIR / full_path`（`Path` 的 `/` 在右操作数为绝对路径时会**丢弃** base → 任意文件读）。拒绝 NUL/反斜杠/`..`/绝对输入 + 软链越界，非法与不存在统一返 None。
