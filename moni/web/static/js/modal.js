@@ -208,6 +208,17 @@
 
   // ── confirm() replacement ─────────────────────────────────────────────────
   // Build a one-shot modal with a custom message; returns Promise<boolean>.
+  // v1.0.42 (audit P2-15): title and button labels used to be interpolated
+  // into innerHTML raw.  Every caller currently passes string literals, so
+  // this was a latent sink — the first dynamic title would have been stored
+  // XSS.  All interpolated text goes through _escapeHtml() now.
+  function _escapeHtml(value) {
+    return String(value == null ? '' : value).replace(
+      /[<>&"']/g,
+      c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c])
+    );
+  }
+
   let _confirmId = 0;
   function confirm(message, opts) {
     opts = opts || {};
@@ -231,18 +242,21 @@
       }
 
       const titleId = 'moni-confirm-title-' + (++_confirmId);
-      const safeMsg = String(message || '').replace(/[<>&"']/g, c => ({ '<':'&lt;', '>':'&gt;', '&':'&amp;', '"':'&quot;', "'":'&#39;' }[c]));
+      const safeMsg = _escapeHtml(message);
+      const safeTitle = _escapeHtml(opts.title || '请确认');
+      const safeOkLabel = _escapeHtml(okLabel);
+      const safeCancelLabel = _escapeHtml(cancelLabel);
       wrap.innerHTML = `
         <div class="modal-content" style="max-width:420px;">
           <div class="modal-header">
-            <h3 id="${titleId}">${opts.title || '请确认'}</h3>
+            <h3 id="${titleId}">${safeTitle}</h3>
           </div>
           <div class="modal-body">
             <p>${safeMsg.replace(/\n/g, '<br>')}</p>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-act="cancel">${cancelLabel}</button>
-            <button type="button" class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-act="ok">${okLabel}</button>
+            <button type="button" class="btn btn-secondary" data-act="cancel">${safeCancelLabel}</button>
+            <button type="button" class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-act="ok">${safeOkLabel}</button>
           </div>
         </div>
       `;

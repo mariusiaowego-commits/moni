@@ -21,6 +21,7 @@ from moni.web.models import (
     SourceUpdate,
     SourceWithTags,
 )
+from moni.web.redact import is_masked_url, sanitize_source_url
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +100,11 @@ def _row_to_source(r) -> Source:
         name=r["name"],
         display_name=r["display_name"],
         source_type=r["source_type"],
-        url=r["url"],
+        # v1.0.42 (audit P1-10): never echo the credential embedded in the
+        # WeChat aggregator URLs.  Out-bound only — the stored value is the
+        # fetch input and must stay intact.  (`or ""` only for typing: a NULL
+        # url used to raise a ValidationError here anyway.)
+        url=sanitize_source_url(r["url"]) or "",
         fetch_interval_min=r["fetch_interval_min"],
         is_active=bool(r["is_active"]),
         notes=r["notes"],
@@ -170,7 +175,9 @@ def create_source(body: SourceCreate) -> SourceWithTags:
     conn.commit()
     return SourceWithTags(
         id=body.id, name=body.name, display_name=body.display_name,
-        source_type=body.source_type, url=body.url,
+        source_type=body.source_type,
+        # v1.0.42 (P1-10): sanitize the echo as well (idempotent).
+        url=sanitize_source_url(body.url) or "",
         fetch_interval_min=body.fetch_interval_min,
         is_active=body.is_active, notes=body.notes,
         fetch_config=body.fetch_config,
@@ -222,7 +229,11 @@ def update_source(source_id: str, body: SourceUpdate) -> SourceWithTags:
     if body.display_name is not None:
         fields["display_name"] = body.display_name
     if body.url is not None:
-        fields["url"] = body.url
+        # v1.0.42 (P1-10): a masked value means "the client echoed what we
+        # gave it" → keep the stored credential, never write "…" into the DB
+        # (it is the fetch input; a masked value would break RSS pulling).
+        if not is_masked_url(body.url):
+            fields["url"] = body.url
     if body.fetch_interval_min is not None:
         fields["fetch_interval_min"] = body.fetch_interval_min
     if body.is_active is not None:
@@ -250,6 +261,8 @@ def update_source(source_id: str, body: SourceUpdate) -> SourceWithTags:
         (source_id,),
     ).fetchall()
     s = {**fields, "is_active": bool(fields["is_active"])}
+    # v1.0.42 (P1-10): the response must not carry the stored credential.
+    s["url"] = sanitize_source_url(s.get("url")) or ""
     # Parse fetch_config JSON string back to dict for the response model
     fc_raw = s.get("fetch_config")
     if isinstance(fc_raw, str) and fc_raw:
