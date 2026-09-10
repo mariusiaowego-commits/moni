@@ -29,6 +29,47 @@ _DEFAULT_STATIC_DIR = str(Path(__file__).parent / "static")
 STATIC_DIR = Path(os.environ.get("MONI_STATIC_DIR", _DEFAULT_STATIC_DIR))
 
 
+def resolve_static_path(root: Path, rel: str) -> Path | None:
+    """Map a URL path to a real file under ``root`` — or ``None``.
+
+    Security primitive (v1.0.42, audit P0-2).  ``Path(base) / user_path``
+    silently DROPS ``base`` when the right operand is absolute
+    (``Path("/a") / "/etc/hosts" == Path("/etc/hosts")``), which turned
+    ``GET //etc/hosts`` into an arbitrary-file read.  Never lean on
+    upstream normalisation: uvicorn strips ``..`` segments but cannot
+    strip the absolute-path vector.
+
+    Rejects NUL, backslashes, ``..`` segments and absolute inputs.  Then
+    resolves symlinks and requires the result to stay inside ``root``
+    (``root`` is resolved too, so legitimate symlinks *inside* root still
+    pass, while symlinks escaping it are caught).
+
+    Returns ``None`` for anything illegal, out-of-root or missing —
+    callers must not distinguish "outside root" from "does not exist"
+    (no path disclosure).
+    """
+    if not rel:
+        return None
+    if "\x00" in rel or "\\" in rel:
+        return None
+    # An absolute input would discard ``root`` in the join below.
+    if rel.startswith("/"):
+        return None
+    parts = [p for p in rel.split("/") if p not in ("", ".")]
+    if not parts or any(p == ".." for p in parts):
+        return None
+    try:
+        root_resolved = root.resolve()
+        candidate = root_resolved.joinpath(*parts).resolve()
+    except (OSError, ValueError, RuntimeError):
+        return None
+    # ``is_relative_to`` (3.9+) — a string-prefix test is bypassable by a
+    # sibling directory such as ``/root-evil``.
+    if candidate != root_resolved and not candidate.is_relative_to(root_resolved):
+        return None
+    return candidate if candidate.is_file() else None
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan: startup and shutdown hooks."""
@@ -118,9 +159,13 @@ def create_app() -> FastAPI:
             # Don't shadow /api/* or /docs or /openapi.json — let FastAPI handle
             if full_path.startswith(("api/", "docs", "openapi.json", "redoc")):
                 return Response(status_code=404)
-            # If the path maps to an actual file under STATIC_DIR, serve it
-            candidate = STATIC_DIR / full_path
-            if candidate.is_file():
+            # If the path maps to an actual file under STATIC_DIR, serve it.
+            # v1.0.42 (audit P0-2): containment-checked via
+            # resolve_static_path().  The old `STATIC_DIR / full_path` join
+            # let `GET //etc/hosts` (absolute right operand discards the
+            # base) read any file on disk.
+            candidate = resolve_static_path(STATIC_DIR, full_path)
+            if candidate is not None:
                 return FileResponse(str(candidate))
             # Otherwise → SPA index.html (client-side router)
             return FileResponse(str(index_html))
