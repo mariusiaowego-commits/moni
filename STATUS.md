@@ -4,7 +4,23 @@
 
 ---
 
-## 当前状态: **v1.0.41 — follow_builders 新源接入 (sprint-21)** (2026-09-02 SHIPPED)
+## 当前状态: **v1.0.42 — 安全原语 PR (sprint-22)** (2026-09-10 · **PR 待 review**)
+
+**分支**: `feature/sprint-22-safety-primitives` @ `215d47e` → **PR #141** (base main, 待 dad review + merge)
+**基线**: main @ `3a5cc00` (tag v1.0.41)
+**Prod**: 8900 全程**停机未动**（另一泳道 migration 034 的停机窗口）；本次验证走 8898/8899 临时端口
+
+> **v1.0.42 (2026-09-10) 安全原语 (sprint-22)** — 来源 `docs/sprint-audit-2026/` 21 工单之 P0-2 / P1-10 / P2-15:
+> - **P0-2 SPA 路径穿越遏制**: `moni/web/server.py` 新增 `resolve_static_path()`，替掉 `STATIC_DIR / full_path`（`Path` 的 `/` 在右操作数为绝对路径时会**丢弃** base → 任意文件读）。拒绝 NUL/反斜杠/`..`/绝对输入 + 软链越界，非法与不存在统一返 None。
+>   - **实测**: 修复前 `curl --path-as-is //etc/hosts` = 200/213B **真文件**，还有 `//Users/mt16/dev/moni/.env` = 200/494B **真 .env (含微信 token)**；修复后两者均 200/216024B SPA index.html。正例 `/js/app.js` 197311B / `/css/main.css` 123695B 不受影响。
+> - **P1-10 源凭据出栈脱敏**: 新增 `moni/web/redact.py`; `GET /api/config/sources` 从原样返回 `…?token=eyJ…` 改为 `…?token=…`。**仅出栈** — 库内 URL 一字未动（它同时是抓取输入，打码会让聚合服务 401）；PUT 收到打码值按"未修改"处理。参数名集合与 showcase 生成器 `_TOKEN_QS` 对齐。
+> - **P2-15 modal 转义**: `modal.js` confirm() 的 title / 按钮标签补齐 `_escapeHtml`（原只有 message 转义；前/后 node 功能验证 HEAD=FAIL / 改后=PASS×7）。
+> - **测试**: 新增 `tests/test_spa_fallback.py` 31 passed + `tests/test_source_url_redaction.py` 34 passed。全量 **943 passed / 2 skipped / 11 failed**（`MONI_DB_PATH=/tmp/moni-test-ds.db`）；干净迁移库 **947 / 7**。**这 11(或 7) 个 failure 与本 diff 无关**：`git stash` 掉本 PR 三文件后同批测试照样 fail，且同 diff 换库状态 failure 数从 7 → 11，多出的 4 个全是 `UNIQUE constraint failed: share_tasks.id` ⇒ pre-existing 测试隔离缺口（P1-D），顺延下一 sprint。
+> - **踩坑**: `MONI_DB_PATH` 指向 prod 副本会让依赖空库假设的测试互相污染（干净迁移库更稳）；声明 "pre-existing 失败" 必须给**回退法证据**，不能空口。
+
+---
+
+## 历史: **v1.0.41 — follow_builders 新源接入 (sprint-21)** (2026-09-02 SHIPPED)
 
 **主分支**: main @ `023c1e3` (PR #140 squash-merged, tag v1.0.41)
 **Tag 链**: v1.0.41 → v1.0.40 → v1.0.39 → v1.0.37.7 → ...
