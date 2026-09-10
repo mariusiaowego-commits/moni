@@ -248,17 +248,20 @@ def run_hermes(
 
     proc: subprocess.Popen[str] | None = None
     try:
-        proc = subprocess.Popen(
-            argv,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        stdout, _ = proc.communicate(timeout=timeout_sec)
+        # v1.0.42: route through moni.llm.runner so subprocess killpg +
+        # argv pre-check + stdin transport handling come for free.
+        from moni.llm.runner import HardenedSubprocess
+        argv = _build_argv(prompt, provider, model, profile=DEFAULT_PROFILE,
+                           skill=skill, usage_file=usage_file)
+        # Strip the prompt arg that _build_argv inlined; HardenedSubprocess
+        # appends the prompt itself as the last argv.
+        argv = [a for a in argv if a != prompt]
+        runner = HardenedSubprocess(cmd=argv, prompt_text=prompt, timeout=timeout_sec)
+        sub = runner.run()
+        stdout = sub.stdout
+        code = sub.returncode
     except subprocess.TimeoutExpired:
-        if proc is not None:
-            proc.kill()
-            proc.wait()
+        # HardenedSubprocess already killed the process group; just report.
         return _result("", 124)
     except FileNotFoundError:
         return _result(
@@ -267,8 +270,8 @@ def run_hermes(
     except Exception as exc:  # noqa: BLE001 — worker 不能因运行期异常挂掉
         return _result(f"worker_llm run_hermes error: {exc!r}\n", 1)
 
-    if proc.returncode != 0:
-        return _result(stdout, proc.returncode)
+    if code != 0:
+        return _result(stdout, code)
 
     hit = detect_llm_failure(stdout or "")
     if hit:

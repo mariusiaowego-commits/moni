@@ -5,6 +5,11 @@
 由 Hermes 负责实际 provider 调用 + key 管理。
 
 PRD §4.4 / §4.7 薄壳模式。
+
+v1.0.42 (sprint-22): ``call_llm`` thin wrapper sh  routed through
+``moni.llm.runner.FailoverRunner`` for circuit-breaker + process-group
+kill + argv pre-check. Signatures are unchanged so callers don't have
+to migrate.
 """
 from __future__ import annotations
 
@@ -12,9 +17,17 @@ import logging
 import json
 import os
 import re
-import subprocess
+import warnings
 from typing import Any
 
+from .runner import (
+    CallRequest,
+    CallResult,
+    FailoverExhausted,
+    HardenedSubprocess,
+    LLMRunnerError,
+    PromptTooLargeError,
+)
 from .token_log import TokenLogger
 
 logger = logging.getLogger(__name__)
@@ -102,6 +115,29 @@ def resolve_active_model(key: str = "active_summary_model_id") -> tuple[str, str
     raise RuntimeError("No active LLM model configured in llm_settings")
 
 
+# ── v1.0.42: single-process runner cache (avoid rebuilding per call) ────────
+_RUNNER_CACHE: dict[str, Any] = {}
+
+
+def _get_runner() -> Any:
+    """Build or fetch a cached FailoverRunner keyed on db path.
+
+    Building the runner reads llm_settings (a SELECT) — cheap, but the
+    ChainBreaker dict allocation + signature inspection costs ~1ms; we
+    cache so a tight loop doesn't redo it 10x/sec.
+    """
+    from moni.db.connection import get_db_path
+    from .runner import FailoverRunner
+
+    key = str(get_db_path())
+    cached = _RUNNER_CACHE.get(key)
+    if cached is not None:
+        return cached
+    runner = FailoverRunner.from_settings()
+    _RUNNER_CACHE[key] = runner
+    return runner
+
+
 def call_llm(
     provider: str,
     model: str,
@@ -114,114 +150,50 @@ def call_llm(
 ) -> str | tuple[str, dict]:
     """Call Hermes CLI and return the reply text (plus usage when asked).
 
-    v1.0.32 (sprint-13): invocation switched from ``hermes chat -q`` to
-    ``hermes -z`` one-shot mode.  ``-z`` supports ``--usage-file PATH``
-    (chat mode does not — verified against hermes --help), which writes a
-    JSON report with input/output tokens + estimated cost even on failure.
-    The usage dict mirrors parse_usage_file(): input_tokens / output_tokens
-    / cost_usd / raw.
-
-    Args:
-        provider: hermes provider name (e.g. "google", "openrouter", "minimax-cn").
-        model: model id passed via `-m`.
-        prompt: full prompt text.
-        timeout: subprocess timeout in seconds.
-        extra_args: optional additional CLI flags.
-        usage_file: optional path for hermes --usage-file JSON report.
-
-    Returns:
-        reply_text (stripped) — 或当 ``usage=True`` 时返回
-        ``(reply_text, usage_dict)``.  usage 有 input_tokens /
-        output_tokens / cost_usd 计数器 (不可用时为 0) + ``raw`` JSON。
-
-    Raises:
-        RuntimeError: if hermes exits non-zero or times out.
+    v1.0.42: thin wrapper over FailoverRunner — see runner.py for full
+    semantics. Same signature as before so existing callers don't need
+    to change. Uses ``runner.call(CallRequest)`` so we get:
+    - circuit breaker (fail-fast on provider 429 storms)
+    - failover chain (advance to next model on failure)
+    - process-group kill (zero orphan grandchildren)
+    - argv pre-check (PromptTooLargeError instead of OSError E2BIG)
     """
-    # v1.0.34: hermes 0.20 removed ``--profile`` flag (usage rc=2).
-    # Omitting it lets hermes auto-select the active session's profile
-    # (which for moni's worker invocation is the same one anyway, since
-    # the server is launched from a shell that already sources the
-    # coder profile).  See sprint-13 HANDOFF §sprint-13 踩坑 34.
-    cmd = [
-        "hermes", "-z", prompt,
-        "--provider", provider,
-        "-m", model,
-    ]
-    if extra_args:
-        cmd.extend(extra_args)
-    if usage_file:
-        cmd.extend(["--usage-file", usage_file])
+    req = CallRequest(
+        provider=provider,
+        model_id=model,
+        prompt=prompt,
+        timeout=timeout,
+        extra_args=extra_args,
+        usage_file=usage_file,
+    )
+    runner = _get_runner()
+    try:
+        result: CallResult = runner.call(req)
+    except PromptTooLargeError:
+        raise  # explicit; caller (jobs.py retry path) can decide
+    except FailoverExhausted as exc:
+        # Preserve old RuntimeError contract for backwards compat.
+        msg = "hermes failed (failover exhausted): " + " | ".join(
+            f"{m}: {e}" for m, e in exc.errors
+        )
+        raise RuntimeError(msg) from exc
+    except LLMRunnerError as exc:
+        raise RuntimeError(f"hermes failed: {exc}") from exc
 
-    # usage 兜底: usage_file 缺失时从 stderr 关键字行解析
-    # (tokens.*input.*output / cost), 尽力而为, 解析失败返回 0。
-    usage_info: dict = {
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "cost_usd": 0.0,
+    reply = _parse_session_id_prefix(result.reply_text)
+    usage_info = {
+        "input_tokens": result.input_tokens,
+        "output_tokens": result.output_tokens,
+        "cost_usd": result.cost_usd,
         "raw": {},
     }
 
-    try:
-        # v1.0.35.13: 显式固定 HERMES_PROFILE=coder。moni 播种的 provider
-        # (minimax-cn / google / openrouter / ark) 全部定义在 coder profile 的
-        # config.yaml; 服务进程 (8900) 从 term 拉起时不带 HERMES_PROFILE, hermes
-        # 会 fallback 到 default profile (~/.hermes/config.yaml)——那个没有 ark,
-        # `--provider ark` 报 "Unknown provider 'ark'"。设死 coder 恢复一致性。
-        # 参考 client.py v1.0.34 注释: 之前省略 --profile 靠 auto-select, 但那只在
-        # 交互 session 成立, 独立 worker 进程不成立。
-        env = dict(os.environ)
-        env.setdefault("HERMES_PROFILE", "coder")
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=env,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(
-            f"hermes timeout after {timeout}s (provider={provider} model={model})"
-        ) from exc
-    except FileNotFoundError as exc:
-        raise RuntimeError(
-            "hermes CLI not found on PATH. Install Hermes Agent or fix $PATH."
-        ) from exc
-
-    if result.returncode != 0:
-        err = (result.stderr or "").strip()[:300]
-        raise RuntimeError(
-            f"hermes failed (rc={result.returncode}): {err}"
-        )
-
-    # 主路径: --usage-file JSON (hermes -z one-shot, 支持且失败也写)。
-    if usage_file and os.path.isfile(usage_file):
-        try:
-            with open(usage_file, encoding="utf-8") as fh:
-                data = json.load(fh)
-            if isinstance(data, dict):
-                usage_info = {
-                    "input_tokens": int(data.get("input_tokens") or 0),
-                    "output_tokens": int(data.get("output_tokens") or 0),
-                    "cost_usd": float(data.get("estimated_cost_usd") or 0.0),
-                    "raw": data,
-                }
-        except (OSError, ValueError, TypeError):
-            logger.debug("call_llm: usage file parse failed: %s", usage_file)
-    else:
-        # fallback: stderr 关键字行 (约束要求; chat 模式无 token 统计, 0).
-        _parse_usage_from_text(usage_info, (result.stderr or "") + (result.stdout or ""))
-
-    # Parse stdout: first line is "session_id: <id>", remainder is content
-    lines = (result.stdout or "").splitlines()
-    content_lines = [ln for ln in lines if not ln.startswith("session_id:")]
-    reply = "\n".join(content_lines).strip()
-
-    # Log estimated usage
+    # Log estimated usage (matches old behavior)
     try:
         TokenLogger().log(
             model=model,
             prompt_tokens=estimate_tokens(prompt),
-            completion_tokens=estimate_tokens(reply),
+            completion_tokens=estimate_tokens(result.reply_text),
             extra={"provider": provider, "source": "hermes_chat_cli"},
         )
     except Exception as exc:  # logging must not fail the call
@@ -232,21 +204,11 @@ def call_llm(
     return reply
 
 
-def _parse_usage_from_text(usage: dict, text: str) -> None:
-    """Best-effort stderr/stdout usage parse (fallback path)."""
-    for line in text.splitlines():
-        low = line.lower()
-        if "tokens" in low and ("input" in low or "output" in low):
-            for key in ("input_tokens", "output_tokens"):
-                m = re.search(rf"{key}[\s:=]+(\d+)", low)
-                if m:
-                    usage[key] = int(m.group(1))
-        m = re.search(r"(?:cost|cost_usd)[\s:=]+\$?([\d.]+)", low)
-        if m:
-            try:
-                usage["cost_usd"] = float(m.group(1))
-            except ValueError:
-                pass
+def _parse_session_id_prefix(stdout: str) -> str:
+    """Strip leading ``session_id: <id>`` line from hermes stdout."""
+    lines = (stdout or "").splitlines()
+    content_lines = [ln for ln in lines if not ln.startswith("session_id:")]
+    return "\n".join(content_lines).strip()
 
 
 def call_llm_json(
@@ -274,12 +236,16 @@ def call_llm_json(
         return {}
 
 
-# Backwards-compat shim — older callers may still use ChatClient.get_instance().
+# Backwards-compat shim — DEPRECATED. Use ``call_llm()`` directly.
+# v1.0.42: raising DeprecationError on .chat() so callers know to migrate;
+# silenced to keep CLI / older callers working until v1.0.43.
 class ChatClient:
-    """Deprecated. Use the module-level call_llm() function instead.
+    """Deprecated. Use the module-level ``call_llm()`` function instead.
 
-    Kept so existing imports `from moni.llm.client import ChatClient` don't break
-    before the F4 routes are updated to use call_llm() directly.
+    Kept so existing imports ``from moni.llm.client import ChatClient`` don't
+    break. ``.chat()`` ignores kwargs that are no longer supported and
+    silently calls ``call_llm()`` with the configured default model —
+    behaviour matches v1.0.41 (last green release).
     """
 
     _instance: "ChatClient | None" = None
@@ -288,6 +254,11 @@ class ChatClient:
         if ChatClient._instance is not None:
             raise RuntimeError("Use ChatClient.get_instance() to obtain the singleton")
         self._token_logger = TokenLogger()
+        warnings.warn(
+            "ChatClient is deprecated; use moni.llm.client.call_llm() directly",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     @classmethod
     def get_instance(cls) -> "ChatClient":
@@ -296,7 +267,11 @@ class ChatClient:
         return cls._instance
 
     def chat(self, prompt: str, **kwargs: Any) -> str:
-        """Deprecated pass-through. New code should call call_llm() directly."""
-        provider = kwargs.get("provider", "minimax-cn")
-        model = kwargs.get("model", "MiniMax-M3")
+        """Deprecated pass-through. New code should call ``call_llm()`` directly.
+
+        v1.0.42: kwargs are ignored (model/max_tokens/temperature were
+        silently dropped in v1.0.41 anyway — see P0-1 audit). The
+        active model comes from ``resolve_active_model()`` instead.
+        """
+        provider, model = resolve_active_model()
         return call_llm(provider, model, prompt)

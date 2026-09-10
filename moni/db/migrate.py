@@ -18,7 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 33  # v1.0.40: 全局关键词过滤 (033_global_keyword_filters)
+_CURRENT_VERSION = 35  # v1.0.42: LLM 调用层配置 (035_llm_runner_config)
 
 
 def current_version(conn: sqlite3.Connection) -> int:
