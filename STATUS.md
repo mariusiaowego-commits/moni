@@ -4,10 +4,11 @@
 
 ---
 
-## 当前状态: **v1.0.44 — 前端渲染稳健性 + Pin 交互一致性 (sprint-24)** (2026-10-10 · **PR 已开, 待合并**)
+## 当前状态: **v1.0.44 — 前端渲染稳健性 + Pin 交互一致性 (sprint-24)** (2026-10-10 · **SHIPPED**)
 
-**分支**: `feature/v1.0.44-render-hygiene` (base `8aa4362` / v1.0.42)
-**状态**: PR 已开, 待 dad 审阅合并; **未 squash merge, 未打 tag** (tag v1.0.44 在 merge 后由 dad 决定)
+**主分支**: main @ `33a529d` (PR #143 squash-merged @ `33a529d`; 源分支 head `72b19cb`)
+**Tag 链**: v1.0.44 → v1.0.42 → v1.0.41 → v1.0.40 → ...
+**状态**: 已合并到 main, **tag v1.0.44 已打**
 **范围**: 纯前端与静态契约 (0 DDL / 0 migration / 0 后端改动)
 **pyproject.toml**: 不改 — moni 自 v1.0.0 起该文件固定 `version = "0.1.0"`, 50+ 个 tag 均未改过, 发版由 Git Tag + STATUS.md + 前端 `?v=` 查询串驱动
 **审查**: moni-agy 只读审查 = MERGE (无阻塞项); warden 三轮 delta 审查 P0=0 / P1=0
