@@ -3,6 +3,49 @@
    参考: Sophon.at (utilitarian, data-first, airy)
    ═══════════════════════════════════════════════════════════════ */
 
+/* ── Self-hosted Inter (v1.0.44, sprint-24) ──
+ * Previously pulled from fonts.googleapis.com, which is a render-blocking
+ * stylesheet: offline / intranet / file:// open hung on the timeout before
+ * the fallback stack could apply.  These two files are the Google Fonts
+ * `latin` + `latin-ext` subsets — Inter ships as a VARIABLE font, so one
+ * file covers the whole 400–700 range and the per-weight descriptors below
+ * just pin the axis position.  Total 130 KB vs. a render-blocking network
+ * round-trip.  CJK is not in these subsets by design; --font falls back to
+ * system-ui for it exactly as before.
+ *
+ * BOTH faces declare `font-weight: 400 700`, not a single 400.  The two
+ * files are split by unicode-range, so the face that covers ASCII is the
+ * only candidate for Latin 500/600/700 — declaring a single weight there
+ * leaves every bold Latin run to system-ui or to synthetic bolding, which
+ * reads as "the headings got thinner".  The shipped woff2 files carry an
+ * `fvar` table with a wght axis spanning 100–900 and named instances at
+ * 500/600/700 (verified by decoding the files), so the range descriptor is
+ * honest and needs no extra payloads.
+ *
+ * Each face only gets the glyphs its own unicode-range covers; the browser
+ * picks per character, so declaring the full range on both is correct and
+ * costs nothing. */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('../fonts/inter-latin-400.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191,
+    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('../fonts/inter-latin-ext-400.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 /* ── Theme Variables (light mode default) ──
  * v1.0.30: 语义 token 补齐 success/warning/info + muted 面 + chart-1
  * 导入主题时 theme.js 会与 DEFAULT merge，缺 key 自动补齐
@@ -807,13 +850,16 @@ label { font-size: 0.85rem; }
   color: var(--muted-fg);
 }
 .pin-col .pin-btn:hover { color: var(--accent); }
-/* Transient flash classes — set by pin_anim.js for ~350ms after a
-   click.  Provides a colour-pulse on top of the GSAP scale. */
+/* Transient flash classes — set by pin_anim.js for ~700ms after a
+   click.  Provides a colour-pulse on top of the GSAP scale.
+   The 0.7s here MUST equal FLASH_MS in js/pin_anim.js — that constant is
+   when the class is removed, so if the two drift the flash is cut off
+   early or lingers after the paint. Pinned by dad 2026-10-10. */
 .pin-btn--just-pinned {
-  animation: pin-flash-on 0.35s ease-out;
+  animation: pin-flash-on 0.7s ease-out;
 }
 .pin-btn--just-unpinned {
-  animation: pin-flash-off 0.35s ease-out;
+  animation: pin-flash-off 0.7s ease-out;
 }
 @keyframes pin-flash-on {
   0%   { background: oklch(from var(--accent) l c h / 0); }
@@ -3650,3 +3696,70 @@ label { font-size: 0.85rem; }
   color: var(--foreground);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   Reduced motion — consolidated (v1.0.44, sprint-24)
+   ═══════════════════════════════════════════════════════════════════════════
+   Before this sprint the file carried three scattered
+   `@media (prefers-reduced-motion: reduce)` blocks covering only 7 of the 15
+   rules that declare an `animation` — the entry animations (fadeUp on cards /
+   tables / panels), the pin colour flash and both `pulse` status dots kept
+   moving for users who asked the OS to stop moving things.
+
+   One block at the end, so a new animated rule has exactly one place to be
+   added and the scattered blocks cannot drift out of sync.  Deliberately
+   NOT a `* { animation: none !important }` sweep: that would also strip
+   state transitions that carry meaning (e.g. the `.toast` transition the
+   earlier block deliberately kept).
+
+   GSAP-driven tweens (pin button scale pop, fetch-modal chain layout) live
+   outside CSS cascade reach and are gated in JS instead — see
+   `js/pin_anim.js` prefersReducedMotion().
+
+   Note on delays: `animation: none` alone is not enough where the rule
+   carries a per-grid stagger (`var(--d)`) or a shorthand delay — the
+   element would still appear late, so those get `--d: 0ms` /
+   `animation-delay: 0ms` explicitly.
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  /* ── status dots (infinite pulse) ── */
+  .svc-dot-on,
+  .dot-running {
+    animation: none;
+  }
+
+  /* ── entry animations ── */
+  .stat-card,
+  .table-container,
+  .fetch-result-panel,
+  .section-stagger {
+    animation: none;
+    animation-delay: 0ms;
+  }
+
+  /* ── pin colour flash — CSS half only; the GSAP scale pop is gated in JS ── */
+  .pin-btn--just-pinned,
+  .pin-btn--just-unpinned {
+    animation: none;
+  }
+
+  /* ── already covered upstream, restated so this block is self-contained:
+        anything newly added below must be added here too ── */
+  .pixel-grid > span,
+  .pixel-label,
+  .moni-modal-confirm .modal-content,
+  .fetch-task-card,
+  .fetch-spinner-arc,
+  .fetch-status-dot,
+  .fetch-task-pill,
+  .toast {
+    animation: none;
+    animation-delay: 0ms;
+  }
+  .toast {
+    transition: none;
+  }
+  .pixel-grid > span {
+    opacity: 0.28;
+    --d: 0ms;
+  }
+}

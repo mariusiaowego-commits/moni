@@ -2367,11 +2367,12 @@ function app() {
         this._particleInitTimer = null;
       }
       this._finishFetchAnimation(true);
-      if (window.gsap) {
-        try {
-          const mi = document.getElementById('moniIcon');
-          if (mi) gsap.killTweensOf(mi);
-        } catch (_) { /* gsap guard */ }
+      // v1.0.44: window.gsap guard, no try/catch — a bare `gsap.` here throws
+      // ReferenceError when the CDN hasn't landed (deferred script still in
+      // flight), which would abort closeFetchProgress entirely.
+      const mi = document.getElementById('moniIcon');
+      if (mi && window.gsap) {
+        window.gsap.killTweensOf(mi);
       }
     },
 
@@ -2505,7 +2506,17 @@ function app() {
         const startCenterY = centerY + 60 + i * 50;
         const rowH = 96;
         const startY = startCenterY - rowH / 2;
-        gsap.set(row.el, { y: startY, opacity: 0, scale: 0.7, transformOrigin: 'right center' });
+        const startStyle = { y: startY, opacity: 0, scale: 0.7, transformOrigin: 'right center' };
+        // v1.0.44: gsap may still be in flight (deferred CDN). A bare `gsap.set`
+        // here threw ReferenceError and killed the whole particle stage; the
+        // CSS fallback below reproduces the same initial state without GSAP.
+        if (window.gsap) {
+          window.gsap.set(row.el, startStyle);
+        } else {
+          row.el.style.opacity = '0';
+          row.el.style.transformOrigin = 'right center';
+          row.el.style.transform = `translateY(${startY}px) scale(0.7)`;
+        }
       });
 
       // Start rAF + continuous burst loop for sustained particles
@@ -2574,13 +2585,14 @@ function app() {
     _finishFetchAnimation(killGsapRows = false) {
       this._stopParticleAnimation();
       if (killGsapRows && window.gsap) {
-        try {
-          (this._chainRows || []).forEach((row) => {
-            if (row && row.el) gsap.killTweensOf(row.el);
-          });
-          // Don't kill moniIcon tweens — yoyo on _suckIntoMoni lands the
-          // bounce; only the closeFetchProgress path should reset it.
-        } catch (_) { /* gsap guard */ }
+        // v1.0.44: window.gsap-qualified; the previous bare `gsap.killTweensOf`
+        // inside try/catch still threw ReferenceError before the catch could
+        // help if the deferred CDN script hadn't executed yet.
+        (this._chainRows || []).forEach((row) => {
+          if (row && row.el) window.gsap.killTweensOf(row.el);
+        });
+        // Don't kill moniIcon tweens — yoyo on _suckIntoMoni lands the
+        // bounce; only the closeFetchProgress path should reset it.
       }
     },
 
@@ -2689,14 +2701,24 @@ function app() {
           targetScale = dist === 1 ? 0.85 : Math.max(0.65, 0.82 - dist * 0.06);
         }
         const targetTop = targetCenterY - rowH / 2;
-        gsap.to(row.el, {
+        const targetStyle = {
           y: targetTop,
           opacity: targetOpacity,
           scale: targetScale,
           duration: duration,
           ease: ease,
           overwrite: 'auto',
-        });
+        };
+        // v1.0.44: bare `gsap.to` threw ReferenceError when the deferred CDN
+        // script hadn't landed, aborting _layoutChain — the chain rows would
+        // stay stuck at their initial (invisible) state. Fall back to setting
+        // the same end state instantly so the layout is still correct.
+        if (window.gsap) {
+          window.gsap.to(row.el, targetStyle);
+        } else {
+          row.el.style.opacity = String(targetOpacity);
+          row.el.style.transform = `translateY(${targetTop}px) scale(${targetScale})`;
+        }
         row.el.classList.toggle('focus', i === activeIdx);
       });
     },
@@ -2764,15 +2786,18 @@ function app() {
 
     _flipStatus(newText) {
       const el = document.getElementById('fetchStatusText');
-      if (!el || !window.gsap) {
-        if (el) el.textContent = newText;
+      // v1.0.44: no-GSAP path must still land the text (R2: a silent return
+      // here drops the status flip entirely).
+      if (!el) return;
+      if (!window.gsap) {
+        el.textContent = newText;
         return;
       }
-      gsap.to(el, {
+      window.gsap.to(el, {
         rotateX: 90, opacity: 0, duration: 0.2, ease: 'power2.in',
         onComplete: () => {
           el.textContent = newText;
-          gsap.fromTo(el,
+          window.gsap.fromTo(el,
             { rotateX: -90, opacity: 0 },
             { rotateX: 0, opacity: 1, duration: 0.3, ease: 'back.out(1.5)' }
           );
@@ -2786,7 +2811,16 @@ function app() {
       const row = this._chainRows[0];
       const moniIcon = document.getElementById('moniIcon');
       const stage = document.getElementById('particleStage');
-      if (!row || !moniIcon || !stage || !window.gsap) return;
+      if (!row || !moniIcon || !stage) return;
+
+      // v1.0.44: no-GSAP degradation — jump straight to the end state (row
+      // absorbed, moni icon settled) instead of silently returning with the
+      // row still sitting in the stage (R2).
+      if (!window.gsap) {
+        row.el.style.transform = 'scale(0)';
+        row.el.style.opacity = '0';
+        return;
+      }
 
       const sr = stage.getBoundingClientRect();
       const rr = row.el.getBoundingClientRect();
@@ -2804,8 +2838,8 @@ function app() {
       const naturalCx = naturalRect.left - sr.left + naturalRect.width / 2;
       const naturalCy = naturalRect.top - sr.top + naturalRect.height / 2;
 
-      gsap.set(row.el, { x: rowCx - naturalCx, y: rowCy - naturalCy });
-      gsap.to(row.el, {
+      window.gsap.set(row.el, { x: rowCx - naturalCx, y: rowCy - naturalCy });
+      window.gsap.to(row.el, {
         x: moniCx - naturalCx,
         y: moniCy - naturalCy,
         scale: 0.15,
@@ -2817,7 +2851,7 @@ function app() {
           row.el.style.opacity = '0';
         }
       });
-      gsap.to(moniIcon, {
+      window.gsap.to(moniIcon, {
         scale: 1.2, duration: 0.15, yoyo: true, repeat: 1,
         ease: 'power2.out', delay: 0.65
       });
@@ -2843,7 +2877,14 @@ function app() {
         if (!el) return;
         const current = parseInt(el.textContent) || 0;
         if (current === count) return;
-        gsap.to({ val: current }, {
+        // v1.0.44: guard + degradation. A bare `gsap.to` here threw
+        // ReferenceError when the deferred CDN script hadn't landed; the
+        // counter still has to reach its final value, so set it directly.
+        if (!window.gsap) {
+          el.textContent = String(count);
+          return;
+        }
+        window.gsap.to({ val: current }, {
           val: count,
           duration: 0.5,
           ease: 'power2.out',

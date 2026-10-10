@@ -17,10 +17,16 @@
        the defer script).  preloading gets the bytes on the wire
        before HTML parsing hits the <script defer> tag. -->
   <link rel="preload" as="script" href="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/main.css?v=20260827002">
+  <!-- v1.0.44: GSAP gets the same preload hint as Alpine (same reasoning,
+       see the comment above).  Position stays before every consumer script
+       because deferred scripts execute in document order. -->
+  <link rel="preload" as="script" href="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js">
+  <!-- v1.0.44: Inter is self-hosted via @font-face in main.css.
+       The Google Fonts <link> was render-blocking: offline / intranet /
+       file:// open stalled until the request timed out before the
+       system-ui fallback could apply.  No preconnect needed either —
+       nothing is fetched from those hosts any more. -->
+  <link rel="stylesheet" href="css/main.css?v=20261010002">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -3770,7 +3776,12 @@
   </div>
 
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <!-- v1.0.44: defer added. Was a synchronous script, so the CDN round-trip
+       blocked HTML parsing; offline it stalled until timeout. Deferred
+       scripts still run in document order, so this stays ahead of every
+       consumer below. Every gsap call site is window.gsap-guarded, so a
+       user action that beats this script degrades instead of throwing. -->
+  <script defer src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
   <!-- v1.0.13: dialog-certainty helpers (must load before app.js) -->
   <script src="js/toast.js?v=1785000000"></script>
   <script src="js/modal.js?v=1785000000"></script>
@@ -3778,8 +3789,10 @@
   <script src="js/cases.js?v=20260826023"></script>
   <script src="js/stats.js?v=20260827002"></script>
   <script src="js/theme.js?v=20260813019"></script>
-  <script src="js/app.js?v=20260826019"></script>
+  <script src="js/app.js?v=20261010001"></script>
   <script src="js/icons.js?v=1785000000"></script>
-  <script src="js/pin_anim.js?v=1785000000"></script>
+  <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
+       GSAP presence, and the scale pop now honours prefers-reduced-motion. -->
+  <script src="js/pin_anim.js?v=20261010002"></script>
 </body>
 </html>
