@@ -4,7 +4,26 @@
 
 ---
 
-## 当前状态: **v1.0.42 — sprint-22 双 PR 双 ship** (2026-09-10 · **SHIPPED**)
+## 当前状态: **v1.0.44 — 前端渲染稳健性 + Pin 交互一致性 (sprint-24)** (2026-10-10 · **PR 已开, 待合并**)
+
+**分支**: `feature/v1.0.44-render-hygiene` (base `8aa4362` / v1.0.42)
+**状态**: PR 已开, 待 dad 审阅合并; **未 squash merge, 未打 tag** (tag v1.0.44 在 merge 后由 dad 决定)
+**范围**: 纯前端与静态契约 (0 DDL / 0 migration / 0 后端改动)
+**pyproject.toml**: 不改 — moni 自 v1.0.0 起该文件固定 `version = "0.1.0"`, 50+ 个 tag 均未改过, 发版由 Git Tag + STATUS.md + 前端 `?v=` 查询串驱动
+**审查**: moni-agy 只读审查 = MERGE (无阻塞项); warden 三轮 delta 审查 P0=0 / P1=0
+
+> **v1.0.44 (2026-10-10) 前端渲染稳健性与 Pin 交互一致性 (sprint-24)** — 来源 `tqob/05-Coding/project-moni/research/webgpu-ui-design-research-2026-10-10.md` §6 附带发现 D/E/F 三项 (dad 点名):
+> - **GSAP 异步时序与降级 (AC-1/2)**: `index.html` GSAP 脚本加 `defer` 与 `preload` 提示 (位置保持在所有消费脚本之前, 未混 `async`); `app.js` 彻底消灭裸 `gsap.` 调用, 统一通过 `window.gsap` 访问, 并在 CDN 缺失/弱网时直落视觉终态 (`transform` / `opacity` / `textContent`), 根除慢网打开抓取进度 modal 时的 ReferenceError 崩溃隐患 (10 处动画调用点)。
+> - **自托管 Inter 变量字体 (AC-3)**: 移除 Google Fonts 3 个外部阻塞外链 (2 条 preconnect + 1 条 fonts.googleapis.com), 引入本地 `inter-latin-400.woff2` (48KB) 与 `inter-latin-ext-400.woff2` (85KB) + SIL OFL `inter-LICENSE.txt`; 解码确认两文件均含 `fvar` / `gvar` / `avar` / `STAT` / `HVAR`, 为真实可变字体 (wght 100–900), `@font-face` 声明 `font-weight: 400 700` 覆盖 400/500/600/700 全字重, 无伪加粗; 启用 `font-display: swap` 消除断网及外网不通时的首屏字体阻塞。CJK 不在子集内, 回落 system-ui 的既有行为保持不变。
+> - **prefers-reduced-motion 覆盖率 100% (AC-4/5)**: `main.css` 原先分散的 3 个媒体查询收束为文件末尾统一块, 覆盖全站 **15/15** 条 `animation` 规则 (缺口 8 → 0, 47% → 100%), 对带延时规则显式归零 (`animation-delay: 0ms` / `--d: 0ms`), 避开 `* { animation: none !important }` 一刀切, 保留必要的 `.toast` 语义过渡; `pin_anim.js` 增加 `prefersReducedMotion()` 感知, 减弱动效下跳过 GSAP scale pop。
+> - **Pin 闪色时钟统一 700ms (AC-6, P1-2)**: `pin_anim.js` 单一常量 `FLASH_MS = 700` (添加 class 时立即启动 setTimeout, 移除 `onComplete` 嵌套二次计时器); `main.css` `.pin-btn--just-pinned` / `.pin-btn--just-unpinned` 动画时长对齐 `0.7s`; **正常 / 无 GSAP / 减弱动效三条路径闪色反馈时长完全一致 (真浏览器实测中位数 716 / 717 / 716 ms)**; `classList.add(flashClass)` 移至 `window.gsap` 检查之前, 无 GSAP 时 CSS 颜色闪烁依然触发。
+> - **⚠️ Alpine CDN 离线边界 (L-2 必记项)**: 断网或 CDN 离线时, 首屏外层骨架及顶栏导航可在 **105ms** 内可读渲染 (远优于 3000ms 预算), 但 **Alpine.js 3.14.1 仍依赖 `cdn.jsdelivr.net`, 断网时 Alpine 未能加载, 导致正文区域 39 个带 `x-cloak` 属性的节点保持初始隐藏, 正文区呈现大面积空白**。**此属本 sprint 明确划定的未承诺范围 (非回归缺陷)** — 本 sprint 只承诺 GSAP 与字体两个外链不阻塞, 不承诺 Alpine 离线可用; 后续若需完全离线可用需单独立项自托管 Alpine。**不要把断网时的空白正文当成本版本的回归来查。**
+> - **测试基线**: 新增 `tests/test_frontend_render_hygiene.py` **35/35 通过**; SPA 三件套 (`test_spa_fallback.py` + `test_llm_usage_counters.py` + 新测试) **81/81 通过**; share 回归 **38/38 通过**; 全量 **8 failed / 1012 passed / 2 skipped**, 失败集与 baseline **逐条 diff 完全相同** (既有 flaky: test_api share / test_fetch_integration / test_prompts / test_share_manifest, 与本 diff 无关)。变异探针 13 条 (MP-1~MP-15) 全部证明断言真咬, 复原后 sha256 与变异前逐字相同。
+> - **运行时证据** (留在本地, 不入库, 见 `docs/sprint-24-evidence/`): 字体字重实测 (400/500/600/700 advance width 四个互异且严格递增 = wght 轴生效)、CJK 回落 PingFang SC、断网首屏 105ms + 截图、pin 闪色三路径计时。
+
+---
+
+## 历史: **v1.0.42 — sprint-22 双 PR 双 ship** (2026-09-10 · **SHIPPED**)
 
 **主分支**: main @ `cbd0b6a` (PR #141 squash @ `b02d53c` + PR #142 squash @ `cbd0b6a`)
 **Tag 链**: v1.0.42 → v1.0.41 → v1.0.40 → ...
