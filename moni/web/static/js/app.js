@@ -395,6 +395,29 @@ function app() {
     },
 
     navigate(view) {
+      // v1.0.45 (sprint-25 B10): native View Transitions API for the 11
+      // x-show sections. Zero dependency, zero bytes, and browsers without it
+      // degrade silently to the current instant switch — so this is a pure
+      // enhancement.
+      //
+      // Gate on prefers-reduced-motion in JS: the ::view-transition pseudo
+      // elements are CSS, but the browser still takes the DOM snapshot and
+      // runs the animation before CSS is consulted, so the media query alone
+      // would not stop the work.
+      const wantsReduced = !!(window.matchMedia
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      const canTransition = !wantsReduced
+        && typeof document.startViewTransition === 'function';
+      const apply = () => { this._navigateNow(view); };
+      if (canTransition) {
+        try { document.startViewTransition(apply); }
+        catch (e) { apply(); }
+      } else {
+        apply();
+      }
+    },
+
+    _navigateNow(view) {
       // v1.0.25: 跑批日志 / 大模型设置 收进「配置管理」二级菜单
       if (view === 'cron') {
         this.currentView = 'config';

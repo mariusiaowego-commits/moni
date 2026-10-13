@@ -238,9 +238,11 @@ def test_no_new_reduce_blocks_added():
     """
     css = MAIN_CSS.read_text(encoding="utf-8")
     blocks = _reduce_blocks(css)
-    # Baseline is 5 occurrences: 4 legacy + 1 consolidated tail block.
-    assert len(blocks) <= 5, (
-        f"found {len(blocks)} prefers-reduced-motion blocks; sprint-24 left 5. "
+    # Baseline is 4 real blocks (3 legacy + 1 consolidated tail block).
+    # Counts blocks, not substring hits — a comment naming the query is not a
+    # block and must not inflate the count.
+    assert len(blocks) == 4, (
+        f"found {len(blocks)} prefers-reduced-motion blocks; sprint-24 left 4. "
         "New animations must be added to the consolidated tail block, not a new one"
     )
 
