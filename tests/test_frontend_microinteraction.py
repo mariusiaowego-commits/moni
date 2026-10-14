@@ -150,18 +150,31 @@ def test_global_focus_visible_ring_exists():
     css = _strip_css_comments(MAIN_CSS.read_text(encoding="utf-8"))
     assert ":focus-visible" in css, "no :focus-visible ring defined"
 
-    # Must be the PRIMARY rule (a selector list that actually targets the
-    # controls), not the @supports fallback block — the fallback uses :focus
-    # and would keep the test green after the real ring was deleted.
-    rules = [(sel, body) for sel, body in _css_rules(css)]
-    primary = [
-        body for sel, body in rules
-        if not sel.startswith("@") and ":focus-visible" in sel
-        and ".btn" in sel
-    ]
+    # Must be the PRIMARY rule (a real selector list), not the @supports
+    # fallback block — the fallback uses :focus and would keep this green
+    # after the real ring was deleted.
+    #
+    # P2-2: match the control EXACTLY. A plain `".btn" in sel` substring test
+    # is also satisfied by `.btn-primary` / `.btn-secondary` / …, so renaming
+    # only the `.btn` entry left this green — which is why MP-5 could not bite
+    # here even though the sibling test (focus_ring_covers) went red on the
+    # same mutation. Use a boundary-anchored pattern and require the bare
+    # `.btn` selector to be present in its own right.
+    primary = []
+    for sel, body in _css_rules(css):
+        if sel.startswith("@") or ":focus-visible" not in sel:
+            continue
+        # split the comma list and look at each selector on its own
+        for part in (x.strip() for x in sel.split(",")):
+            if not part:
+                continue
+            # `.btn` exactly — not `.btn-primary`, not `.btn:focus`
+            if re.fullmatch(r"\.btn:focus-visible", part):
+                primary.append(body)
+                break
     assert primary, (
-        "no top-level :focus-visible rule targets .btn (only the "
-        "@supports fallback exists)"
+        "no top-level rule contains the bare `.btn:focus-visible` selector "
+        "(only variants like .btn-primary, or the @supports fallback)"
     )
     outlines = re.findall(r"outline\s*:\s*([^;}]+)", " ".join(primary))
     assert outlines, ":focus-visible rule has no outline declaration"
