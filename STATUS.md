@@ -4,7 +4,30 @@
 
 ---
 
-## 当前状态: **v1.0.44 — 前端渲染稳健性 + Pin 交互一致性 (sprint-24)** (2026-10-10 · **SHIPPED**)
+## 当前状态: **v1.0.45 — 动画与微交互 (sprint-25)** (2026-10-13 · **SHIPPED**)
+
+**主分支**: main @ `b09e599` (PR #144 squash-merged @ `b09e599`; 源分支 head `74ade9a`)
+**Tag 链**: v1.0.45 → v1.0.44 → v1.0.42 → v1.0.41 → v1.0.40 → ...
+**状态**: 已合并到 main, **tag v1.0.45 已打**
+**范围**: 纯前端 (0 DDL / 0 migration / 0 后端 Python 改动); **本 sprint 未引入 WebGPU 运行时**
+**pyproject.toml**: 不改 — 沿 moni 惯例 (自 v1.0.0 起固定 `0.1.0`, 50+ tag 均未动过)
+**审查**: warden 四轮复审 (定标 + R1/R2/R3 + 最终 GATE) = 可合并, P0=0; moni-agy 只读审查 = 无阻塞项
+
+> **v1.0.45 (2026-10-13) 动画与微交互 (sprint-25)** — 来源: PLAN §2.1 (dad 拍板), 做 A1-a + B 组 P0/P1 + 删死资产。15 文件, +1810 / −13。
+>
+> - **A1-a 抓取弹窗粒子场封顶 200 (AC-1)**: `app.js` 新增 `const MAX_PARTICLES = 200`, 在 `_spawnBurst` **出生点**检查并淘汰最旧粒子 —— burst 每 200ms 触发、每粒子活 70~110 帧, 原先数组随弹窗打开时长无上界增长。取 200 而非 180: 改前实测活粒子在 89~173 波动, 180 会削掉观测峰值 (属观感改变), 200 高于所有观测峰值、正常使用下不可见。
+> - **B 组微交互 P0/P1 共 15 条**: 2a 无障碍 `:focus-visible` 焦点环 (B01/B04, **reduce 下刻意保留** —— 焦点环是功能不是装饰); 2b 性能卫生 删 `.btn` 常驻 `will-change` (B03) + 7 条 hover 抬升包进 `@media (hover: hover)` (B19, 触屏不再粘滞); 2c 主题一致 新增 `--row-hover` token 替换 3 条硬编码 hex (B07); 2d 反馈对称 抓取按钮 `min-width` / `tabular-nums` / toast 与 modal 补退场 (B12/B14/B16/B17); 2e 结构转场 批量栏进入动画 (B09) + 11 个 `x-show` section 走**原生 View Transitions API** (B10, 零依赖零字节, 不支持时静默退化为瞬时切换, **reduce 判定放在 JS** —— 浏览器先做 DOM 快照再询问 CSS, 媒体查询拦不住那份开销)。
+> - **reduce-motion 覆盖率 15/15 → 16/16 = 100%**: 新增动画全部并入 sprint-24 那个末尾汇总块, 未新开块。
+> - **删 4 张未引用 pin PNG, 净减 2.83 MiB**: 是 WebGPU 运行时 gzip 体积 (≈690 KB) 的 **4.2 倍**。判定经过一次自我纠正 —— 第一轮用 `pin_[abcd]` 粗搜得「28 处引用」差点误判, 逐条看全是**子串误报** (`pin_anim.js` 文件名 / `pin_count` 字段名); 改用精确搜后 0 处运行时引用。**未删 `moni_v2.png` (407 KB)** —— 它被 `static/demo.html` / `demo-v2.html` 引用, 删了 demo 页会裂图。
+> - **门禁结果 (warden 定的口径)**: **A** 每帧工作量 before p95 median 2.7ms / after 2.7ms, **比值 1.000** (门限 ≤1.30) PASS (3 次 × 20 秒取中位数, dpr=1, `--disable-gpu`); **B** 出生点封顶 + cap probe burst storm `peakLiveParticles=200 exceededBy=0 → CAP HOLDS` PASS; **C-1** `longFrameRatioPct` 差值 **−0.125pp** (门限 ≤+5.0pp) PASS; **C-2** `maxFrameMs` 50→50 比值 1.000 / `p95FrameMs` 33.4→33.4 比值 1.000 均 PASS。
+> - **⚠️ C-3 解释性声明 (必读, 防误判)**: `longFrameRatioPct ≈ 50%` 是 **headless Chrome + `--disable-gpu` 的 vsync 调度产物, 不是应用卡顿率** —— 帧时间恒为 16.7ms 的整数倍 (33.4=2×, 50.0=3×), 而 `workPerFrameMs.mean` 仅 2.30ms (帧预算 16.7ms 的 13.8%)。**不要据此去减少每粒子 arc 调用次数或上 OffscreenCanvas, 那是无效优化。** 同理, 早期用 10 秒窗口量到的 avgFps 60 / avgLive 75 也是失真的 —— 粒子数是时间的函数, 20 秒窗口才暴露真实稳态 (avgFps 45 / avgLive 118)。
+> - **⚠️ 作废声明**: 本 PR 首个 commit `f3d8ca2` 的 message 里写了「超预算帧占比 (限 ≤0.5%)」与「成因是粒子数与帧率互相追; 要真正压到 0.5% 需要减少每粒子 arc 调用次数 / OffscreenCanvas」。**该绝对阈值口径已作废** (改为 C-1/C-2 相对口径), **该归因不成立** (见上 C-3)。以 squash commit `b09e599` 为准。
+> - **验证**: 真机 (headless Chrome + CDP, `s25_bgroup_verify.mjs`) = **ALL B-GROUP CHECKS PASS** —— navigate 正常态 `startViewTransition` 调用 1 次, reduce 态调用 **0 次** (JS 门控生效)。pytest 相关三套 **60 passed**; 全量 **8 failed / 1037 passed / 2 skipped**, D-13 失败集集合级对账 baseline 8 / head 8, sha256 `560a54c1356092322d83279f5033e400` 两侧逐字节相同, NEW NONE / DISAPPEARED NONE。变异探针 14 条 / 13 bite。
+> - **本 sprint 未做**: WebGPU 运行时 (A1-b) 与灯塔光束 hero (A2) —— 按 dad 拍板留待后续, 需另行拍板。
+
+---
+
+## 历史: **v1.0.44 — 前端渲染稳健性 + Pin 交互一致性 (sprint-24)** (2026-10-10 · **SHIPPED**)
 
 **主分支**: main @ `33a529d` (PR #143 squash-merged @ `33a529d`; 源分支 head `72b19cb`)
 **Tag 链**: v1.0.44 → v1.0.42 → v1.0.41 → v1.0.40 → ...
