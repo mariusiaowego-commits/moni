@@ -90,6 +90,9 @@
   --shadow: 0 1px 3px oklch(0.218 0.000 89.9 / 0.06);
   --shadow-lg: 0 4px 12px oklch(0.218 0.000 89.9 / 0.08);
   --font: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* v1.0.45 (sprint-25 B07): table row hover was hardcoded per-mode hex,
+     which broke every imported theme. One token, two overrides. */
+  --row-hover: #F9F2E4;
 }
 
 /* ── Dark Mode Variables ── */
@@ -98,6 +101,7 @@
   --foreground: oklch(0.928 0.034 84.6);      /* 荔肉白 */
   --card: oklch(0.218 0.000 89.9);            /* 玄色 */
   --card-fg: oklch(0.928 0.034 84.6);         /* 荔肉白 */
+  --row-hover: #241D17;   /* v1.0.45 B07: dark row hover */
   --muted: oklch(0.257 0.030 61.5);           /* 缁 */
   --muted-fg: oklch(0.633 0.000 89.9);        /* 灰色 */
   --accent: oklch(0.819 0.109 302.2);         /* 浅紫藤萝 */
@@ -391,7 +395,12 @@ body {
 .stat-card:nth-child(2) { animation-delay: 0.08s; }
 .stat-card:nth-child(3) { animation-delay: 0.12s; }
 .stat-card:nth-child(4) { animation-delay: 0.16s; }
-.stat-card:hover { box-shadow: 0 4px 16px oklch(0 0 0 / 0.1); transform: translateY(-2px); }
+/* v1.0.45 (B19): hover lifts only on devices that actually hover.
+   On touch they stick after the tap. */
+@media (hover: hover) {
+  .stat-card:hover { box-shadow: 0 4px 16px oklch(0 0 0 / 0.1); transform: translateY(-2px); }
+}
+
 .stat-label { font-size: 0.78rem; color: var(--muted-fg); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
 .stat-value { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.03em; }
 .stat-sub { font-size: 0.78rem; color: var(--muted-fg); margin-top: 2px; }
@@ -410,7 +419,9 @@ body {
                  background 0.15s ease,
                  border-color 0.15s ease,
                  opacity 0.15s ease;
-     will-change: transform;
+     /* v1.0.45 (B03): dropped `will-change: transform`. It kept every .btn on
+        its own compositor layer for the whole page lifetime — a table with N
+        buttons cost N layers. The transform transition promotes on demand. */
    }
    .btn:active, .btn-primary:active, .btn-secondary:active, .btn-ghost:active, .btn-danger:active, .btn-refresh:active {
      transform: scale(0.96);
@@ -552,9 +563,9 @@ tbody td:last-child {
   white-space: nowrap;
 }
 tbody tr { transition: background 0.12s; }
-tbody tr:hover { background: #F9F2E4; }  /* v1.0.35: 白天模式米黄 hover */
-.dark tbody tr:hover { background: #241D17; }  /* v1.0.35: 黑夜模式 hover */
-:root.dark tbody tr:hover { background: #241D17; }  /* 双保险 */
+/* v1.0.45 (B07): was three hardcoded hex rules (two of them the same value),
+   so an imported theme kept the old米黄 hover. One token, mode-aware. */
+tbody tr:hover { background: var(--row-hover); }
 tbody tr:last-child td { border-bottom: none; }
 .empty-row { text-align: center; color: var(--muted-fg); padding: 32px !important; font-size: 0.88rem; }
 .url-cell { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -702,7 +713,12 @@ tbody tr:last-child td { border-bottom: none; }
 .tag-chip-no-color {
   background: var(--muted); color: var(--muted-fg);
 }
-.tag-chip:hover { transform: translateY(-1px); }
+/* v1.0.45 (B19): hover lifts only on devices that actually hover.
+   On touch they stick after the tap. */
+@media (hover: hover) {
+  .tag-chip:hover { transform: translateY(-1px); }
+}
+
 .tag-chip-wrap .tip {
   display: none; position: absolute; bottom: calc(100% + 6px); left: 50%;
   transform: translateX(-50%);
@@ -1258,7 +1274,12 @@ label { font-size: 0.85rem; }
   transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease, transform 0.15s cubic-bezier(0.22, 1, 0.36, 1);
   background: var(--card);
 }
-.article-card:hover { border-color: var(--accent); box-shadow: 0 4px 12px oklch(0 0 0 / 0.1); transform: translateY(-2px); }
+/* v1.0.45 (B19): hover lifts only on devices that actually hover.
+   On touch they stick after the tap. */
+@media (hover: hover) {
+  .article-card:hover { border-color: var(--accent); box-shadow: 0 4px 12px oklch(0 0 0 / 0.1); transform: translateY(-2px); }
+}
+
 .article-card.is-selected { border-color: var(--accent); background: oklch(from var(--accent) l c h / 0.06); box-shadow: 0 0 0 2px oklch(from var(--accent) l c h / 0.2); }
 .article-card-check { position: absolute; top: 8px; right: 8px; accent-color: var(--accent); }
 .article-card-source { font-size: 0.72rem; color: var(--muted-fg); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 3px; }
@@ -1335,7 +1356,12 @@ label { font-size: 0.85rem; }
   background: var(--card);
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.15s ease;
 }
-.theme-item:hover { background: var(--muted); transform: translateY(-1px); box-shadow: 0 2px 8px oklch(0 0 0 / 0.08); }
+/* v1.0.45 (B19): hover lifts only on devices that actually hover.
+   On touch they stick after the tap. */
+@media (hover: hover) {
+  .theme-item:hover { background: var(--muted); transform: translateY(-1px); box-shadow: 0 2px 8px oklch(0 0 0 / 0.08); }
+}
+
 .theme-item.active { border-color: var(--accent); background: oklch(from var(--accent) l c h / 0.06); box-shadow: 0 0 0 2px oklch(from var(--accent) l c h / 0.15); }
 .theme-item-name { font-weight: 600; font-size: 0.88rem; }
 .theme-item-meta { font-size: 0.76rem; color: var(--muted-fg); }
@@ -2140,10 +2166,14 @@ label { font-size: 0.85rem; }
 .interactive-hover {
   transition: transform 0.15s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.15s ease;
 }
-.interactive-hover:hover {
+/* v1.0.45 (B19): hover lift only where hovering is real. */
+@media (hover: hover) {
+  .interactive-hover:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow);
 }
+}
+
 
 /* ═══════════════════════════════════════════════════════════════
    Calendar (v1.0.16 F5)
@@ -2205,11 +2235,15 @@ label { font-size: 0.85rem; }
   transition: transform 120ms ease-out, background 120ms ease-out, box-shadow 120ms ease-out;
 }
 .cal-day.is-clickable { cursor: pointer; }
-.cal-day.is-clickable:hover {
+/* v1.0.45 (B19): hover lift only where hovering is real. */
+@media (hover: hover) {
+  .cal-day.is-clickable:hover {
   background: oklch(from var(--card) calc(l - 0.02) c h);
   transform: translateY(-1px);
   box-shadow: var(--shadow);
 }
+}
+
 .cal-day.is-clickable:active { transform: scale(0.97); }
 .cal-day.cal-day-other { opacity: 0.45; }
 .cal-day.cal-day-today {
@@ -2479,10 +2513,14 @@ label { font-size: 0.85rem; }
   transition: transform 120ms ease-out, box-shadow 120ms ease-out;
   cursor: pointer;
 }
-.case-card:hover {
+/* v1.0.45 (B19): hover lift only where hovering is real. */
+@media (hover: hover) {
+  .case-card:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow);
 }
+}
+
 .case-card:active { transform: scale(0.99); }
 .case-card-del {
   position: absolute;
@@ -3762,4 +3800,107 @@ label { font-size: 0.85rem; }
     opacity: 0.28;
     --d: 0ms;
   }
+  /* v1.0.45 (sprint-25 B 组): new motion from the B batches.
+     Focus rings are deliberately NOT listed — they are keyboard
+     accessibility and must survive reduced motion. */
+  .fetch-btn-label,
+  .toast,
+  .modal-backdrop,
+  .modal-content.fetch-modal {
+    transition: none;
+  }
+  .bulk-bar {
+    animation: none;
+  }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   B 组微交互 (v1.0.45, sprint-25) — P0/P1
+   ═══════════════════════════════════════════════════════════════════════════
+   Batches per PLAN §4 Phase 2.  Every animated rule added below has its
+   reduced-motion counterpart inside the consolidated block at the end of this
+   file — do not open a new @media block for them (that was the sprint-24 rule
+   and it still stands).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── B01 / B04 · focus visibility (P0 — accessibility, not decoration) ──
+   :focus-visible so a mouse click leaves no ring, with a :focus fallback for
+   engines without it.  Kept under prefers-reduced-motion on purpose: losing
+   the ring means losing keyboard navigation. */
+.btn:focus-visible,
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.btn-ghost:focus-visible,
+.btn-danger:focus-visible,
+.btn-refresh:focus-visible,
+.pin-btn:focus-visible,
+.link-btn:focus-visible,
+.tag-chip:focus-visible,
+.subtab:focus-visible,
+.toast-action:focus-visible,
+.toast-close:focus-visible,
+.modal-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+@supports not selector(:focus-visible) {
+  .btn:focus,
+  .pin-btn:focus,
+  .link-btn:focus,
+  .tag-chip:focus,
+  .subtab:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+/* ── B12 · fetch button pending (P1) ──
+   The label crossfades 全部抓取 -> 抓取中..., so the button needs a min-width
+   or the header jumps every time a fetch starts. */
+.btn-primary { min-width: 7.5em; }
+.fetch-btn-label {
+  display: inline-block;
+  transition: opacity 0.14s ease;
+}
+.fetch-btn-label.is-swapping { opacity: 0; }
+
+/* ── B14 · elapsed readout (P1) ──
+   Seconds ticking 9 -> 10 would otherwise push the layout sideways. */
+.pixel-elapsed {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── B16 / B17 · symmetric exits (P1) ──
+   Entrance animations existed; exits did not, so closing read as a jump. */
+.toast { transition: opacity 0.2s ease, transform 0.2s ease; }
+.modal-backdrop { transition: opacity 0.18s ease, background 0.18s ease; }
+.modal-content.fetch-modal {
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+              opacity 0.18s ease;
+}
+.modal-content.fetch-modal.is-closing {
+  transform: translateY(14px) scale(0.97);
+  opacity: 0;
+}
+
+/* ── B09 · bulk bar enter (P1) ──
+   Was display:flex inline, appearing instantly. Animation only; layout
+   properties (height/flex) are untouched so nothing reflows. */
+@keyframes bulkBarIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+.bulk-bar {
+  animation: bulkBarIn 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── B10 · view transitions (P1) ──
+   Native View Transitions API: zero dependency, zero bytes, and it degrades
+   silently to an instant switch where unsupported. app.js gates the call on
+   prefers-reduced-motion, so these pseudo-elements only run when allowed. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.18s;
+}
+::view-transition-new(root) { animation-duration: 0.24s; }

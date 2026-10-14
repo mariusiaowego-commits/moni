@@ -9,6 +9,18 @@ const PARTICLE_PALETTE = [
   [189, 174, 173],  // 芦穗灰 #BDAEAD
 ];
 
+// v1.0.45 (sprint-25 A1-a): hard ceiling on live fetch-modal particles.
+// Bursts fire every 200 ms and each particle lives ~70-110 frames, so an
+// uncapped array grows the whole time the modal is open — costing one
+// update() + up to 7 arc() calls per particle per frame.
+//
+// 200, not 180: warden measured the pre-cap live population between 89 and
+// 173 across runs, so 180 would clip the observed peak and change how the
+// modal currently looks. 200 sits above every observed peak, so the ceiling
+// is invisible in normal use and only stops the unbounded case.
+// dad pinned 200 (PLAN §2.1).
+const MAX_PARTICLES = 200;
+
 class FetchParticle {
   constructor(sx, sy, tx, ty) {
     this.sx = sx; this.sy = sy;
@@ -383,6 +395,29 @@ function app() {
     },
 
     navigate(view) {
+      // v1.0.45 (sprint-25 B10): native View Transitions API for the 11
+      // x-show sections. Zero dependency, zero bytes, and browsers without it
+      // degrade silently to the current instant switch — so this is a pure
+      // enhancement.
+      //
+      // Gate on prefers-reduced-motion in JS: the ::view-transition pseudo
+      // elements are CSS, but the browser still takes the DOM snapshot and
+      // runs the animation before CSS is consulted, so the media query alone
+      // would not stop the work.
+      const wantsReduced = !!(window.matchMedia
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      const canTransition = !wantsReduced
+        && typeof document.startViewTransition === 'function';
+      const apply = () => { this._navigateNow(view); };
+      if (canTransition) {
+        try { document.startViewTransition(apply); }
+        catch (e) { apply(); }
+      } else {
+        apply();
+      }
+    },
+
+    _navigateNow(view) {
       // v1.0.25: 跑批日志 / 大模型设置 收进「配置管理」二级菜单
       if (view === 'cron') {
         this.currentView = 'config';
@@ -2772,6 +2807,16 @@ function app() {
           this._particleBurstTimers.delete(tid);
           // Bail if animation was stopped while this timer was queued.
           if (!this._particleRunning) return;
+          // v1.0.45 (sprint-25 A1-a): cap at birth, not in the per-frame
+          // filter. Bursts fire every 200 ms and each particle lives ~70-110
+          // frames, so the array grew without bound the longer the modal
+          // stayed open — every extra particle cost one update() plus up to
+          // 7 arc() draw calls per frame, forever. Evicting the OLDEST keeps
+          // the visible density stable (the newest ones are the ones still
+          // travelling toward moni) while bounding the per-frame cost.
+          if (this._particles.length >= MAX_PARTICLES) {
+            this._particles.shift();
+          }
           const p = new FetchParticle(
             sx + (Math.random() - 0.5) * 4,
             sy + (Math.random() - 0.5) * ir.height * 0.6,
