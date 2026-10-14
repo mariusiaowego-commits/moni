@@ -149,9 +149,24 @@ def test_global_focus_visible_ring_exists():
     """
     css = _strip_css_comments(MAIN_CSS.read_text(encoding="utf-8"))
     assert ":focus-visible" in css, "no :focus-visible ring defined"
-    m = re.search(r":focus-visible\s*\{[^}]*outline\s*:([^;}]+)", css)
-    assert m, ":focus-visible rule has no outline"
-    assert "none" not in m.group(1), "focus ring must not be outline: none"
+
+    # Must be the PRIMARY rule (a selector list that actually targets the
+    # controls), not the @supports fallback block — the fallback uses :focus
+    # and would keep the test green after the real ring was deleted.
+    rules = [(sel, body) for sel, body in _css_rules(css)]
+    primary = [
+        body for sel, body in rules
+        if not sel.startswith("@") and ":focus-visible" in sel
+        and ".btn" in sel
+    ]
+    assert primary, (
+        "no top-level :focus-visible rule targets .btn (only the "
+        "@supports fallback exists)"
+    )
+    outlines = re.findall(r"outline\s*:\s*([^;}]+)", " ".join(primary))
+    assert outlines, ":focus-visible rule has no outline declaration"
+    for val in outlines:
+        assert "none" not in val, f"focus ring must not be outline: {val}"
 
 
 def test_focus_ring_covers_the_interactive_controls():
@@ -324,10 +339,23 @@ def test_elapsed_readout_is_tabular():
 
 
 def test_bulk_bar_has_enter_animation():
+    """Restrict to non-@media rules.
+
+    A naive substring search also matches `.bulk-bar` inside the reduced-motion
+    block (`animation: none`), so deleting the real enter rule left the test
+    green — a mutation probe caught it.
+    """
     css = _strip_css_comments(MAIN_CSS.read_text(encoding="utf-8"))
-    assert re.search(r"\.bulk-bar\s*\{[^}]*animation", css), (
-        ".bulk-bar appears instantly — no enter transition"
-    )
+    # Explicit, readable form:
+    found = False
+    for sel, body in _css_rules(css):
+        if sel.startswith("@"):
+            continue
+        if re.search(r"(?:^|[\s,])\.bulk-bar(?:\s*$|[\s,{:.>\[])", sel):
+            if re.search(r"animation\s*:", body):
+                found = True
+                break
+    assert found, ".bulk-bar appears instantly — no enter transition"
 
 
 def test_bulk_bar_enter_is_reduced():
@@ -348,6 +376,14 @@ def test_view_transition_api_is_used_and_reduce_gated():
     body = js[m.start() : m.start() + 3000]
     assert "startViewTransition" in body, (
         "navigate() does not use document.startViewTransition"
+    )
+    # The gate must be USED, not merely computed: removing `!wantsReduced &&`
+    # while leaving the (now dead) query would otherwise pass.
+    gate = re.search(r"const\s+canTransition\s*=\s*([^;]+);", body)
+    assert gate, "canTransition not found in navigate()"
+    assert "wantsReduced" in gate.group(1), (
+        "canTransition ignores the reduced-motion result — the transition "
+        f"would run even when the user asked for less motion: {gate.group(1)!r}"
     )
     assert "prefers-reduced-motion" in body, (
         "view transition is not gated on prefers-reduced-motion in JS"
