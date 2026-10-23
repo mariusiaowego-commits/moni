@@ -7,16 +7,16 @@ doesn't block); the worker scans ~/.moni/queue/*.json, processes
 pending share_tasks, and writes progress updates to share_tasks.progress_*
 columns (see migration 008).
 
-Single-instance: default_worker.sh takes a PID-file lock in
-$QUEUE_DIR/.lock.  We double-check here so the UI can tell the user
-"already running" without spawning a redundant subprocess.
+Single-instance: default_worker.sh inherits a kernel ``flock`` on
+$QUEUE_DIR/.lock from worker_lock_exec.py.  We probe that flock here
+so the UI can tell the user "already running" without spawning a
+redundant subprocess.  flock is tied to the open file description and
+is released by the kernel when the worker exits.
 
-v1.0.48: the bash side now creates that lock **atomically**
-(``set -o noclobber`` → O_EXCL) instead of check-then-write, and this
-side waits for the freshly spawned child to actually claim the lock
-before reporting "started".  Spawning alone never meant success — the
-loser of the race exits immediately — and the old code reported a PID
-for a worker that was already gone.
+Spawning alone is not success: the race loser exits with code 75.  The
+winner writes ``.lock.result`` after deciding whether the queue has
+work, so an empty queue is reported as such instead of as a started
+worker.
 
 Log path: $MONI_OUTPUT_DIR/worker.log if set, else
 data/artifacts/worker.log (alongside the artifacts).  The frontend
@@ -24,6 +24,7 @@ tails the last N lines via GET /api/share/worker/log?tail=N.
 """
 from __future__ import annotations
 
+import fcntl
 import logging
 import os
 import subprocess
@@ -45,9 +46,9 @@ DEFAULT_OUTPUT_DIR = REPO_ROOT / "data" / "artifacts"
 WORKER_SCRIPT = REPO_ROOT / "scripts" / "default_worker.sh"
 LOG_FILE = DEFAULT_OUTPUT_DIR / "worker.log"
 
-#: How long to wait for a freshly spawned worker to prove it owns the lock.
-#: The worker has to boot bash, source .env and reach the lock block, so
-#: this is generous; it is only paid when a launch actually happens.
+#: How long to wait for a freshly spawned worker to finish.  Empty queues
+#: normally finish in well under a second, but the launcher must still be
+#: bounded when a worker is genuinely processing a long task.
 _LOCK_SETTLE_SECONDS = 3.0
 
 
@@ -65,7 +66,7 @@ def _queue_dir() -> Path:
 
 
 def _lock_file() -> Path:
-    """Path of the worker PID lock (same file the bash script writes)."""
+    """Path of the worker flock file (PID text is diagnostic only)."""
     return _queue_dir() / ".lock"
 
 
@@ -85,70 +86,99 @@ class WorkerLaunch:
     completed_nothing_to_do: bool = False
 
 
-def _pid_alive(pid: int) -> bool:
-    """True if the process exists (signal 0 does not deliver anything)."""
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
-
-
 def _read_lock_pid() -> int | None:
     """PID recorded in the lock file, or None if absent / unreadable."""
     try:
-        return int(_lock_file().read_text().strip())
+        text = _lock_file().read_text().strip()
+        return int(text.splitlines()[0]) if text else None
     except (ValueError, OSError):
         return None
 
 
 def _check_lock() -> int | None:
-    """Return PID of the worker holding the lock, or None if free.
+    """Return PID of the live flock holder, or None if free.
 
-    Mirrors the POSIX lock-file logic in default_worker.sh so we
-    give the UI the same "is it running?" answer the worker itself
-    would see.
+    The PID text is only diagnostic: the kernel flock is authoritative.
+    A stale file with a dead PID (or a PID reused by an unrelated process)
+    must never make the UI report a worker as running.
     """
     pid = _read_lock_pid()
     if pid is None:
         return None
-    if not _pid_alive(pid):
-        # Stale lock — worker is dead but didn't clean up.  We treat
-        # this as "not running" so the UI can launch a fresh worker;
-        # the new worker's atomic PID-file create reclaims it.
+    path = _lock_file()
+    try:
+        fd = os.open(path, os.O_RDWR)
+    except OSError:
         return None
-    return pid
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            # Another process owns the flock.  Do not trust PID text as the
+            # authority; it may be a reused PID or a stale generation.
+            return pid
+        else:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            return None
+    finally:
+        os.close(fd)
+
+
+def _worker_result_file() -> Path:
+    return _queue_dir() / ".lock.result"
+
+
+def _read_worker_result() -> str | None:
+    try:
+        text = _worker_result_file().read_text().strip()
+    except OSError:
+        return None
+    return text or None
 
 
 @dataclass
 class _LockOutcome:
     """Result of waiting for a freshly spawned worker to claim the lock."""
 
-    kind: str                 # "won" | "lost" | "exited" | "timeout"
+    kind: str                 # "started" | "empty" | "lost" | "exited" | "timeout"
     holder_pid: int | None = None   # who holds it (kind == "lost")
     returncode: int | None = None   # child exit code (kind == "exited")
 
 
 def _await_lock_outcome(proc: subprocess.Popen) -> _LockOutcome:
-    """Wait until the spawned worker owns the lock — or gives up.
+    """Wait for the child to either finish or prove it owns the flock.
 
-    v1.0.48: the bash worker takes ``$QUEUE_DIR/.lock`` itself and exits
-    immediately when another worker already holds it.  So spawning is
-    *not* proof of success: two concurrent requests can both spawn, one
-    of them exits right away.  Polling the lock file tells us which one
-    actually got the work, and lets the UI report the right PID.
+    A worker can finish an empty queue in a few milliseconds.  Returning
+    "won" merely because the PID appears in the lock file raced with that
+    exit and made 19/20 empty launches look started.  The child now writes
+    an explicit result marker; a quick exit is authoritative even if it
+    briefly held the lock.
     """
     deadline = time.monotonic() + _LOCK_SETTLE_SECONDS
     while True:
-        holder = _read_lock_pid()
-        if holder is not None:
-            if holder == proc.pid:
-                return _LockOutcome("won")
-            if _pid_alive(holder):
-                return _LockOutcome("lost", holder_pid=holder)
         rc = proc.poll()
         if rc is not None:
+            # Read the marker before the exit decision: a fast empty run may
+            # finish before the first poll, and its explicit result is the
+            # authoritative answer.
+            if _read_worker_result() == "nothing_to_do":
+                return _LockOutcome("empty")
             return _LockOutcome("exited", returncode=rc)
+        result = _read_worker_result()
+        if result == "nothing_to_do":
+            # Wait for this child to release the flock before the caller can
+            # launch the next one.  Otherwise 20 back-to-back calls see the
+            # previous empty worker still exiting and report already_running.
+            try:
+                rc = proc.wait(timeout=deadline - time.monotonic())
+            except subprocess.TimeoutExpired:
+                return _LockOutcome("timeout")
+            return _LockOutcome("empty", returncode=rc)
+        if result == "started":
+            return _LockOutcome("started")
+        holder = _check_lock()
+        if holder is not None and holder != proc.pid:
+            return _LockOutcome("lost", holder_pid=holder)
         if time.monotonic() >= deadline:
             return _LockOutcome("timeout")
         time.sleep(0.05)
@@ -263,9 +293,17 @@ def launch_worker() -> WorkerLaunch:
             log_path=str(LOG_FILE),
             error=f"cannot open log file: {exc!r}",
         )
+    # A result from an earlier run must not leak into this launch.
+    _worker_result_file().unlink(missing_ok=True)
+
     try:
         proc = subprocess.Popen(
-            ["/bin/bash", str(WORKER_SCRIPT)],
+            [
+                "/usr/local/bin/python3",
+                str(REPO_ROOT / "scripts" / "worker_lock_exec.py"),
+                str(_lock_file()),
+                str(WORKER_SCRIPT),
+            ],
             cwd=str(REPO_ROOT),
             env=env,
             stdout=log_fh,
@@ -284,18 +322,26 @@ def launch_worker() -> WorkerLaunch:
     # the Python wrapper would just decref but the OS keeps the
     # fd open until the worker exits.  Python's GC handles it.
 
-    # ── Did this child actually get the lock? (v1.0.48) ──────────────────
-    # Spawning is not success: default_worker.sh takes the same lock and
-    # exits at once if another worker already holds it.  Two concurrent
-    # requests both spawn; exactly one survives.  Ask the lock file who
-    # won instead of guessing, so the UI reports the real PID.
+    # ── Did this child actually get the lock? ────────────────────────────
+    # worker_lock_exec.py does LOCK_EX|LOCK_NB before exec.  A loser exits
+    # with 75 before bash starts; a winner records its PID and keeps fd 9
+    # across exec.  An empty queue exits with 0 and writes the explicit
+    # "nothing_to_do" result marker.
     outcome = _await_lock_outcome(proc)
 
-    if outcome.kind == "won":
+    if outcome.kind == "started":
         log.info("worker spawned: pid=%d log=%s", proc.pid, LOG_FILE)
         return WorkerLaunch(
             started=True, already_running=False, pid=proc.pid,
             log_path=str(LOG_FILE),
+        )
+
+    if outcome.kind == "empty":
+        log.info("worker spawned and found nothing to do: pid=%d", proc.pid)
+        return WorkerLaunch(
+            started=False, already_running=False, pid=None,
+            log_path=str(LOG_FILE),
+            completed_nothing_to_do=True,
         )
 
     if outcome.kind == "lost":
@@ -325,7 +371,7 @@ def launch_worker() -> WorkerLaunch:
         return WorkerLaunch(
             started=False, already_running=False, pid=None,
             log_path=str(LOG_FILE),
-            completed_nothing_to_do=True,
+            completed_nothing_to_do=False,
         )
 
     if outcome.kind == "exited":

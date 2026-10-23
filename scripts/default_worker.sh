@@ -9,8 +9,9 @@
 # Hermes invocation: `hermes -z "<prompt>" --profile default`
 #   -z = inline prompt mode (no interactive chat)
 #
-# Concurrency: PID-file lock on $QUEUE_DIR/.lock (POSIX, macOS + Linux).
-#              Workers that can't acquire the lock exit 0 immediately.
+# Concurrency: kernel flock on $QUEUE_DIR/.lock (POSIX, macOS + Linux).
+#              The flock is acquired by worker_lock_exec.py and survives
+#              exec into this script through inherited fd 9.
 #
 # Dependencies: bash, python3, sqlite3, hermes CLI. No GNU timeout needed.
 # =============================================================================
@@ -44,6 +45,10 @@ TIMEOUT_SECONDS="${MONI_WORKER_TIMEOUT:-600}"  # 10 minutes default, override vi
 # the worker finds the per-format prompt files regardless of the
 # worker's CWD.  Defaults to ${REPO_ROOT}/moni/share/prompts/.
 PROMPT_DIR="${MONI_PROMPT_DIR:-${REPO_ROOT}/moni/share/prompts}"
+PYTHON_BIN="${MONI_PYTHON:-/usr/local/bin/python3}"
+if [[ ! -x "$PYTHON_BIN" ]]; then
+    PYTHON_BIN=python3
+fi
 
 # v1.0.14: artifacts + worker log paths.  moni.share.worker.LOG_FILE is
 # Python-only; the shell path used to reference $LOG_FILE without defining
@@ -69,129 +74,94 @@ fi
 # without depending on the caller's PATH.  Idempotent.
 export PATH="$HOME/.local/bin:$PATH"
 
-# --- Concurrent execution guard (POSIX, works on macOS + Linux) -----------
-# Atomic creation of $QUEUE_DIR/.lock containing our PID.
-# - If the lock file doesn't exist, create it with our PID and hold it.
-# - If it exists and the PID is alive, another worker is running — exit.
-# - If the PID is dead (stale), overwrite the lock with our PID.
+# --- Single-instance kernel lock (POSIX, works on macOS + Linux) ----------
+# v1.0.49.4 (R3): the directory/claim protocol was removed.  flock() is
+# owned by the kernel; it is released automatically when the last process
+# referring to the open file description exits, so stale locks, stale
+# guards, PID liveness checks and reclaim races no longer exist.
 #
-# v1.0.48: 原来这里是"先查后写" —— [[ ! -e "$LOCK_FILE" ]] 和
-# echo > "$LOCK_FILE" 之间有窗口期, 两个 worker 同时启动会同时通过
-# 检查, 同时写进自己的 PID, 两把"锁"都算拿到, 队列被处理两遍。
-# 改成 set -o noclobber 的原子创建: bash 在 noclobber 下用 O_EXCL 打开
-# 目标文件, 只有一个进程能创建成功 —— 窗口期消失。
-#
-# v1.0.49.1 (audit F1): 上面的原子创建只解决了"锁不存在"的情况。
-# **过期锁回收路径原来仍然是 racy 的** —— 每个读到同一个死 PID 的
-# contender 都会无条件 rm -f, 于是 A 刚建好的锁会被 B 删掉, B 再建,
-# 两个都 `_acquired_lock=true`。实测 16 并发 + 过期锁 → 最多 4~9 个
-# 赢家, 而且它们会各自把同一个 share_task 完整跑一遍 (N 倍 LLM 调用)。
-# 修法: 回收动作放进**第二把原子锁** `.lock.reclaim` 里串行化, 并在
-# guard 内**重新读锁校验**; 只有确认仍是死 PID 才删。
-_acquired_lock=false
-_guard_dir="${LOCK_FILE}.reclaim.d"
-
-if ( set -o noclobber; echo $$ > "$LOCK_FILE" ) 2>/dev/null; then
-    _acquired_lock=true
-else
-    pid=$(cat "$LOCK_FILE" 2>/dev/null || true)
-    if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
-        echo "[worker] another instance (PID $pid) is running — exiting" >&2
-        exit 0
-    fi
-
-    # Stale lock: 回收必须在原子目录锁保护下串行化 (mkdir 是 POSIX 强原子原语)。
-    # 审计反馈:
-    # 1. 覆盖空 guard 目录与包含二代 claim 的 guard 目录自愈
-    # 2. 拿不到 guard 时必须 exit 1 明确报错, 绝不能静默 exit 0 谎报"队列已处理完"
-    _guard_try=0
-    _got_guard=false
-    while [ "$_guard_try" -lt 40 ]; do
-        if mkdir "$_guard_dir" 2>/dev/null; then
-            echo $$ > "$_guard_dir/pid" 2>/dev/null || true
-            _got_guard=true
-            break
-        fi
-        _guard_try=$((_guard_try + 1))
-
-        pid=$(cat "$LOCK_FILE" 2>/dev/null || true)
-        if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
-            echo "[worker] another instance (PID $pid) is running — exiting" >&2
-            exit 0
-        fi
-
-        # 防符号链接攻击: 若为符号链接直接清除
-        if [ -L "$_guard_dir" ]; then
-            rm -f "$_guard_dir" 2>/dev/null || true
-        fi
-
-        gpid=$(cat "$_guard_dir/pid" 2>/dev/null || true)
-        if [ -n "${gpid:-}" ] && kill -0 "$gpid" 2>/dev/null; then
-            sleep 0.05
-            continue
-        fi
-
-        cpid=$(cat "$_guard_dir/claim" 2>/dev/null || true)
-        if [ -n "${cpid:-}" ] && kill -0 "$cpid" 2>/dev/null; then
-            sleep 0.05
-            continue
-        fi
-
-        # 自愈逻辑:
-        # 1. 若 guard 内已存在 claim 且其 PID 已死 (二代 guard), 竞争单个原子 rename 接管
-        if [ -n "${cpid:-}" ] && ! kill -0 "$cpid" 2>/dev/null; then
-            if mv "$_guard_dir/claim" "$_guard_dir/claim.$$" 2>/dev/null; then
-                _got_guard=true
-                break
-            fi
-        # 2. 若 guard 内无 claim, 且 (持有人 PID 已死 或 空 guard 持续 >= 5 轮有界等待):
-        elif [ ! -f "$_guard_dir/claim" ]; then
-            if [ -n "${gpid:-}" ] || [ "$_guard_try" -ge 5 ]; then
-                if ( set -o noclobber; echo $$ > "$_guard_dir/claim" ) 2>/dev/null; then
-                    _got_guard=true
-                    break
-                fi
-            fi
-        fi
-        sleep 0.05
-    done
-
-    if ! "$_got_guard"; then
-        echo "[worker] failed to acquire reclaim guard after 40 tries — exiting" >&2
-        exit 1
-    fi
-
-    # 在 guard 保护下二次复核 (防竞态)
-    pid=$(cat "$LOCK_FILE" 2>/dev/null || true)
-    if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
-        rm -rf "$_guard_dir" 2>/dev/null || true
-        echo "[worker] another instance (PID $pid) is running — exiting" >&2
-        exit 0
-    fi
-
-    rm -f "$LOCK_FILE"
-    if ( set -o noclobber; echo $$ > "$LOCK_FILE" ) 2>/dev/null; then
-        _acquired_lock=true
-    fi
-    rm -rf "$_guard_dir" 2>/dev/null || true
+# A direct `bash scripts/default_worker.sh` re-enters this same script via
+# worker_lock_exec.py, so cron/manual launches cannot bypass the lock.
+if [[ "${MONI_WORKER_LOCK_ACQUIRED:-}" != "1" ]]; then
+    exec "$PYTHON_BIN" \
+        "$REPO_ROOT/scripts/worker_lock_exec.py" \
+        "$LOCK_FILE" "${BASH_SOURCE[0]}"
 fi
 
-if ! "$_acquired_lock"; then
-    echo "[worker] failed to acquire lock — exiting" >&2
+# The helper owns the flock in fd 9 and execs this bash.  Verify fd 9 is
+# valid so an accidental call with the marker set cannot claim the lock.
+if ! "$PYTHON_BIN" -c '
+import os, sys
+try:
+    os.fstat(9)
+except OSError:
+    sys.exit(1)
+' >/dev/null 2>&1; then
+    echo "[worker] lock marker is set but fd 9 is not open — exiting" >&2
     exit 1
 fi
 
-# 严格清理: 只有确认持锁且文件内仍是本进程 PID 时才删, 绝不误删下任赢家的锁!
-_worker_cleanup() {
-    if [ "$_acquired_lock" = "true" ]; then
-        if [ "$(cat "$LOCK_FILE" 2>/dev/null || true)" = "$$" ]; then
-            rm -f "$LOCK_FILE"
-        fi
-    fi
+# The lock must never be removed: unlink would let a new worker lock a new
+# inode while this worker still owns the old one.  A separate result file
+# gives Python an explicit "empty queue" signal after the child exits.
+_child_pid=""
+LOCK_RESULT_FILE="${LOCK_FILE}.result"
+
+_write_worker_result() {
+    local result="$1"
+    printf '%s\n' "$result" >"$LOCK_RESULT_FILE" 2>/dev/null || true
 }
+
+_run_worker_child() {
+    local out_file="$1"
+    local err_file="$2"
+    shift 2
+
+    # Each long child gets its own process group.  This avoids the worker's
+    # own group signal reaching an unrelated sibling and makes the child's
+    # PGID exactly its PID, so cleanup can target it precisely.
+    "$PYTHON_BIN" -c '
+import os, sys
+os.setsid()
+os.execvp(sys.argv[1], sys.argv[1:])
+' "$@" >"$out_file" 2>"$err_file" &
+    _child_pid=$!
+    local rc=0
+    wait "$_child_pid" || rc=$?
+    _child_pid=""
+    return "$rc"
+}
+
+_stop_child_group() {
+    if [[ -z "${_child_pid:-}" ]]; then
+        return 0
+    fi
+    # On macOS bash 3.2 a trapped TERM interrupts `wait`, but the handler's
+    # `exit` stays pending until the wait is re-entered.  Kill the child's
+    # own group, with a background watchdog to KILL it if TERM is ignored.
+    # Waiting immediately below reaps the child (including zombies), so the
+    # normal TERM-responsive path does not pay the full grace period.
+    local _child_to_stop="$_child_pid"
+    (
+        sleep 0.8
+        kill -KILL -- "-$_child_to_stop" 2>/dev/null || true
+    ) &
+    local _kill_watchdog=$!
+    kill -TERM -- "-$_child_to_stop" 2>/dev/null || true
+    wait "$_child_to_stop" 2>/dev/null || true
+    kill "$_kill_watchdog" 2>/dev/null || true
+    wait "$_kill_watchdog" 2>/dev/null || true
+    _child_pid=""
+}
+
+_worker_cleanup() {
+    _stop_child_group
+}
+
 trap _worker_cleanup EXIT
-trap '_worker_cleanup; exit 143' TERM
-trap '_worker_cleanup; exit 130' INT
+trap '_stop_child_group; exit 143' TERM
+trap '_stop_child_group; exit 130' INT
+trap 'exit 141' PIPE
 
 # --- Helpers ----------------------------------------------------------------
 
@@ -762,9 +732,17 @@ print('true' if v else 'false')
             "正在生成 AI 摘要 (首次生成会调 LLM, 已有则跳过) ..."
         log "SUMMARY_GEN $task_id — checking articles for missing ai_summary"
 
-        local gen_result
-        gen_result=$(python3 "$REPO_ROOT/moni/share/summary_gen.py" \
-            "$DB_PATH" "$article_ids_str" "$manifest_path" 2>/dev/null || echo "{}")
+        local gen_result_file gen_result_err gen_result
+        gen_result_file=$(mktemp "${TMPDIR:-/tmp}/moni_summary_XXXXXX.json")
+        gen_result_err=$(mktemp "${TMPDIR:-/tmp}/moni_summary_XXXXXX.err")
+        if _run_worker_child "$gen_result_file" "$gen_result_err" \
+            "$PYTHON_BIN" "$REPO_ROOT/moni/share/summary_gen.py" \
+            "$DB_PATH" "$article_ids_str" "$manifest_path"; then
+            gen_result=$(cat "$gen_result_file" 2>/dev/null) || gen_result="{}"
+        else
+            gen_result="{}"
+        fi
+        rm -f "$gen_result_file" "$gen_result_err"
 
         # Append newly generated summaries to article_content
         local new_summaries
@@ -825,14 +803,21 @@ print('true' if p.get('include_business_value') else 'false')
             "正在富化（事实核查/业务价值）..."
         log "ENRICH $task_id — running moni.share.enrichment (brief=$brief_val fc=$include_fc_val bv=$include_bv_val)"
 
-        # Prefer python -m so editable install resolves moni package
-        local enrich_out
-        enrich_out=$(python3 -m moni.share.enrichment \
+        # Prefer python -m so editable install resolves moni package.
+        # Command substitution around a background+wait child would delay
+        # the trap, so capture stdout in a file and wait in _run_worker_child.
+        local enrich_out enrich_err enrich_out_file
+        enrich_err="/tmp/moni_enrich_${task_id}.err"
+        enrich_out_file=$(mktemp "${TMPDIR:-/tmp}/moni_enrich_XXXXXX.out")
+        _run_worker_child "$enrich_out_file" "$enrich_err" \
+            "$PYTHON_BIN" -m moni.share.enrichment \
             --db "$DB_PATH" \
             --task-id "$task_id" \
             --manifest "$manifest_path" \
             --article-ids "$article_ids_str" \
-            --print-content 2>/tmp/moni_enrich_${task_id}.err || true)
+            --print-content || true
+        enrich_out=$(cat "$enrich_out_file" 2>/dev/null || true)
+        rm -f "$enrich_out_file"
 
         if [[ -n "$enrich_out" ]]; then
             article_content="$enrich_out"
@@ -862,16 +847,18 @@ print(p.get('title') or ('同业简报 — ' + date.today().isoformat()))
 " "$manifest_path" 2>/dev/null || echo "同业简报")
         # stderr → LOG_FILE (now defined above under set -u).  Also keep a
         # temp copy so failure messages surface in share_tasks.error.
-        local brief_err
+        local brief_err brief_out
         brief_err=$(mktemp "${TMPDIR:-/tmp}/moni_brief_XXXXXX.err")
-        if python3 -m moni.share.brief_html \
+        brief_out=$(mktemp "${TMPDIR:-/tmp}/moni_brief_XXXXXX.out")
+        if _run_worker_child "$brief_out" "$brief_err" \
+            "$PYTHON_BIN" -m moni.share.brief_html \
             --db "$DB_PATH" \
             --article-ids "$article_ids_str" \
             --output "$output_path" \
             --title "$brief_title" \
-            >"$brief_err" 2>&1; then
+            ; then
             cat "$brief_err" >>"$LOG_FILE" 2>/dev/null || true
-            rm -f "$brief_err"
+            rm -f "$brief_err" "$brief_out"
             log "BRIEF_HTML $task_id -> $output_path"
             update_progress "$task_id" "writing_artifact" 95 "HTML 已写入 $output_path"
             task_status_update "$task_id" "done" "$output_path"
@@ -884,7 +871,7 @@ print(p.get('title') or ('同业简报 — ' + date.today().isoformat()))
             cat "$brief_err" >>"$LOG_FILE" 2>/dev/null || true
             local brief_tail
             brief_tail=$(tail -c 400 "$brief_err" 2>/dev/null | tr '\n' ' ' | head -c 300 || true)
-            rm -f "$brief_err"
+            rm -f "$brief_err" "$brief_out"
             error_msg="brief_html render failed"
             if [[ -n "${brief_tail// /}" ]]; then
                 error_msg="brief_html render failed: $brief_tail"
@@ -1082,7 +1069,9 @@ print(p.get('generation_approach',''))
     [[ -n "$model_override" ]] && llm_args+=("--model" "$model_override")
     llm_args+=("--output" "$hermes_out_file" "--usage-file" "$hermes_usage_file" "--" "$prompt")
 
-    python3 "$REPO_ROOT/moni/share/worker_llm.py" "${llm_args[@]}" >/dev/null 2>&1 \
+    _run_worker_child "$artifacts_dir/${task_id}-hermes.stdout" \
+        "$artifacts_dir/${task_id}-hermes.err" \
+        "$PYTHON_BIN" "$REPO_ROOT/moni/share/worker_llm.py" "${llm_args[@]}" \
         || hermes_exit=$?
     # hermes 输出已经由 worker_llm.py 写到 hermes_out_file; 超时/失败时
     # 文件可能不存在, 所以 read 前先兜底。
@@ -1257,7 +1246,12 @@ except Exception as e:
 PYEOF
 )
 
+_processed_any=false
 if [[ -n "$pending_ids" ]]; then
+    _processed_any=true
+    # Tell the launcher that there is real work before entering the first
+    # manifest.  A long task must report started without waiting to exit.
+    _write_worker_result "started"
     while IFS= read -r tid; do
         [[ -z "$tid" ]] && continue
         manifest="$QUEUE_DIR/${tid}.json"
@@ -1269,6 +1263,7 @@ if [[ -n "$pending_ids" ]]; then
     done <<< "$pending_ids"
 else
     log "no pending share_tasks in DB — nothing to process"
+    _write_worker_result "nothing_to_do"
 fi
 
 log "worker finished"
