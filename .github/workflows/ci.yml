@@ -1,0 +1,65 @@
+name: ci
+
+# v1.0.48 — moni 的第一条 CI。
+#
+# 之前所有测试都靠本地手跑, 于是"基线漂了"只能靠人发现 (v1.0.46 审计
+# 一口气找出 3 处跨模块测试污染: 8 个测试其实早就在假绿)。
+# CI 跑在 GitHub 的机器上, 不消耗本地 token, 每次 push / PR 自动跑。
+#
+# 为什么只测 3.12: AGENTS.md 明确全项目统一 Python 3.12 (系统 3.14 缺
+# yaml 依赖 → routes 全部不注册 → POST /run 返 405)。
+# pyproject 里写的是 >=3.11, 但 3.11 没有被任何一条项目文档支持过,
+# 真要支持再加一个 matrix 维度, 别让 CI 一上来就红。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest · py3.12
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install moni + dev deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Check the package imports cleanly
+        # editable install 装错根目录时 pytest 照样能跑 (它从 cwd import),
+        # 但生产跑的是 site-packages 里那份 —— 装错根目录是 moni 历史踩过
+        # 的坑 (AGENTS.md「Editable install 踩坑」), 所以单独验一次。
+        run: |
+          python -c "import moni, moni.web.server, moni.cron.jobs; print(moni.__file__)"
+
+      - name: Run the test suite
+        # -p no:cacheprovider: 3.12 上 pytest 的 cacheprovider 会 segfault
+        # (sprint-07/08/09 连续踩过三次), 沿用项目惯例关掉。
+        # HOME 必须可写 —— 分享队列的测试会往 ~/.moni/queue 写 manifest。
+        run: python -m pytest tests/ -q -p no:cacheprovider
+
+      - name: Upload the worker log if a share test failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: worker-log
+          path: data/artifacts/worker.log
+          if-no-files-found: ignore
+          retention-days: 7
