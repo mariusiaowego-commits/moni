@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import re
 import subprocess
@@ -577,9 +578,8 @@ process.exit(failures.length ? 1 : 0);
 def test_safe_url_behaviour_under_file_origin():
     """把 ``file://`` 下的行为钉死 (审计第二轮实测确认)。
 
-    Chrome 打开本地文件时 ``location.origin`` 是 ``"file://"`` (不是
-    ``"null"``) —— 早期红队报告的 "origin === null ⇒ safeHref 全封"
-    是错的, 已撤回。真实行为是:
+    Chrome / WebKit 打开本地文件时 ``location.origin`` 是 ``"file://"``;
+    Gecko 的规范值是 ``"null"`` (由下一条测试单独覆盖)。``file://`` 下:
 
     - 外链 ``https://...`` 照常放行 (离线分享页要能点外链)
     - **站内相对路径被剥离** —— ``file://`` 下 ``new URL('/x', 'file://')``
@@ -631,6 +631,102 @@ process.exit(failures.length ? 1 : 0);
     )
 
 
+def test_safe_url_behaviour_under_opaque_null_origin():
+    """Gecko reports ``origin === "null"`` for file:// pages.
+
+    ``new URL(x, "null")`` throws for every input, so a naive
+    ``new URL(trimmed, origin)`` would block ordinary external links as well.
+    The file mode must parse absolute URLs without a base: https/http/mailto
+    stay usable, while relative paths cannot be resolved and are rejected.
+    """
+    node = subprocess.run(
+        ["node", "--version"], capture_output=True, text=True, check=False
+    )
+    if node.returncode != 0:
+        pytest.skip("node not available on this machine")
+
+    payload = {
+        "module": str(SAFE_URL_JS),
+        "origin": "null",
+        "matrix": [
+            ["https://36kr.com/p/1", True],
+            ["http://news.163.com/item", True],
+            ["mailto:contact@test.com", True],
+            ["/artifacts/brief.html", False],
+            ["index.html", False],
+            ["//evil.com/phish", False],
+            ["javascript:alert(1)", False],
+            ["data:text/html;base64,PHNjcmlwdD4=", False],
+            ["file:///etc/passwd", False],
+        ],
+    }
+    script = """
+const payload = JSON.parse(process.argv[1]);
+const api = require(payload.module);
+const failures = [];
+for (const [input, expected] of payload.matrix) {
+  const got = api.isSafeUrl(input, payload.origin);
+  if (got !== expected) {
+    failures.push([String(input), 'expected ' + expected + ' got ' + got]);
+  }
+}
+console.log(JSON.stringify(failures));
+process.exit(failures.length ? 1 : 0);
+"""
+    proc = subprocess.run(
+        ["node", "-e", script, json.dumps(payload)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, (
+        'safe_url.js origin="null" matrix failed:\n%s\n%s'
+        % (proc.stdout, proc.stderr)
+    )
+
+
+def test_default_origin_accepts_literal_null_from_location():
+    """The browser path must not let a literal null fall through to localhost."""
+    node = subprocess.run(
+        ["node", "--version"], capture_output=True, text=True, check=False
+    )
+    if node.returncode != 0:
+        pytest.skip("node not available on this machine")
+
+    payload = {
+        "module": str(SAFE_URL_JS),
+        "cases": [
+            ["https://36kr.com/p/1", "https://36kr.com/p/1"],
+            ["/artifacts/brief.html", None],
+            ["javascript:alert(1)", None],
+        ],
+    }
+    script = """
+const payload = JSON.parse(process.argv[1]);
+global.window = { location: { origin: null } };
+const api = require(payload.module);
+const failures = [];
+for (const [input, expected] of payload.cases) {
+  const got = api.safeHref(input);
+  if (got !== expected) {
+    failures.push([String(input), 'expected ' + JSON.stringify(expected) + ' got ' + JSON.stringify(got)]);
+  }
+}
+console.log(JSON.stringify(failures));
+process.exit(failures.length ? 1 : 0);
+"""
+    proc = subprocess.run(
+        ["node", "-e", script, json.dumps(payload)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, (
+        "safe_url.js literal null origin path failed:\n%s\n%s"
+        % (proc.stdout, proc.stderr)
+    )
+
+
 # ---------------------------------------------------------------------------
 # AC-5 — blocked-state styling uses existing tokens only
 # ---------------------------------------------------------------------------
@@ -678,4 +774,82 @@ def test_showcase_builder_inlines_safe_url_js():
     assert '"safe_url.js"' in src, (
         "safe_url.js is not inlined into the single-file showcase — the demo "
         "page would lose the href guard"
+    )
+
+
+def test_showcase_builder_injects_demo_origin_before_safe_url_js():
+    """file:// has no site origin; without this override every /artifacts/
+    link becomes link-blocked and pointer-events:none, so the demo click is dead.
+    """
+    src = SHOWCASE_BUILDER.read_text(encoding="utf-8")
+    assert "SHOWCASE_SAFE_ORIGIN" in src
+    assert "window.__MONI_SAFE_URL_BASE_ORIGIN__" in src
+    assert 'if name == "safe_url.js"' in src
+    assert "text = inject_showcase_safe_origin(text)" in src
+
+
+def test_showcase_demo_origin_keeps_artifacts_safe_but_blocks_javascript():
+    """Evaluate the builder's injected override through the real safe_url.js.
+
+    This exercises the generated source, not only the origin parameter:
+    ``inject_showcase_safe_origin()`` must define the demo origin before
+    safe_url.js reads it, even when the actual page origin is file://.
+    """
+    node = subprocess.run(
+        ["node", "--version"], capture_output=True, text=True, check=False
+    )
+    if node.returncode != 0:
+        pytest.skip("node not available on this machine")
+
+    spec = importlib.util.spec_from_file_location(
+        "moni_build_showcase_for_safe_url_test", SHOWCASE_BUILDER
+    )
+    assert spec and spec.loader
+    builder = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(builder)
+
+    injected = builder.inject_showcase_safe_origin(
+        SAFE_URL_JS.read_text(encoding="utf-8")
+    )
+    assert injected.index("window.__MONI_SAFE_URL_BASE_ORIGIN__") < injected.index(
+        "function defaultOrigin()"
+    )
+
+    payload = {
+        "source": injected,
+        "origin": "http://showcase.moni.local",
+        "matrix": [
+            ["/artifacts/brief.html", True],
+            ["https://36kr.com/p/1", True],
+            ["javascript:alert(1)", False],
+            ["data:text/html;base64,PHNjcmlwdD4=", False],
+        ],
+    }
+    script = """
+const payload = JSON.parse(process.argv[1]);
+global.window = {
+  location: { origin: 'file://' },
+};
+const module_ = { exports: {} };
+new Function('module', 'exports', payload.source)(module_, module_.exports);
+const api = module_.exports;
+const failures = [];
+for (const [input, expected] of payload.matrix) {
+  const got = api.isSafeUrl(input);
+  if (got !== expected) {
+    failures.push([String(input), 'expected ' + expected + ' got ' + got]);
+  }
+}
+console.log(JSON.stringify(failures));
+process.exit(failures.length ? 1 : 0);
+"""
+    proc = subprocess.run(
+        ["node", "-e", script, json.dumps(payload)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, (
+        "showcase demo origin override failed:\n%s\n%s"
+        % (proc.stdout, proc.stderr)
     )

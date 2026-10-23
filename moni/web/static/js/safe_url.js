@@ -1,4 +1,4 @@
-// moni safe_url.js — v1.0.47
+// moni safe_url.js — v1.0.48
 //
 // URL 白名单护栏。index.html 里所有动态 :href 绑定都必须经过
 // safeHref()，否则不可信数据（RSS 正文、LLM 联网核查返回的证据 URL、
@@ -23,15 +23,29 @@
     '该链接协议不安全（仅支持 http/https/mailto/站内路径），已自动拦截';
 
   function defaultOrigin() {
+    // 单文件演示页注入的专用 origin。生产页面不设置这个变量，因此仍然
+    // 使用浏览器真实的 window.location.origin。这里在调用时读取，不缓存
+    // 模块加载时的值 —— 注入脚本和离线页的加载顺序不可互相假设。
     if (
       typeof window !== 'undefined' &&
-      window.location &&
-      window.location.origin
+      typeof window.__MONI_SAFE_URL_BASE_ORIGIN__ === 'string' &&
+      window.__MONI_SAFE_URL_BASE_ORIGIN__
     ) {
-      return window.location.origin;
+      return window.__MONI_SAFE_URL_BASE_ORIGIN__;
+    }
+    if (typeof window !== 'undefined' && window.location) {
+      var origin = window.location.origin;
+      if (typeof origin === 'string') return origin;
+      // Gecko 对 file:// 等 opaque origin 返回 null（部分实现为字符串
+      // "null"）。保留这个信号，交给 isSafeUrl 的 file 模式处理。
+      if (origin === null) return 'null';
     }
     // node 单测 / SSR 兜底：与 moni 默认监听地址一致
     return 'http://127.0.0.1:8900';
+  }
+
+  function isFileOrigin(origin) {
+    return origin === 'null' || /^file:/i.test(origin || '');
   }
 
   /**
@@ -55,9 +69,13 @@
     if (trimmed.charAt(0) === '\\') return false;
 
     var origin = baseOrigin || defaultOrigin();
+    var fileOrigin = isFileOrigin(origin);
     var parsed;
     try {
-      parsed = new URL(trimmed, origin);
+      // file:// 的 origin 在 Chrome / WebKit 是 "file://"，在 Gecko 是
+      // "null"。后者不能作为 URL base（对任何输入都 throw）。file 模式下
+      // 只解析绝对 URL：放行 http(s) / mailto，拒绝站内相对路径。
+      parsed = new URL(trimmed, fileOrigin ? undefined : origin);
     } catch (err) {
       // 格式破损 / 非法字符 —— 一律拒绝
       return false;

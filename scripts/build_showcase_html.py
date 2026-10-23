@@ -1584,6 +1584,23 @@ SHOWCASE_ARTIFACT_JS_PATCH = """
 }).call({});
 """
 
+# 演示页没有站点服务器，所有 /artifacts/... 产物链接在 file:// 下都会被
+# safe_url.js 当成 file: 协议拦掉。给离线产物注入一个固定的 http origin：
+# 正常产物链接仍可点（由 SHOWCASE_BOOT 弹演示提示），javascript: 等危险
+# 协议则继续被白名单拦下。生产页面不注入这个变量。
+SHOWCASE_SAFE_ORIGIN = "http://showcase.moni.local"
+
+
+def inject_showcase_safe_origin(js: str) -> str:
+    """Prefix safe_url.js with the demo-only origin override."""
+    return (
+        "/* ===== showcase demo origin (injected by build_showcase_html.py) ===== */\n"
+        "window.__MONI_SAFE_URL_BASE_ORIGIN__ = "
+        + json.dumps(SHOWCASE_SAFE_ORIGIN)
+        + ";\n"
+        + js
+    )
+
 
 def assemble(html: str, css: str, scripts: list[str], alpine: str, gsap: str, icons: dict[str, str], css_with_var_map: tuple[str, dict[str, str]] | None = None) -> str:
     css = css + "\n" + SHOWCASE_CSS
@@ -1708,6 +1725,8 @@ def main():
         text = (STATIC / "js" / name).read_text(encoding="utf-8")
         if name == "app.js":
             text = patch_app_js(text)
+        if name == "safe_url.js":
+            text = inject_showcase_safe_origin(text)
         text = replace_icon_paths(text, icons)
         scripts.append(f"/* ===== {name} ===== */\n{text}")
     scripts.append("/* ===== showcase boot ===== */\n" + SHOWCASE_BOOT)
