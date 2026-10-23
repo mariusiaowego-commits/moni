@@ -602,18 +602,22 @@ def recount_llm_stats(jobs):
 
 
 def download_vendor() -> tuple[str, str]:
-    cached = Path("/tmp/moni-vendor")
-    alpine_p = cached / "alpine.min.js"
-    gsap_p = cached / "gsap.min.js"
-    if alpine_p.exists() and gsap_p.exists():
-        print("Using cached Alpine + GSAP")
-        return alpine_p.read_text(encoding="utf-8"), gsap_p.read_text(encoding="utf-8")
-    alpine_url = "https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"
-    gsap_url = "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"
-    print("Downloading Alpine + GSAP…")
-    alpine = http_get(alpine_url).decode("utf-8")
-    gsap = http_get(gsap_url).decode("utf-8")
-    return alpine, gsap
+    """Read the self-hosted Alpine + GSAP builds (v1.0.47).
+
+    v1.0.47: 原来这里是 CDN 下载 —— 离线 / 内网构建时直接失败, 而且
+    跟 index.html 里的 script 标签版本可能对不上。现在直接读仓库里
+    自托管的两份文件, 单一事实来源, 构建不再依赖外网。
+    """
+    vendor_dir = STATIC / "vendor"
+    alpine_p = vendor_dir / "alpine-3.14.1.min.js"
+    gsap_p = vendor_dir / "gsap-3.12.5.min.js"
+    missing = [str(p) for p in (alpine_p, gsap_p) if not p.is_file()]
+    if missing:
+        raise FileNotFoundError(
+            "vendor assets missing: %s — 自托管资源必须先入库" % ", ".join(missing)
+        )
+    print("Using self-hosted Alpine + GSAP from %s" % vendor_dir)
+    return alpine_p.read_text(encoding="utf-8"), gsap_p.read_text(encoding="utf-8")
 
 
 def patch_app_js(js: str) -> str:
@@ -1597,23 +1601,33 @@ def assemble(html: str, css: str, scripts: list[str], alpine: str, gsap: str, ic
     )
 
     # demo-safe clicks
+    # v1.0.47: 原来这里做的是整标签精确匹配 —— index.html 加上 safeHref
+    # 护栏之后属性顺序/内容都变了, 整标签匹配会静默失配 (换成了危险链接
+    # 却没被替换, 演示页点开就是 javascript:)。改成属性级替换, 只盯住
+    # 我们真正要改的那一个属性。
     html = html.replace(
         '<a href="#" @click.prevent="navigate(\'articles\')"\n'
         '                     x-text="(job.article_title || job.article_id).slice(0, 50)"></a>',
         '<a href="#" @click.prevent="showcaseDemo(\'article\')"\n'
         '                     x-text="(job.article_title || job.article_id).slice(0, 50)"></a>',
     )
-    html = html.replace(
-        '<a :href="q.output_url" target="_blank"\n'
-        '                           x-text="q.output_url.split(\'/\').pop()"\n'
-        '                           :title="q.output_path || q.output_url"></a>',
-        '<a href="#" @click.prevent="showcaseDemo(\'artifact\')"\n'
-        '                           x-text="(q.output_url || \'\').split(\'/\').pop()"\n'
-        '                           :title="\'演示产物 · 点击查看说明\'"></a>',
+    html = re.sub(
+        r':href="(?:safeHref\()?q\.output_url(?:\))?"',
+        'href="#" @click.prevent="showcaseDemo(\'artifact\')"',
+        html,
     )
     html = html.replace(
-        '<a class="btn-primary" :href="activeBriefTask.output_url" target="_blank">打开产物</a>',
-        '<a class="btn-primary" href="#" @click.prevent="showcaseDemo(\'artifact\')">打开产物</a>',
+        "x-text=\"q.output_url.split('/').pop()\"",
+        "x-text=\"(q.output_url || '').split('/').pop()\"",
+    )
+    html = html.replace(
+        ':title="q.output_path || q.output_url"',
+        ':title="\'演示产物 · 点击查看说明\'"',
+    )
+    html = re.sub(
+        r':href="(?:safeHref\()?activeBriefTask\.output_url(?:\))?"',
+        'href="#" @click.prevent="showcaseDemo(\'artifact\')"',
+        html,
     )
     if html.count("showcaseDemo('artifact')") < 1:
         print("  ! share output_url template not patched")
@@ -1645,8 +1659,11 @@ def assemble(html: str, css: str, scripts: list[str], alpine: str, gsap: str, ic
         deferred_block = '\n<!-- v1.0.35.16: showcase assets not found, run scripts/extract_showcase_assets.py -->'
 
     # strip original script tags
-    html = re.sub(r'<script defer src="https://cdn\.jsdelivr\.net/npm/alpinejs[^"]*"></script>\s*', '', html)
-    html = re.sub(r'<script src="https://cdn\.jsdelivr\.net/npm/gsap[^"]*"></script>\s*', '', html)
+    # v1.0.47: Alpine / GSAP 改成自托管 (vendor/)，原来这两条正则匹配的是
+    # cdn.jsdelivr.net —— 不改的话 CDN 的 <script defer> 标签会残留在
+    # 单文件 showcase 里, 既重复加载又依赖外网。
+    html = re.sub(r'<script defer src="vendor/alpine[^"]*"></script>\s*', '', html)
+    html = re.sub(r'<script defer src="vendor/gsap[^"]*"></script>\s*', '', html)
     html = re.sub(r'<script src="js/[^"]*"></script>\s*', '', html)
 
     # start on fetch? keep articles via hash default
@@ -1683,8 +1700,8 @@ def main():
     print(f"oklch stripped (CSS): {before_oklch} → {css.count('oklch(')} (var_map size={len(var_map)})")
 
     js_files = [
-        "toast.js", "modal.js", "calendar.js", "cases.js", "stats.js",
-        "theme.js", "app.js", "icons.js", "pin_anim.js",
+        "toast.js", "modal.js", "safe_url.js", "calendar.js", "cases.js",
+        "stats.js", "theme.js", "app.js", "icons.js", "pin_anim.js",
     ]
     scripts = [mock_js(snap)]
     for name in js_files:
