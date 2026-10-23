@@ -527,17 +527,21 @@ class TestFetch:
         )
 
     def test_fetch_sources_config_is_never_written_by_tests(self, client: TestClient):
-        """回归: 跑测试不许改生产配置 config/sources.yaml。"""
-        from pathlib import Path
+        """回归: 跑测试不许改生产配置 config/sources.yaml, 且确认隔离副本已生效。"""
+        from tests.conftest import REAL_SOURCES_YAML
+        from moni.web.routes import fetch as fetch_route
 
-        real = Path(__file__).resolve().parents[1] / "config" / "sources.yaml"
-        before = real.read_bytes()
+        assert fetch_route._CONFIG_PATH != REAL_SOURCES_YAML, (
+            "会话级隔离护栏未生效：_CONFIG_PATH 仍然指向真实生产配置"
+        )
+        assert fetch_route._CONFIG_PATH.exists()
 
+        before = REAL_SOURCES_YAML.read_bytes()
         r = client.get("/api/fetch/sources")
         assert r.status_code == 200
         assert isinstance(r.json(), list)
 
-        assert real.read_bytes() == before, (
+        assert REAL_SOURCES_YAML.read_bytes() == before, (
             "读接口把生产配置改掉了 —— 不可能，但这条断言就是用来抓它的"
         )
 

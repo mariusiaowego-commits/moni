@@ -31,9 +31,16 @@ REAL_SOURCES_YAML = REPO_ROOT / "config" / "sources.yaml"
 def _isolate_fetch_sources_config():
     """Never let the test suite write the repo's real config/sources.yaml."""
     from moni.web.routes import fetch as fetch_route
+    from moni.fetch import scheduler as fetch_scheduler
+    from moni.fetch import health as fetch_health
 
-    real = fetch_route._CONFIG_PATH
+    real = REAL_SOURCES_YAML
     if not real.exists():
+        import warnings
+        warnings.warn(
+            f"Real config file {real} not found; cannot isolate sources config.",
+            RuntimeWarning,
+        )
         yield
         return
 
@@ -42,11 +49,20 @@ def _isolate_fetch_sources_config():
     try:
         tmp_copy = tmp_dir / "sources.yaml"
         shutil.copy2(real, tmp_copy)
+
+        orig_fetch = fetch_route._CONFIG_PATH
+        orig_sched = fetch_scheduler._CONFIG_PATH
+        orig_health = fetch_health._CONFIG_PATH
+
         fetch_route._CONFIG_PATH = tmp_copy
+        fetch_scheduler._CONFIG_PATH = tmp_copy
+        fetch_health._CONFIG_PATH = tmp_copy
         try:
             yield
         finally:
-            fetch_route._CONFIG_PATH = real
+            fetch_route._CONFIG_PATH = orig_fetch
+            fetch_scheduler._CONFIG_PATH = orig_sched
+            fetch_health._CONFIG_PATH = orig_health
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
