@@ -337,7 +337,9 @@ def predict_tags_pending(
 
     Logging
     -------
-    Writes one ``cron_runs`` row with job_id ``predict_tags_pending``.
+    Writes one ``cron_runs`` row with job_id ``predict_tags_pending`` —
+    including the re-entrancy skip path, so a skipped tick stays visible
+    in the run history.
 
     Returns
     -------
@@ -354,6 +356,20 @@ def predict_tags_pending(
         logger.warning(
             "[%s] another run is already in progress — skipping this tick", job_id
         )
+        # v1.0.47.1 (audit F1): this early return used to bypass
+        # ``cron_runs`` entirely, leaving a silent hole in the run history.
+        try:
+            history.log_run(
+                job_id,
+                triggered_at=triggered_at,
+                finished_at=_cst_now().isoformat(),
+                success=False,
+                error="skipped: another run already in progress",
+                new_articles=0,
+                sources_run=0,
+            )
+        except Exception as exc:
+            logger.error("[%s] Failed to write skipped cron_runs row: %s", job_id, exc)
         return None
 
     try:
@@ -432,9 +448,18 @@ def _predict_tags_pending_locked(
     # is resolved explicitly from ``llm_settings.active_tag_model_id``
     # (falling back to the summary model), matching the cases/events
     # extraction pipelines.
+    # v1.0.47.1 (audit F2): resolve only the missing half.  The old
+    # ``or`` condition overwrote an explicitly supplied provider when
+    # the caller omitted only ``model`` (and vice versa).
     if llm_call_fn is None and (provider is None or model is None):
         try:
-            provider, model = resolve_active_model("active_tag_model_id")
+            resolved_provider, resolved_model = resolve_active_model(
+                "active_tag_model_id"
+            )
+            if provider is None:
+                provider = resolved_provider
+            if model is None:
+                model = resolved_model
         except Exception as exc:
             logger.error("[%s] No active tag model configured: %s — aborting",
                          job_id, exc)

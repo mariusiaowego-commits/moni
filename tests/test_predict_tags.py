@@ -222,6 +222,61 @@ class TestPredictTagsPending:
 
         assert calls == []
         assert _tags_of("a1") == []
+        rows = get_db().execute(
+            "SELECT success, error FROM cron_runs "
+            "WHERE job_id = 'predict_tags_pending' ORDER BY id DESC LIMIT 1"
+        ).fetchall()
+        assert rows and rows[0]["success"] == 0
+        assert "already in progress" in (rows[0]["error"] or "")
+
+    def test_partial_provider_override_is_not_discarded(self, isolated_db, monkeypatch):
+        """v1.0.47.1 (audit F2): explicit provider must survive model resolution."""
+        conn = get_db()
+        _seed_tag(conn, "银行")
+        _seed_article(conn, "a1")
+        conn.commit()
+
+        called: list[tuple] = []
+        monkeypatch.setattr(
+            cron_jobs,
+            "resolve_active_model",
+            lambda key="active_summary_model_id": ("deepseek", "deepseek-chat"),
+        )
+        monkeypatch.setattr(
+            cron_jobs,
+            "call_llm",
+            lambda provider, model, prompt, **kwargs: (
+                called.append((provider, model)) or '{"tags": ["银行"]}'
+            ),
+        )
+
+        predict_tags_pending(provider="ark")
+
+        assert called == [("ark", "deepseek-chat")]
+
+    def test_partial_model_override_is_not_discarded(self, isolated_db, monkeypatch):
+        conn = get_db()
+        _seed_tag(conn, "银行")
+        _seed_article(conn, "a1")
+        conn.commit()
+
+        called: list[tuple] = []
+        monkeypatch.setattr(
+            cron_jobs,
+            "resolve_active_model",
+            lambda key="active_summary_model_id": ("deepseek", "deepseek-chat"),
+        )
+        monkeypatch.setattr(
+            cron_jobs,
+            "call_llm",
+            lambda provider, model, prompt, **kwargs: (
+                called.append((provider, model)) or '{"tags": ["银行"]}'
+            ),
+        )
+
+        predict_tags_pending(model="custom-model")
+
+        assert called == [("deepseek", "custom-model")]
 
     def test_no_active_model_aborts_cleanly(self, isolated_db, monkeypatch):
         conn = get_db()
@@ -283,4 +338,7 @@ def test_predict_tag_prompt_still_asks_for_strict_json():
         encoding="utf-8"
     )
     assert '"tags"' in template
-    assert "reasoning" in template
+    assert "严格 JSON" in template or "strict JSON" in template.lower()
+    # The template mentions reasoning in its counter-example, so a bare
+    # substring check can be satisfied by text saying the opposite.
+    assert '{"tags"' in template
