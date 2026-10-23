@@ -7,9 +7,16 @@ doesn't block); the worker scans ~/.moni/queue/*.json, processes
 pending share_tasks, and writes progress updates to share_tasks.progress_*
 columns (see migration 008).
 
-Single-instance: default_worker.sh already has a PID-file lock in
+Single-instance: default_worker.sh takes a PID-file lock in
 $QUEUE_DIR/.lock.  We double-check here so the UI can tell the user
 "already running" without spawning a redundant subprocess.
+
+v1.0.48: the bash side now creates that lock **atomically**
+(``set -o noclobber`` → O_EXCL) instead of check-then-write, and this
+side waits for the freshly spawned child to actually claim the lock
+before reporting "started".  Spawning alone never meant success — the
+loser of the race exits immediately — and the old code reported a PID
+for a worker that was already gone.
 
 Log path: $MONI_OUTPUT_DIR/worker.log if set, else
 data/artifacts/worker.log (alongside the artifacts).  The frontend
@@ -32,11 +39,35 @@ log = logging.getLogger(__name__)
 # project-relative defaults.
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DB = REPO_ROOT / "data" / "news.db"
-DEFAULT_QUEUE_DIR = Path(os.environ.get("HOME", "~")) / ".moni" / "queue"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "data" / "artifacts"
 WORKER_SCRIPT = REPO_ROOT / "scripts" / "default_worker.sh"
-LOCK_FILE = DEFAULT_QUEUE_DIR / ".lock"
 LOG_FILE = DEFAULT_OUTPUT_DIR / "worker.log"
+
+#: How long to wait for a freshly spawned worker to prove it owns the lock.
+#: The worker has to boot bash, source .env and reach the lock block, so
+#: this is generous; it is only paid when a launch actually happens.
+_LOCK_SETTLE_SECONDS = 3.0
+
+
+def _queue_dir() -> Path:
+    """Resolve the share-queue directory.
+
+    v1.0.48: honour ``MONI_QUEUE_DIR`` — the CLI workflow exports it and
+    ``default_worker.sh`` resolves it the same way
+    (``${MONI_QUEUE_DIR:-${HOME:-~}/.moni/queue}``).  The Python side used
+    to force the ``$HOME``-based default onto the child process, silently
+    discarding the caller's choice even though the module docstring
+    claimed it was honoured.
+    """
+    env_dir = os.environ.get("MONI_QUEUE_DIR")
+    if env_dir:
+        return Path(env_dir)
+    return Path(os.environ.get("HOME", "~")) / ".moni" / "queue"
+
+
+def _lock_file() -> Path:
+    """Path of the worker PID lock (same file the bash script writes)."""
+    return _queue_dir() / ".lock"
 
 
 @dataclass
@@ -51,6 +82,23 @@ class WorkerLaunch:
     error: str | None = None  # populated when started=False and not already_running
 
 
+def _pid_alive(pid: int) -> bool:
+    """True if the process exists (signal 0 does not deliver anything)."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _read_lock_pid() -> int | None:
+    """PID recorded in the lock file, or None if absent / unreadable."""
+    try:
+        return int(_lock_file().read_text().strip())
+    except (ValueError, OSError):
+        return None
+
+
 def _check_lock() -> int | None:
     """Return PID of the worker holding the lock, or None if free.
 
@@ -58,24 +106,49 @@ def _check_lock() -> int | None:
     give the UI the same "is it running?" answer the worker itself
     would see.
     """
-    try:
-        if not LOCK_FILE.exists():
-            return None
-        text = LOCK_FILE.read_text().strip()
-        pid = int(text)
-        # kill -0 returns 0 if the process is alive (we can signal
-        # it without actually sending a signal).
-        try:
-            os.kill(pid, 0)
-            return pid
-        except OSError:
-            # Stale lock — worker is dead but didn't clean up.  We
-            # treat this as "not running" so the UI can launch a
-            # fresh worker; the new worker's PID-file create will
-            # overwrite the stale one.
-            return None
-    except (ValueError, OSError):
+    pid = _read_lock_pid()
+    if pid is None:
         return None
+    if not _pid_alive(pid):
+        # Stale lock — worker is dead but didn't clean up.  We treat
+        # this as "not running" so the UI can launch a fresh worker;
+        # the new worker's atomic PID-file create reclaims it.
+        return None
+    return pid
+
+
+@dataclass
+class _LockOutcome:
+    """Result of waiting for a freshly spawned worker to claim the lock."""
+
+    kind: str                 # "won" | "lost" | "exited" | "timeout"
+    holder_pid: int | None = None   # who holds it (kind == "lost")
+    returncode: int | None = None   # child exit code (kind == "exited")
+
+
+def _await_lock_outcome(proc: subprocess.Popen) -> _LockOutcome:
+    """Wait until the spawned worker owns the lock — or gives up.
+
+    v1.0.48: the bash worker takes ``$QUEUE_DIR/.lock`` itself and exits
+    immediately when another worker already holds it.  So spawning is
+    *not* proof of success: two concurrent requests can both spawn, one
+    of them exits right away.  Polling the lock file tells us which one
+    actually got the work, and lets the UI report the right PID.
+    """
+    deadline = time.monotonic() + _LOCK_SETTLE_SECONDS
+    while True:
+        holder = _read_lock_pid()
+        if holder is not None:
+            if holder == proc.pid:
+                return _LockOutcome("won")
+            if _pid_alive(holder):
+                return _LockOutcome("lost", holder_pid=holder)
+        rc = proc.poll()
+        if rc is not None:
+            return _LockOutcome("exited", returncode=rc)
+        if time.monotonic() >= deadline:
+            return _LockOutcome("timeout")
+        time.sleep(0.05)
 
 
 def launch_worker() -> WorkerLaunch:
@@ -133,7 +206,7 @@ def launch_worker() -> WorkerLaunch:
     # empty-string value in the caller's env doesn't leak through.
     env = os.environ.copy()
     env["MONI_DB"] = str(db_path)
-    env["MONI_QUEUE_DIR"] = str(DEFAULT_QUEUE_DIR)
+    env["MONI_QUEUE_DIR"] = str(_queue_dir())
     env["MONI_OUTPUT_DIR"] = str(DEFAULT_OUTPUT_DIR)
 
     # v1.0.5.26: defense-in-depth PATH prepend.  default_worker.sh
@@ -190,10 +263,52 @@ def launch_worker() -> WorkerLaunch:
     # the Python wrapper would just decref but the OS keeps the
     # fd open until the worker exits.  Python's GC handles it.
 
-    log.info("worker spawned: pid=%d log=%s", proc.pid, LOG_FILE)
+    # ── Did this child actually get the lock? (v1.0.48) ──────────────────
+    # Spawning is not success: default_worker.sh takes the same lock and
+    # exits at once if another worker already holds it.  Two concurrent
+    # requests both spawn; exactly one survives.  Ask the lock file who
+    # won instead of guessing, so the UI reports the real PID.
+    outcome = _await_lock_outcome(proc)
+
+    if outcome.kind == "won":
+        log.info("worker spawned: pid=%d log=%s", proc.pid, LOG_FILE)
+        return WorkerLaunch(
+            started=True, already_running=False, pid=proc.pid,
+            log_path=str(LOG_FILE),
+        )
+
+    if outcome.kind == "lost":
+        log.info(
+            "worker launch lost the race — pid=%s already holds the lock",
+            outcome.holder_pid,
+        )
+        return WorkerLaunch(
+            started=False, already_running=True, pid=outcome.holder_pid,
+            log_path=str(LOG_FILE),
+        )
+
+    if outcome.kind == "exited" and outcome.returncode == 0:
+        # Nothing to do (empty queue) — the worker finished on its own.
+        log.info("worker exited cleanly without a lock: pid=%d", proc.pid)
+        return WorkerLaunch(
+            started=True, already_running=False, pid=proc.pid,
+            log_path=str(LOG_FILE),
+        )
+
+    if outcome.kind == "exited":
+        return WorkerLaunch(
+            started=False, already_running=False, pid=None,
+            log_path=str(LOG_FILE),
+            error=f"worker exited immediately (rc={outcome.returncode})",
+        )
+
     return WorkerLaunch(
-        started=True, already_running=False, pid=proc.pid,
+        started=False, already_running=False, pid=None,
         log_path=str(LOG_FILE),
+        error=(
+            f"worker did not claim the lock within {_LOCK_SETTLE_SECONDS:.0f}s "
+            f"(pid={proc.pid})"
+        ),
     )
 
 

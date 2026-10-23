@@ -50,6 +50,7 @@ def test_launch_worker_sets_correct_monit_db(fresh_env, tmp_path):
          patch.object(sw, "WORKER_SCRIPT", fake_script), \
          patch("subprocess.Popen") as mock_popen:
         mock_popen.return_value.pid = 99999
+        mock_popen.return_value.poll.return_value = 0
         sw.launch_worker()
         assert mock_popen.called
         args, kwargs = mock_popen.call_args
@@ -69,6 +70,7 @@ def test_launch_worker_prepends_usr_local_bin_to_path(fresh_env, tmp_path):
          patch.object(sw, "WORKER_SCRIPT", fake_script), \
          patch("subprocess.Popen") as mock_popen:
         mock_popen.return_value.pid = 99999
+        mock_popen.return_value.poll.return_value = 0
         sw.launch_worker()
         args, kwargs = mock_popen.call_args
         env = kwargs.get("env", {})
@@ -92,6 +94,7 @@ def test_launch_worker_propagates_bestblogs_key(fresh_env, tmp_path):
          patch.object(sw, "WORKER_SCRIPT", fake_script), \
          patch("subprocess.Popen") as mock_popen:
         mock_popen.return_value.pid = 99999
+        mock_popen.return_value.poll.return_value = 0
         sw.launch_worker()
         args, kwargs = mock_popen.call_args
         env = kwargs.get("env", {})
@@ -110,6 +113,7 @@ def test_launch_worker_db_path_resolves_empty_string(monkeypatch, tmp_path):
          patch.object(sw, "WORKER_SCRIPT", fake_script), \
          patch("subprocess.Popen") as mock_popen:
         mock_popen.return_value.pid = 99999
+        mock_popen.return_value.poll.return_value = 0
         sw.launch_worker()
         args, kwargs = mock_popen.call_args
         env = kwargs.get("env", {})

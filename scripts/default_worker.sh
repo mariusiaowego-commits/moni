@@ -70,15 +70,26 @@ export PATH="$HOME/.local/bin:$PATH"
 # - If the lock file doesn't exist, create it with our PID and hold it.
 # - If it exists and the PID is alive, another worker is running — exit.
 # - If the PID is dead (stale), overwrite the lock with our PID.
+#
+# v1.0.48: 原来这里是"先查后写" —— [[ ! -e "$LOCK_FILE" ]] 和
+# echo > "$LOCK_FILE" 之间有窗口期, 两个 worker 同时启动会同时通过
+# 检查, 同时写进自己的 PID, 两把"锁"都算拿到, 队列被处理两遍。
+# 改成 set -o noclobber 的原子创建: bash 在 noclobber 下用 O_EXCL 打开
+# 目标文件, 只有一个进程能创建成功 —— 窗口期消失。
 _acquired_lock=false
-if [[ ! -e "$LOCK_FILE" ]]; then
-    echo $$ > "$LOCK_FILE" && _acquired_lock=true
+if ( set -o noclobber; echo $$ > "$LOCK_FILE" ) 2>/dev/null; then
+    _acquired_lock=true
 elif pid=$(cat "$LOCK_FILE" 2>/dev/null) && kill -0 "$pid" 2>/dev/null; then
     echo "[worker] another instance (PID $pid) is running — exiting" >&2
     exit 0
 else
-    # Stale lock — overwrite with our PID
-    echo $$ > "$LOCK_FILE" && _acquired_lock=true
+    # Stale lock (owner died without cleaning up) — remove and retry once.
+    # The retry is still an atomic create, so two workers racing on a stale
+    # lock can't both win.
+    rm -f "$LOCK_FILE"
+    if ( set -o noclobber; echo $$ > "$LOCK_FILE" ) 2>/dev/null; then
+        _acquired_lock=true
+    fi
 fi
 
 if ! "$_acquired_lock"; then
