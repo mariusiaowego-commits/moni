@@ -1,0 +1,23 @@
+{
+  "base": "http://127.0.0.1:8903",
+  "capturedAt": "2026-10-10T07:08:09.856Z",
+  "sample": "HHHHHHHHHHHHHHHHHHHH",
+  "fontSizePx": 200,
+  "widthsPx": {
+    "400": 2972.65625,
+    "500": 2977.577880859375,
+    "600": 2982.499755859375,
+    "700": 2987.42138671875
+  },
+  "fallbackWidthsPx": {
+    "400": 2796.875,
+    "700": 2917.96875
+  },
+  "distinctWidths": 4,
+  "monotonic": true,
+  "strictlyIncreasing": true,
+  "ratio700over400": 1.005,
+  "interDiffersFromFallback": true,
+  "variableAxisApplied": true,
+  "verdict": "variable wght axis IS applied (4 distinct monotonically increasing widths)"
+}

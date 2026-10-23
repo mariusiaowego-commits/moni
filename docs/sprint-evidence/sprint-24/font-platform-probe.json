@@ -1,0 +1,55 @@
+{
+  "base": "http://127.0.0.1:8903",
+  "capturedAt": "2026-10-10T07:08:27.084Z",
+  "details": [
+    {
+      "selector": "#w400",
+      "expectation": "Inter (latin subset)",
+      "ok": true,
+      "rendered": [
+        "Inter"
+      ],
+      "interGlyphs": 17,
+      "syntheticHint": false
+    },
+    {
+      "selector": "#w500",
+      "expectation": "Inter (variable wght 500)",
+      "ok": true,
+      "rendered": [
+        "Inter"
+      ],
+      "interGlyphs": 17,
+      "syntheticHint": false
+    },
+    {
+      "selector": "#w600",
+      "expectation": "Inter (variable wght 600)",
+      "ok": true,
+      "rendered": [
+        "Inter"
+      ],
+      "interGlyphs": 17,
+      "syntheticHint": false
+    },
+    {
+      "selector": "#w700",
+      "expectation": "Inter (variable wght 700)",
+      "ok": true,
+      "rendered": [
+        "Inter"
+      ],
+      "interGlyphs": 17,
+      "syntheticHint": false
+    },
+    {
+      "selector": "#w600cjk",
+      "expectation": "NOT Inter (falls back)",
+      "ok": true,
+      "rendered": [
+        "PingFang SC"
+      ],
+      "note": "CJK is not in the shipped subsets; it must fall back, matching pre-change behaviour"
+    }
+  ]
+}

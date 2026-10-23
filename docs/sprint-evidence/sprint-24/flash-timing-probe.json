@@ -1,0 +1,86 @@
+{
+  "base": "http://127.0.0.1:8904",
+  "capturedAt": "2026-10-10T08:52:42.325Z",
+  "expectedMs": 700,
+  "toleranceMs": "measured value must land in [580, 950] (rAF granularity + paint start)",
+  "paths": {
+    "A_gsap_normal": {
+      "runs": [
+        {
+          "ms": 706
+        },
+        {
+          "ms": 716
+        },
+        {
+          "ms": 717
+        }
+      ],
+      "medianMs": 716,
+      "cssAnimationDuration": "0.7s",
+      "gsapPresent": true,
+      "reducedMotion": false
+    },
+    "B_no_gsap": {
+      "runs": [
+        {
+          "ms": 714
+        },
+        {
+          "ms": 717
+        },
+        {
+          "ms": 717
+        }
+      ],
+      "medianMs": 717,
+      "cssAnimationDuration": "0.7s",
+      "gsapPresent": false,
+      "reducedMotion": false
+    },
+    "C_reduced_motion": {
+      "runs": [
+        {
+          "ms": 712
+        },
+        {
+          "ms": 716
+        },
+        {
+          "ms": 716
+        }
+      ],
+      "medianMs": 716,
+      "cssAnimationDuration": "0s",
+      "gsapPresent": true,
+      "reducedMotion": true
+    }
+  },
+  "summary": [
+    {
+      "path": "A_gsap_normal",
+      "medianMs": 716,
+      "cssAnimationDuration": "0.7s",
+      "gsapPresent": true,
+      "reducedMotion": false,
+      "withinTolerance": true
+    },
+    {
+      "path": "B_no_gsap",
+      "medianMs": 717,
+      "cssAnimationDuration": "0.7s",
+      "gsapPresent": false,
+      "reducedMotion": false,
+      "withinTolerance": true
+    },
+    {
+      "path": "C_reduced_motion",
+      "medianMs": 716,
+      "cssAnimationDuration": "0s",
+      "gsapPresent": true,
+      "reducedMotion": true,
+      "withinTolerance": true
+    }
+  ],
+  "verdict": "all three paths flash for ~700ms"
+}
