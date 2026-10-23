@@ -128,4 +128,3 @@ def test_nothing_to_do_branch_precedes_the_failure_fallback():
         "nothing_to_do 分支必须排在'启动失败'兜底之前，"
         "否则空队列仍会显示成启动失败"
     )
-
