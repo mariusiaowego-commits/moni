@@ -25,6 +25,96 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REAL_SOURCES_YAML = REPO_ROOT / "config" / "sources.yaml"
+REAL_DATA_DIR = REPO_ROOT / "data"
+
+
+def _snapshot_data_dir(dir_path: Path) -> dict[str, tuple[int, bytes]]:
+    """Snapshot files under dir_path: relative path -> (size, sha256)."""
+    if not dir_path.exists():
+        return {}
+    import hashlib
+    res = {}
+    for p in dir_path.rglob("*"):
+        if p.is_file():
+            try:
+                h = hashlib.sha256()
+                with open(p, "rb") as f:
+                    while chunk := f.read(65536):
+                        h.update(chunk)
+                res[str(p.relative_to(dir_path))] = (p.stat().st_size, h.digest())
+            except OSError:
+                pass
+    return res
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_data_dir():
+    """Never let the test suite write into the repo's real data/ directory."""
+    import os
+    real = REAL_DATA_DIR
+    before = _snapshot_data_dir(real)
+
+    tmp_base = Path(tempfile.mkdtemp(prefix="moni-test-"))
+    tmp_data_dir = tmp_base / "data"
+    tmp_data_dir.mkdir(parents=True, exist_ok=True)
+    (tmp_data_dir / "artifacts").mkdir(parents=True, exist_ok=True)
+    (tmp_data_dir / ".last_run.json").write_text("{}", encoding="utf-8")
+
+    orig_env = os.environ.get("MONI_DATA_DIR")
+    os.environ["MONI_DATA_DIR"] = str(tmp_data_dir)
+
+    from moni.db import connection as db_conn
+    from moni.fetch import scheduler as fetch_scheduler
+    from moni.share import worker as share_worker
+    from moni.share import artifacts as share_artifacts
+    from moni.llm import usage as llm_usage
+
+    orig_last_run = fetch_scheduler._LAST_RUN_PATH
+    orig_output_dir = share_worker.DEFAULT_OUTPUT_DIR
+    orig_log_file = share_worker.LOG_FILE
+    orig_db = share_worker.DEFAULT_DB
+    orig_artifacts = share_artifacts.ARTIFACTS_DIR
+    orig_llm_log = llm_usage._DEFAULT_LOG
+
+    fetch_scheduler._LAST_RUN_PATH = tmp_data_dir / ".last_run.json"
+    share_worker.DEFAULT_OUTPUT_DIR = tmp_data_dir / "artifacts"
+    share_worker.LOG_FILE = tmp_data_dir / "artifacts" / "worker.log"
+    share_worker.DEFAULT_DB = tmp_data_dir / "news.db"
+    share_artifacts.ARTIFACTS_DIR = tmp_data_dir / "artifacts"
+    llm_usage._DEFAULT_LOG = tmp_data_dir / "llm_usage.log"
+
+    try:
+        yield
+    finally:
+        if orig_env is None:
+            os.environ.pop("MONI_DATA_DIR", None)
+        else:
+            os.environ["MONI_DATA_DIR"] = orig_env
+
+        fetch_scheduler._LAST_RUN_PATH = orig_last_run
+        share_worker.DEFAULT_OUTPUT_DIR = orig_output_dir
+        share_worker.LOG_FILE = orig_log_file
+        share_worker.DEFAULT_DB = orig_db
+        share_artifacts.ARTIFACTS_DIR = orig_artifacts
+        llm_usage._DEFAULT_LOG = orig_llm_log
+
+        db_conn.close_db()
+        shutil.rmtree(tmp_base, ignore_errors=True)
+
+    after = _snapshot_data_dir(real)
+    diff_added = set(after.keys()) - set(before.keys())
+    diff_removed = set(before.keys()) - set(after.keys())
+    diff_changed = {
+        k for k in set(before.keys()) & set(after.keys())
+        if before[k] != after[k]
+    }
+    assert not diff_added and not diff_removed and not diff_changed, (
+        f"测试套件改动了生产 data/ 目录！\\n"
+        f"新增文件: {diff_added}\\n"
+        f"删除文件: {diff_removed}\\n"
+        f"修改文件: {diff_changed}\\n"
+        "请确保测试上下文使用 MONI_DATA_DIR 指向临时目录。"
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)

@@ -100,8 +100,10 @@ def get_token_log(limit: int = 50) -> dict:
     total_tokens, cost_usd, provider.
     """
     from pathlib import Path
+    import os
 
-    log_path = Path("data") / "llm_usage.log"
+    data_dir = os.environ.get("MONI_DATA_DIR")
+    log_path = (Path(data_dir) if data_dir else Path("data")) / "llm_usage.log"
     if not log_path.exists():
         return {"entries": [], "total": 0}
 

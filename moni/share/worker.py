@@ -31,12 +31,32 @@ log = logging.getLogger(__name__)
 # in the env; we honour those if set, otherwise fall back to the
 # project-relative defaults.
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DB = REPO_ROOT / "data" / "news.db"
+
+
+def _default_db() -> Path:
+    env_data = os.environ.get("MONI_DATA_DIR")
+    if env_data:
+        return Path(env_data) / "news.db"
+    return REPO_ROOT / "data" / "news.db"
+
+
+def _output_dir() -> Path:
+    env_data = os.environ.get("MONI_DATA_DIR")
+    if env_data:
+        return Path(env_data) / "artifacts"
+    return REPO_ROOT / "data" / "artifacts"
+
+
+def _log_file() -> Path:
+    return _output_dir() / "worker.log"
+
+
+DEFAULT_DB = _default_db()
 DEFAULT_QUEUE_DIR = Path(os.environ.get("HOME", "~")) / ".moni" / "queue"
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "data" / "artifacts"
+DEFAULT_OUTPUT_DIR = _output_dir()
 WORKER_SCRIPT = REPO_ROOT / "scripts" / "default_worker.sh"
 LOCK_FILE = DEFAULT_QUEUE_DIR / ".lock"
-LOG_FILE = DEFAULT_OUTPUT_DIR / "worker.log"
+LOG_FILE = _log_file()
 
 
 @dataclass
@@ -89,19 +109,21 @@ def launch_worker() -> WorkerLaunch:
     """
     # 1. Single-instance check
     existing = _check_lock()
+    log_file = _log_file()
+    output_dir = _output_dir()
     if existing is not None:
         return WorkerLaunch(
             started=False,
             already_running=True,
             pid=existing,
-            log_path=str(LOG_FILE),
+            log_path=str(log_file),
         )
 
     # 2. Pre-flight: worker.sh must be executable
     if not WORKER_SCRIPT.is_file():
         return WorkerLaunch(
             started=False, already_running=False, pid=None,
-            log_path=str(LOG_FILE),
+            log_path=str(log_file),
             error=f"worker script not found: {WORKER_SCRIPT}",
         )
 
@@ -113,19 +135,19 @@ def launch_worker() -> WorkerLaunch:
     # project-relative path explicitly; if the caller wants a
     # different DB they can pass it via the env var to override
     # by setting a non-empty value at 8900 launch time.
-    db_path = Path(os.environ.get("MONI_DB") or str(DEFAULT_DB))
+    db_path = Path(os.environ.get("MONI_DB") or str(_default_db()))
     if not db_path.parent.exists():
         return WorkerLaunch(
             started=False, already_running=False, pid=None,
-            log_path=str(LOG_FILE),
+            log_path=str(log_file),
             error=f"DB parent dir missing: {db_path.parent}",
         )
 
     # 4. Ensure log dir exists + log file is created (so the GET
     # /api/share/worker/log endpoint has something to read even
     # before the worker has flushed its first line).
-    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    LOG_FILE.touch(exist_ok=True)
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_file.touch(exist_ok=True)
 
     # 5. Build env.  We forward PATH (hermes CLI is on PATH) and
     # the same MONI_DB / MONI_QUEUE_DIR the web layer uses.  We
@@ -134,7 +156,7 @@ def launch_worker() -> WorkerLaunch:
     env = os.environ.copy()
     env["MONI_DB"] = str(db_path)
     env["MONI_QUEUE_DIR"] = str(DEFAULT_QUEUE_DIR)
-    env["MONI_OUTPUT_DIR"] = str(DEFAULT_OUTPUT_DIR)
+    env["MONI_OUTPUT_DIR"] = str(output_dir)
 
     # v1.0.5.26: defense-in-depth PATH prepend.  default_worker.sh
     # also does this on its own, but the worker Popen here might
@@ -162,11 +184,11 @@ def launch_worker() -> WorkerLaunch:
     # still running).  stdout/stderr both go to the same log file
     # so a tail view shows interleaved lines.
     try:
-        log_fh = open(LOG_FILE, "a", encoding="utf-8")
+        log_fh = open(log_file, "a", encoding="utf-8")
     except OSError as exc:
         return WorkerLaunch(
             started=False, already_running=False, pid=None,
-            log_path=str(LOG_FILE),
+            log_path=str(log_file),
             error=f"cannot open log file: {exc!r}",
         )
     try:
@@ -183,28 +205,29 @@ def launch_worker() -> WorkerLaunch:
         log_fh.close()
         return WorkerLaunch(
             started=False, already_running=False, pid=None,
-            log_path=str(LOG_FILE),
+            log_path=str(log_file),
             error=f"Popen failed: {exc!r}",
         )
     # Don't close log_fh — the worker inherited the fd; closing
     # the Python wrapper would just decref but the OS keeps the
     # fd open until the worker exits.  Python's GC handles it.
 
-    log.info("worker spawned: pid=%d log=%s", proc.pid, LOG_FILE)
+    log.info("worker spawned: pid=%d log=%s", proc.pid, log_file)
     return WorkerLaunch(
         started=True, already_running=False, pid=proc.pid,
-        log_path=str(LOG_FILE),
+        log_path=str(log_file),
     )
 
 
 def tail_log(n: int = 200) -> str:
     """Return the last ``n`` lines of worker.log (or '' if missing)."""
-    if not LOG_FILE.is_file():
+    log_file = _log_file()
+    if not log_file.is_file():
         return ""
     try:
         # Use a deque to keep memory bounded for huge log files.
         from collections import deque
-        with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as fh:
+        with open(log_file, "r", encoding="utf-8", errors="replace") as fh:
             return "".join(deque(fh, maxlen=n))
     except OSError as exc:
         return f"(error reading log: {exc!r})"

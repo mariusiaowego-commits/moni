@@ -14,9 +14,13 @@ class TokenLogger:
 
     def __init__(self, log_path: str | Path | None = None) -> None:
         if log_path is None:
-            root = Path(__file__).parent.parent.parent  # moni/ → project root
-            data_dir = root / "data"
-            data_dir.mkdir(exist_ok=True)
+            env_dir = os.environ.get("MONI_DATA_DIR")
+            if env_dir:
+                data_dir = Path(env_dir)
+            else:
+                root = Path(__file__).parent.parent.parent  # moni/ → project root
+                data_dir = root / "data"
+            data_dir.mkdir(parents=True, exist_ok=True)
             log_path = data_dir / "llm_usage.log"
         self._path = Path(log_path)
 

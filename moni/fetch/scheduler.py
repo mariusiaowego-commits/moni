@@ -38,7 +38,11 @@ def _default_data_dir() -> Path:
     return Path("data")
 
 
-_LAST_RUN_PATH = _default_data_dir() / ".last_run.json"
+def _last_run_path() -> Path:
+    return _default_data_dir() / ".last_run.json"
+
+
+_LAST_RUN_PATH = _last_run_path()
 
 
 class Scheduler:
@@ -50,7 +54,7 @@ class Scheduler:
         last_run_path: Path | str | None = None,
     ) -> None:
         self.config_path = Path(config_path) if config_path else _CONFIG_PATH
-        self.last_run_path = Path(last_run_path) if last_run_path else _LAST_RUN_PATH
+        self.last_run_path = Path(last_run_path) if last_run_path else _last_run_path()
         self._sources: list[dict] | None = None
         self._last_run: dict[str, str] | None = None
 
