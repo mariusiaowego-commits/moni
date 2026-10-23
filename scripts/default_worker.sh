@@ -101,10 +101,9 @@ else
     fi
 
     # Stale lock: 回收必须在原子目录锁保护下串行化 (mkdir 是 POSIX 强原子原语)。
-    # 审计第三轮实测: 原来的基于文件的 guard 在 40 次重试后会 rm -f 彼此的 guard,
-    # 导致多个 worker 同时闯入临界区并发重建锁。
-    # 修法: 用 mkdir 作为唯一 guard; 拿不到 guard 的进程最多重试 40 次, 拿不到
-    # 说明有别的 worker 正在回收或正持有锁, 必须立即退出 0, 绝不能盲目 rm!
+    # 审计反馈:
+    # 1. 覆盖空 guard 目录与包含二代 claim 的 guard 目录自愈
+    # 2. 拿不到 guard 时必须 exit 1 明确报错, 绝不能静默 exit 0 谎报"队列已处理完"
     _guard_try=0
     _got_guard=false
     while [ "$_guard_try" -lt 40 ]; do
@@ -121,20 +120,45 @@ else
             exit 0
         fi
 
-        # 自愈逻辑: 如果 guard 目录持有人已死 (stale guard), 竞争单个原子 claim 占位
+        # 防符号链接攻击: 若为符号链接直接清除
+        if [ -L "$_guard_dir" ]; then
+            rm -f "$_guard_dir" 2>/dev/null || true
+        fi
+
         gpid=$(cat "$_guard_dir/pid" 2>/dev/null || true)
-        if [ -n "${gpid:-}" ] && ! kill -0 "$gpid" 2>/dev/null; then
-            if ( set -o noclobber; echo $$ > "$_guard_dir/claim" ) 2>/dev/null; then
+        if [ -n "${gpid:-}" ] && kill -0 "$gpid" 2>/dev/null; then
+            sleep 0.05
+            continue
+        fi
+
+        cpid=$(cat "$_guard_dir/claim" 2>/dev/null || true)
+        if [ -n "${cpid:-}" ] && kill -0 "$cpid" 2>/dev/null; then
+            sleep 0.05
+            continue
+        fi
+
+        # 自愈逻辑:
+        # 1. 若 guard 内已存在 claim 且其 PID 已死 (二代 guard), 竞争单个原子 rename 接管
+        if [ -n "${cpid:-}" ] && ! kill -0 "$cpid" 2>/dev/null; then
+            if mv "$_guard_dir/claim" "$_guard_dir/claim.$$" 2>/dev/null; then
                 _got_guard=true
                 break
+            fi
+        # 2. 若 guard 内无 claim, 且 (持有人 PID 已死 或 空 guard 持续 >= 5 轮有界等待):
+        elif [ ! -f "$_guard_dir/claim" ]; then
+            if [ -n "${gpid:-}" ] || [ "$_guard_try" -ge 5 ]; then
+                if ( set -o noclobber; echo $$ > "$_guard_dir/claim" ) 2>/dev/null; then
+                    _got_guard=true
+                    break
+                fi
             fi
         fi
         sleep 0.05
     done
 
     if ! "$_got_guard"; then
-        echo "[worker] reclaim guard held by another instance — exiting" >&2
-        exit 0
+        echo "[worker] failed to acquire reclaim guard after 40 tries — exiting" >&2
+        exit 1
     fi
 
     # 在 guard 保护下二次复核 (防竞态)
@@ -159,14 +183,15 @@ fi
 
 # 严格清理: 只有确认持锁且文件内仍是本进程 PID 时才删, 绝不误删下任赢家的锁!
 _worker_cleanup() {
-    rmdir "${LOCK_FILE}.reclaim.d" 2>/dev/null || true
     if [ "$_acquired_lock" = "true" ]; then
         if [ "$(cat "$LOCK_FILE" 2>/dev/null || true)" = "$$" ]; then
             rm -f "$LOCK_FILE"
         fi
     fi
 }
-trap _worker_cleanup EXIT INT TERM
+trap _worker_cleanup EXIT
+trap '_worker_cleanup; exit 143' TERM
+trap '_worker_cleanup; exit 130' INT
 
 # --- Helpers ----------------------------------------------------------------
 

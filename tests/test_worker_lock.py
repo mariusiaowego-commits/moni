@@ -435,3 +435,176 @@ def test_launch_reports_error_when_queue_dir_missing(monkeypatch, tmp_path):
     monkeypatch.setenv("MONI_QUEUE_DIR", str(tmp_path / "custom-queue"))
     assert sw._queue_dir() == sw.resolve_queue_dir()
     assert sw._queue_dir() == tmp_path / "custom-queue"
+
+
+# ---------------------------------------------------------------------------
+# R2 / v1.0.49.3 Regression tests: P1-1, P1-2, P2-1, P3
+# ---------------------------------------------------------------------------
+
+
+def test_guard_held_by_living_process_fails_and_does_not_win(tmp_path, lock_harness):
+    """P2-1 / M1: guard 被活进程持有时必须非零退出 (rc=1), 绝不能夺取锁或输出 WON。
+    
+    在坏实现 (|| true 语义) 下, 拿不到 guard 会忽略错误继续 rm -f 并在无 guard
+    保护下重建锁并输出 WON。本用例确保坏实现必然变红。
+    """
+    lock = tmp_path / ".lock"
+    lock.write_text("999999999\n")
+    guard = tmp_path / ".lock.reclaim.d"
+    guard.mkdir()
+    (guard / "pid").write_text(f"{os.getpid()}\n")
+
+    res = subprocess.run(
+        ["/bin/bash", str(lock_harness), str(lock)],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert res.returncode == 1, f"expected rc=1, got {res.returncode}"
+    assert res.stdout.strip() != "WON", "loser must not win the lock harness"
+    assert "failed to acquire reclaim guard after 40 tries" in res.stderr
+    # 锁文件内容必须未被动过 (仍是死 PID, 未被偷走)
+    assert lock.read_text().strip() == "999999999"
+
+
+def test_guard_held_by_living_process_fails_launch_without_nothing_to_do(monkeypatch, tmp_path):
+    """P1-2: guard 被活进程占用导致 worker exit 1 时, launch_worker 绝不能报 nothing_to_do=True。"""
+    qdir = tmp_path / "queue"
+    qdir.mkdir()
+    lock = qdir / ".lock"
+    lock.write_text("999999999\n")
+    guard = qdir / ".lock.reclaim.d"
+    guard.mkdir()
+    (guard / "pid").write_text(f"{os.getpid()}\n")
+
+    monkeypatch.setenv("MONI_QUEUE_DIR", str(qdir))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(sw, "DEFAULT_DB", tmp_path / "news.db")
+
+    res = sw.launch_worker()
+    assert res.started is False
+    assert res.already_running is False
+    assert res.completed_nothing_to_do is False, "UI must not report nothing_to_do on lock contention"
+    assert res.error and ("rc=1" in res.error or "failed" in res.error)
+
+
+def test_sigterm_terminates_worker_immediately_with_exit_143_and_cleans_lock(tmp_path):
+    """P1-1: SIGTERM 必须让 worker 立刻退出 (rc=143), 且退出时清理锁文件。
+    
+    在坏实现 (trap _worker_cleanup EXIT INT TERM) 下, TERM 被捕获后脚本继续运行
+    并且运行中提前释放锁。本用例确保捕获到该回归。
+    """
+    import signal
+    import sqlite3
+    import time
+
+    qdir = tmp_path / "queue"
+    qdir.mkdir()
+    lock_file = qdir / ".lock"
+    db_file = tmp_path / "news.db"
+
+    conn = sqlite3.connect(db_file)
+    conn.execute("CREATE TABLE share_tasks (id TEXT PRIMARY KEY, status TEXT, created_at TEXT)")
+    conn.execute("INSERT INTO share_tasks VALUES ('t1', 'pending', '2026-10-24 00:00:00')")
+    conn.commit()
+    conn.close()
+
+    (qdir / "t1.json").write_text('{"id":"t1"}')
+
+    env = dict(
+        os.environ,
+        HOME=str(tmp_path),
+        MONI_QUEUE_DIR=str(qdir),
+        MONI_DB=str(db_file),
+        MONI_WORKER_LOG=str(tmp_path / "worker.log"),
+        ARTIFACTS_DIR=str(tmp_path / "artifacts"),
+    )
+
+    proc = subprocess.Popen(
+        ["/bin/bash", str(WORKER_SCRIPT)],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    # 等待 worker 持有锁
+    t0 = time.time()
+    while time.time() - t0 < 3.0:
+        if lock_file.exists():
+            break
+        time.sleep(0.05)
+
+    assert lock_file.exists(), "worker failed to create lock file"
+    assert lock_file.read_text().strip() == str(proc.pid)
+
+    # 发送 SIGTERM
+    proc.send_signal(signal.SIGTERM)
+    t1 = time.time()
+    rc = proc.wait(timeout=3.0)
+    elapsed = time.time() - t1
+
+    assert elapsed < 2.0, f"worker took too long to terminate: {elapsed:.2f}s"
+    assert rc == 143, f"expected exit code 143 on SIGTERM, got {rc}"
+    assert not lock_file.exists(), "lock file must be cleaned up on SIGTERM exit"
+
+
+def test_stale_empty_guard_directory_self_heals_and_wins(tmp_path, lock_harness):
+    """P1-2: 空 guard 目录 (第一代残留) 必须能被自愈并成功拿锁。"""
+    lock = tmp_path / ".lock"
+    lock.write_text("999999999\n")
+    guard = tmp_path / ".lock.reclaim.d"
+    guard.mkdir()  # 没有任何 pid/claim 文件的空 guard
+
+    res = subprocess.run(
+        ["/bin/bash", str(lock_harness), str(lock)],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert res.returncode == 0, f"expected rc=0, got {res.returncode}: {res.stderr}"
+    assert res.stdout.strip() == "WON"
+    assert not guard.exists(), "guard directory should be cleaned up"
+
+
+def test_stale_guard_with_existing_claim_self_heals_and_wins(tmp_path, lock_harness):
+    """P1-2: 已含 claim 文件的 guard 目录 (第二代残留) 必须能被自愈并成功拿锁。"""
+    lock = tmp_path / ".lock"
+    lock.write_text("999999999\n")
+    guard = tmp_path / ".lock.reclaim.d"
+    guard.mkdir()
+    (guard / "pid").write_text("888888888\n")
+    (guard / "claim").write_text("777777777\n")  # 已包含历史 claim
+
+    res = subprocess.run(
+        ["/bin/bash", str(lock_harness), str(lock)],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert res.returncode == 0, f"expected rc=0, got {res.returncode}: {res.stderr}"
+    assert res.stdout.strip() == "WON"
+    assert not guard.exists(), "guard directory should be cleaned up"
+
+
+def test_launch_reports_error_when_queue_path_is_file(monkeypatch, tmp_path):
+    """P3-1: 当 MONI_QUEUE_DIR 是普通文件而非目录时必须返回明确 error。"""
+    q_file = tmp_path / "not_a_dir"
+    q_file.write_text("hello")
+    monkeypatch.setenv("MONI_QUEUE_DIR", str(q_file))
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    res = sw.launch_worker()
+    assert res.started is False
+    assert res.completed_nothing_to_do is False
+    assert res.error and "queue path is not a directory" in res.error
+
+
+def test_guard_structural_invariants():
+    """P2-1 源码结构性断言: 钉死 trap 退出码、40次重试退出码及符号链接防范。"""
+    src = WORKER_SCRIPT.read_text(encoding="utf-8")
+    assert "trap '_worker_cleanup; exit 143' TERM" in src, "TERM trap must explicitly exit 143"
+    assert "trap '_worker_cleanup; exit 130' INT" in src, "INT trap must explicitly exit 130"
+    assert "failed to acquire reclaim guard after 40 tries — exiting" in src
+    assert "exit 1" in src
+    assert "[ -L \"$_guard_dir\" ]" in src, "guard must check for symlinks"
+
