@@ -27,7 +27,10 @@ All wall-clock comparisons use ``CST`` (UTC+8, ``zoneinfo.ZoneInfo("Asia/Shangha
 
 from __future__ import annotations
 
+import json
 import logging
+import re
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -36,7 +39,7 @@ from ..db.connection import get_db
 from ..fetch import fetch_all
 from ..fetch.base import _ensure_sources_loaded, _FETCHER_REGISTRY
 from ..fetch.scheduler import Scheduler as FetchScheduler
-from ..llm.client import ChatClient
+from ..llm.client import call_llm, resolve_active_model
 from ..llm.prompts import render_predict_tag
 from .run_history import CronRunHistory
 
@@ -44,6 +47,62 @@ logger = logging.getLogger(__name__)
 
 # CST = UTC+8, used for all wall-clock display and comparisons
 CST = ZoneInfo("Asia/Shanghai")
+
+#: In-process mutex guarding ``predict_tags_pending`` (P1-8).
+#:
+#: Two overlapping runs would double-charge the LLM and race on
+#: ``article_tags`` writes.  This is a *process-local* guard only — it does
+#: not protect against a second OS process running the same job (the
+#: planned launchd daemon).  Cross-process exclusion needs the DB lease
+#: table (``moni/db/leases.py``) and is out of scope here.
+_PREDICT_TAGS_LOCK = threading.Lock()
+
+#: Cap on tags accepted per article — ``predict_tag.md`` asks for 1-3.
+_MAX_TAGS_PER_ARTICLE = 3
+
+#: Regex for the ``"tags": [...]`` array inside a non-strict-JSON reply.
+_TAGS_ARRAY_RE = re.compile(r'"tags"\s*:\s*\[(.*?)\]', re.DOTALL)
+
+
+def _extract_json_object(text: str) -> dict[str, Any] | None:
+    """Best-effort extraction of a JSON object from an LLM reply.
+
+    Handles the three shapes we actually see from hermes:
+    - bare JSON: ``{"tags": [...], "reasoning": "..."}``
+    - fenced JSON: ```json ... ```
+    - JSON embedded in prose (leading/trailing chatter)
+
+    Returns ``None`` when nothing parseable is found — the caller then
+    falls back to the regex / plain-text parsers.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    try:
+        data = json.loads(raw[start : end + 1])
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _clean_tag_names(names: list[str]) -> list[str]:
+    """Normalise tag names: strip, drop empties, dedupe, cap at 3."""
+    out: list[str] = []
+    for raw in names:
+        name = (raw or "").strip().strip("\"' ·•*-")
+        if not name or name in out:
+            continue
+        out.append(name)
+        if len(out) >= _MAX_TAGS_PER_ARTICLE:
+            break
+    return out
 
 
 def _cst_now() -> datetime:
@@ -248,6 +307,9 @@ def predict_tags_pending(
     *,
     batch_size: int = 10,
     max_articles: int | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    llm_call_fn: Any = None,
 ) -> dict[str, Any] | None:
     """Tag untagged articles with LLM-predicted tags.
 
@@ -263,11 +325,19 @@ def predict_tags_pending(
     max_articles : int | None
         Hard cap on total articles processed (default None = unlimited).
         Useful for testing or rate-limiting.
+    provider : str | None
+        hermes provider name.  Default None → resolved from
+        ``llm_settings.active_tag_model_id`` (falls back to the summary
+        model).  v1.0.47: no longer hardcodes a model.
+    model : str | None
+        hermes model id, same resolution rules as ``provider``.
+    llm_call_fn : Any
+        Optional callable ``fn(prompt: str) -> str`` used instead of the
+        real LLM (test injection).
 
     Logging
     -------
     Writes one ``cron_runs`` row with job_id ``predict_tags_pending``.
-    Writes per-article fetch_log entries (source='predict_tags').
 
     Returns
     -------
@@ -279,6 +349,40 @@ def predict_tags_pending(
 
     logger.info("[%s] job started at %s", job_id, triggered_at)
 
+    # ── Re-entrancy guard (P1-8) ─────────────────────────────────────────
+    if not _PREDICT_TAGS_LOCK.acquire(blocking=False):
+        logger.warning(
+            "[%s] another run is already in progress — skipping this tick", job_id
+        )
+        return None
+
+    try:
+        return _predict_tags_pending_locked(
+            job_id=job_id,
+            triggered_at=triggered_at,
+            history=history,
+            batch_size=batch_size,
+            max_articles=max_articles,
+            provider=provider,
+            model=model,
+            llm_call_fn=llm_call_fn,
+        )
+    finally:
+        _PREDICT_TAGS_LOCK.release()
+
+
+def _predict_tags_pending_locked(
+    *,
+    job_id: str,
+    triggered_at: str,
+    history: CronRunHistory,
+    batch_size: int,
+    max_articles: int | None,
+    provider: str | None,
+    model: str | None,
+    llm_call_fn: Any,
+) -> dict[str, Any] | None:
+    """Body of ``predict_tags_pending`` — runs with the job mutex held."""
     conn = get_db()
 
     # ── Collect available tags ─────────────────────────────────────────────
@@ -295,8 +399,13 @@ def predict_tags_pending(
         return None
 
     # ── Find untagged articles ─────────────────────────────────────────────
+    # v1.0.47: dropped ``a.content`` — the articles table has no such
+    # column (the only "content" in schema.sql is the FTS5 external-content
+    # mapping ``content='articles'``).  Selecting it raised
+    # "no such column: a.content" on every single run, so this job had
+    # never reached the LLM at all.
     query = """
-        SELECT a.id, a.title, a.url, a.raw_content, a.content
+        SELECT a.id, a.title, a.url, a.raw_content
         FROM articles a
         LEFT JOIN article_tags at ON at.article_id = a.id
         WHERE at.article_id IS NULL
@@ -315,15 +424,25 @@ def predict_tags_pending(
 
     logger.info("[%s] %d article(s) pending tagging", job_id, len(article_rows))
 
-    # ── LLM client ─────────────────────────────────────────────────────────
-    try:
-        llm = ChatClient.get_instance()
-    except Exception as exc:
-        logger.error("[%s] ChatClient unavailable: %s — aborting", job_id, exc)
-        finished_at = _cst_now().isoformat()
-        history.log_run(job_id, triggered_at=triggered_at, finished_at=finished_at,
-                        success=False, error=str(exc), new_articles=0, sources_run=0)
-        return None
+    # ── Model resolution ───────────────────────────────────────────────────
+    # v1.0.47: was ``ChatClient.get_instance().chat(prompt, model="claude-3-5-
+    # sonnet-latest", max_tokens=256, temperature=0.3)``.  The deprecated
+    # shim silently dropped every kwarg, so the call really ran on the
+    # *summary* model and ignored max_tokens/temperature.  Now the tag model
+    # is resolved explicitly from ``llm_settings.active_tag_model_id``
+    # (falling back to the summary model), matching the cases/events
+    # extraction pipelines.
+    if llm_call_fn is None and (provider is None or model is None):
+        try:
+            provider, model = resolve_active_model("active_tag_model_id")
+        except Exception as exc:
+            logger.error("[%s] No active tag model configured: %s — aborting",
+                         job_id, exc)
+            finished_at = _cst_now().isoformat()
+            history.log_run(job_id, triggered_at=triggered_at, finished_at=finished_at,
+                            success=False, error=str(exc), new_articles=0, sources_run=0)
+            return None
+    logger.info("[%s] using model %s/%s", job_id, provider, model)
 
     processed = 0
     errors = 0
@@ -335,24 +454,21 @@ def predict_tags_pending(
             "title": row["title"],
             "url": row["url"],
             "raw_content": row["raw_content"],
-            "content": row["content"],
         }
 
         try:
             prompt = render_predict_tag(article, available_tags)
-            raw_reply = llm.chat(
-                prompt,
-                model="claude-3-5-sonnet-latest",
-                max_tokens=256,
-                temperature=0.3,
-            )
+            if llm_call_fn is not None:
+                raw_reply = llm_call_fn(prompt)
+            else:
+                raw_reply = call_llm(provider, model, prompt)
         except Exception as exc:
             logger.warning("[%s] LLM call failed for article %s: %s — skipping",
                            job_id, article_id, exc)
             errors += 1
             continue
 
-        # Parse the comma-separated tag list from the LLM reply
+        # Parse the tag list from the LLM reply (strict JSON first)
         predicted_names = _parse_tags_from_reply(raw_reply)
 
         if not predicted_names:
@@ -411,17 +527,50 @@ def predict_tags_pending(
 def _parse_tags_from_reply(reply: str) -> list[str]:
     """Extract a list of tag names from an LLM text reply.
 
-    Handles comma-separated, newline-separated, and bullet-list formats.
-    Strips whitespace and ignores empty entries.
+    ``predict_tag.md`` asks for **strict JSON**:
+    ``{"tags": ["银行", "AI"], "reasoning": "..."}``.
+    v1.0.47: the old implementation split the *raw text* on commas, which
+    shredded a JSON reply into fragments like ``{"tags": ["银行"`` — none of
+    which ever matched a real tag name, so the job inserted **zero** tags.
+
+    Three tiers, in order:
+    1. strict JSON object (bare / fenced / embedded in prose)
+    2. regex extraction of the ``"tags": [...]`` array (broken JSON)
+    3. plain text: comma / newline / bullet separated
+
+    Strips whitespace, ignores empty entries, dedupes and caps at 3.
     """
-    # Replace bullets, newlines, and commas with a common separator
-    normalized = reply.replace("•", ",").replace("\n", ",").replace("，", ",")
+    text = (reply or "").strip()
+    if not text:
+        return []
+
+    # 1) strict JSON
+    data = _extract_json_object(text)
+    if data is not None:
+        tags = data.get("tags")
+        if isinstance(tags, list):
+            return _clean_tag_names([str(t) for t in tags])
+        if isinstance(tags, str):
+            return _clean_tag_names([tags])
+
+    # 2) regex — JSON-ish reply whose object body failed to parse
+    match = _TAGS_ARRAY_RE.search(text)
+    if match:
+        inner = match.group(1)
+        names = [part.strip().strip("\"'") for part in inner.split(",")]
+        return _clean_tag_names([n for n in names if n])
+
+    # 3) plain text — replace bullets, newlines and CJK commas with ","
+    normalized = text.replace("•", ",").replace("\n", ",").replace("，", ",")
     names = []
     for part in normalized.split(","):
         name = part.strip().strip("\"' ·•*-")
+        # drop JSON-ish key fragments ("tags": ...) leaking from tier 1/2
+        if ":" in name:
+            continue
         if name:
             names.append(name)
-    return names
+    return _clean_tag_names(names)
 
 
 # ── 行业事件抽取 ──────────────────────────────────────────────────────
