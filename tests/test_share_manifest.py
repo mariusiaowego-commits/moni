@@ -439,13 +439,19 @@ class TestFailurePath:
         fake_queue.mkdir()
         monkeypatch.setattr("moni.share.manifest._queue_dir", lambda: fake_queue)
 
-        # Patch write_text to raise.
-        real_write_text = Path.write_text
+        # Patch only the manifest queue path, not ``Path`` globally.  A
+        # previous ``monkeypatch.setattr(Path, "write_text", ...)`` leaked
+        # into later test modules: pytest's tmp_path cleanup itself calls
+        # write_text, so the patch outlived the intended test.
+        class _BoomQueue:
+            def __truediv__(self, name: str) -> "_BoomFile":
+                return _BoomFile()
 
-        def boom(self, *args, **kwargs):  # type: ignore[no-untyped-def]
-            raise OSError("simulated disk full")
+        class _BoomFile:
+            def write_text(self, *args: Any, **kwargs: Any) -> None:
+                raise OSError("simulated disk full")
 
-        monkeypatch.setattr(Path, "write_text", boom)
+        monkeypatch.setattr("moni.share.manifest._queue_dir", lambda: _BoomQueue())
 
         with caplog.at_level(logging.ERROR, logger="moni.share.manifest"):
             with pytest.raises(OSError, match="simulated disk full"):
