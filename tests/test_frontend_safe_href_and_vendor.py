@@ -2,7 +2,7 @@
 
 锁住两件事:
 
-1. **URL 白名单** — index.html 里每一个动态 ``:href`` 绑定都必须经过
+1. **URL 白名单** — index.html 里每一个动态 URL 绑定都必须经过
    ``safeHref()``。这些 URL 全部来自不可信数据源 (RSS 正文 / LLM 联网
    核查返回的证据 URL / 用户配置的信源地址)，在 127.0.0.1:8900 同源下
    一旦放行 ``javascript:``，点击即以站点权限执行脚本。
@@ -10,8 +10,9 @@
    时 CDN 拉不到，Alpine 起不来，``x-cloak`` 让整页持续空白。
 
 判定口径:
-- AC-1 用**全量扫描**: 抓到任何一个没走 safeHref 的 :href 就红,
-  并报出 file:line —— 不是"抽查 11 处"。
+- AC-1 用**全量扫描**: 抓到任何一个没走 safeHref 的 URL sink 就红,
+  并报出 file:line —— 不是"抽查 11 处"。sink 覆盖 :href / :src /
+  :srcset / :action / :formaction, 不只是 href。
 - AC-2 区分外链与本地相对路径: 只放行 vendor/ js/ css/ icons/ 前缀。
 - AC-4 用 **node 子进程**跑矩阵: safe_url.js 是纯函数, 真的求值一遍
   比正则断言可靠 (方案来自 docs/plans/2026-10-23-frontend-safe-href-and-
@@ -80,6 +81,25 @@ def _dynamic_hrefs() -> list[tuple[int, str]]:
     return out
 
 
+#: 除 :href 外的其它 URL sink —— 同样是"浏览器会拿着这个值去导航/加载"
+#: 的位置, 同样能被 javascript: 打断。
+URL_SINKS = (":href", ":src", ":srcset", ":action", ":formaction")
+
+#: 少数 sink 走的是固定映射表 (名字 → 本地静态图标路径), 值完全由代码
+#: 里的白名单决定, 不是外部数据, 因此允许不经 safeHref()。
+ALLOWED_UNGUARDED_SINKS = ("getSourceIcon(",)
+
+
+def _dynamic_url_sinks() -> list[tuple[int, str, str]]:
+    """Return (line number, sink name, bound expression) for every URL sink."""
+    out: list[tuple[int, str, str]] = []
+    for i, line in enumerate(_index_lines(), 1):
+        for sink in URL_SINKS:
+            for expr in re.findall(re.escape(sink) + r'="([^"]*)"', line):
+                out.append((i, sink, expr))
+    return out
+
+
 def test_all_dynamic_hrefs_are_guarded_by_safe_href():
     """No bare :href may survive — every one must call safeHref()."""
     hrefs = _dynamic_hrefs()
@@ -96,6 +116,49 @@ def test_guarded_href_count_is_at_least_the_known_sinks():
     """Regression floor: v1.0.47 audited 11 sinks — a drop means a refactor
     removed navigation, not that the problem went away."""
     assert len(_dynamic_hrefs()) >= 11
+
+
+def test_every_dynamic_url_sink_is_guarded_or_allowlisted():
+    """不只是 :href —— :src / :srcset / :action / :formaction 同样是 URL sink。
+
+    审计第二轮发现: 原测试只扫 :href, 一旦有人新增一个
+    ``:src="article.evil_url"`` 这类绑定, 测试依然全绿 —— 覆盖面比
+    宣称的小, 属于"测试在骗自己"。这里把扫描范围扩到全部 URL sink,
+    允许豁免的只有代码内的固定映射表。
+    """
+    sinks = _dynamic_url_sinks()
+    assert sinks, "no dynamic URL sink found — the scan itself is broken"
+
+    unguarded = [
+        (ln, sink, expr)
+        for ln, sink, expr in sinks
+        if "safeHref(" not in expr
+        and not any(allowed in expr for allowed in ALLOWED_UNGUARDED_SINKS)
+    ]
+    assert not unguarded, (
+        "these dynamic URL sinks bypass safeHref(): %r"
+        % (
+            [
+                f"moni/web/static/index.html:{ln} {sink}={expr!r}"
+                for ln, sink, expr in unguarded
+            ],
+        )
+    )
+
+
+def test_every_target_blank_anchor_has_noopener_noreferrer():
+    """``target="_blank"`` 不带 rel="noopener noreferrer" ⇒ 新开的页面通过
+    ``window.opener`` 反向操纵本页 (tabnabbing)。审计第二轮实测有 1 处
+    漏写 (队列产物链接), 这里锁死, 防止以后又漏。
+    """
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    offenders: list[str] = []
+    for match in re.finditer(r'<a\b[^>]*target="_blank"[^>]*>', html, re.S):
+        tag = match.group(0)
+        if "rel=" not in tag:
+            line = html[: match.start()].count("\n") + 1
+            offenders.append(f"moni/web/static/index.html:{line} <a target=_blank> without rel")
+    assert not offenders, offenders
 
 
 def test_blocked_urls_get_a_visible_marker():
@@ -316,6 +379,63 @@ def test_safe_url_js_exposes_the_globals_alpine_needs():
     src = SAFE_URL_JS.read_text(encoding="utf-8")
     for name in ("isSafeUrl", "safeHref", "isBlockedUrl", "SAFE_URL_BLOCKED_MESSAGE"):
         assert f"global.{name}" in src, f"{name} is not exposed as a global"
+
+
+def test_safe_url_behaviour_under_file_origin():
+    """把 ``file://`` 下的行为钉死 (审计第二轮实测确认)。
+
+    Chrome 打开本地文件时 ``location.origin`` 是 ``"file://"`` (不是
+    ``"null"``) —— 早期红队报告的 "origin === null ⇒ safeHref 全封"
+    是错的, 已撤回。真实行为是:
+
+    - 外链 ``https://...`` 照常放行 (离线分享页要能点外链)
+    - **站内相对路径被剥离** —— ``file://`` 下 ``new URL('/x', 'file://')``
+      的 protocol 是 ``file:``, 不在白名单 ⇒ 相对链接在离线页里点不开
+    - ``javascript:`` / ``data:`` 一律拦截
+
+    这条限制是**已知取舍**, 不是 bug: 离线页本来就拿不到站内 API。
+    """
+    node = subprocess.run(
+        ["node", "--version"], capture_output=True, text=True, check=False
+    )
+    if node.returncode != 0:
+        pytest.skip("node not available on this machine")
+
+    file_matrix = [
+        ["https://36kr.com/p/1", True],
+        ["mailto:contact@test.com", True],
+        ["javascript:alert(1)", False],
+        ["data:text/html;base64,PHNjcmlwdD4=", False],
+        ["/artifacts/brief.html", False],
+        ["index.html", False],
+    ]
+    payload = {
+        "module": str(SAFE_URL_JS),
+        "matrix": file_matrix,
+        "origin": "file://",
+    }
+    script = """
+const payload = JSON.parse(process.argv[1]);
+const api = require(payload.module);
+const failures = [];
+for (const [input, expected] of payload.matrix) {
+  const got = api.isSafeUrl(input, payload.origin);
+  if (got !== expected) {
+    failures.push([String(input), 'expected ' + expected + ' got ' + got]);
+  }
+}
+console.log(JSON.stringify(failures));
+process.exit(failures.length ? 1 : 0);
+"""
+    proc = subprocess.run(
+        ["node", "-e", script, json.dumps(payload)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, (
+        "safe_url.js file:// matrix failed:\n%s\n%s" % (proc.stdout, proc.stderr)
+    )
 
 
 # ---------------------------------------------------------------------------

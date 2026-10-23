@@ -1239,7 +1239,7 @@
                       <!-- v1.0.5.15: prefer output_url (web URL via /artifacts/ mount).
                            Fall back to plain-text output_path if no URL (missing source). -->
                       <template x-if="q.output_url && q.status === 'done'">
-                        <a class="link" :class="{'link-blocked': isBlockedUrl(q.output_url)}" :href="safeHref(q.output_url)" target="_blank"
+                        <a class="link" :class="{'link-blocked': isBlockedUrl(q.output_url)}" :href="safeHref(q.output_url)" target="_blank" rel="noopener noreferrer"
                            x-text="q.output_url.split('/').pop()"
                            :title="q.output_path || q.output_url"></a>
                       </template>
