@@ -843,6 +843,7 @@ class TestWorkerRun:
             pid = 4242
             log_path = "/tmp/fake-worker.log"
             error = None
+            completed_nothing_to_do = False
 
         monkeypatch.setattr(share_route, "launch_worker", lambda: _FakeResult())
         r = client.post("/api/share/worker/run")
@@ -853,6 +854,7 @@ class TestWorkerRun:
         assert d["pid"] == 4242
         assert d["log_path"] == "/tmp/fake-worker.log"
         assert d["error"] is None
+        assert d["nothing_to_do"] is False
 
     def test_worker_run_200_already_running(self, client: TestClient, monkeypatch):
         from moni.web.routes import share as share_route
@@ -863,6 +865,7 @@ class TestWorkerRun:
             pid = 1234
             log_path = "/tmp/fake-worker.log"
             error = None
+            completed_nothing_to_do = False
 
         monkeypatch.setattr(share_route, "launch_worker", lambda: _FakeResult())
         r = client.post("/api/share/worker/run")
@@ -872,6 +875,33 @@ class TestWorkerRun:
         assert d["already_running"] is True
         assert d["pid"] == 1234
         assert d["error"] is None
+        assert d["nothing_to_do"] is False
+
+    def test_worker_run_200_nothing_to_do(self, client: TestClient, monkeypatch):
+        """v1.0.49.1 (audit F5): the worker ran and exited 0 without ever
+        taking the lock — i.e. the queue was already drained.  That is
+        NOT a failure, and the response has to say so, otherwise the
+        modal shows "启动失败" and the user clicks the button again
+        (spawning a second worker for zero work)."""
+        from moni.web.routes import share as share_route
+
+        class _FakeResult:
+            started = False
+            already_running = False
+            pid = None
+            log_path = "/tmp/fake-worker.log"
+            error = None
+            completed_nothing_to_do = True
+
+        monkeypatch.setattr(share_route, "launch_worker", lambda: _FakeResult())
+        r = client.post("/api/share/worker/run")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["started"] is False
+        assert d["already_running"] is False
+        assert d["pid"] is None
+        assert d["error"] is None
+        assert d["nothing_to_do"] is True
 
     def test_worker_run_200_failed_returns_error(self, client: TestClient, monkeypatch):
         """Failed launches still return 200 with error in body so the
@@ -886,6 +916,7 @@ class TestWorkerRun:
             pid = None
             log_path = "/tmp/fake-worker.log"
             error = "worker script not found: /nope"
+            completed_nothing_to_do = False
 
         monkeypatch.setattr(share_route, "launch_worker", lambda: _FakeResult())
         r = client.post("/api/share/worker/run")
@@ -894,6 +925,7 @@ class TestWorkerRun:
         assert d["started"] is False
         assert d["already_running"] is False
         assert d["error"] == "worker script not found: /nope"
+        assert d["nothing_to_do"] is False
 
 
 class TestWorkerLog:
