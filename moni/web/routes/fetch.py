@@ -335,9 +335,21 @@ def _run_fetch_job(
         )
         return
     # Read the freshly-bumped fence (separate query after commit).
-    new_fence = _get_db().execute(
+    fence_row = _get_db().execute(
         "SELECT fence FROM fetch_jobs WHERE id = ?", (job_id,)
-    ).fetchone()["fence"]
+    ).fetchone()
+    # v1.0.51 (audit fix): the row can vanish between the UPDATE and this
+    # SELECT (job reaped / DB swapped underneath a background thread).
+    # fetchone() then returns None and the old ``[...]["fence"]`` raised
+    # TypeError inside the daemon thread — a crash that surfaced only as
+    # a PytestUnhandledThreadExceptionWarning. Degrade to a warning.
+    if fence_row is None:
+        logger.warning(
+            "[%s] job %s vanished between UPDATE and fence read — orphan",
+            source_name, job_id[:8],
+        )
+        return
+    new_fence = fence_row["fence"]
     handle = leases.LeaseHandle(job_id=job_id, owner=owner, fence=new_fence)
     if not owner:
         # If create() somehow didn't mint an owner (older schema path),

@@ -42,7 +42,10 @@ from __future__ import annotations
 
 import logging
 import os
+import platform
+import shutil
 import subprocess
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -53,10 +56,23 @@ logger = logging.getLogger(__name__)
 # Override these via env vars if a particular machine needs a different
 # binary / port.  Defaults match the conventions in docs/BROWSER_FETCHER_PATTERN.md.
 
-CHROME_BINARY = os.environ.get(
-    "MONI_CHROME_BINARY",
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-)
+def _default_chrome_binary() -> str:
+    """Where Chrome lives on this platform.
+
+    macOS keeps the app-bundle path (moni's home machine).  Everywhere
+    else (Linux CI runner, Docker) we look the binary up on PATH —
+    a hardcoded ``/Applications/...`` path there would just fail.
+    """
+    if platform.system() == "Darwin":
+        return "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
+        found = shutil.which(name)
+        if found:
+            return found
+    return "google-chrome"
+
+
+CHROME_BINARY = os.environ.get("MONI_CHROME_BINARY", _default_chrome_binary())
 CHROME_DEBUG_PORT = int(os.environ.get("MONI_CHROME_DEBUG_PORT", "9223"))
 # IMPORTANT: do NOT use ``Path.home()`` here.  When the hermes agent
 # runs us inside its sandbox, ``$HOME`` is redirected to
@@ -65,9 +81,25 @@ CHROME_DEBUG_PORT = int(os.environ.get("MONI_CHROME_DEBUG_PORT", "9223"))
 # and to any later ``moni fetch`` call that runs *outside* the
 # sandbox.  We hardcode the real home as the default and let the env
 # var override for CI / tests / users with weird setups.
+#
+# v1.0.51 (audit fix): the hardcoded macOS path above is fine on the
+# home machine but is a **portability bug** everywhere else — on a
+# Linux CI runner ``Path("/Users/mt16/...").mkdir(parents=True)`` tries
+# to create ``/Users`` and dies with ``PermissionError: '/Users'``.
+# That was the real root cause of the first CI failure (the PR
+# description wrongly blamed "no network").  Non-macOS now uses a
+# per-user profile under the home directory.
+
+
+def _default_chrome_user_data_dir() -> str:
+    if platform.system() == "Darwin":
+        return "/Users/mt16/Library/Application Support/Google/Chrome/Profile 7"
+    return str(Path.home() / ".moni" / "chrome-profile")
+
+
 CHROME_USER_DATA_DIR = os.environ.get(
     "MONI_CHROME_USER_DATA_DIR",
-    "/Users/mt16/Library/Application Support/Google/Chrome/Profile 7",
+    _default_chrome_user_data_dir(),
 )
 # When True, Chrome runs with a visible window so the user can complete
 # a captcha challenge manually.  Switch to headless once cookies land.
@@ -75,7 +107,9 @@ MONI_36KR_HEADED = os.environ.get("MONI_36KR_HEADED", "0") == "1"
 
 # Where stderr/stdout from the daemonised Chrome is appended.  Useful
 # for debugging "why did my fetch return an empty body" — tail this log.
-CHROME_LOG_PATH = "/tmp/moni-chrome-profile7.log"
+# v1.0.51: use the platform temp dir instead of a hardcoded ``/tmp`` so
+# this works on macOS / Linux / Windows alike.
+CHROME_LOG_PATH = os.path.join(tempfile.gettempdir(), "moni-chrome-profile7.log")
 
 
 def _chrome_is_running() -> bool:

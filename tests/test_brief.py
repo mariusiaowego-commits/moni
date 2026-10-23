@@ -314,7 +314,33 @@ class TestShareTaskControl:
 
 
 class TestEnrichment:
-    def test_business_value_writeback(self, fresh_db: Path):
+    def test_business_value_writeback(self, fresh_db: Path, monkeypatch):
+        # v1.0.51 (audit fix): ``run_enrichment`` calls
+        # ``_enqueue_missing_web_fact_checks`` WITHOUT passing ``wait``,
+        # and that helper's default is ``wait=True`` — so the call
+        # polls ``llm_jobs`` for up to **120 s** waiting for a web
+        # fact-check that never lands in a unit test. That single
+        # line was ~50% of the whole CI run.
+        #
+        # The in-code comment says the step is "non-blocking ... Never
+        # wait for job completion", i.e. the default contradicts the
+        # documented intent. We do NOT silently change the product
+        # default here (that is a behaviour decision) — we pin
+        # ``wait=False`` for this test so it exercises the enqueue
+        # logic without the 120 s poll.
+        import functools
+
+        import moni.share.enrichment as enrichment
+
+        monkeypatch.setattr(
+            enrichment,
+            "_enqueue_missing_web_fact_checks",
+            functools.partial(
+                enrichment._enqueue_missing_web_fact_checks,
+                wait=False,
+            ),
+        )
+
         _insert_article("e1", "银行 AI 助手上线", "支付机构推进智能客服" * 40)
         _insert_article("e2", "短文", "hi")  # thin
 

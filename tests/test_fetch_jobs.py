@@ -357,9 +357,34 @@ class TestFetchJobsEndpoints:
             if t is not threading.current_thread() and t.name.startswith("fetch-"):
                 t.join(timeout=2.5)
 
-    def test_run_sync_legacy_endpoint_still_blocks(self, client):
+    def test_run_sync_legacy_endpoint_still_blocks(self, client, monkeypatch):
         """v1.0.7.6: /run-sync kept for CLI smoke tests — still blocks
         until done (preserves old behaviour)."""
+        # v1.0.51 (audit fix): this used to do a REAL 36kr_rss fetch —
+        # 15 s of live network in a unit test, and on a CI runner it
+        # depends on 36kr.com being reachable and not rate-limiting the
+        # runner IP. What the test actually cares about is "the
+        # endpoint blocks until the job is done", so stub the fetcher.
+        from moni.fetch.base import _FETCHER_REGISTRY
+
+        class _Stub36kr:
+            source_name = "36kr_rss"
+            date_from = None
+            date_to = None
+            progress_callback = None
+
+            def run(self, **kwargs):
+                if self.progress_callback:
+                    self.progress_callback(total_feeds=1, done_feeds=1)
+                return {
+                    "source": "36kr_rss",
+                    "fetched": 1,
+                    "parsed": 1,
+                    "inserted": 1,
+                }
+
+        monkeypatch.setitem(_FETCHER_REGISTRY, "36kr_rss", _Stub36kr)
+
         r = client.post("/api/fetch/sources/36kr_rss/run-sync")
         # 36kr_rss is fast (< 30s), should complete normally
         assert r.status_code == 200

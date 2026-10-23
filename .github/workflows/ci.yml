@@ -18,6 +18,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# v1.0.51 (audit fix): 默认 token 权限是"仓库内全部读写", 对一条只跑
+# pytest 的流水线来说过宽。收紧成只读。
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -30,12 +35,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 流水线只需要读代码, 不需要用 checkout 留下的 token 回头推
+          # 东西。不落盘 = 少一个凭据泄露面。
+          persist-credentials: false
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
+          # 依赖声明在 pyproject.toml 里 (不是 requirements.txt),
+          # 不显式指定的话 setup-python 找不到依赖文件, 缓存会静默失效。
+          cache-dependency-path: pyproject.toml
 
       - name: Install moni + dev deps
         run: |
@@ -46,20 +58,31 @@ jobs:
         # editable install 装错根目录时 pytest 照样能跑 (它从 cwd import),
         # 但生产跑的是 site-packages 里那份 —— 装错根目录是 moni 历史踩过
         # 的坑 (AGENTS.md「Editable install 踩坑」), 所以单独验一次。
+        #
+        # v1.0.51 (audit fix): 之前在仓库根目录执行, 而仓库根目录里正好
+        # 有一个 `moni/` 包目录 —— Python 会优先从 cwd 导入, 于是这条检查
+        # **永远绿**, 哪怕 editable install 装错了根目录。挪到仓库外执行,
+        # 才真的验到 site-packages 里那一份。
         run: |
+          cd "$RUNNER_TEMP"
           python -c "import moni, moni.web.server, moni.cron.jobs; print(moni.__file__)"
 
       - name: Run the test suite
         # -p no:cacheprovider: 3.12 上 pytest 的 cacheprovider 会 segfault
         # (sprint-07/08/09 连续踩过三次), 沿用项目惯例关掉。
         # HOME 必须可写 —— 分享队列的测试会往 ~/.moni/queue 写 manifest。
-        run: python -m pytest tests/ -q -p no:cacheprovider
+        #
+        # v1.0.51 (audit fix): tee 一份日志, 失败时上传 —— 比只看
+        # "Process completed with exit code 1" 有用得多。
+        run: |
+          set -o pipefail
+          python -m pytest tests/ -q -p no:cacheprovider 2>&1 | tee pytest-ci.log
 
-      - name: Upload the worker log if a share test failed
+      - name: Upload the pytest log if the suite failed
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: worker-log
-          path: data/artifacts/worker.log
+          name: pytest-log
+          path: pytest-ci.log
           if-no-files-found: ignore
           retention-days: 7
