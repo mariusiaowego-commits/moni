@@ -74,30 +74,70 @@ def _strip_html_comments(html: str) -> str:
 
 def _dynamic_hrefs() -> list[tuple[int, str]]:
     """Return (line number, bound expression) for every :href="..." binding."""
-    out: list[tuple[int, str]] = []
-    for i, line in enumerate(_index_lines(), 1):
-        for expr in re.findall(r':href="([^"]*)"', line):
-            out.append((i, expr))
-    return out
+    return [
+        (ln, expr)
+        for ln, sink, expr in _dynamic_url_sinks()
+        if sink == ":href"
+    ]
 
 
 #: 除 :href 外的其它 URL sink —— 同样是"浏览器会拿着这个值去导航/加载"
 #: 的位置, 同样能被 javascript: 打断。
 URL_SINKS = (":href", ":src", ":srcset", ":action", ":formaction")
 
-#: 少数 sink 走的是固定映射表 (名字 → 本地静态图标路径), 值完全由代码
-#: 里的白名单决定, 不是外部数据, 因此允许不经 safeHref()。
-ALLOWED_UNGUARDED_SINKS = ("getSourceIcon(",)
+#: HTML 注入 sink —— 不是 URL, 但同样是"外部数据 → 浏览器解析"的通道。
+#: 仓库现状只有两类常量渲染 helper (图标 / 统计图), 任何新的 x-html
+#: 表达式都必须先进白名单才能通过。
+HTML_SINKS = ("x-html",)
+
+#: 少数 sink 走的是固定映射表 (名字 → 本地静态图标路径) 或常量渲染
+#: helper, 值完全由代码里的白名单决定, 不是外部数据, 因此允许不经
+#: safeHref()。
+#:
+#: ⚠️ 必须是**整表达式全匹配**, 不是"包含" —— 审计第三轮实测
+#: ``:src="getSourceIcon(s.name) + row.evil_url"`` 在子串语义下会
+#: 整条豁免, 而 Alpine 求值后就是一个可加载的 javascript: URL。
+ALLOWED_UNGUARDED_SINK_CALLS = ("getSourceIcon", "pinIcon", "methodPieSvg")
+
+#: 属性绑定扫描器 —— 同时吃双引号 / 单引号 / 跨行值。
+#:
+#: 审计第三轮实测的三个漏网形状:
+#:   :src='row.evil_url'          (单引号)
+#:   x-bind:href='row.evil_url'   (单引号)
+#:   :src="\n  row.evil_url\n  "  (跨行属性值)
+#: 逐行 + 只认双引号的正则这三种全部 GREEN, 属于"测试在骗自己"。
+_SINK_ATTR_RE = re.compile(
+    r"(?P<sink>:href|:src|:srcset|:action|:formaction|x-html)"
+    r"\s*=\s*"
+    r'(?:"(?P<dq>[^"]*)"|\'(?P<sq>[^\']*)\')',
+    re.DOTALL,
+)
 
 
-def _dynamic_url_sinks() -> list[tuple[int, str, str]]:
-    """Return (line number, sink name, bound expression) for every URL sink."""
+def _dynamic_url_sinks(html: str | None = None) -> list[tuple[int, str, str]]:
+    """Return (line number, sink name, bound expression) for every URL sink.
+
+    扫整份文档 (不是逐行), 单双引号通吃, 属性值允许跨行。
+    """
+    if html is None:
+        html = _strip_html_comments(INDEX_HTML.read_text(encoding="utf-8"))
     out: list[tuple[int, str, str]] = []
-    for i, line in enumerate(_index_lines(), 1):
-        for sink in URL_SINKS:
-            for expr in re.findall(re.escape(sink) + r'="([^"]*)"', line):
-                out.append((i, sink, expr))
+    for match in _SINK_ATTR_RE.finditer(html):
+        expr = match.group("dq")
+        if expr is None:
+            expr = match.group("sq") or ""
+        line = html[: match.start()].count("\n") + 1
+        out.append((line, match.group("sink"), expr))
     return out
+
+
+def _is_allowlisted_expression(expr: str) -> bool:
+    """整表达式全匹配白名单 helper —— 不是子串包含。"""
+    expr = expr.strip()
+    return any(
+        re.fullmatch(re.escape(name) + r"\([^()]*\)", expr)
+        for name in ALLOWED_UNGUARDED_SINK_CALLS
+    )
 
 
 def test_all_dynamic_hrefs_are_guarded_by_safe_href():
@@ -125,6 +165,10 @@ def test_every_dynamic_url_sink_is_guarded_or_allowlisted():
     ``:src="article.evil_url"`` 这类绑定, 测试依然全绿 —— 覆盖面比
     宣称的小, 属于"测试在骗自己"。这里把扫描范围扩到全部 URL sink,
     允许豁免的只有代码内的固定映射表。
+
+    审计第三轮再收紧: 豁免从**子串包含**改为**整表达式全匹配** ——
+    ``:src="getSourceIcon(s.name) + row.evil_url"`` 在子串语义下会被
+    整条放行, 而 Alpine 求值后就是可加载的 javascript: URL。
     """
     sinks = _dynamic_url_sinks()
     assert sinks, "no dynamic URL sink found — the scan itself is broken"
@@ -132,8 +176,9 @@ def test_every_dynamic_url_sink_is_guarded_or_allowlisted():
     unguarded = [
         (ln, sink, expr)
         for ln, sink, expr in sinks
+        if sink not in HTML_SINKS
         if "safeHref(" not in expr
-        and not any(allowed in expr for allowed in ALLOWED_UNGUARDED_SINKS)
+        and not _is_allowlisted_expression(expr)
     ]
     assert not unguarded, (
         "these dynamic URL sinks bypass safeHref(): %r"
@@ -146,18 +191,100 @@ def test_every_dynamic_url_sink_is_guarded_or_allowlisted():
     )
 
 
+def test_every_html_sink_is_allowlisted():
+    """``x-html`` 是 HTML 注入通道 —— 不是 URL, 但同样吃外部数据。
+
+    仓库现状只有 5 处, 全是常量渲染 helper (``pinIcon(...)`` /
+    ``methodPieSvg()``)。新增的 x-html 表达式必须先进白名单。
+    """
+    sinks = [s for s in _dynamic_url_sinks() if s[1] in HTML_SINKS]
+    assert sinks, "no x-html binding found — the scan itself is broken"
+
+    offenders = [
+        (ln, expr) for ln, _sink, expr in sinks if not _is_allowlisted_expression(expr)
+    ]
+    assert not offenders, (
+        "these x-html bindings are not allowlisted constant helpers: %r"
+        % ([f"moni/web/static/index.html:{ln} x-html={expr!r}" for ln, expr in offenders],)
+    )
+
+
+def test_sink_scanner_covers_single_quotes_multiline_and_xhtml():
+    """扫描器自测 —— 审计第三轮的三个漏网形状必须被抓住。
+
+    这条不依赖仓库内容, 纯粹钉住扫描器本身: 换了实现不小心退回
+    "逐行 + 只认双引号", 这条会立刻红。
+    """
+    probe = (
+        '<a :href="safeHref(a.url)"></a>\n'
+        "<img :src='row.evil_url'>\n"
+        "<img x-bind:href='row.evil_url'>\n"
+        '<img :src="\n  row.evil_url\n  ">\n'
+        '<span x-html="row.evil"></span>\n'
+    )
+    found = {(sink, expr.strip()) for _ln, sink, expr in _dynamic_url_sinks(probe)}
+    assert (":src", "row.evil_url") in found
+    assert (":href", "row.evil_url") in found
+    assert (":src", "row.evil_url") in found
+    assert ("x-html", "row.evil") in found
+
+    # 子串豁免必须无效: 只有整表达式全匹配白名单 helper 才放行
+    assert _is_allowlisted_expression("getSourceIcon(s.name)") is True
+    assert _is_allowlisted_expression("getSourceIcon(s.name) + row.evil_url") is False
+    assert _is_allowlisted_expression("row.evil_url") is False
+
+
+def test_no_dynamic_window_open_or_location_navigation():
+    """静态 JS 里不允许出现未受控的跳转出口。
+
+    审计第三轮盘点: ``window.open`` / ``location.href =`` /
+    ``location.assign`` / ``location.replace`` 在 ``moni/web/static/js/``
+    下当前**一处都没有**。这是回归地板 —— 以后有人加, 必须同时加
+    URL 白名单, 否则测试先红。
+    """
+    js_dir = STATIC / "js"
+    patterns = (
+        r"window\.open\s*\(",
+        r"location\.href\s*=",
+        r"location\.(?:assign|replace)\s*\(",
+    )
+    offenders: list[str] = []
+    for js in sorted(js_dir.glob("*.js")):
+        text = js.read_text(encoding="utf-8")
+        for pat in patterns:
+            for match in re.finditer(pat, text):
+                line = text[: match.start()].count("\n") + 1
+                offenders.append(f"{js.name}:{line} {pat}")
+    assert not offenders, offenders
+
+
 def test_every_target_blank_anchor_has_noopener_noreferrer():
     """``target="_blank"`` 不带 rel="noopener noreferrer" ⇒ 新开的页面通过
     ``window.opener`` 反向操纵本页 (tabnabbing)。审计第二轮实测有 1 处
     漏写 (队列产物链接), 这里锁死, 防止以后又漏。
+
+    审计第三轮再收紧: 判定从"标签里有没有 rel=" 改成"rel 的 token 集合
+    里有没有 noopener **且** noreferrer" —— 原来的子串判定会让
+    ``rel="nofollow"`` 绿灯, 而那等于 tabnabbing 静默回归。
     """
-    html = INDEX_HTML.read_text(encoding="utf-8")
+    html = _strip_html_comments(INDEX_HTML.read_text(encoding="utf-8"))
     offenders: list[str] = []
-    for match in re.finditer(r'<a\b[^>]*target="_blank"[^>]*>', html, re.S):
+    for match in re.finditer(r'<a\b[^>]*>', html, re.S):
         tag = match.group(0)
-        if "rel=" not in tag:
+        target = re.search(r'target\s*=\s*(?:"([^"]*)"|\'([^\']*)\')', tag)
+        if not target:
+            continue
+        if (target.group(1) or target.group(2) or "").strip().lower() != "_blank":
+            continue
+        rel = re.search(r'rel\s*=\s*(?:"([^"]*)"|\'([^\']*)\')', tag)
+        tokens = set()
+        if rel:
+            tokens = set((rel.group(1) or rel.group(2) or "").lower().split())
+        if not {"noopener", "noreferrer"} <= tokens:
             line = html[: match.start()].count("\n") + 1
-            offenders.append(f"moni/web/static/index.html:{line} <a target=_blank> without rel")
+            offenders.append(
+                f"moni/web/static/index.html:{line} <a target=_blank> rel={sorted(tokens)}"
+            )
     assert not offenders, offenders
 
 
@@ -379,6 +506,72 @@ def test_safe_url_js_exposes_the_globals_alpine_needs():
     src = SAFE_URL_JS.read_text(encoding="utf-8")
     for name in ("isSafeUrl", "safeHref", "isBlockedUrl", "SAFE_URL_BLOCKED_MESSAGE"):
         assert f"global.{name}" in src, f"{name} is not exposed as a global"
+
+
+def test_safe_href_uses_the_browser_origin_by_default():
+    """浏览器路径必须真被测到 —— ``defaultOrigin()`` 不能被绕开。
+
+    审计第三轮实测: 之前的 ``file://`` 矩阵把 origin 当**参数**直接喂
+    进 ``isSafeUrl(input, origin)``, 整条 ``defaultOrigin()`` 路径零覆盖。
+    于是把 ``defaultOrigin()`` 改成返回 ``'null'`` / ``''`` / 恒定值,
+    测试全部 GREEN —— 而真实后果是 ``new URL(x, 'null')`` 直接 throw,
+    ``isSafeUrl`` 对**一切** URL 返回 false: 离线页的外链全哑, 站内
+    相对路径全被拦。
+
+    这条在 node 里 stub 一个 ``window.location.origin``, **不带 origin
+    参数**调 ``safeHref()``, 强制走 ``defaultOrigin()`` 分支。
+    """
+    node = subprocess.run(
+        ["node", "--version"], capture_output=True, text=True, check=False
+    )
+    if node.returncode != 0:
+        pytest.skip("node not available on this machine")
+
+    payload = {
+        "module": str(SAFE_URL_JS),
+        "origin": "file://",
+        "cases": [
+            # file:// 下外链照常放行
+            ["https://36kr.com/p/1", "https://36kr.com/p/1"],
+            ["mailto:contact@test.com", "mailto:contact@test.com"],
+            # file:// 下站内相对路径被剥离 ⇒ 拦截
+            ["/artifacts/brief.html", None],
+            ["index.html", None],
+            # 危险协议一律拦截
+            ["javascript:alert(1)", None],
+            ["data:text/html;base64,PHNjcmlwdD4=", None],
+        ],
+    }
+    script = """
+const payload = JSON.parse(process.argv[1]);
+// stub 浏览器环境: defaultOrigin() 必须读得到这个 origin
+global.window = { location: { origin: payload.origin } };
+const api = require(payload.module);
+const failures = [];
+for (const [input, expected] of payload.cases) {
+  let got;
+  try {
+    got = api.safeHref(input);          // 不传 origin —— 走 defaultOrigin()
+  } catch (err) {
+    failures.push([String(input), 'threw: ' + err.message]);
+    continue;
+  }
+  if (got !== expected) {
+    failures.push([String(input), 'expected ' + JSON.stringify(expected) + ' got ' + JSON.stringify(got)]);
+  }
+}
+console.log(JSON.stringify(failures));
+process.exit(failures.length ? 1 : 0);
+"""
+    proc = subprocess.run(
+        ["node", "-e", script, json.dumps(payload)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, (
+        "safe_url.js defaultOrigin() path failed:\n%s\n%s" % (proc.stdout, proc.stderr)
+    )
 
 
 def test_safe_url_behaviour_under_file_origin():
