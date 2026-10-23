@@ -27,11 +27,11 @@ from typing import Any
 from fastapi import APIRouter, Query
 
 from moni.db.connection import get_db, get_db_path
-from moni.share.artifacts import ARTIFACTS_DIR, ensure_artifact
+from moni.share.artifacts import ensure_artifact
 from moni.share.brief_html import find_unready_articles
 from moni.share.formats import validate_manifest
 from moni.share.manifest import write_manifest
-from moni.share.worker import LOG_FILE, launch_worker, tail_log
+from moni.share.worker import _log_file, launch_worker, tail_log
 from moni.web.exceptions import BadRequestError, ConflictError, NotFoundError
 from moni.web.models import (
     BriefCreateRequest,
@@ -750,5 +750,5 @@ def read_worker_log(tail: int = Query(200, ge=1, le=5000)) -> dict:
     body = tail_log(n=tail)
     return {
         "lines": body.splitlines() if body else [],
-        "log_path": str(LOG_FILE),
+        "log_path": str(_log_file()),
     }

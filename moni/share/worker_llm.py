@@ -40,6 +40,8 @@ import sys
 from pathlib import Path
 from typing import Any, Iterable
 
+from moni.db.connection import get_db_path
+
 #: 默认 profile —— 与 summary_gen / llm.client 保持一致。
 DEFAULT_PROFILE = os.environ.get("MONI_HERMES_PROFILE", "default")
 
@@ -91,7 +93,7 @@ def resolve_provider_model(
 
     conn = None
     try:
-        conn = sqlite3.connect(str(db_path or "data/news.db"))
+        conn = sqlite3.connect(str(db_path or get_db_path()))
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT value FROM llm_settings WHERE key = 'active_summary_model_id'"

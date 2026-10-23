@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import os
+import sqlite3
 from pathlib import Path
 import pytest
 
-from tests.conftest import _snapshot_data_dir, REAL_DATA_DIR
+from tests.conftest import _snapshot_data_dir, assert_data_dir_unchanged
 
 
 def test_snapshot_data_dir_detects_file_addition(tmp_path: Path):
@@ -46,22 +46,28 @@ def test_snapshot_data_dir_detects_file_modification(tmp_path: Path):
 
 
 def test_guard_assertion_raises_on_difference():
-    """Verify that the guard's assertion logic strictly rejects changes."""
-    before = {"a.txt": (5, b"hash_a")}
-    after = {"a.txt": (5, b"hash_a_modified")}
+    """The real conftest guard must reject an actual on-disk modification."""
+    import tempfile
 
-    diff_changed = {
-        k for k in set(before.keys()) & set(after.keys())
-        if before[k] != after[k]
-    }
+    with tempfile.TemporaryDirectory(prefix="moni-guard-") as tmp:
+        d = Path(tmp) / "data"
+        d.mkdir()
+        target = d / "a.txt"
+        target.write_text("hello", encoding="utf-8")
+        before = _snapshot_data_dir(d)
+        target.write_text("changed", encoding="utf-8")
+        after = _snapshot_data_dir(d)
+
+    # This is the same helper the session-level fixture uses at teardown.
     with pytest.raises(AssertionError, match="测试套件改动了生产 data/ 目录"):
-        assert not diff_changed, "测试套件改动了生产 data/ 目录！"
+        assert_data_dir_unchanged(before, after)
 
 
 def test_moni_data_dir_redirects_all_subsystems(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Verify that MONI_DATA_DIR env variable redirects paths across all subsystems."""
     custom_dir = tmp_path / "custom_data"
     custom_dir.mkdir()
+    (custom_dir / "artifacts").mkdir()
     monkeypatch.setenv("MONI_DATA_DIR", str(custom_dir))
 
     # 1. DB connection
@@ -94,3 +100,29 @@ def test_moni_data_dir_redirects_all_subsystems(tmp_path: Path, monkeypatch: pyt
     # 6. Share artifacts dir
     from moni.share import artifacts as share_artifacts
     assert share_artifacts._artifacts_dir() == custom_dir / "artifacts"
+
+    # 7. worker_llm direct sqlite connection
+    from moni.share import worker_llm
+    opened: list[Path] = []
+
+    def _connect(path, *args, **kwargs):
+        opened.append(Path(path))
+        raise sqlite3.OperationalError("stop after path capture")
+
+    monkeypatch.setattr(worker_llm.sqlite3, "connect", _connect)
+    worker_llm.resolve_provider_model()
+    assert opened == [custom_dir / "news.db"]
+
+    # 8. Web app resolves static artifact mount and worker log at runtime
+    from moni.web.server import create_app
+    from moni.web.routes.share import read_worker_log
+
+    app = create_app()
+    artifact_mount = next(
+        route for route in app.routes
+        if getattr(route, "name", None) == "artifacts"
+    )
+    assert Path(artifact_mount.app.directory) == custom_dir / "artifacts"
+    assert Path(read_worker_log(tail=1)["log_path"]) == (
+        custom_dir / "artifacts" / "worker.log"
+    )

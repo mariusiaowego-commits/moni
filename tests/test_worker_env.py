@@ -54,7 +54,7 @@ def test_launch_worker_sets_correct_monit_db(fresh_env, tmp_path):
         assert mock_popen.called
         args, kwargs = mock_popen.call_args
         env = kwargs.get("env", {})
-        assert env.get("MONI_DB") == str(sw.DEFAULT_DB)
+        assert env.get("MONI_DB") == str(sw._default_db())
         assert env["MONI_DB"].endswith("/data/news.db"), \
             f"MONI_DB must point to data/news.db, got {env.get('MONI_DB')}"
 

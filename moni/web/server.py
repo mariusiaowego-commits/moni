@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from moni.share.artifacts import ARTIFACTS_DIR
+from moni.share import artifacts as share_artifacts
 from moni.web.exceptions import register_exception_handlers
 
 # Allowed CORS origin — no wildcards
@@ -139,10 +139,11 @@ def create_app() -> FastAPI:
         # file instead of being shadowed by the catch-all @app.get.
         # ensure_artifact() (called by the share-task API) lazily
         # populates data/artifacts/ from older done rows' output_paths.
-        if ARTIFACTS_DIR.exists() and ARTIFACTS_DIR.is_dir():
+        artifacts_dir = share_artifacts._artifacts_dir()
+        if artifacts_dir.exists() and artifacts_dir.is_dir():
             app.mount(
                 "/artifacts",
-                StaticFiles(directory=str(ARTIFACTS_DIR), check_dir=False),
+                StaticFiles(directory=str(artifacts_dir), check_dir=False),
                 name="artifacts",
             )
 
