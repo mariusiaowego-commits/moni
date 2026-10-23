@@ -1,14 +1,24 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。**v1.0.42** (2026-09-10 SHIPPED) — sprint-22 双 PR ship (PR #141 web 防御 + PR #142 核心租约+runner)。schema v33→v35。171/171 全部通过。
+> 同业信源自动抓取与本地新闻库。**v1.0.46** (2026-10-23 SHIPPED)。schema v35。`pytest tests/` → **1045 passed / 2 skipped / 0 failed**（v1.0.42 时长期有 8 个"已知失败"，v1.0.46 查清是测试污染并修掉了，不再有红灯）。
 
-> 本次新增 (sprint-22, 2026-09-10):
+> v1.0.42 起的核心能力 (2026-09-10):
 > - **后台任务租约** — fetch_jobs / llm_jobs 任务运行期间每 30s 写入心跳, 心跳超期 sweep 标记为 stale (取代 v1.0.35.17 墙钟判死, 解决 bestblogs 187 篇跑完后被误杀 600s timeout 问题)
 > - **LLM 熔断器** — 同一 provider 连续失败 3 次熔断 60s, 自动切换到 fallback 链 (新增 4 个 llm_settings key: `fallback_chain` / `breaker_failure_threshold` / `breaker_reset_seconds` / `use_stdin_transport`)
 > - **LLM 子进程加固** — hermes 子进程超时 killpg 全组 (零孤儿), 200KB argv 预检防 E2BIG, 长 prompt 走 stdin
 > - **API 出栈脱敏** — `GET /api/config/sources` 自动把 URL 里的 token=eyJ… 打成 `…` (库内 URL 一字未动, 不影响抓取)
 > - **SPA 路径穿越遏制** — 静态资源路径严格校验, 拒绝 `..` / 反斜杠 / NUL / 绝对路径 (修前可读 `.env`, 修后 200/216024B SPA index.html)
 
+> v1.0.43 ~ v1.0.46 新增 (2026-10):
+> - **前端渲染稳健性 + Pin 闪色统一 700ms (v1.0.44)** — 慢网/弱网下 GSAP 未就绪不再抛 ReferenceError 崩页面（10 处动画调用点改成 `window.gsap` + 静默落视觉终态）；Pin 闪色全站统一 700ms。
+> - **动画与微交互 (v1.0.45)** — 抓取弹窗粒子场封顶 200（原无上界，弹窗开久了内存涨）；16/16 动效全部支持 `prefers-reduced-motion`；顺带删掉 2.83 MiB 没被引用的死资源。
+> - **测试基线可信化 (v1.0.46)** — 只改测试，不改产品行为。修掉 3 处跨模块状态污染，测试从"8 个已知失败"变成全绿。
+>
+> **进行中（尚未上线，合并后才会生效）**：
+> - **PR #146** 打标定时任务 `predict_tags` 的 3 处致命缺陷 —— 这个任务**从来没真正跑成功过**（SQL 查了不存在的列，进程内直接崩），修好后才会给待打标文章自动打标签。
+> - **PR #147** 前端链接安全护栏 + Alpine/GSAP 本地化 —— 抓取到的内容里的恶意链接（`javascript:` 之类）点不动；断网/内网也能打开页面，不再白屏。
+> - **PR #148** 分享队列 worker 锁改成原子获取 —— 原来两个 worker 同时起来会都以为自己拿到活儿。
+> - **PR #149** GitHub Actions 自动测试流水线 + 修掉它首次跑就抓出的一个测试隔离问题。
 >
 > 这份文档给**用户**（你自己）看 —— 怎么用 moni，不讲代码细节。
 

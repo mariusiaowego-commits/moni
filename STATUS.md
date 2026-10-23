@@ -4,7 +4,24 @@
 
 ---
 
-## 当前状态: **v1.0.45 — 动画与微交互 (sprint-25)** (2026-10-13 · **SHIPPED**)
+## 当前状态: **v1.0.46 — 测试基线可信化** (2026-10-23 · **SHIPPED**)
+
+**主分支**: main @ `0f8c056` (PR #145 squash-merged)
+**Tag 链**: v1.0.46 **未打 tag** → v1.0.45 → v1.0.44 → v1.0.42 → ...
+**状态**: 已合并到 main; **tag 待打**
+**范围**: 只改测试, 0 DDL / 0 migration / 0 产品代码改动
+
+> **v1.0.46 (2026-10-23) 测试基线可信化** — 起因: 2026-10-23 的架构审计发现 `pytest tests/` 长期有 8 个"已知失败"(STATUS v1.0.42~45 都记着), 逐个查下来**全部是跨模块状态污染, 不是产品回归**。建可信基线才有意义让后续 CI 当门禁。
+>
+> - **`test_api.py` share 用例**: 全局 `Path.write_text` 被 patch 后没还原, 泄漏到后续用例。
+> - **`test_fetch_integration::test_dry_run_skips_insert`**: thread-local DB 连接跨用例复用, 拿到已换掉的 tmp db 文件。
+> - **`test_prompts::test_call_llm_logs_to_file`**: 过期 mock —— 它 patch `moni.llm.client.subprocess.run`, 但 v1.0.42 已把子进程执行挪到 `moni/llm/runner.py`。
+> - **`test_share_manifest` 两例**: 同类污染。
+> - **结果**: `1045 passed / 2 skipped / 0 failed` (修前 `8 failed`)。
+
+---
+
+## 历史: **v1.0.45 — 动画与微交互 (sprint-25)** (2026-10-13 · **SHIPPED**)
 
 **主分支**: main @ `b09e599` (PR #144 squash-merged @ `b09e599`; 源分支 head `74ade9a`)
 **Tag 链**: v1.0.45 → v1.0.44 → v1.0.42 → v1.0.41 → v1.0.40 → ...
