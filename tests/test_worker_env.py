@@ -37,6 +37,7 @@ def fresh_env(monkeypatch, tmp_path):
     # Keep launch_worker()'s DB pre-flight independent of the checkout's
     # gitignored data/ directory (absent in clean clones and CI).
     (tmp_path / "data").mkdir()
+    (tmp_path / ".moni" / "queue").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(sw, "DEFAULT_DB", tmp_path / "data" / "news.db")
     return monkeypatch
 
@@ -111,6 +112,7 @@ def test_launch_worker_db_path_resolves_empty_string(monkeypatch, tmp_path):
     monkeypatch.setenv("MONI_DB", "")
     monkeypatch.setenv("HOME", str(tmp_path))
     (tmp_path / "data").mkdir()
+    (tmp_path / ".moni" / "queue").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(sw, "DEFAULT_DB", tmp_path / "data" / "news.db")
     fake_script = tmp_path / "default_worker.sh"
     fake_script.write_text("#!/bin/bash\necho ok\n")

@@ -173,6 +173,18 @@ def launch_worker() -> WorkerLaunch:
             log_path=str(LOG_FILE),
         )
 
+    # 1b. Pre-flight: queue directory must exist (audit F4)
+    # 如果队列目录不存在, 脚本会立即 exit 0, 但那不是"队列已处理完",
+    # 而是环境配置错误或未初始化。在此拦截并返回明确错误,
+    # 避免误报成 completed_nothing_to_do=True 欺骗前端。
+    q_dir = _queue_dir()
+    if not q_dir.exists():
+        return WorkerLaunch(
+            started=False, already_running=False, pid=None,
+            log_path=str(LOG_FILE),
+            error=f"queue dir not found: {q_dir}",
+        )
+
     # 2. Pre-flight: worker.sh must be executable
     if not WORKER_SCRIPT.is_file():
         return WorkerLaunch(

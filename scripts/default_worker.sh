@@ -23,6 +23,10 @@ set -euo pipefail
 # moni/share/prompts/ regardless of how it was launched.
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 QUEUE_DIR="${MONI_QUEUE_DIR:-${HOME:-~}/.moni/queue}"
+# v1.0.49.2 (audit F3): bash 变量展开不会自动做 tilde expansion, 如果用户/cron
+# 传入 MONI_QUEUE_DIR=~/custom, 这里必须显式把前缀 ~ 换成真实 $HOME, 否则
+# 会在当前工作目录下建一个字面量名为 '~' 的目录, 导致与 Python 侧分裂。
+QUEUE_DIR="${QUEUE_DIR/#\~/$HOME}"
 LOCK_FILE="${QUEUE_DIR}/.lock"
 # v1.0.9.3 fix: handle MONI_DB='' (empty) explicitly.  bash's ${VAR:-default}
 # only triggers on unset, not empty.  A caller that explicitly exports
@@ -85,6 +89,8 @@ export PATH="$HOME/.local/bin:$PATH"
 # 修法: 回收动作放进**第二把原子锁** `.lock.reclaim` 里串行化, 并在
 # guard 内**重新读锁校验**; 只有确认仍是死 PID 才删。
 _acquired_lock=false
+_guard_dir="${LOCK_FILE}.reclaim.d"
+
 if ( set -o noclobber; echo $$ > "$LOCK_FILE" ) 2>/dev/null; then
     _acquired_lock=true
 else
@@ -94,35 +100,47 @@ else
         exit 0
     fi
 
-    # Stale lock. Serialise the reclaim behind a second atomic lock so that
-    # at most one contender can ever run the delete-then-create sequence.
-    _reclaim_guard="${LOCK_FILE}.reclaim"
+    # Stale lock: 回收必须在原子目录锁保护下串行化 (mkdir 是 POSIX 强原子原语)。
+    # 审计第三轮实测: 原来的基于文件的 guard 在 40 次重试后会 rm -f 彼此的 guard,
+    # 导致多个 worker 同时闯入临界区并发重建锁。
+    # 修法: 用 mkdir 作为唯一 guard; 拿不到 guard 的进程最多重试 40 次, 拿不到
+    # 说明有别的 worker 正在回收或正持有锁, 必须立即退出 0, 绝不能盲目 rm!
     _guard_try=0
+    _got_guard=false
     while [ "$_guard_try" -lt 40 ]; do
-        if ( set -o noclobber; echo $$ > "$_reclaim_guard" ) 2>/dev/null; then
+        if mkdir "$_guard_dir" 2>/dev/null; then
+            echo $$ > "$_guard_dir/pid" 2>/dev/null || true
+            _got_guard=true
             break
         fi
         _guard_try=$((_guard_try + 1))
-        sleep 0.05
-        # Another worker may have revived the lock while we waited.
+
         pid=$(cat "$LOCK_FILE" 2>/dev/null || true)
         if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
             echo "[worker] another instance (PID $pid) is running — exiting" >&2
             exit 0
         fi
+
+        # 自愈逻辑: 如果 guard 目录持有人已死 (stale guard), 竞争单个原子 claim 占位
+        gpid=$(cat "$_guard_dir/pid" 2>/dev/null || true)
+        if [ -n "${gpid:-}" ] && ! kill -0 "$gpid" 2>/dev/null; then
+            if ( set -o noclobber; echo $$ > "$_guard_dir/claim" ) 2>/dev/null; then
+                _got_guard=true
+                break
+            fi
+        fi
+        sleep 0.05
     done
-    if [ "$_guard_try" -ge 40 ]; then
-        # Guard looks abandoned (holder died mid-reclaim). Its critical
-        # section is sub-millisecond, so after 2s it is safe to clear.
-        rm -f "$_reclaim_guard"
-        ( set -o noclobber; echo $$ > "$_reclaim_guard" ) 2>/dev/null || true
+
+    if ! "$_got_guard"; then
+        echo "[worker] reclaim guard held by another instance — exiting" >&2
+        exit 0
     fi
 
-    # Re-verify under the guard — someone may have created a live lock in
-    # the window between our first `cat` and taking the guard.
+    # 在 guard 保护下二次复核 (防竞态)
     pid=$(cat "$LOCK_FILE" 2>/dev/null || true)
     if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
-        rm -f "$_reclaim_guard"
+        rm -rf "$_guard_dir" 2>/dev/null || true
         echo "[worker] another instance (PID $pid) is running — exiting" >&2
         exit 0
     fi
@@ -131,7 +149,7 @@ else
     if ( set -o noclobber; echo $$ > "$LOCK_FILE" ) 2>/dev/null; then
         _acquired_lock=true
     fi
-    rm -f "$_reclaim_guard"
+    rm -rf "$_guard_dir" 2>/dev/null || true
 fi
 
 if ! "$_acquired_lock"; then
@@ -139,8 +157,16 @@ if ! "$_acquired_lock"; then
     exit 1
 fi
 
-# Release lock on exit
-trap 'rm -f "$LOCK_FILE"' EXIT
+# 严格清理: 只有确认持锁且文件内仍是本进程 PID 时才删, 绝不误删下任赢家的锁!
+_worker_cleanup() {
+    rmdir "${LOCK_FILE}.reclaim.d" 2>/dev/null || true
+    if [ "$_acquired_lock" = "true" ]; then
+        if [ "$(cat "$LOCK_FILE" 2>/dev/null || true)" = "$$" ]; then
+            rm -f "$LOCK_FILE"
+        fi
+    fi
+}
+trap _worker_cleanup EXIT INT TERM
 
 # --- Helpers ----------------------------------------------------------------
 

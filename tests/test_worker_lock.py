@@ -239,6 +239,43 @@ def test_stale_reclaim_race_admits_exactly_one_winner(tmp_path, lock_harness):
     )
 
 
+def test_stale_guard_and_stale_lock_race_admits_exactly_one_winner(tmp_path, lock_harness):
+    """v1.0.49.2 (audit F1.2): Stale lock + abandoned guard directory (.lock.reclaim.d).
+
+    When a worker process holding the reclaim guard is killed by SIGKILL,
+    it leaves behind both a stale lock and a stale .lock.reclaim.d.
+    Concurrent contenders must self-heal the stale guard and admit exactly
+    ONE winner across multiple rounds.
+    """
+    import shutil
+    n = 12
+    winners_by_round = []
+    for _ in range(3):
+        lock = tmp_path / ".lock"
+        lock.write_text("999999999")  # dead PID
+        guard = tmp_path / ".lock.reclaim.d"
+        guard.mkdir(exist_ok=True)
+        (guard / "pid").write_text("888888888")  # dead PID in guard
+
+        procs = [
+            subprocess.Popen(
+                ["/bin/bash", str(lock_harness), str(lock)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+            for _ in range(n)
+        ]
+        outs = [p.communicate(timeout=60)[0].strip() for p in procs]
+        winners_by_round.append(sum(1 for o in outs if o == "WON"))
+        lock.unlink(missing_ok=True)
+        shutil.rmtree(guard, ignore_errors=True)
+
+    assert winners_by_round == [1, 1, 1], (
+        f"stale lock + stale guard admitted non-single winner: {winners_by_round}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # AC-3 — the python side must report what actually happened
 # ---------------------------------------------------------------------------
@@ -357,7 +394,44 @@ def test_worker_script_and_python_agree_on_the_lock_name():
 def test_manifest_and_worker_resolve_the_same_custom_queue(monkeypatch, tmp_path):
     """A custom MONI_QUEUE_DIR must not split writers and the worker."""
     from moni.share import manifest as sm
+    monkeypatch.setenv("MONI_QUEUE_DIR", str(tmp_path / "custom-queue"))
+    assert sm._queue_dir() == sw._queue_dir()
+
+
+def test_python_and_bash_agree_on_tilde_expansion_for_queue_dir(monkeypatch, tmp_path):
+    """MONI_QUEUE_DIR='~/...' 时 Python 与 bash 必须解析到同一物理路径 (audit F3)。"""
+    fake_home = tmp_path / "fakehome"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("MONI_QUEUE_DIR", "~/myqueue")
+
+    # Python 侧解析
+    py_dir = sw._queue_dir()
+    assert py_dir == fake_home / "myqueue"
+
+    # 从真实脚本提取 QUEUE_DIR 定义与展开逻辑 (audit F3 严谨性要求: 不写死副本)
+    script_text = WORKER_SCRIPT.read_text(encoding="utf-8")
+    assign_lines = [ln for ln in script_text.splitlines() if ln.startswith("QUEUE_DIR=")]
+    assert len(assign_lines) >= 2, "scripts/default_worker.sh must contain QUEUE_DIR assignment and tilde replacement"
+    script_snippet = chr(10).join(assign_lines) + chr(10) + 'echo "$QUEUE_DIR"'
+    bash_dir = subprocess.run(
+        ["/bin/bash", "-c", script_snippet],
+        env=dict(os.environ, HOME=str(fake_home), MONI_QUEUE_DIR="~/myqueue"),
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert Path(bash_dir) == py_dir
+
+
+def test_launch_reports_error_when_queue_dir_missing(monkeypatch, tmp_path):
+    """队列目录不存在时不应误报 completed_nothing_to_do (audit F4)。"""
+    non_existent = tmp_path / "missing_queue"
+    monkeypatch.setenv("MONI_QUEUE_DIR", str(non_existent))
+    result = sw.launch_worker()
+    assert result.started is False
+    assert result.completed_nothing_to_do is False
+    assert result.error and "queue dir not found" in result.error
 
     monkeypatch.setenv("MONI_QUEUE_DIR", str(tmp_path / "custom-queue"))
-    assert sw._queue_dir() == sm.resolve_queue_dir()
+    assert sw._queue_dir() == sw.resolve_queue_dir()
     assert sw._queue_dir() == tmp_path / "custom-queue"
