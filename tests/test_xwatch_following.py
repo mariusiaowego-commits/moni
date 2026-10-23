@@ -1,12 +1,39 @@
 """Tests for moni.fetch.xwatch_following — pure helpers (no live Chrome)."""
 from __future__ import annotations
 
+import os
+import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from moni.fetch.xwatch_following import (
-    following_tweet_to_synd_dict,
-    scrape_following,
-)
+import moni.fetch.xwatch_following as xwatch_following
+from moni.fetch.xwatch_following import following_tweet_to_synd_dict, scrape_following
+
+
+def test_chrome_paths_are_portable(monkeypatch, tmp_path):
+    """Chrome profile and log paths must not hardcode another machine's home."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(xwatch_following.platform, "system", lambda: "Linux")
+
+    profile = xwatch_following._default_xwatch_chrome_user_data_dir()
+    assert "/Users/mt16" not in profile
+    assert profile == str(tmp_path / ".moni" / "xwatch-chrome-profile")
+
+    assert xwatch_following.X_CHROME_LOG == os.path.join(
+        tempfile.gettempdir(), "moni-xwatch-profile6.log"
+    )
+
+    monkeypatch.setattr(xwatch_following.platform, "system", lambda: "Darwin")
+    import pwd
+
+    assert xwatch_following._default_xwatch_chrome_user_data_dir() == str(
+        Path(pwd.getpwuid(os.getuid()).pw_dir)
+        / "Library"
+        / "Application Support"
+        / "Google"
+        / "Chrome"
+        / "Profile 6"
+    )
 
 
 class TestFollowingTweetToSynd:

@@ -394,6 +394,47 @@ class TestFetchJobsEndpoints:
         assert body.get("error") is None
 
 
+def test_run_sync_returns_skipped_when_source_not_due(client, monkeypatch, tmp_path):
+    """A non-forced run-sync returns skipped when .last_run.json says not due."""
+    from datetime import datetime, timezone
+    import json
+
+    from moni.fetch.base import _FETCHER_REGISTRY
+    import moni.fetch.scheduler as scheduler_mod
+
+    class _Stub36kr:
+        source_name = "36kr_rss"
+        date_from = None
+        date_to = None
+        progress_callback = None
+
+        def run(self, **kwargs):
+            return {
+                "source": "36kr_rss",
+                "fetched": 1,
+                "parsed": 1,
+                "inserted": 1,
+            }
+
+    # If force=false were dropped, this stub would return inserted=1 and the
+    # skipped assertion below would fail without touching the network.
+    monkeypatch.setitem(_FETCHER_REGISTRY, "36kr_rss", _Stub36kr)
+    last_run_path = tmp_path / ".last_run.json"
+    last_run_path.write_text(
+        json.dumps({"36kr_rss": datetime.now(timezone.utc).isoformat()}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(scheduler_mod, "_LAST_RUN_PATH", last_run_path)
+
+    r = client.post("/api/fetch/sources/36kr_rss/run-sync?force=false")
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("source") == "36kr_rss"
+    assert body.get("status") == "skipped"
+    assert body.get("message") == "Source not due for fetching"
+    assert body.get("error") is None
+
+
 # ── background-thread integration test ─────────────────────────────────────
 
 
@@ -554,25 +595,28 @@ class TestZombieSweep:
         assert store.has_running("36kr_rss") is False
 
 
-def test_background_thread_db_swapped_or_table_dropped_does_not_crash_thread(tmp_path, monkeypatch):
+def test_background_thread_db_swapped_or_table_dropped_does_not_crash_thread(tmp_path):
     """v1.0.51: If DB is closed / table is dropped while _run_fetch_job is
     executing (or before it can read its fence), the daemon thread must catch
     sqlite3.Error and degrade to a warning instead of raising an unhandled
     exception that triggers PytestUnhandledThreadExceptionWarning."""
     from moni.web.routes.fetch import _run_fetch_job
-    from moni.db.connection import get_db, set_db_path, close_db
+    from moni.db.connection import get_db, get_db_path, set_db_path, close_db
     from moni.db.migrate import migrate
 
-    db_path = tmp_path / "drop_test.db"
-    set_db_path(db_path)
-    migrate()
+    orig_path = get_db_path()
+    try:
+        db_path = tmp_path / "drop_test.db"
+        set_db_path(db_path)
+        migrate()
 
-    # Drop the fetch_jobs table before running the job
-    conn = get_db()
-    conn.execute("DROP TABLE fetch_jobs")
-    conn.commit()
+        # Drop the fetch_jobs table before running the job
+        conn = get_db()
+        conn.execute("DROP TABLE fetch_jobs")
+        conn.commit()
 
-    # Running _run_fetch_job directly should catch sqlite3.Error and return cleanly
-    _run_fetch_job("nonexistent-job-id", "36kr_rss")
-
-    close_db()
+        # Running _run_fetch_job directly should catch sqlite3.Error and return cleanly
+        _run_fetch_job("nonexistent-job-id", "36kr_rss")
+    finally:
+        close_db()
+        set_db_path(orig_path)

@@ -84,7 +84,12 @@ CHROME_DEBUG_PORT = int(os.environ.get("MONI_CHROME_DEBUG_PORT", "9223"))
 
 def _default_chrome_user_data_dir() -> str:
     if platform.system() == "Darwin":
-        return "/Users/mt16/Library/Application Support/Google/Chrome/Profile 7"
+        try:
+            import pwd
+            real_home = pwd.getpwuid(os.getuid()).pw_dir
+        except Exception:
+            real_home = str(Path.home())
+        return str(Path(real_home) / "Library" / "Application Support" / "Google" / "Chrome" / "Profile 7")
     return str(Path.home() / ".moni" / "chrome-profile")
 
 

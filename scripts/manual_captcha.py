@@ -24,10 +24,12 @@ pages to the headless fetch path (i.e. cookie expiry).
 from __future__ import annotations
 
 import os
+import platform
 import subprocess
 import sys
 import time
 import urllib.request
+from pathlib import Path
 
 # Set ALL env vars BEFORE importing moni.fetch.chrome_daemon, because
 # the module reads them at import time and bakes them into module-level
@@ -39,10 +41,21 @@ import urllib.request
 #    hermes-sandboxed home (which redirects $HOME → /Users/mt16/.hermes/.../home).
 #    Otherwise the cookie we save won't be findable by the next
 #    ``moni fetch`` invocation.
+def _default_manual_chrome_user_data_dir() -> str:
+    if platform.system() == "Darwin":
+        try:
+            import pwd
+            real_home = pwd.getpwuid(os.getuid()).pw_dir
+        except Exception:
+            real_home = str(Path.home())
+        return str(Path(real_home) / "Library" / "Application Support" / "Google" / "Chrome" / "Profile 7")
+    return str(Path.home() / ".moni" / "chrome-profile")
+
+
 os.environ.setdefault("MONI_36KR_HEADED", "1")
 os.environ.setdefault(
     "MONI_CHROME_USER_DATA_DIR",
-    "/Users/mt16/Library/Application Support/Google/Chrome/Profile 7",
+    _default_manual_chrome_user_data_dir(),
 )
 
 # Make the worktree install importable.

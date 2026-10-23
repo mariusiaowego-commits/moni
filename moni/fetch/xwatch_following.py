@@ -35,6 +35,7 @@ import signal
 import platform
 import shutil
 import subprocess
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -46,7 +47,12 @@ logger = logging.getLogger(__name__)
 
 def _default_xwatch_chrome_user_data_dir() -> str:
     if platform.system() == "Darwin":
-        return "/Users/mt16/Library/Application Support/Google/Chrome/Profile 6"
+        try:
+            import pwd
+            real_home = pwd.getpwuid(os.getuid()).pw_dir
+        except Exception:
+            real_home = str(Path.home())
+        return str(Path(real_home) / "Library" / "Application Support" / "Google" / "Chrome" / "Profile 6")
     return str(Path.home() / ".moni" / "xwatch-chrome-profile")
 
 
@@ -70,7 +76,7 @@ X_CHROME_BINARY = os.environ.get(
     "MONI_CHROME_BINARY",
     _default_x_chrome_binary(),
 )
-X_CHROME_LOG = "/tmp/moni-xwatch-profile6.log"
+X_CHROME_LOG = os.path.join(tempfile.gettempdir(), "moni-xwatch-profile6.log")
 
 FOLLOWING_URL = "https://x.com/home?following=true"
 

@@ -171,10 +171,10 @@ class TestChromeDaemonUnit:
         assert CHROME_DEBUG_PORT == 9223
         if platform.system() == "Darwin":
             assert CHROME_BINARY.endswith("Google Chrome")
-            # Hardcoded to the real home (NOT Path.home()) so that the
-            # hermes sandbox's $HOME redirect doesn't trap us into a
+            # Resolve the real passwd home rather than Path.home(), so the
+            # hermes sandbox's $HOME redirect doesn't trap us in a
             # sandbox-only profile.
-            assert CHROME_USER_DATA_DIR == "/Users/mt16/Library/Application Support/Google/Chrome/Profile 7"
+            assert "/Library/Application Support/Google/Chrome/Profile 7" in CHROME_USER_DATA_DIR
             assert "Profile 7" in CHROME_USER_DATA_DIR
         else:
             # v1.0.51: the macOS path is a portability bug. On Linux /
