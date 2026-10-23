@@ -111,23 +111,36 @@ class TestChatClientLogCreation:
     def test_call_llm_logs_to_file(self, tmp_log, monkeypatch):
         """call_llm() must produce a line in llm_usage.log when invoked.
 
-        Subprocess is mocked so no real `hermes chat` is invoked.
+        HardenedSubprocess is mocked so no real `hermes -z` is invoked.
+        v1.0.42 moved subprocess execution from moni.llm.client to
+        moni.llm.runner; patching the old import silently did nothing.
         """
         from moni.llm.client import call_llm
+        from moni.llm.runner import SubprocessResult
         from moni.llm.token_log import TokenLogger
 
         # Patch TokenLogger to write to tmp_log
         with patch("moni.llm.client.TokenLogger", lambda *a, **kw: TokenLogger(log_path=tmp_log)):
-            mock_proc = MagicMock()
-            mock_proc.returncode = 0
-            mock_proc.stdout = "session_id: test-session\nTest reply text"
-            mock_proc.stderr = ""
-            with patch("moni.llm.client.subprocess.run", return_value=mock_proc) as mock_run:
+            result = SubprocessResult(
+                stdout="session_id: test-session\nTest reply text",
+                stderr="",
+                returncode=0,
+                duration_ms=12,
+            )
+            captured: dict = {}
+
+            def fake_run(subprocess_self):
+                captured["cmd"] = subprocess_self._build_argv()
+                return result
+
+            with patch(
+                "moni.llm.runner.HardenedSubprocess.run",
+                autospec=True,
+                side_effect=fake_run,
+            ):
                 reply = call_llm("minimax-cn", "MiniMax-M3", "hello world")
                 assert reply == "Test reply text"
-                # Verify the subprocess invocation
-                args, kwargs = mock_run.call_args
-                cmd = args[0]
+                cmd = captured["cmd"]
                 assert cmd[0] == "hermes"
                 # v1.0.32: hermes -z one-shot (chat 模式不支持 --usage-file)
                 assert cmd[1] == "-z"
