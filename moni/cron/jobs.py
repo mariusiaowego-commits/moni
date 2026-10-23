@@ -363,7 +363,10 @@ def predict_tags_pending(
                 job_id,
                 triggered_at=triggered_at,
                 finished_at=_cst_now().isoformat(),
-                success=False,
+                # A skipped tick is a normal no-op, consistent with the
+                # other "nothing to do" branches.  ``error`` remains the
+                # machine-readable marker that distinguishes the skip.
+                success=True,
                 error="skipped: another run already in progress",
                 new_articles=0,
                 sources_run=0,
@@ -471,6 +474,7 @@ def _predict_tags_pending_locked(
 
     processed = 0
     errors = 0
+    write_errors = 0
     now_cst = _cst_now()
 
     for row in article_rows:
@@ -520,6 +524,7 @@ def _predict_tags_pending_locked(
             except Exception as exc:
                 logger.warning("[%s] Failed to insert tag %r for article %s: %s",
                                job_id, tag_name, article_id, exc)
+                write_errors += 1
 
         conn.commit()
         processed += 1
@@ -527,7 +532,12 @@ def _predict_tags_pending_locked(
                      job_id, article_id, len(predicted_names), predicted_names)
 
     finished_at = _cst_now().isoformat()
-    success = errors == 0
+    success = errors == 0 and write_errors == 0
+    error_parts: list[str] = []
+    if errors:
+        error_parts.append(f"{errors} article errors")
+    if write_errors:
+        error_parts.append(f"{write_errors} tag write errors")
 
     try:
         history.log_run(
@@ -535,7 +545,7 @@ def _predict_tags_pending_locked(
             triggered_at=triggered_at,
             finished_at=finished_at,
             success=success,
-            error=f"{errors} article errors" if errors else None,
+            error="; ".join(error_parts) if error_parts else None,
             new_articles=processed,
             sources_run=processed,
         )
@@ -543,8 +553,8 @@ def _predict_tags_pending_locked(
         logger.error("[%s] Failed to write cron_runs row: %s", job_id, exc)
 
     logger.info(
-        "[%s] finished at %s — processed=%d errors=%d",
-        job_id, finished_at, processed, errors,
+        "[%s] finished at %s — processed=%d errors=%d write_errors=%d",
+        job_id, finished_at, processed, errors, write_errors,
     )
     return None
 

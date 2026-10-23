@@ -245,7 +245,8 @@ class TestPredictTagsPending:
             "SELECT success, error FROM cron_runs "
             "WHERE job_id = 'predict_tags_pending' ORDER BY id DESC LIMIT 1"
         ).fetchall()
-        assert rows and rows[0]["success"] == 0
+        # dad 拍板: a skipped tick is success, but must remain visible.
+        assert rows and rows[0]["success"] == 1
         assert "already in progress" in (rows[0]["error"] or "")
 
     def test_lock_is_released_when_the_body_raises(self, isolated_db, monkeypatch):
@@ -359,6 +360,45 @@ class TestPredictTagsPending:
         # a1 failed → no tags; a2 succeeded → tagged
         assert _tags_of("a1") == []
         assert _tags_of("a2") == [("银行", 1)]
+
+    def test_tag_write_failure_is_reported_in_run_history(
+        self, isolated_db, monkeypatch
+    ):
+        """A failed article_tags write must not leave cron_runs claiming success."""
+        conn = get_db()
+        _seed_tag(conn, "银行")
+        _seed_article(conn, "a1")
+        conn.commit()
+
+        class WriteFailingConnection:
+            def __init__(self, wrapped):
+                self._wrapped = wrapped
+
+            def execute(self, sql, params=()):
+                if "INSERT OR IGNORE INTO article_tags" in sql:
+                    raise RuntimeError("disk full")
+                return self._wrapped.execute(sql, params)
+
+            def __getattr__(self, name):
+                return getattr(self._wrapped, name)
+
+        monkeypatch.setattr(
+            cron_jobs,
+            "get_db",
+            lambda: WriteFailingConnection(conn),
+        )
+
+        predict_tags_pending(
+            llm_call_fn=lambda p: '{"tags": ["银行"], "reasoning": "x"}'
+        )
+
+        assert _tags_of("a1") == []
+        rows = get_db().execute(
+            "SELECT success, error FROM cron_runs "
+            "WHERE job_id = 'predict_tags_pending' ORDER BY id DESC LIMIT 1"
+        ).fetchall()
+        assert rows and rows[0]["success"] == 0
+        assert "1 tag write error" in (rows[0]["error"] or "")
 
 
 # ── static contract ──────────────────────────────────────────────────────
