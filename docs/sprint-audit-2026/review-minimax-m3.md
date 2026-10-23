@@ -1,5 +1,7 @@
 # moni 深度 Review 与 TODO 实施方案 — MiniMax-M3
 
+> ⚠️ **历史快照 (2026-09-10) — 不是当前结论**。本文是当时 21 张工单的实施方案, 基线 `exhaustive-mode` @ `3a5cc00` (v1.0.41)。2026-10-23/24 的复核结论与修正见 `CURRENT-TRIAGE-2026-10-23.md`, **以那份为准**; 本文 R6/R9 等条目里的 "v1.0.43 再删" 之类计划因版本号跳过而未发生。
+
 > 撰写人: MiniMax-M3 (coder profile, 2026-09-10)
 > 阅读对象: dad + 后续接手 moni 的 agent
 > 配套: `BACKLOG.md` (21 工单证据) + `SUCCESSION-PLAN.md` (继任指导) + `PHASE2-REFACTOR.md` (4 重构图纸) + `AGENTS.md` (踩坑史)

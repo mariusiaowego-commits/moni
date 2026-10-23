@@ -2,7 +2,7 @@
 
 - 审计对象: `/Users/mt16/dev/moni` @ branch `exhaustive-mode` (clean, main HEAD 3a5cc00 之后)
 - 审计人: 独立架构审计 ( Principal Architecture Auditor mode)
-- 红线遵守: 全程只读业务代码与 `.git/`；产出仅写入本目录与 `/tmp/sprint-prototypes/`
+- 红线遵守: 全程只读业务代码与 `.git/`；产出仅写入本目录（原型曾放在 `/tmp/sprint-prototypes/`，**已随系统清理删除**）
 - 方法: 逐文件精读核心并发链路 (db/connection, llm/client, llm/jobs, fetch/jobs, cron/jobs, cron/scheduler, web/routes/fetch, share/worker*, fetch/base, web/server, web/routes/service) + 全库危险模式 grep (181 处 except Exception / shell=True=0 / f-string SQL=3 处表名白名单插值) + 前端 Explore 扫描 + **对运行中 8900 的只读 PoC 验证** (curl --path-as-is)
 - 定级: P0 正确性/崩溃/安全 > P1 健壮性 > P2 工程化 > P3 演进 >【需拍板】触及既有架构决策
 
@@ -99,7 +99,7 @@
 - **定级**: P2
 
 #### P2-16 【质量基建】无 CI — 780 tests 只活在开发者本机
-- **证据**: `.github/workflows/` 不存在（ls 实测）；pytest 780 pass 依赖本地 3.12 + `-p no:cacheprovider`（AGENTS.md sprint-07 教训）。测试间纪律靠"注释约定"（connection.py:115-119 明说 tests must commit() before HTTP——纪律型设计，无护栏）。
+- **证据**: `.github/workflows/` 不存在（ls 实测）；pytest 780 pass 依赖本地 3.12 + `-p no:cacheprovider`（AGENTS.md sprint-07 教训）。*（780 是 2026-09-06 的数；当前 1045）*测试间纪律靠"注释约定"（connection.py:115-119 明说 tests must commit() before HTTP——纪律型设计，无护栏）。
 - **定级**: P2
 
 #### P2-17 【后端】f-string SQL 3 处（表名插值）与杂项
@@ -143,4 +143,4 @@
 | S3（安全+前端） | P1-9 scheme 白名单、P1-10 url 打码、P2-13/14/15 | XSS 面清零；轮询有 teardown |
 | S4（工程化） | P2-16 CI、P1-12 except 治理（ruff BLE001）、P3-18/19 | CI 绿门禁；层界干净 |
 
-阶段二对 **P0-1/P0-4/P1-5/P1-6（合并为 LLM 调用层重构）**、**P0-2**、**P0-3**、**P1-7** 做了架构级交付，见 `PHASE2-REFACTOR.md` 与 `/tmp/sprint-prototypes/`。
+阶段二对 **P0-1/P0-4/P1-5/P1-6（合并为 LLM 调用层重构）**、**P0-2**、**P0-3**、**P1-7** 做了架构级交付，见 `PHASE2-REFACTOR.md`（原型的关键断言已按语义重述在 `review-deepseek-flash.md` §4 —— 原型文件本身已随 `/tmp` 清理删除）。

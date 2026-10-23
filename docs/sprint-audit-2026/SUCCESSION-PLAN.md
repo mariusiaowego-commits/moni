@@ -1,15 +1,50 @@
 # moni 工程继任指导书（Succession Engineering Plan）
 
+> ## 📌 状态横幅（2026-10-23 更新）
+>
+> **这是一份 2026-09-06 写的方案，不是变更记录 —— 而且它的大部分已经在 10 月落地了。**
+>
+> | 章节 | 现在的真实状态 |
+> |---|---|
+> | §2 判断 1（统一租约运行时） | ✅ **已落地**（v1.0.42，`moni/db/leases.py` + migration 034/035） |
+> | §2 判断 2（LLM 调用层） | ✅ **已落地**（v1.0.42，`moni/llm/runner.py` FailoverRunner + CircuitBreaker） |
+> | §2 判断 3（调度器归宿） | ⚠️ **已被用户决策取代** —— 见下方"决策修正" |
+> | §2 判断 4（安全原语） | ✅ 大部分落地（`resolve_static_path` / `safeHref` / `redact.py`） |
+> | §2 判断 5（先决定要不要） | ✅ 落地（predict_tags 从"死掉"到 v1.0.47 修好；P1-11 v1.0.51 删端点） |
+> | §4 S1 / S2 蓝图 | ✅ 基本全部落地（v1.0.42 / v1.0.47~v1.0.51） |
+> | §4 S3 / S4 蓝图 | ✅ 落地（v1.0.48 safeHref+vendor / v1.0.50 CI） |
+> | §5 拍板项 2（调度器） | ⚠️ **已被用户决策取代** |
+> | §5 拍板项 3（PUT /api/fetch/sources） | ✅ 已执行（v1.0.51 **删掉**了该端点） |
+> | §6.3 CI YAML 骨架 | ⚠️ **已过时** —— 真实流水线见 `.github/workflows/ci.yml` |
+> | §8 第一个 90 分钟 | ⚠️ 第 2 步已失效（原型在 `/tmp`，已随系统清理删除） |
+> | §9 证据索引 | ⚠️ 4 行原型路径已失效 |
+>
+> **逐条工单的当前状态**（含每张票还剩什么）请读
+> [`CURRENT-TRIAGE-2026-10-23.md`](CURRENT-TRIAGE-2026-10-23.md) —— **那份才是准的**。
+>
+> ### 决策修正：调度器归宿（重要）
+>
+> 本文 §2 判断 3 与 §5 拍板项 2 都主张"**把 APScheduler 塞进 web 进程 lifespan**"，
+> 并把 launchd 列为"可观测性最差"的备选。
+>
+> **用户 2026-10-23 拍板的是相反的方向**：
+>
+> > 定时任务**暂不做**（手动为主）；方向 = **独立 launchd 常驻进程，不嵌入 Web**。
+>
+> 理由与用户原话见 [`README.md`](README.md) 与
+> [`CURRENT-TRIAGE-2026-10-23.md`](CURRENT-TRIAGE-2026-10-23.md) 的 P0-5 行。
+> **将来真要落地调度时，以用户决策为准，不要照本文的方案 B 做。**
+>
 > 写给下一个接手 moni 的人（人或 agent）。
-> 本文是**方案**，不是变更记录——文中所有代码都未落地，只有 `/tmp/sprint-prototypes/` 的 4 个验证原型和 `docs/sprint-audit-2026/` 下的审计文档。
-> 配套阅读顺序：本文 → `BACKLOG.md`（20+1 张工单的证据链）→ `PHASE2-REFACTOR.md`（4 个核心重构的图纸）→ `AGENTS.md` 踩坑史。
+> 本文是**当时的方案**，代码在那两天之后陆续落地了 —— 落地清单见上面那张表和 triage。
+> 配套阅读顺序：**triage（先）** → 本文 → `BACKLOG.md`（21 张工单的证据链）→ `PHASE2-REFACTOR.md`（4 个核心重构的图纸）→ `AGENTS.md` 踩坑史。
 > 全文 File:Line 均在 branch `exhaustive-mode`（审计日 2026-09-06）下有效，若行号漂移以符号名为准。
 
 ---
 
 ## 0. 这份文档的立场
 
-审计已经证明 moni 的**产品主干是能打的**：抓取→过滤→入库→分享链路 783 个 done 的 fetch job、11 个源、780 个测试。真正的问题不在"功能缺失"，而在三个**结构性的工程债**上：
+审计已经证明 moni 的**产品主干是能打的**：抓取→过滤→入库→分享链路 783 个 done 的 fetch job、11 个源、780 个测试（*这三个数字是 2026-09-06 审计日的快照；当前是 12 个源、1045 个测试*）。真正的问题不在"功能缺失"，而在三个**结构性的工程债**上：
 
 1. **任务状态机没有"活性证据"** —— 判死看墙钟起点，不看心跳；判死后原线程还活着；没有任何机制阻止两个写者碰同一行。
 2. **AI 集成层把可靠性寄希望于"别出事"** —— 单 provider 无降级、重试无退避、子进程超时留孤儿、prompt 走 argv 有硬上限。而 LLM 恰恰是这条链上最不可靠的外部依赖。
@@ -63,6 +98,9 @@ fetch_jobs（`fetch/jobs.py`）、llm_jobs（`llm/jobs.py`）、share_tasks 是�
 `llm/client.py` 是"怎么发请求"，但缺"谁值得信任"：无 provider 健康记忆、无降级、无进程组管理、无传输上限。这不是加个 try/except 的事，是一个 `FailoverRunner + CircuitBreaker + HardenedSubprocess` 的薄组件（原型已验证）。薄壳红线不变：moni 仍然不持 key，failover 只在 hermes 已配置的 provider 间切换。
 
 ### 判断 3：调度器的归宿是"web 进程内嵌"，不是复活独立进程
+
+> ⚠️ **此主张已被用户决策取代（2026-10-23）**：实际方向是**独立 launchd 常驻进程，不嵌入 Web**。
+> 下面的论证仍然成立（独立进程需要伺候），但结论取的是另一个选项。
 原设计（`cron/scheduler.py` docstring"SEPARATE process"）从未真正运行过，这本身就是数据：**需要单独伺候的进程在这个项目里活不下来**。8900 uptime 3d23h 证明 web 进程才是唯一可靠的常驻物。所以把 APScheduler 放进 web lifespan 启动（用环境变量门控防 8901 dev 双跑），任务重启存活问题交给判断 1 的租约解决。这是本计划里唯一一处"推翻既有设计决策"，恶魔代言人论证见 §5-拍板项 2。
 
 ### 判断 4：安全修复要做成"原语"而不是"补丁"
@@ -122,7 +160,10 @@ flowchart TB
 
 ## 4. 执行蓝图（S1 → S4，按"止血→正确性→安全→工程化"排序）
 
-> 每票给出：改动清单（文件级）、设计要点、边界条件、验收基线、预估量。原型在 `/tmp/sprint-prototypes/`，其自测即验收基线。
+> 每票给出：改动清单（文件级）、设计要点、边界条件、验收基线、预估量。
+> ~~原型在 `/tmp/sprint-prototypes/`，其自测即验收基线。~~
+> **原型已随 `/tmp` 清理删除**（`/tmp` 会被系统清理）。关键断言已按语义重新描述在
+> [`review-deepseek-flash.md`](review-deepseek-flash.md) §4 —— 照着它重写测试，不要去找 `/tmp`。
 
 ### S1 —— 止血（目标：1-2 个 PR，一个下午到一天）
 
@@ -222,7 +263,11 @@ flowchart TB
 - 反方论据（ Devil's Advocate）：① "退了以后想再加要重做"——错，事件抽取管道就是现成模板，重建成本 ≈1h；② "它便宜"——不便宜：它是 43% 失败率的贡献者、每日无效外呼、和一个永远修不完的弃用 shim。
 - 若退：S1-3 按"退役"分支执行；LLM 自动打标的需求若复活，在 S2-2 的 runner 上重建（半天内）。
 
-### 拍板 2：调度器归宿？—— 推荐：**方案 B，web 进程内嵌**
+### 拍板 2：调度器归宿？—— ~~推荐：**方案 B，web 进程内嵌**~~
+
+> ⚠️ **本项已被用户决策取代（2026-10-23）**：定时任务**暂不做**（手动为主），
+> 方向 = **独立 launchd 常驻进程，不嵌入 Web**（即下面的方案 C）。
+> 下表与论证保留，作为 2026-09-06 当时的分析存档。
 | 方案 | 说白了 | 恶魔代言人反方 | 数据 |
 |---|---|---|---|
 | A. 复活独立进程 | 回到原设计 docstring | 需要单独的启停/巡检/重启恢复——**这正是它从未活过的原因**；多一个 PID 多一类死法 | 8900 uptime 3d23h vs scheduler 0 天 |
@@ -266,6 +311,13 @@ B 的本质是：**用租约运行时消化"进程会死"，换取"进程数量�
 ```
 
 ### 6.3 CI YAML 骨架（落盘即用，按拍板 4 决定是否启用）
+
+> ⚠️ **已被取代**：真实流水线已经落盘并跑了 —— 见仓库根目录
+> [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)（v1.0.50 / PR #149）。
+> 下面是 2026-09-06 当时的草案，与实际实现有出入（实际用 `ubuntu-latest` 而不是
+> `macos-14`；实际加了 `permissions: contents: read`、
+> `persist-credentials: false`，import 检查挪到仓库外执行，`pytest` 输出 tee 成日志
+> 供失败时上传）。**以仓库里的真实文件为准。**
 ```yaml
 name: ci
 on: [push, pull_request]
@@ -316,7 +368,8 @@ jobs:
    curl -s --path-as-is -o /dev/null -w '%{http_code} %{size_download}\n' http://127.0.0.1:8900//etc/hosts
    # ↑ 若 213 字节左右 = P0-2 仍在，对照 216024 = 已修
    ```
-2. **跑 4 个原型**（`/usr/local/bin/python3 /tmp/sprint-prototypes/*.py`）——它们既是方案说明也是验收基线；跑不通先怀疑 Python 版本（必须 3.12）。
+2. ~~**跑 4 个原型**~~ —— **这一步已失效**：原型放在 `/tmp/sprint-prototypes/`，该目录已随系统清理删除。
+   替代做法：按 [`review-deepseek-flash.md`](review-deepseek-flash.md) §4 的断言描述，在 `tests/` 里重写。
 3. **读**：本文 §2 五个判断 → `BACKLOG.md` 证据链 → `PHASE2-REFACTOR.md` 图纸 → `AGENTS.md` 的 v1.0.35.17 / v1.0.36 / v1.0.37 三段踩坑（本计划的 R1/R5 直接源自那里）。
 4. **拿着 §5 的 4 个拍板项找项目所有者过一遍**，然后从 S1-1 开始——它是 6 行代码换一个实测漏洞消除，性价比全表第一。
 
@@ -328,8 +381,6 @@ jobs:
 |---|---|---|
 | 工单证据链 | `docs/sprint-audit-2026/BACKLOG.md` | 21 tickets，File:Line 实证 |
 | 重构图纸 | `docs/sprint-audit-2026/PHASE2-REFACTOR.md` | 4 核心重构 Mermaid + 恶魔代言人 |
-| LLM 原型 | `/tmp/sprint-prototypes/LLM-01-hardened-runner.py` | failover/熔断/进程组击杀/argv 预检，自测通过 |
-| 安全原型 | `/tmp/sprint-prototypes/SEC-01-safe-spa-fallback.py` | 14 攻击向量，自测通过 |
-| 租约原型 | `/tmp/sprint-prototypes/JOB-01-fetch-lease.py` | 心跳+fencing，自测通过 |
-| 认领原型 | `/tmp/sprint-prototypes/JOB-02-llm-job-claim.py` | 原子认领+悬挂回收，自测通过 |
+| 原型断言（重述版） | [`review-deepseek-flash.md`](review-deepseek-flash.md) §4 | 4 个原型（LLM runner / 安全 fallback / 租约 / 原子认领）的关键断言已按语义重述。**原型文件本身已随 `/tmp` 清理删除**，要落地时按 §4 重写 pytest |
+| 已落地的对应实现 | `moni/llm/runner.py`、`moni/web/server.py::resolve_static_path`、`moni/db/leases.py` | 上面那些断言最终都变成了真实代码 + pytest |
 | 历史踩坑 | `AGENTS.md`（v1.0.35.17 / sprint-19 / v1.0.37 各节） | 本计划多数缓解措施的出处 |

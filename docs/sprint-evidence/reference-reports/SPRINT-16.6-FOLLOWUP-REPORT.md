@@ -8,7 +8,7 @@
 
 ## §1 代码定位: 确认【待核实】+[] 仍 fail
 
-### 1.1 当前 Gate 1 逻辑 ([jobs.py:646-655](file:///Users/mt16/dev/moni/moni/llm/jobs.py#L646-L655))
+### 1.1 当前 Gate 1 逻辑 ([jobs.py:646-655](../../../moni/llm/jobs.py#L646-L655))
 
 ```python
 if not valid:
@@ -20,7 +20,7 @@ if not valid:
 
 **确认**: 【待核实】+`evidence=[]` 仍 raise → status=failed. **【存疑】+[] 也同样 fail**.
 
-### 1.2 模板规定 ([fact_check_plus.md:41](file:///Users/mt16/dev/moni/moni/llm/prompts/fact_check_plus.md#L41))
+### 1.2 模板规定 ([fact_check_plus.md:41](../../../moni/llm/prompts/fact_check_plus.md#L41))
 
 ```
 没有可引用证据时 evidence 给空数组，conclusion 只能是【待核实】/【存疑】/【无需核查】
@@ -30,7 +30,7 @@ if not valid:
 
 只有 **【已核实】不允许** evidence=[] (模板 L20: "不联网则不得给【已核实】。没有证据支撑只能给【待核实】或【存疑】").
 
-### 1.3 USER_GUIDE §5.4 四档规则 ([USER_GUIDE.md:602-605](file:///Users/mt16/dev/moni/USER_GUIDE.md#L602-L605))
+### 1.3 USER_GUIDE §5.4 四档规则 ([USER_GUIDE.md:602-605](../../../USER_GUIDE.md#L602-L605))
 
 ```
 - 【待核实】— 检索结果不足, 或仅自媒体命中 (无 snippet 证据丢弃)
@@ -52,7 +52,7 @@ if not valid:
 
 ### 1.5 sprint-16.6 防御测试的矛盾
 
-[test_fact_check_plus.py:1103-1128](file:///Users/mt16/dev/moni/tests/test_fact_check_plus.py#L1103-L1128):
+[test_fact_check_plus.py:1103-1128](../../../tests/test_fact_check_plus.py#L1103-L1128):
 
 ```python
 def test_pending_empty_evidence_still_fails(fresh_db, monkeypatch):
@@ -83,7 +83,7 @@ sprint-16.6 报告 (§4.2) 设计此测试时, 目的是"钉死其他 3 档行�
 
 ### 方案 A: 扩展豁免 — 只拦【已核实】+[] ✅ 推荐
 
-**改动**: [jobs.py:646-655](file:///Users/mt16/dev/moni/moni/llm/jobs.py#L646-L655), ~5 行
+**改动**: [jobs.py:646-655](../../../moni/llm/jobs.py#L646-L655), ~5 行
 
 ```python
         if not valid:
@@ -127,9 +127,9 @@ sprint-16.6 报告 (§4.2) 设计此测试时, 目的是"钉死其他 3 档行�
 
 | 文件 | 改动 | 行数 |
 |------|------|------|
-| [jobs.py](file:///Users/mt16/dev/moni/moni/llm/jobs.py) L646-654 | 判断条件从 `conclusion.startswith("【无需核查】")` → `not conclusion.startswith("【已核实】")` | ~3 行 |
-| [jobs.py](file:///Users/mt16/dev/moni/moni/llm/jobs.py) L793 | 函数名 `_persist_no_check_needed` → `_persist_empty_evidence`; docstring 更新 | ~5 行 |
-| [test_fact_check_plus.py](file:///Users/mt16/dev/moni/tests/test_fact_check_plus.py) L1103-1128 | `test_pending_empty_evidence_still_fails` → 改断言为 `status=="done"` + 验 articles 入库 | ~8 行 |
+| [jobs.py](../../../moni/llm/jobs.py) L646-654 | 判断条件从 `conclusion.startswith("【无需核查】")` → `not conclusion.startswith("【已核实】")` | ~3 行 |
+| [jobs.py](../../../moni/llm/jobs.py) L793 | 函数名 `_persist_no_check_needed` → `_persist_empty_evidence`; docstring 更新 | ~5 行 |
+| [test_fact_check_plus.py](../../../tests/test_fact_check_plus.py) L1103-1128 | `test_pending_empty_evidence_still_fails` → 改断言为 `status=="done"` + 验 articles 入库 | ~8 行 |
 | test_fact_check_plus.py | 新增 `test_doubtful_empty_evidence_succeeds` (【存疑】+[] → done) | ~20 行 |
 | **合计** | | **~36 行** |
 
@@ -168,7 +168,7 @@ sprint-16.6 报告 (§4.2) 设计此测试时, 目的是"钉死其他 3 档行�
 
 ### 第一刀
 
-把 [L649](file:///Users/mt16/dev/moni/moni/llm/jobs.py#L649) 从:
+把 [L649](../../../moni/llm/jobs.py#L649) 从:
 ```python
 if conclusion.startswith("【无需核查】"):
 ```

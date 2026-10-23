@@ -5,10 +5,10 @@
 
 | 原型 | 工单 | 验证方式 |
 |---|---|---|
-| `/tmp/sprint-prototypes/LLM-01-hardened-runner.py` | P0-1/P0-4/P1-5/P1-6 | 自测：failover 编排、熔断开合、孤儿进程组击杀（真子进程复现） |
-| `/tmp/sprint-prototypes/SEC-01-safe-spa-fallback.py` | P0-2 | 12 个攻击向量断言（含 symlink 逃逸、NUL、绝对路径） |
-| `/tmp/sprint-prototypes/JOB-01-fetch-lease.py` | P0-3 | 真线程双写者 + fencing 拒绝演示 |
-| `/tmp/sprint-prototypes/JOB-02-llm-job-claim.py` | P1-7 | 12 线程并发抢单零重复 + 僵尸回收入队 |
+| ~~`/tmp/sprint-prototypes/LLM-01-hardened-runner.py`~~ **已删除** | P0-1/P0-4/P1-5/P1-6 | 自测：failover 编排、熔断开合、孤儿进程组击杀（真子进程复现）。**原型文件已随 `/tmp` 清理删除**，断言描述见 `review-deepseek-flash.md` §4；最终实现 = `moni/llm/runner.py` |
+| ~~`/tmp/sprint-prototypes/SEC-01-safe-spa-fallback.py`~~ **已删除** | P0-2 | **14** 个攻击向量断言（含 symlink 逃逸、NUL、绝对路径）—— 清单见 `review-deepseek-flash.md` §4；最终实现 = `moni/web/server.py::resolve_static_path` + `tests/test_spa_fallback.py`（**31** 个用例） |
+| ~~`/tmp/sprint-prototypes/JOB-01-fetch-lease.py`~~ **已删除** | P0-3 | 真线程双写者 + fencing 拒绝演示。最终实现 = `moni/db/leases.py` |
+| ~~`/tmp/sprint-prototypes/JOB-02-llm-job-claim.py`~~ **已删除** | P1-7 | 12 线程并发抢单零重复 + 僵尸回收入队。最终实现 = `moni/db/leases.py` |
 
 ---
 
@@ -213,4 +213,5 @@ sequenceDiagram
 
 1. **S1 止血**（1 个 PR 可完成）：SEC-01（6 行）→ LLM-01 的 P0-1 一致性修复（predict_tags 切 `resolve_active_model`，删弃用 shim 调用）→ P0-4 killpg → JOB-02 回收。每项原型即验收基准。
 2. **S2**：LLM-01 breaker/failover 完全体 + JOB-01 lease migration 031。JOB-01 上线时保留旧 sweep 一个版本（双跑对比 `stale` 误判率）再删补丁。
-3. 回归护栏：把 4 个原型的自测套件移植进 `tests/`（尤其 SEC 的 12 向量与 JOB-01 的双写者演示，都是现成的 pytest 素材）。
+3. 回归护栏：把 4 个原型的自测套件移植进 `tests/`（尤其 SEC 的 **14** 向量与 JOB-01 的双写者演示，都是现成的 pytest 素材）。
+   **注：原型文件已随 `/tmp` 清理删除**，按 `review-deepseek-flash.md` §4 的断言描述重写即可。

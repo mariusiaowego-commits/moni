@@ -2,7 +2,7 @@
 
 **日期**: 2026-08-24  
 **基准**: main HEAD = `15a5256` (v1.0.35.9 ship, PR #116 squash merge)  
-**前置报告**: [REFERENCE-REPORT.md](file:///Users/mt16/dev/moni-ref-fact-check/REFERENCE-REPORT.md) (sprint-16 P1, 131 行)  
+**前置报告**: [REFERENCE-REPORT.md](REFERENCE-REPORT.md) (sprint-16 P1, 131 行)  
 **Working tree**: `STATUS.md` + `USER_GUIDE.md` dirty (文档同步, 无代码改动)  
 **风险评级**: **Low** (全部是加固型测试 + lint, 无生产代码改动)
 
@@ -65,7 +65,7 @@
 
 ### 2.3 enrichment.py INSERT 路径 cross-check
 
-[enrichment.py:287-292](file:///Users/mt16/dev/moni/moni/share/enrichment.py#L287-L292): 直接 `INSERT INTO llm_jobs ... VALUES (?, 'fact_check_plus', ...)`, 不调任何 render 函数. Worker thread 从 `llm_jobs` 表 pickup `status='pending'` 行 → `_run_job()` → `render_fact_check_plus()`. **修复覆盖此路径**, 无遗漏.
+[enrichment.py:287-292](../../../moni/share/enrichment.py#L287-L292): 直接 `INSERT INTO llm_jobs ... VALUES (?, 'fact_check_plus', ...)`, 不调任何 render 函数. Worker thread 从 `llm_jobs` 表 pickup `status='pending'` 行 → `_run_job()` → `render_fact_check_plus()`. **修复覆盖此路径**, 无遗漏.
 
 ---
 
@@ -188,11 +188,11 @@ moni 团队节奏: 1 sprint = 1-3 天. Sprint-16.5 是 **半天 sprint**, 单 ag
 - `git log --oneline -10` @ main HEAD `15a5256`
 - `grep -rn '\$[a-z_]' moni/llm/prompts/` — 只在 `case_extraction.txt` 命中 (故意)
 - `grep -rn '\{[a-z_]+\}' moni/llm/prompts/` — 6 模板全量扫描
-- [__init__.py](file:///Users/mt16/dev/moni/moni/llm/prompts/__init__.py) L13 `_PLACEHOLDER_RE` + L21-33 `_render()` + L77-90 `render_fact_check_plus()`
-- [jobs.py](file:///Users/mt16/dev/moni/moni/llm/jobs.py#L288-L318) `_run_job` prompt→call_llm 链路
-- [enrichment.py](file:///Users/mt16/dev/moni/moni/share/enrichment.py#L255-L310) INSERT enqueue 路径
-- [test_fact_check_plus.py](file:///Users/mt16/dev/moni/tests/test_fact_check_plus.py) 30 tests / 811 行
-- [client.py](file:///Users/mt16/dev/moni/moni/llm/client.py#L50-L59) `call_llm()` 签名
+- [__init__.py](../../../moni/llm/prompts/__init__.py) L13 `_PLACEHOLDER_RE` + L21-33 `_render()` + L77-90 `render_fact_check_plus()`
+- [jobs.py](../../../moni/llm/jobs.py#L288-L318) `_run_job` prompt→call_llm 链路
+- [enrichment.py](../../../moni/share/enrichment.py#L255-L310) INSERT enqueue 路径
+- [test_fact_check_plus.py](../../../tests/test_fact_check_plus.py) 30 tests / 811 行
+- [client.py](../../../moni/llm/client.py#L50-L59) `call_llm()` 签名
 - `git status --short` — STATUS.md + USER_GUIDE.md dirty (文档, 无代码)
 - `find .pre-commit-config*` — 0 结果, moni 无 pre-commit 配置
 - `grep captured tests/` — `test_api.py` / `test_llm_usage_counters.py` 成熟 spy 模式可参考

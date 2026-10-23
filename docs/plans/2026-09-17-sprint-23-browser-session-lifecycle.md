@@ -1,8 +1,30 @@
 # Plan: Chrome / BrowserSession 生命周期 (2026-09-17) — sprint-23 草案
 
+> ## ⚠️ 归档说明（2026-10-23 补）
+>
+> **这是一份从未执行的历史草案。** 归档前的事实核对发现下面这些问题，
+> 照原文执行会走不通，所以已经就地修正了**事实性错误**，但**方案本身
+> 没有被实施**：
+>
+> | 原文 | 事实 | 处置 |
+> |---|---|---|
+> | 版本 v1.0.43 | **v1.0.43 从未存在**。tag 链是 v1.0.42 → v1.0.44 → v1.0.45 | 标注跳过 |
+> | CLI 名 `monochrome` | 仓库里**没有**这个命令，真实 CLI 是 `moni`（`pyproject.toml`） | 已改成 `moni` |
+> | `MONI_CHROME_USER_DATA_DIR` | 真实环境变量名是 **`MONI_CHROME_USER_DATA_DIR`** | 已改 |
+> | `monochrome_browser_session()` | 计划里**提议新建**的工厂函数，从未存在 | 改成中性命名 `browser_session_factory()`（仍是提议） |
+> | "6 个源" | `config/sources.yaml` 现在是 **12 个源** | 已改 |
+> | "889+ pass" | 当前基线 **1045 passed / 2 skipped** | 已改 |
+> | "schedule.yaml 注册 6 个 job" | 现在注册了 **6 个 job** | 已改 |
+> | launchd `KeepAlive=false`（cron 单次 exec 后退出） | **与后来的 P0-5 决策相反**：dad 2026-10-23 拍板"定时任务**暂不做**，手动为主；方向是**独立 launchd 常驻进程，不嵌入 Web**" | 保留原文，但在下方标注已被取代 |
+>
+> **部分目标后来以别的形式达成了**，别当成没做：
+> - v1.0.42（sprint-22）落地了统一租约运行时 + LLM 调用层，`chrome_daemon` 的常量读取方式被改过一轮。
+> - v1.0.50（PR #149）把 `chrome_daemon.py` 里**硬编码的 macOS 路径**改成按平台推导（非 macOS 走 `~/.moni/chrome-profile`），这正是本文第 3 条目标的一个子集。
+> - 36kr_rss 的可抓取性另有专门 PR（#146 / #149），不在这份计划里。
+
 - **sprint**: sprint-23 (id `26091701`)
 - **slug**: `browser-session-lifecycle`
-- **版本**: **v1.0.43**（Q1=A decided 2026-09-17）
+- **版本**: ~~**v1.0.43**~~ — **该版本号最终被跳过**（Q1=A decided 2026-09-17，但 sprint-23 未实施）
 - **状态**: **待启动 / Approved for planning** — Q1/Q2/Q3/Q7 decided；Q4/Q5/Q6/Q8 open
 - **触发**: `LH260917-MONI-REVIEW` 只读 code review (mini-audit by MiniMax-M3)，A1-A7 + B1-B8 实证 7 条 daemon / 焦点 / 配置问题
 - **范围**: 本文件**只是计划**；实现日另开（sprint-23 implement session），今天不写任何 `.py` / `.plist` / `.yaml` 业务逻辑
@@ -16,9 +38,12 @@
 
 1. **唯一 `BrowserSession`**：吸收 `chrome_daemon.py` (Profile 7 / 9223) + `xwatch_following.py` (Profile 6 / 9222) 的重复代码；提供 `BrowserSession.start() → use → stop()` context-manager 接口；模块导入一次，所有 fetcher 共享。
 2. **默认 `--headless=new`**：解决"chrome_daemon 默认 `--headless` (legacy) 仍弹 dock 图标"问题；headed 仅在 captcha bypass 时打开，且带 mutex + 限时 + 必须 `--disable-features=Translate`。
-3. **独立 user-data-dir + 独立 debug port**：`Profile 7` 留 36kr，`Profile 6` 留 X，未来新增源继续按 `Profile N` 严格隔离；`CHROME_USER_DATA_DIR` 不再写死为用户家目录（生产 env-only override）。
+3. **独立 user-data-dir + 独立 debug port**：`Profile 7` 留 36kr，`Profile 6` 留 X，未来新增源继续按 `Profile N` 严格隔离；`MONI_CHROME_USER_DATA_DIR` 不再写死为用户家目录（生产 env-only override）。
 4. **短生命周期 + 引用计数 + TTL**：每次 fetch 都在 `try/finally` 内 stop；daemon 空闲 > 5 分钟 → 杀；并发 fetch 用 `flock` 串行化（避免多 Chrome 实例撞端口）。
 5. **launchd `KeepAlive=false`** + cron 进程每次 fetch 完退出 → Chrome daemon 必随父进程死亡。
+   > ⚠️ **已被 2026-10-23 的 P0-5 决策取代**：dad 拍板"定时任务**暂不做**（手动为主），
+   > 方向是**独立 launchd 常驻进程，不嵌入 Web 进程**"。真要落地调度时，
+   > 请按"常驻 launchd 进程"这条走，不要按本文的"单次 exec + 退出"。
 6. **禁 OS 焦点抢占**：代码内不出现 `NSWorkspace` / `osascript activate` / `frontmost`；config/CLI 无 `MONI_*_HEADED=1` 默认（必须显式 `--headed` 一次性）。
 7. **36kr_rss（Q2 decided）**：自 v1.0.5.8 起长期 0 产出，但**必须保留并修好，禁止 disable / 砍源**。优先 **httpx + persisted cookies**（或现有 cookie 通路）；captcha 仅短命 headed + mutex，纳入 `BrowserSession`，不当长期 headed。实现落在 Phase 1/2 的抓取路径改造，不在「关源」上解决。
 
@@ -52,7 +77,7 @@
 
 1. **单一 owner**：moni 当前所有 Chrome 启动点收敛到 2 处（`moni/fetch/chrome_daemon.py:142` + `moni/fetch/xwatch_following.py:201`），加上 `scripts/manual_captcha.py:111` 一处用户手动入口；将来只剩 `BrowserSession.start()` 一个。
 2. **数据**：`Profile 7` cookie 来自 `scripts/manual_captcha.py` 一次性登录（`config/36kr_cookies.json` 仅作备份）；`Profile 6` cookie 来自 hermes x-watch 手动登录；切换路径不会动 cookie。
-3. **Frequency**：`config/sources.yaml` 6 个源 `fetch_interval_min: 5` 当前是 dead config（schedule.yaml 只 9:10 跑一次）；本 sprint **不修 dead config**，仅记录为技术债（Phase 2 B1 二选一）。
+3. **Frequency**：`config/sources.yaml` 12 个源 `fetch_interval_min: 5` 当前是 dead config（schedule.yaml 注册 6 个 job）；本 sprint **不修 dead config**，仅记录为技术债（Phase 2 B1 二选一）。
 4. **Boundaries**：完全不动 `moni/llm/*`、`moni/db/*`、`moni/web/static/js/*`；仅限 `moni/fetch/browser/*`（新）+ `moni/fetch/{chrome_daemon,browser_harness,xwatch_following}.py`（改）+ `scripts/com.moni.cron.plist`（改 KeepAlive）+ `scripts/manual_captcha.py`（改 mutex）+ `.gitignore`（加 cookies）。
 5. **State**：零 DDL、零 migration、零 schema 变更；sprint-22 已用 034/035，本 sprint 无新 migration。
 6. **Environment**：`MONI_CHROME_*` env 全部 `os.environ.get()` 模块级读取改为函数级读取（Phase 2 B2）→ 测试可 monkeypatch；生产 .env 注入走 launchd plist `EnvironmentVariables`。
@@ -116,7 +141,7 @@
        def stop(self) -> None: ...
    ```
 
-2. **`chrome_daemon.py` → 薄包装**：内部只剩 `monochrome_browser_session(profile="moni-36kr")` 工厂；保留模块级常量仅作 back-compat import shim。
+2. **`chrome_daemon.py` → 薄包装**：内部只剩 `browser_session_factory(profile="moni-36kr")` 工厂；保留模块级常量仅作 back-compat import shim。
 
 3. **`xwatch_following.py` → 切到 BrowserSession**：复用 `ensure=True, headed=False` (Phase 1 默认改 headed=False；X 跟 36kr 一样走 headless=new 测试)；保留 `stop_x_chrome()` 但内部实现改为 `BrowserSession.stop()`。
 
@@ -124,7 +149,7 @@
 
 5. **`--headless=new` 全局默认**：`BrowserSession.__init__` 默认传 `--headless=new`，不再 `--headless`。
 
-6. **常量函数级读取**：把 `chrome_daemon.py:56-74` 的 module-level 常量改为 `monochrome_browser_session(profile=...)` 函数内 `os.environ.get()`，支持测试 monkeypatch（Phase 2 配套）。
+6. **常量函数级读取**：把 `chrome_daemon.py:56-74` 的 module-level 常量改为 `browser_session_factory(profile=...)` 函数内 `os.environ.get()`，支持测试 monkeypatch（Phase 2 配套）。
 
 7. **新增 `moni/fetch/browser/registry.py`**：维护 profile/port 分配表（Profile 6 / 9222 X；Profile 7 / 9223 36kr；Profile 8 / 9224 future），避免新增源撞端口。
 
@@ -164,12 +189,12 @@ launchctl list com.moni.cron                     # → KeepAlive=false
 
 # Phase 1
 /usr/local/bin/python3 -m pytest tests/test_browser_session.py -v -p no:cacheprovider
-monochrome CLI 模式启动 → 跑一次 fetch → 检查 chrome 进程已杀
-monochrome headed (manual_captcha) → 检查 flock 生效
+moni CLI 模式启动 → 跑一次 fetch → 检查 chrome 进程已杀
+moni headed (manual_captcha) → 检查 flock 生效
 
 # Phase 2 (可选)
 playwright install chromium
-monochrome playwright → 对比 chrome_daemon 抓取 36kr 成功率
+moni playwright → 对比 chrome_daemon 抓取 36kr 成功率
 ```
 
 ### 回滚
@@ -183,12 +208,12 @@ monochrome playwright → 对比 chrome_daemon 抓取 36kr 成功率
 ## 5. 验收 checklist
 
 ### Phase 0 完成判据
-- [ ] `monochrome fetch --source 36kr_rss` 跑完，`ps -ax | grep "Profile 7"` 立即为空（验证 daemon 收尾）
-- [ ] `monochrome cron start` + 等 10 分钟，`KeepAlive=false` 下进程退出；`ps -ax | grep "Profile 7"` 空
+- [ ] `moni fetch --source 36kr_rss` 跑完，`ps -ax | grep "Profile 7"` 立即为空（验证 daemon 收尾）
+- [ ] `moni cron start` + 等 10 分钟，`KeepAlive=false` 下进程退出；`ps -ax | grep "Profile 7"` 空
 - [ ] `stop_chrome()` 改 lsof 路径后，杀进程不误伤日常 Chrome（实测 9223 + 9222 两个 fake listener）
-- [ ] `flock` 验证：两个 `monochrome fetch --source 36kr_rss` 并发 → 第二个阻塞 → 第一个完后第二个启动
+- [ ] `flock` 验证：两个 `moni fetch --source 36kr_rss` 并发 → 第二个阻塞 → 第一个完后第二个启动
 - [ ] `.gitignore` 含 `config/*_cookies.json`；`git check-ignore config/36kr_cookies.json` 返 `config/36kr_cookies.json`
-- [ ] 全量 pytest 889+ pass (与 sprint-22 baseline 一致；本 sprint 无新增 migration)
+- [ ] 全量 pytest 1045+ pass (当前基线 1045 passed / 2 skipped；本 sprint 无新增 migration)
 - [ ] 手动 captcha 路径仍 work（`scripts/manual_captcha.py` 跑一次能完成 captcha + 落 cookie）
 
 ### Phase 1 完成判据

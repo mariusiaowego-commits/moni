@@ -1,5 +1,7 @@
 # Local Artifact Archive — 2026-10-23
 
+> 2026-10-24 复核: 归档目标 `~/Documents/moni-archive-20261023/` 与三个源工作目录 (`moni-worktrees/*`, `moni-ref-fact-check`) 已随当次清理删除, **本清单是这些文件的唯一台账** —— 清单里的字节数不再可现场复算, 以本文记录为准。
+
 These files are gitignored generated/demo material from June-August 2026.
 They were moved, not deleted, to:
 

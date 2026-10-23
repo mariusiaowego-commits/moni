@@ -1,5 +1,7 @@
 # moni 后续 TODO 深度 Review — deepseek-flash
 
+> ⚠️ **历史快照 (2026-09-10) — 不是当前结论**。本文基线是 `exhaustive-mode` @ `3a5cc00` (v1.0.41) 的现场复核, 里面 21 张工单的状态、"prod 未运行"、"ghost sources 回归"等判断都是当时的观察。2026-10-23/24 的复核结论见 `CURRENT-TRIAGE-2026-10-23.md` (17 处修正), **以那份为准**。
+
 - **日期**: 2026-09-10
 - **Reviewer**: deepseek-flash (worker B 泳道候选)
 - **对象**: `/Users/mt16/dev/moni` @ branch `exhaustive-mode` = main @ `3a5cc00` (tag `v1.0.41`), working tree 仅 1 个 untracked (`docs/sprint-audit-2026/`)

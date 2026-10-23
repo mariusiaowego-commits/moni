@@ -21,7 +21,7 @@ LLM 返回 → _run_job (L411-420) → _persist_fact_check_plus (L591)
 
 ### 1.2 精确故障行
 
-[jobs.py:640-641](file:///Users/mt16/dev/moni/moni/llm/jobs.py#L640-L641):
+[jobs.py:640-641](../../../moni/llm/jobs.py#L640-L641):
 
 ```python
         if not valid:
@@ -32,7 +32,7 @@ LLM 返回 → _run_job (L411-420) → _persist_fact_check_plus (L591)
 
 ### 1.3 模板设计 vs 闸逻辑矛盾
 
-[fact_check_plus.md:41-42](file:///Users/mt16/dev/moni/moni/llm/prompts/fact_check_plus.md#L41-L42):
+[fact_check_plus.md:41-42](../../../moni/llm/prompts/fact_check_plus.md#L41-L42):
 
 ```
 - 没有可引用证据时 evidence 给空数组，conclusion 只能是【待核实】/【存疑】/【无需核查】
@@ -45,15 +45,15 @@ LLM 返回 → _run_job (L411-420) → _persist_fact_check_plus (L591)
 
 | 入口 | 路径 | 受影响? |
 |------|------|--------|
-| 单篇 POST `/api/articles/{id}/fact-check-plus` | [fact_check_plus.py:319](file:///Users/mt16/dev/moni/moni/web/routes/fact_check_plus.py) → enqueue → worker → `_run_job` | ✅ 受影响 |
-| 批量 POST `/api/fact-check-plus/batch` | [fact_check_plus.py:369](file:///Users/mt16/dev/moni/moni/web/routes/fact_check_plus.py) → enqueue (≤20) → worker → `_run_job` | ✅ 受影响 |
-| `share/enrichment.py` 简报 enrich | [enrichment.py:287-292](file:///Users/mt16/dev/moni/moni/share/enrichment.py#L287-L292) → INSERT `llm_jobs` → worker → `_run_job` | ✅ 受影响 |
+| 单篇 POST `/api/articles/{id}/fact-check-plus` | [fact_check_plus.py:319](../../../moni/web/routes/fact_check_plus.py) → enqueue → worker → `_run_job` | ✅ 受影响 |
+| 批量 POST `/api/fact-check-plus/batch` | [fact_check_plus.py:369](../../../moni/web/routes/fact_check_plus.py) → enqueue (≤20) → worker → `_run_job` | ✅ 受影响 |
+| `share/enrichment.py` 简报 enrich | [enrichment.py:287-292](../../../moni/share/enrichment.py#L287-L292) → INSERT `llm_jobs` → worker → `_run_job` | ✅ 受影响 |
 
 **修复 `_persist_fact_check_plus` 一处, 3 条入口全部修好.**
 
 ### 1.5 conclusion 提取时机
 
-`conclusion` 在 [L644](file:///Users/mt16/dev/moni/moni/llm/jobs.py#L644) 提取:
+`conclusion` 在 [L644](../../../moni/llm/jobs.py#L644) 提取:
 
 ```python
 conclusion = str(parsed.get("conclusion") or "【待核实】").strip()
@@ -67,7 +67,7 @@ conclusion = str(parsed.get("conclusion") or "【待核实】").strip()
 
 ### 方案 A: 在 Gate 1 前提取 conclusion, 【无需核查】跳过 evidence 闸 ✅ 推荐
 
-**改动**: [jobs.py](file:///Users/mt16/dev/moni/moni/llm/jobs.py) `_persist_fact_check_plus` 内, ~4 行
+**改动**: [jobs.py](../../../moni/llm/jobs.py) `_persist_fact_check_plus` 内, ~4 行
 
 ```python
 # 在 L615 (raw_evidence 赋值) 之后, L619 (Gate 1) 之前, 提前提取 conclusion:
@@ -123,7 +123,7 @@ if not valid:
 
 ### 3.1 改动位置
 
-[_persist_fact_check_plus](file:///Users/mt16/dev/moni/moni/llm/jobs.py#L591-L777), 改动 ~15 行 (含注释):
+[_persist_fact_check_plus](../../../moni/llm/jobs.py#L591-L777), 改动 ~15 行 (含注释):
 
 ```python
 def _persist_fact_check_plus(...) -> None:
