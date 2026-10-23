@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-# Ensure moni is importable from the repo root
-sys.path.insert(0, os.path.expanduser("~/dev/moni/wt/t1-db"))
+# Ensure moni is importable from this checkout, regardless of its absolute path.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient
 
