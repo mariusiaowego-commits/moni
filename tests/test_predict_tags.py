@@ -23,6 +23,7 @@ through the ``llm_call_fn`` seam — no network, no hermes subprocess.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -36,6 +37,24 @@ from moni.cron import jobs as cron_jobs
 from moni.cron.jobs import _parse_tags_from_reply, predict_tags_pending
 from moni.db.connection import close_db, get_db, set_db_path
 from moni.db.migrate import migrate
+
+
+@pytest.fixture(autouse=True)
+def _reset_predict_tags_lock():
+    """每个用例结束后强制释放模块级锁。
+
+    没有这条时, 任何一个用例在锁里失败就会把锁留给下一个用例 ——
+    下一个用例的 ``acquire()`` (阻塞版) 直接死锁, 整套测试卡住而不是
+    报红。审计第二轮要求"锁在异常后必须可再获取", 这条让失败可见。
+    """
+    yield
+    lock = cron_jobs._PREDICT_TAGS_LOCK
+    if lock.locked():
+        try:
+            lock.release()
+        except RuntimeError:
+            # 锁被别的线程持有 —— 那不是本用例的责任
+            pass
 
 
 @pytest.fixture
@@ -229,6 +248,29 @@ class TestPredictTagsPending:
         assert rows and rows[0]["success"] == 0
         assert "already in progress" in (rows[0]["error"] or "")
 
+    def test_lock_is_released_when_the_body_raises(self, isolated_db, monkeypatch):
+        """异常退出后锁必须释放 —— 审计第二轮 F7 一直缺这条自动化。
+
+        锁是模块级 ``threading.Lock``。如果 locked 体抛异常时 ``finally``
+        没兜住, 这个定时任务会**一次崩溃就永久卡死** (之后每个 tick 都
+        只能走 "skipped: another run already in progress")。
+        """
+        def boom(**_kwargs):
+            raise RuntimeError("kaboom")
+
+        monkeypatch.setattr(cron_jobs, "_predict_tags_pending_locked", boom)
+
+        with pytest.raises(RuntimeError):
+            predict_tags_pending(llm_call_fn=lambda p: "{}")
+
+        try:
+            # 锁必须已经释放 —— 能再拿到就说明 finally 生效了
+            assert cron_jobs._PREDICT_TAGS_LOCK.acquire(blocking=False)
+        finally:
+            # 万一这条断言失败, 别把锁留给后面的用例 (否则整套测试死锁)
+            if cron_jobs._PREDICT_TAGS_LOCK.locked():
+                cron_jobs._PREDICT_TAGS_LOCK.release()
+
     def test_partial_provider_override_is_not_discarded(self, isolated_db, monkeypatch):
         """v1.0.47.1 (audit F2): explicit provider must survive model resolution."""
         conn = get_db()
@@ -333,12 +375,41 @@ def test_no_hardcoded_model_or_deprecated_client_in_jobs_source():
 
 
 def test_predict_tag_prompt_still_asks_for_strict_json():
-    """The parser's primary tier assumes the prompt asks for JSON."""
+    """The parser's primary tier assumes the prompt asks for JSON.
+
+    审计第三轮实测: 全文子串匹配会被"反例"块满足 —— ``{"tags"`` 在模板里
+    **只出现在 34 行之后的反例区**, 正向示例 (17-21 行) 是 ``{`` 单独成行。
+    于是把指令改成"不要用严格 JSON"这类语义取反的文本, 断言照样 PASS。
+
+    改成: 只在"输出格式"**正向块**里断言 + 显式拒绝"否定式指令"。
+    """
     template = (WT_ROOT / "moni" / "llm" / "prompts" / "predict_tag.md").read_text(
         encoding="utf-8"
     )
-    assert '"tags"' in template
-    assert "严格 JSON" in template or "strict JSON" in template.lower()
-    # The template mentions reasoning in its counter-example, so a bare
-    # substring check can be satisfied by text saying the opposite.
-    assert '{"tags"' in template
+    head = re.search(r"^#\s*输出格式.*$", template, re.M)
+    assert head, "prompt lost its '# 输出格式' section"
+    nxt = re.search(r"^#\s", template[head.end() :], re.M)
+    block = (
+        template[head.start() : head.end() + nxt.start()]
+        if nxt
+        else template[head.start() :]
+    )
+
+    # 正向块必须真的给出 JSON 输出示例 (带 "tags" 字段)
+    assert re.search(r'"tags"\s*:', block), "输出格式 block lost the \"tags\" field"
+    assert re.search(r"```\s*json", block, re.I), (
+        "输出格式 block lost the fenced JSON example"
+    )
+
+    # 指令必须是"要求 JSON", 不能是"不要 JSON"这类语义取反
+    assert re.search(r"json", head.group(0), re.I), head.group(0)
+    negation = re.search(
+        r"(不要|不用|禁止|无需|不需要)[^。\n]{0,12}json", head.group(0), re.I
+    )
+    assert not negation, (
+        "输出格式 heading turned into a negation: %r" % head.group(0)
+    )
+
+    # 反例块另在别处 —— 正向块不应包含反例标记
+    assert "❌" not in block
+    assert "# 反例" in template
