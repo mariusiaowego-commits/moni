@@ -169,6 +169,46 @@ def client(fresh_db, monkeypatch):
 
 
 class TestFetchJobsEndpoints:
+    @pytest.fixture(autouse=True)
+    def stub_fetch_worker(self, monkeypatch):
+        """Stop these endpoint tests from doing REAL network fetches.
+
+        v1.0.51 (found by the new CI workflow): the endpoint spawns a
+        daemon thread running ``_run_fetch_job``. Unpatched, that thread
+        hits the network, and on a CI runner with no network/no
+        credentials it fails fast — so by the time the test asserted,
+        the job row had already flipped to ``done``/``failed`` and
+        ``?status=running`` returned 0 rows. Worse, the thread outlived
+        the tmp DB and blew up with ``no such table: llm_jobs`` on a
+        torn-down database.
+
+        The stub blocks on a gate instead of fetching, so the job stays
+        ``running`` for the whole test. Tests that need their own worker
+        behaviour override ``fetch_route._run_fetch_job`` directly
+        (pytest gives one ``monkeypatch`` per test, so the later
+        ``setattr`` wins and both are undone in order).
+
+        Scoped to this class on purpose: the module-level
+        ``test_background_thread_writes_terminal_status`` deliberately
+        exercises the REAL worker with a stub fetcher.
+        """
+        import threading as _threading
+
+        import moni.web.routes.fetch as fetch_route
+
+        gate = _threading.Event()
+
+        def _blocked(*args, **kwargs):
+            gate.wait(timeout=15)
+
+        monkeypatch.setattr(fetch_route, "_run_fetch_job", _blocked)
+        yield gate
+        # Release and reap the threads BEFORE the tmp DB is torn down.
+        gate.set()
+        for t in _threading.enumerate():
+            if t is not _threading.current_thread() and t.name.startswith("fetch-"):
+                t.join(timeout=3)
+
     def test_run_returns_immediately_with_job_id(self, client, monkeypatch):
         """POST /api/fetch/sources/{name}/run must return immediately,
         not block for the full fetch duration."""

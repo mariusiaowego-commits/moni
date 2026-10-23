@@ -518,8 +518,14 @@ class TestFetch:
         assert r.status_code == 200
         assert isinstance(r.json(), list)
 
-    def test_post_run_200_or_202(self, client: TestClient):
+    def test_post_run_200_or_202(self, client: TestClient, monkeypatch):
         # run_fetcher may return None (skipped) or a dict; sources.yaml has 36kr_rss
+        # v1.0.51: stub the background worker — this endpoint spawns a
+        # daemon thread that would do a REAL network fetch and outlive
+        # the temp DB (CI saw "no such table: llm_jobs" from exactly that).
+        import moni.web.routes.fetch as fetch_route
+
+        monkeypatch.setattr(fetch_route, "_run_fetch_job", lambda *a, **kw: None)
         r = client.post("/api/fetch/sources/36kr_rss/run")
         assert r.status_code in (200, 202)
 
