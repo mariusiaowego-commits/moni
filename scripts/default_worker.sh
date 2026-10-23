@@ -76,20 +76,62 @@ export PATH="$HOME/.local/bin:$PATH"
 # 检查, 同时写进自己的 PID, 两把"锁"都算拿到, 队列被处理两遍。
 # 改成 set -o noclobber 的原子创建: bash 在 noclobber 下用 O_EXCL 打开
 # 目标文件, 只有一个进程能创建成功 —— 窗口期消失。
+#
+# v1.0.49.1 (audit F1): 上面的原子创建只解决了"锁不存在"的情况。
+# **过期锁回收路径原来仍然是 racy 的** —— 每个读到同一个死 PID 的
+# contender 都会无条件 rm -f, 于是 A 刚建好的锁会被 B 删掉, B 再建,
+# 两个都 `_acquired_lock=true`。实测 16 并发 + 过期锁 → 最多 4~9 个
+# 赢家, 而且它们会各自把同一个 share_task 完整跑一遍 (N 倍 LLM 调用)。
+# 修法: 回收动作放进**第二把原子锁** `.lock.reclaim` 里串行化, 并在
+# guard 内**重新读锁校验**; 只有确认仍是死 PID 才删。
 _acquired_lock=false
 if ( set -o noclobber; echo $$ > "$LOCK_FILE" ) 2>/dev/null; then
     _acquired_lock=true
-elif pid=$(cat "$LOCK_FILE" 2>/dev/null) && kill -0 "$pid" 2>/dev/null; then
-    echo "[worker] another instance (PID $pid) is running — exiting" >&2
-    exit 0
 else
-    # Stale lock (owner died without cleaning up) — remove and retry once.
-    # The retry is still an atomic create, so two workers racing on a stale
-    # lock can't both win.
+    pid=$(cat "$LOCK_FILE" 2>/dev/null || true)
+    if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
+        echo "[worker] another instance (PID $pid) is running — exiting" >&2
+        exit 0
+    fi
+
+    # Stale lock. Serialise the reclaim behind a second atomic lock so that
+    # at most one contender can ever run the delete-then-create sequence.
+    _reclaim_guard="${LOCK_FILE}.reclaim"
+    _guard_try=0
+    while [ "$_guard_try" -lt 40 ]; do
+        if ( set -o noclobber; echo $$ > "$_reclaim_guard" ) 2>/dev/null; then
+            break
+        fi
+        _guard_try=$((_guard_try + 1))
+        sleep 0.05
+        # Another worker may have revived the lock while we waited.
+        pid=$(cat "$LOCK_FILE" 2>/dev/null || true)
+        if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
+            echo "[worker] another instance (PID $pid) is running — exiting" >&2
+            exit 0
+        fi
+    done
+    if [ "$_guard_try" -ge 40 ]; then
+        # Guard looks abandoned (holder died mid-reclaim). Its critical
+        # section is sub-millisecond, so after 2s it is safe to clear.
+        rm -f "$_reclaim_guard"
+        ( set -o noclobber; echo $$ > "$_reclaim_guard" ) 2>/dev/null || true
+    fi
+
+    # Re-verify under the guard — someone may have created a live lock in
+    # the window between our first `cat` and taking the guard.
+    pid=$(cat "$LOCK_FILE" 2>/dev/null || true)
+    if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
+        rm -f "$_reclaim_guard"
+        echo "[worker] another instance (PID $pid) is running — exiting" >&2
+        exit 0
+    fi
+
     rm -f "$LOCK_FILE"
     if ( set -o noclobber; echo $$ > "$LOCK_FILE" ) 2>/dev/null; then
         _acquired_lock=true
     fi
+    rm -f "$_reclaim_guard"
 fi
 
 if ! "$_acquired_lock"; then
@@ -160,7 +202,8 @@ task_status_update() {
     local output_path="${3:-}"
     local error_msg="${4:-}"
 
-    python3 - "$task_id" "$status" "$output_path" "$error_msg" "$DB_PATH" <<'PYEOF'
+    local result
+    result=$(python3 - "$task_id" "$status" "$output_path" "$error_msg" "$DB_PATH" <<'PYEOF'
 import json, sys, sqlite3
 
 task_id   = sys.argv[1]
@@ -203,9 +246,16 @@ elif status == "running":
         "WHERE id=? AND status='pending'",
         (status, now, task_id)
     )
+    print("claimed" if cur.rowcount == 1 else "lost")
 
 conn.commit()
 PYEOF
+)
+    if [[ "$status" == "running" && "$result" != "claimed" ]]; then
+        log "SKIP $task_id — another worker already claimed it"
+        return 1
+    fi
+    return 0
 }
 
 # Build the skill flag from format name.
@@ -372,7 +422,9 @@ PYEOF
     # separately moves queued → fetching because "running" is a
     # status state (queue position) while "fetching" is a pipeline
     # stage.  Two columns, two concepts.
-    task_status_update "$task_id" "running"
+    if ! task_status_update "$task_id" "running"; then
+        return 0
+    fi
     # Claim may lose race with user cancel between SELECT and UPDATE
     if task_should_abort "$task_id"; then
         return 0

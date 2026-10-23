@@ -26,12 +26,30 @@ logger = logging.getLogger(__name__)
 _QUEUE_DIR_NAME = ".moni/queue"
 
 
+def resolve_queue_dir(*, create: bool = False) -> Path:
+    """Resolve the share-queue directory from one shared rule.
+
+    ``MONI_QUEUE_DIR`` wins when set; otherwise ``$HOME/.moni/queue``.
+    Every producer and consumer (manifest writes, worker locks, worker
+    scans) must use this function so a custom queue can never split the
+    system into two directories that never see each other's files.
+
+    Args:
+        create: Create the directory (parents included) when missing.
+    """
+    env_dir = os.environ.get("MONI_QUEUE_DIR")
+    if env_dir:
+        qdir = Path(env_dir).expanduser()
+    else:
+        qdir = Path(os.path.expanduser("~")) / _QUEUE_DIR_NAME
+    if create:
+        qdir.mkdir(parents=True, exist_ok=True)
+    return qdir
+
+
 def _queue_dir() -> Path:
     """Return the queue directory, creating it if necessary."""
-    home = Path(os.path.expanduser("~"))
-    qdir = home / _QUEUE_DIR_NAME
-    qdir.mkdir(parents=True, exist_ok=True)
-    return qdir
+    return resolve_queue_dir(create=True)
 
 
 def _db_connect() -> Any:

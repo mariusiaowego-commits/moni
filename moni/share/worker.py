@@ -31,6 +31,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from moni.share.manifest import resolve_queue_dir
+
 log = logging.getLogger(__name__)
 
 # Resolve to the same DB / queue / output paths as the rest of the
@@ -59,10 +61,7 @@ def _queue_dir() -> Path:
     discarding the caller's choice even though the module docstring
     claimed it was honoured.
     """
-    env_dir = os.environ.get("MONI_QUEUE_DIR")
-    if env_dir:
-        return Path(env_dir)
-    return Path(os.environ.get("HOME", "~")) / ".moni" / "queue"
+    return resolve_queue_dir()
 
 
 def _lock_file() -> Path:
@@ -80,6 +79,10 @@ class WorkerLaunch:
     pid: int | None        # worker PID (new or existing)
     log_path: str          # path to worker.log
     error: str | None = None  # populated when started=False and not already_running
+    #: True when the child exited 0 without ever taking the lock — i.e.
+    #: there was nothing for it to do (empty queue) or the queue dir was
+    #: missing.  Distinct from a failure: the UI must not say "启动失败".
+    completed_nothing_to_do: bool = False
 
 
 def _pid_alive(pid: int) -> bool:
@@ -288,11 +291,23 @@ def launch_worker() -> WorkerLaunch:
         )
 
     if outcome.kind == "exited" and outcome.returncode == 0:
-        # Nothing to do (empty queue) — the worker finished on its own.
-        log.info("worker exited cleanly without a lock: pid=%d", proc.pid)
+        # The child finished on its own without ever taking the lock.
+        #
+        # v1.0.49.1 (audit F4): this used to report ``started=True`` with
+        # ``pid=proc.pid`` — a PID that is already reaped by now.  The UI
+        # then showed "worker 已启动 (pid=xxx)" for a process that no longer
+        # exists, which is exactly the lie the module docstring says this
+        # release fixed.  There is no queue work in flight and no live
+        # worker, so: not started, not already running, no pid.
+        log.info(
+            "worker exited cleanly without taking the lock: pid=%d "
+            "(nothing to do, or the queue dir is missing)",
+            proc.pid,
+        )
         return WorkerLaunch(
-            started=True, already_running=False, pid=proc.pid,
+            started=False, already_running=False, pid=None,
             log_path=str(LOG_FILE),
+            completed_nothing_to_do=True,
         )
 
     if outcome.kind == "exited":
@@ -302,13 +317,20 @@ def launch_worker() -> WorkerLaunch:
             error=f"worker exited immediately (rc={outcome.returncode})",
         )
 
+    # The child is still alive (``timeout`` is only returned when
+    # ``proc.poll()`` is None).  It may simply be slow to reach the lock
+    # block, so reporting "启动失败" here would be a lie and could make
+    # the user launch a second worker.  We did start a live process;
+    # report that, and let the queue/lock state remain the source of truth.
+    log.warning(
+        "worker pid=%d is alive but has not claimed the lock after %.1fs; "
+        "reporting started and leaving the queue state authoritative",
+        proc.pid,
+        _LOCK_SETTLE_SECONDS,
+    )
     return WorkerLaunch(
-        started=False, already_running=False, pid=None,
+        started=True, already_running=False, pid=proc.pid,
         log_path=str(LOG_FILE),
-        error=(
-            f"worker did not claim the lock within {_LOCK_SETTLE_SECONDS:.0f}s "
-            f"(pid={proc.pid})"
-        ),
     )
 
 
