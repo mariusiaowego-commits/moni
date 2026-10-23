@@ -24,7 +24,7 @@ dependencies = [
 moni = "moni.cli.main:main"
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov"]
+dev = ["pytest>=9.1.1,<10", "pytest-cov"]
 
 [tool.setuptools.packages.find]
 where = ["."]

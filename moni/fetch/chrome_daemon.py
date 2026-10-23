@@ -74,21 +74,12 @@ def _default_chrome_binary() -> str:
 
 CHROME_BINARY = os.environ.get("MONI_CHROME_BINARY", _default_chrome_binary())
 CHROME_DEBUG_PORT = int(os.environ.get("MONI_CHROME_DEBUG_PORT", "9223"))
-# IMPORTANT: do NOT use ``Path.home()`` here.  When the hermes agent
-# runs us inside its sandbox, ``$HOME`` is redirected to
-# ``/Users/mt16/.hermes/profiles/coder/home`` and the resulting
-# Profile 7 path lives there — invisible to the user's daily Chrome
-# and to any later ``moni fetch`` call that runs *outside* the
-# sandbox.  We hardcode the real home as the default and let the env
-# var override for CI / tests / users with weird setups.
-#
-# v1.0.51 (audit fix): the hardcoded macOS path above is fine on the
-# home machine but is a **portability bug** everywhere else — on a
-# Linux CI runner ``Path("/Users/mt16/...").mkdir(parents=True)`` tries
-# to create ``/Users`` and dies with ``PermissionError: '/Users'``.
-# That was the real root cause of the first CI failure (the PR
-# description wrongly blamed "no network").  Non-macOS now uses a
-# per-user profile under the home directory.
+# macOS 必须硬编码真实 home；非 macOS 用 Path.home()。
+# 在 macOS 上如果用 Path.home(), 当 hermes agent 在沙箱内运行时,
+# $HOME 会被重定向到 /Users/mt16/.hermes/profiles/coder/home, 导致
+# 生成的 Profile 7 隔离在沙箱内, 用户日常 Chrome 无法复用。
+# 但硬编码 /Users 路径在 Linux CI runner 上会因无权创建 /Users 导致
+# PermissionError: '/Users'。因此非 Darwin 分支统一使用 Path.home()。
 
 
 def _default_chrome_user_data_dir() -> str:

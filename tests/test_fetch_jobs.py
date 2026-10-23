@@ -389,9 +389,9 @@ class TestFetchJobsEndpoints:
         # 36kr_rss is fast (< 30s), should complete normally
         assert r.status_code == 200
         body = r.json()
-        # Either done result or skipped
         assert body.get("source") == "36kr_rss"
-        assert body.get("status") in ("done", "skipped") or "fetched" in body
+        assert body.get("inserted") == 1
+        assert body.get("error") is None
 
 
 # ── background-thread integration test ─────────────────────────────────────
@@ -552,3 +552,27 @@ class TestZombieSweep:
         assert store.has_running("36kr_rss") is False
         # 再次确认(被 sweep 后变 stale,自然返 False)
         assert store.has_running("36kr_rss") is False
+
+
+def test_background_thread_db_swapped_or_table_dropped_does_not_crash_thread(tmp_path, monkeypatch):
+    """v1.0.51: If DB is closed / table is dropped while _run_fetch_job is
+    executing (or before it can read its fence), the daemon thread must catch
+    sqlite3.Error and degrade to a warning instead of raising an unhandled
+    exception that triggers PytestUnhandledThreadExceptionWarning."""
+    from moni.web.routes.fetch import _run_fetch_job
+    from moni.db.connection import get_db, set_db_path, close_db
+    from moni.db.migrate import migrate
+
+    db_path = tmp_path / "drop_test.db"
+    set_db_path(db_path)
+    migrate()
+
+    # Drop the fetch_jobs table before running the job
+    conn = get_db()
+    conn.execute("DROP TABLE fetch_jobs")
+    conn.commit()
+
+    # Running _run_fetch_job directly should catch sqlite3.Error and return cleanly
+    _run_fetch_job("nonexistent-job-id", "36kr_rss")
+
+    close_db()

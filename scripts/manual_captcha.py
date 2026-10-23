@@ -57,7 +57,7 @@ for mod in list(sys.modules):
         del sys.modules[mod]
 
 from moni.fetch.chrome_daemon import (  # noqa: E402
-    CHROME_DEBUG_PORT, CHROME_USER_DATA_DIR, ensure_chrome, stop_chrome,
+    CHROME_DEBUG_PORT, CHROME_LOG_PATH, CHROME_USER_DATA_DIR, ensure_chrome, stop_chrome,
 )
 
 URLS = [
@@ -109,7 +109,7 @@ def main() -> int:
     print(f"Debug port: {CHROME_DEBUG_PORT}")
     print()
     if not ensure_chrome():
-        print("✗ Chrome failed to start.  See /tmp/moni-chrome-profile7.log")
+        print(f"✗ Chrome failed to start.  See {CHROME_LOG_PATH}")
         return 1
     if not _wait_for_debug_port(CHROME_DEBUG_PORT):
         print("✗ Chrome started but debug port never came up")

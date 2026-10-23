@@ -273,9 +273,9 @@ def trigger_fetch_run_sync(
 def _run_fetch_job(
     job_id: str,
     source_name: str,
-    date_from: str | None,
-    date_to: str | None,
-    force: bool,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    force: bool = False,
 ) -> None:
     """Background worker — runs the fetcher and persists progress.
 
@@ -307,60 +307,68 @@ def _run_fetch_job(
     # heartbeat; sweep won't reap us for 90s.
     # Read the freshly-minted owner+fence and bump fence to claim it as
     # our own (so finish() below has a handle to fence on).
+    import sqlite3
     from moni.db.connection import get_db as _get_db
-    row = _get_db().execute(
-        "SELECT lease_owner, fence FROM fetch_jobs WHERE id = ?",
-        (job_id,),
-    ).fetchone()
-    if row is None:
-        logger.warning("[%s] job %s vanished after create()", source_name, job_id[:8])
-        return
-    owner = row["lease_owner"] or ""
-    # Bump fence + refresh heartbeat atomically. RETURNING is fetched
-    # then we commit; the lease handle we hand to the heartbeat thread
-    # carries the new fence so finish() below can fence on it.
-    cur = _get_db().execute(
-        "UPDATE fetch_jobs SET fence = fence + 1, "
-        "lease_heartbeat_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
-        "WHERE id = ?",
-        (job_id,),
-    )
-    _get_db().commit()
-    new_fence = cur.rowcount  # rowcount==1 means our UPDATE landed
-    # If we got 0 rows, the row was reaped between SELECT and UPDATE.
-    if new_fence != 1:
-        logger.warning(
-            "[%s] job %s vanished between SELECT and UPDATE — orphan",
-            source_name, job_id[:8],
+    try:
+        row = _get_db().execute(
+            "SELECT lease_owner, fence FROM fetch_jobs WHERE id = ?",
+            (job_id,),
+        ).fetchone()
+        if row is None:
+            logger.warning("[%s] job %s vanished after create()", source_name, job_id[:8])
+            return
+        owner = row["lease_owner"] or ""
+        # Bump fence + refresh heartbeat atomically. RETURNING is fetched
+        # then we commit; the lease handle we hand to the heartbeat thread
+        # carries the new fence so finish() below can fence on it.
+        cur = _get_db().execute(
+            "UPDATE fetch_jobs SET fence = fence + 1, "
+            "lease_heartbeat_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+            "WHERE id = ?",
+            (job_id,),
         )
-        return
-    # Read the freshly-bumped fence (separate query after commit).
-    fence_row = _get_db().execute(
-        "SELECT fence FROM fetch_jobs WHERE id = ?", (job_id,)
-    ).fetchone()
-    # v1.0.51 (audit fix): the row can vanish between the UPDATE and this
-    # SELECT (job reaped / DB swapped underneath a background thread).
-    # fetchone() then returns None and the old ``[...]["fence"]`` raised
-    # TypeError inside the daemon thread — a crash that surfaced only as
-    # a PytestUnhandledThreadExceptionWarning. Degrade to a warning.
-    if fence_row is None:
-        logger.warning(
-            "[%s] job %s vanished between UPDATE and fence read — orphan",
-            source_name, job_id[:8],
-        )
-        return
-    new_fence = fence_row["fence"]
-    handle = leases.LeaseHandle(job_id=job_id, owner=owner, fence=new_fence)
-    if not owner:
-        # If create() somehow didn't mint an owner (older schema path),
-        # use a fresh one and adopt it.
-        handle = leases.acquire("fetch_jobs", grace_sec=90)
-        if handle is None:
+        _get_db().commit()
+        new_fence = cur.rowcount  # rowcount==1 means our UPDATE landed
+        # If we got 0 rows, the row was reaped between SELECT and UPDATE.
+        if new_fence != 1:
             logger.warning(
-                "[%s] job %s could not be leased (already swept)",
+                "[%s] job %s vanished between SELECT and UPDATE — orphan",
                 source_name, job_id[:8],
             )
             return
+        # Read the freshly-bumped fence (separate query after commit).
+        fence_row = _get_db().execute(
+            "SELECT fence FROM fetch_jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        # v1.0.51 (audit fix): the row can vanish between the UPDATE and this
+        # SELECT (job reaped / DB swapped / table dropped underneath a background thread).
+        # In tests or teardown, if the DB or table is dropped, sqlite3.OperationalError
+        # was raised outside try:. We catch sqlite3.Error and degrade to a warning
+        # rather than crashing the daemon thread with an unhandled exception.
+        if fence_row is None:
+            logger.warning(
+                "[%s] job %s vanished between UPDATE and fence read — orphan",
+                source_name, job_id[:8],
+            )
+            return
+        new_fence = fence_row["fence"]
+        handle = leases.LeaseHandle(job_id=job_id, owner=owner, fence=new_fence)
+        if not owner:
+            # If create() somehow didn't mint an owner (older schema path),
+            # use a fresh one and adopt it.
+            handle = leases.acquire("fetch_jobs", grace_sec=90)
+            if handle is None:
+                logger.warning(
+                    "[%s] job %s could not be leased (already swept)",
+                    source_name, job_id[:8],
+                )
+                return
+    except sqlite3.Error as exc:
+        logger.warning(
+            "[%s] DB error initializing lease for job %s: %s",
+            source_name, job_id[:8], exc,
+        )
+        return
 
     # Heartbeat thread: renew lease every 30s so sweep won't reap us.
     _heartbeat_stop = threading.Event()
@@ -453,10 +461,16 @@ def _run_fetch_job(
 
     except TimeoutError as exc:
         logger.warning("[%s] job %s timed out: %s", source_name, job_id[:8], exc)
-        jobs.mark_timeout(job_id, str(exc), handle=handle)
+        try:
+            jobs.mark_timeout(job_id, str(exc), handle=handle)
+        except Exception as te_exc:
+            logger.warning("[%s] could not record timeout for job %s: %s", source_name, job_id[:8], te_exc)
     except Exception as exc:
         logger.exception("[%s] job %s failed", source_name, job_id[:8])
-        jobs.mark_failed(job_id, f"{type(exc).__name__}: {exc}", handle=handle)
+        try:
+            jobs.mark_failed(job_id, f"{type(exc).__name__}: {exc}", handle=handle)
+        except Exception as mf_exc:
+            logger.warning("[%s] could not mark_failed for job %s: %s", source_name, job_id[:8], mf_exc)
     finally:
         _heartbeat_stop.set()
         hb_thread.join(timeout=2.0)
