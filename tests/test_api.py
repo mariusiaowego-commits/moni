@@ -512,11 +512,34 @@ class TestFetch:
         assert r.status_code == 200
         assert isinstance(r.json(), list)
 
-    def test_put_update_200(self, client: TestClient):
-        # Update accepts any non-None fields
+    def test_put_update_endpoint_removed(self, client: TestClient):
+        """v1.0.51 (P1-11): `PUT /api/fetch/sources` 曾经把请求体里的字段
+        **应用到每一个源**并把整个 config/sources.yaml 重写回去 ——
+        一次 PUT 就能把所有源改名成同一个名字。请求体里没有任何字段能
+        指明"改哪一个源"，所以这个契约根本无法正确实现。
+
+        正路是 `/api/config/sources/{id}`（DB 支撑，有 id 定位）。
+        SPA 用的也一直是那条（app.js:1566 有注释说明）。
+        """
         r = client.put("/api/fetch/sources", json={"crawler_type": "rss"})
+        assert r.status_code == 405, (
+            "PUT /api/fetch/sources 已被删除；返回码变了说明端点复活了"
+        )
+
+    def test_fetch_sources_config_is_never_written_by_tests(self, client: TestClient):
+        """回归: 跑测试不许改生产配置 config/sources.yaml。"""
+        from pathlib import Path
+
+        real = Path(__file__).resolve().parents[1] / "config" / "sources.yaml"
+        before = real.read_bytes()
+
+        r = client.get("/api/fetch/sources")
         assert r.status_code == 200
         assert isinstance(r.json(), list)
+
+        assert real.read_bytes() == before, (
+            "读接口把生产配置改掉了 —— 不可能，但这条断言就是用来抓它的"
+        )
 
     def test_post_run_200_or_202(self, client: TestClient):
         # run_fetcher may return None (skipped) or a dict; sources.yaml has 36kr_rss
