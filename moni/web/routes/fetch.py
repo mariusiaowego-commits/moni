@@ -663,6 +663,17 @@ def check_source_health(name: str) -> HealthResponse:
     elif err:
         msg = err  # e.g. reachable via 401
 
+    if resolved in ("36kr_rss", "36kr"):
+        try:
+            from moni.fetch.chrome_daemon import get_daemon_status
+
+            c_status = get_daemon_status()
+            if c_status.get("is_degraded"):
+                status = "degraded"
+                msg = f"chrome daemon degraded: {c_status.get('last_error')}"
+        except Exception:
+            pass
+
     return HealthResponse(
         status=status,
         version="1.0.25",

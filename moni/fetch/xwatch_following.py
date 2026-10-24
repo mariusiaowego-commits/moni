@@ -31,9 +31,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-import signal
 import platform
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
@@ -42,13 +42,33 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from .chrome_daemon import ChromeBackoffTracker
+
 logger = logging.getLogger(__name__)
+
+_xwatch_backoff = ChromeBackoffTracker(name="xwatch_chrome")
+
+
+def get_x_chrome_status() -> dict[str, Any]:
+    """Return status dictionary of the xwatch Chrome process."""
+    status = _xwatch_backoff.get_status()
+    status.update({
+        "alive": _port_alive(X_CHROME_PORT),
+        "port": X_CHROME_PORT,
+    })
+    return status
+
+
+def reset_x_chrome_backoff() -> None:
+    """Reset backoff state (for testing)."""
+    _xwatch_backoff.reset()
 
 
 def _default_xwatch_chrome_user_data_dir() -> str:
     if platform.system() == "Darwin":
         try:
             import pwd
+
             real_home = pwd.getpwuid(os.getuid()).pw_dir
         except Exception:
             real_home = str(Path.home())
@@ -201,7 +221,28 @@ def ensure_x_chrome(*, headed: bool = True) -> bool:
     Dock is not stuck with two Chrome masters.
     """
     if _port_alive():
+        _xwatch_backoff.record_success()
         return True
+
+    if _xwatch_backoff.is_in_backoff():
+        logger.warning(
+            "[xwatch.following] xwatch Chrome in backoff (%d failures, %.1fs remaining, degraded=%s). Skipping spawn.",
+            _xwatch_backoff.consecutive_failures,
+            _xwatch_backoff.remaining_backoff_s,
+            _xwatch_backoff.is_degraded,
+        )
+        return False
+
+    # Check if headed mode cannot run in sandbox
+    if headed and os.environ.get("MONI_RUNNING_IN_SANDBOX") == "1":
+        err_msg = "Headed Chrome cannot launch inside sandboxed environment (launchservicesd registration denied)"
+        _xwatch_backoff.record_failure(err_msg)
+        logger.error(
+            "[xwatch.following] %s. Headed Chrome is required for following scrape. "
+            "Please run outside sandbox or use syndication/API channels.",
+            err_msg,
+        )
+        return False
 
     Path(X_CHROME_USER_DATA).mkdir(parents=True, exist_ok=True)
     flags = [
@@ -222,23 +263,45 @@ def ensure_x_chrome(*, headed: bool = True) -> bool:
         flags.append("--headless=new")
 
     log_fd = os.open(X_CHROME_LOG, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    proc: subprocess.Popen | None = None
     try:
-        subprocess.Popen(
+        proc = subprocess.Popen(
             flags,
             stdout=log_fd,
             stderr=log_fd,
             start_new_session=True,
         )
+    except FileNotFoundError:
+        try:
+            os.close(log_fd)
+        except Exception:
+            pass
+        _xwatch_backoff.record_failure(f"Chrome binary not found at {X_CHROME_BINARY}")
+        logger.error("[xwatch.following] Chrome binary not found at %s", X_CHROME_BINARY)
+        return False
     except Exception as exc:
         try:
             os.close(log_fd)
         except Exception:
             pass
+        _xwatch_backoff.record_failure(f"failed to spawn Chrome: {exc}")
         logger.error("[xwatch.following] failed to spawn Chrome: %s", exc)
         return False
 
     for _ in range(30):
+        if proc is not None and proc.poll() is not None:
+            exit_code = proc.poll()
+            err_msg = f"Chrome exited prematurely with code {exit_code}"
+            if exit_code in (-6, 134) or exit_code == -signal.SIGABRT:
+                err_msg += (
+                    " (SIGABRT: headed Chrome cannot register with launchservicesd inside sandbox; "
+                    "please run outside sandbox or use syndication/API channels)"
+                )
+            _xwatch_backoff.record_failure(err_msg)
+            logger.error("[xwatch.following] %s — see %s", err_msg, X_CHROME_LOG)
+            return False
         if _port_alive():
+            _xwatch_backoff.record_success()
             logger.info(
                 "[xwatch.following] Chrome up on %d (Profile 6) — "
                 "will stop after scrape to protect Dock",
@@ -246,10 +309,10 @@ def ensure_x_chrome(*, headed: bool = True) -> bool:
             )
             return True
         time.sleep(0.5)
-    logger.error(
-        "[xwatch.following] Chrome did not respond on %d — see %s",
-        X_CHROME_PORT, X_CHROME_LOG,
-    )
+
+    err_msg = f"Chrome did not respond on {X_CHROME_PORT} — see {X_CHROME_LOG}"
+    _xwatch_backoff.record_failure(err_msg)
+    logger.error("[xwatch.following] %s", err_msg)
     return False
 
 

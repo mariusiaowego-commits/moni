@@ -202,6 +202,116 @@ class TestChromeDaemonUnit:
         monkeypatch.delenv("MONI_CHROME_USER_DATA_DIR", raising=False)
         importlib.reload(cd)
 
+    def test_find_chrome_headless_shell_discovery(self):
+        from moni.fetch.chrome_daemon import find_chrome_headless_shell
+
+        shell = find_chrome_headless_shell()
+        assert shell is not None
+        assert "chrome-headless-shell" in str(shell)
+        assert not str(shell).endswith(".app")
+
+    def test_find_chrome_headless_shell_env_override(self, monkeypatch, tmp_path):
+        from moni.fetch.chrome_daemon import find_chrome_headless_shell
+
+        fake_shell = tmp_path / "custom-headless-shell"
+        fake_shell.write_text("#!/bin/sh\nexit 0\n")
+        fake_shell.chmod(0o755)
+        monkeypatch.setenv("MONI_CHROME_HEADLESS_BINARY", str(fake_shell))
+
+        assert find_chrome_headless_shell() == fake_shell
+
+    def test_resolve_chrome_binary_selection(self, monkeypatch):
+        from moni.fetch.chrome_daemon import resolve_chrome_binary
+
+        # Headless should resolve to shell
+        bin_path, is_shell = resolve_chrome_binary(headless=True)
+        assert is_shell is True
+        assert "chrome-headless-shell" in bin_path
+
+        # Headed should resolve to bundle
+        bin_path_h, is_shell_h = resolve_chrome_binary(headless=False)
+        assert is_shell_h is False
+        assert "Google Chrome" in bin_path_h
+
+    def test_backoff_tracker_progression(self):
+        from moni.fetch.chrome_daemon import ChromeBackoffTracker
+
+        tracker = ChromeBackoffTracker("test", base_backoff_s=10.0, max_backoff_s=100.0, degraded_threshold=3)
+        assert tracker.consecutive_failures == 0
+        assert tracker.current_backoff_s == 0.0
+        assert tracker.is_in_backoff() is False
+        assert tracker.is_degraded is False
+
+        tracker.record_failure("err1")
+        assert tracker.consecutive_failures == 1
+        assert tracker.current_backoff_s == 10.0
+        assert tracker.is_in_backoff() is True
+        assert tracker.is_degraded is False
+
+        tracker.record_failure("err2")
+        assert tracker.consecutive_failures == 2
+        assert tracker.current_backoff_s == 20.0
+        assert tracker.is_degraded is False
+
+        tracker.record_failure("err3")
+        assert tracker.consecutive_failures == 3
+        assert tracker.current_backoff_s == 40.0
+        assert tracker.is_degraded is True
+
+        tracker.record_failure("err4")
+        assert tracker.current_backoff_s == 80.0
+
+        tracker.record_failure("err5")
+        assert tracker.current_backoff_s == 100.0
+
+        tracker.record_success()
+        assert tracker.consecutive_failures == 0
+        assert tracker.is_degraded is False
+        assert tracker.is_in_backoff() is False
+
+    def test_ensure_chrome_backoff_skips_spawn(self, monkeypatch):
+        from moni.fetch.chrome_daemon import ensure_chrome, reset_daemon_backoff, _daemon_backoff
+        from unittest.mock import patch
+
+        reset_daemon_backoff()
+        monkeypatch.setattr("moni.fetch.chrome_daemon._chrome_is_running", lambda: False)
+
+        _daemon_backoff.record_failure("mock failure")
+        assert _daemon_backoff.is_in_backoff() is True
+
+        with patch("subprocess.Popen") as mock_popen:
+            res = ensure_chrome()
+            assert res is False
+            mock_popen.assert_not_called()
+        reset_daemon_backoff()
+
+    def test_ensure_chrome_fails_fast_on_sigabrt(self, monkeypatch):
+        import signal
+        from moni.fetch.chrome_daemon import ensure_chrome, reset_daemon_backoff, _daemon_backoff
+        from unittest.mock import MagicMock, patch
+
+        reset_daemon_backoff()
+        monkeypatch.setattr("moni.fetch.chrome_daemon._chrome_is_running", lambda: False)
+
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = -signal.SIGABRT
+
+        with patch("subprocess.Popen", return_value=mock_proc):
+            res = ensure_chrome()
+            assert res is False
+            assert _daemon_backoff.consecutive_failures == 1
+            assert "SIGABRT" in (_daemon_backoff.last_error or "")
+        reset_daemon_backoff()
+
+    def test_mutation_headless_must_use_shell_not_bundle(self):
+        """Mutation sentinel: headless mode must strictly use headless-shell, NOT the .app bundle."""
+        from moni.fetch.chrome_daemon import resolve_chrome_binary
+
+        bin_path, is_shell = resolve_chrome_binary(headless=True)
+        assert is_shell is True, "headless mode must select headless-shell"
+        assert not bin_path.endswith(".app"), "must not be an app bundle"
+        assert "chrome-headless-shell" in bin_path
+
 
 # ── browser_harness: body-extraction sentinel logic ───────────────────────
 
