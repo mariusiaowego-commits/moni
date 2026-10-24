@@ -1,4 +1,50 @@
 
+## [2026-10-24] v1.0.60 — 中文独立博客信源 (sprint-27)
+
+**分支**: `feature/v1.0.60-chinese-independent-blogs`
+**上游**: `github.com/geekplux/chinese-independent-blogs` · MIT · `feed.opml`
+**Sprint spec**: `docs/plans/2026-10-24_sprint-27-chinese-independent-blogs.md`
+
+### 可行性证据 (2026-10-24)
+
+- OPML: **695 feeds / 695 unique**
+- 串行全量探测: **306 可抓**、13,107 篇文章、290 feeds 有正文片段、中位 1.15s
+- 失败: 231 transport / 108 HTTP / 37 invalid XML / 13 empty
+- 并发 8 路会出现 `PoolTimeout` 假失败；**串行数字才可信**
+- 真实 smoke: 12-feed 小窗口 → 16 篇文章全部解析成功
+
+### 实现
+
+- 新源 `chinese_independent_blogs` + 新 tag `independent-blog`（无关键词，避免误杀）
+- `moni/fetch/sources/chinese_independent_blogs.py`
+  - 远程/仓库内 OPML
+  - RSS2 + Atom
+  - 轮转 cursor（`data/.cn_indie_cursor.json`）
+  - 80 feeds / 3 per feed / 240 total 默认预算
+  - 连续 3 个 transport 失败提前结束
+  - 5MB 响应上限、仅 http(s)、本地 OPML 限 `config/`
+  - `last_stats` 合入 `run()` 返回值
+- `config/chinese_independent_blogs.opml` 为离线 fixture（97KB, MIT）
+- 配置入口: `config/sources.yaml`, `seed_config.py`, `/api/config/sources/{id}/fetch_config`
+
+### 验证
+
+- 定向: `21 passed`
+- 全量: **1219 passed / 2 skipped / 0 failed**
+- 干净 HOME 隔离: `63 passed`
+- `git diff --check`: clean
+
+### 待办
+
+- [ ] 独立 audit 结论归档（已审: encoding scope + stats 暴露，已修）
+- [ ] PR + CI 绿
+- [ ] squash merge + tag v1.0.60
+- [ ] 8900 重启 + 5 端点
+- [ ] Obsidian 双写 plan
+- [ ] 清 worktree / 临时文件
+
+---
+
 
 ## [2026-10-24] v1.0.59 — xwatch profile 搬迁事故护栏
 

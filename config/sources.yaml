@@ -71,3 +71,9 @@ sources:
   fetch_interval_min: 360
   enabled: false
   crawler_type: rss
+- source_name: chinese_independent_blogs
+  type: rss
+  feed_url: https://raw.githubusercontent.com/geekplux/chinese-independent-blogs/master/feed.opml
+  fetch_interval_min: 180
+  enabled: true
+  crawler_type: rss

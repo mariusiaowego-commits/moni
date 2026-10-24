@@ -1,5 +1,15 @@
 
 
+## 2026-10-24 v1.0.60 — 中文独立博客信源 (sprint-27)
+
+- **需求**: 接入 `geekplux/chinese-independent-blogs`，先测可行性，再正式 sprint。
+- **可行性**: 695 feeds → 串行实测 306 可抓 / 13,107 篇文章 / 290 有正文；并发测会假超时。
+- **设计**: 独立源而非并入 bestblogs；绑 `independent-blog` 空关键词 tag，避免被 wechat/general-tech 误杀。
+- **实现**: 轮转窗口、80 feeds/轮、3 篇/feed、240 篇上限、连续 3 失败熔断、5MB 响应上限。
+- **audit 修复**: `resp.encoding` 移入 stream 上下文；feed 健康统计通过 `run()` 返回，不只写日志。
+- **测试**: 定向 21 passed；全量 1219 passed / 2 skipped；干净 HOME 63 passed。
+- **真实 smoke**: 12 feeds → 16 articles，字段完整。
+
 ## [2026-10-24] v1.0.53 — sprint-26 审计整改批次 + Chrome 沙箱护栏 (PR #146~#153, SHIPPED)
 
 ## 2026-10-24 v1.0.59 — xwatch profile 搬迁事故护栏
