@@ -1,0 +1,32 @@
+GSAP (GreenSock Animation Suite) — https://gsap.com/
+Copyright (c) 2024 GreenSock. All rights reserved.
+
+GSAP is distributed under the GreenSock Standard "No-Charge" License.
+Full license text: https://gsap.com/standard-license/
+Licensing questions: https://gsap.com/licensing/
+
+The bundled file gsap-3.12.5.min.js retains its original copyright and
+license header:
+
+    /*!
+     * GSAP 3.12.5
+     * https://gsap.com
+     * 
+     * @license Copyright 2024, GreenSock. All rights reserved.
+     * Subject to the terms at https://gsap.com/standard-license or for Club GSAP members, the agreement issued with that membership.
+     * @author: Jack Doyle, jack@greensock.com
+     */
+
+Why this is allowed for moni
+----------------------------
+moni is a locally-run同业信源监测 / 事实核查工具. It is free to use, is not
+resold, and is not a website-building or no-code animation authoring product
+(the category GSAP's license reserves for Webflow). The GreenSock standard
+license explicitly permits bundling the compiled distribution file
+(`gsap.min.js`) inside websites, local applications and software
+distributions, and requires only that the copyright and license notice be
+retained — which the file header above does.
+
+If moni is ever redistributed in a form that charges money, or becomes a
+site-building product, this license must be re-reviewed against
+https://gsap.com/standard-license/ before shipping.

@@ -15,12 +15,15 @@
        x-cloak → x-show transition (browser sometimes hides the list
        because Alpine hasn't finished init by the time it processes
        the defer script).  preloading gets the bytes on the wire
-       before HTML parsing hits the <script defer> tag. -->
-  <link rel="preload" as="script" href="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js">
+       before HTML parsing hits the <script defer> tag.
+       v1.0.47: 自托管 — 原来指向 cdn.jsdelivr.net, 内网 / 离线 / DNS
+       被污染时 Alpine 根本加载不出来, x-cloak 让整页持续空白。
+       现在从 vendor/ 本地取, 零外网依赖。 -->
+  <link rel="preload" as="script" href="vendor/alpine-3.14.1.min.js">
   <!-- v1.0.44: GSAP gets the same preload hint as Alpine (same reasoning,
        see the comment above).  Position stays before every consumer script
        because deferred scripts execute in document order. -->
-  <link rel="preload" as="script" href="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js">
+  <link rel="preload" as="script" href="vendor/gsap-3.12.5.min.js">
   <!-- v1.0.44: Inter is self-hosted via @font-face in main.css.
        The Google Fonts <link> was render-blocking: offline / intranet /
        file:// open stalled until the request timed out before the
@@ -271,7 +274,7 @@
                     <span class="tip title-tip" x-text="a.title"></span>
                   </td>
                   <td x-text="a.source"></td>
-                  <td class="url-cell"><a class="link" :href="a.url" target="_blank" x-text="a.url"></a></td>
+                  <td class="url-cell"><a class="link" :class="{'link-blocked': isBlockedUrl(a.url)}" :href="safeHref(a.url)" target="_blank" rel="noopener noreferrer" x-text="a.url"></a></td>
                   <td>
                     <div class="row-actions">
                       <button class="btn-secondary" @click="openCrudForm(a)">编辑</button>
@@ -315,7 +318,7 @@
                   <td x-text="run.new_articles ?? run.articles_fetched ?? 0"></td>
                   <td x-text="run.duration != null ? run.duration + 's' : '-'"></td>
                   <td>
-                    <a x-show="run.log_url" :href="run.log_url" target="_blank" class="link-btn">查看日志</a>
+                    <a x-show="run.log_url" :class="{'link-btn-blocked': isBlockedUrl(run.log_url)}" :href="safeHref(run.log_url)" target="_blank" rel="noopener noreferrer" class="link-btn">查看日志</a>
                     <span x-show="!run.log_url">-</span>
                   </td>
                 </tr>
@@ -617,7 +620,7 @@
                   <tr>
                     <td><img :src="getSourceIcon(s.name)" style="width:24px;height:24px;border-radius:6px;display:block;object-fit:cover;" alt=""></td>
                     <td x-text="s.display_name || s.name"></td>
-                    <td class="url-cell"><a class="link" :href="s.url" target="_blank" x-text="s.url"></a></td>
+                    <td class="url-cell"><a class="link" :class="{'link-blocked': isBlockedUrl(s.url)}" :href="safeHref(s.url)" target="_blank" rel="noopener noreferrer" x-text="s.url"></a></td>
                     <td x-text="s.fetch_interval_min ? s.fetch_interval_min + 'min' : '-'"></td>
                     <td class="td-actions">
                       <!-- 与顶部操作区同一套：primary=触发抓取 / secondary=旁路操作 -->
@@ -935,7 +938,7 @@
             </div>
             <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
               <template x-if="activeBriefTask?.output_url && activeBriefTask?.status === 'done'">
-                <a class="btn-primary" :href="activeBriefTask.output_url" target="_blank">打开产物</a>
+                <a class="btn-primary" :class="{'btn-blocked': isBlockedUrl(activeBriefTask.output_url)}" :href="safeHref(activeBriefTask.output_url)" target="_blank" rel="noopener noreferrer">打开产物</a>
               </template>
               <template x-if="activeBriefTask?.status === 'failed' || activeBriefTask?.status === 'paused'">
                 <button class="btn-secondary" @click="shareTaskResume(activeBriefTask.id)">继续/重试</button>
@@ -1236,7 +1239,7 @@
                       <!-- v1.0.5.15: prefer output_url (web URL via /artifacts/ mount).
                            Fall back to plain-text output_path if no URL (missing source). -->
                       <template x-if="q.output_url && q.status === 'done'">
-                        <a class="link" :href="q.output_url" target="_blank"
+                        <a class="link" :class="{'link-blocked': isBlockedUrl(q.output_url)}" :href="safeHref(q.output_url)" target="_blank" rel="noopener noreferrer"
                            x-text="q.output_url.split('/').pop()"
                            :title="q.output_path || q.output_url"></a>
                       </template>
@@ -1400,7 +1403,7 @@
             </div>
             <div class="detail-field">
               <label>原文链接</label>
-              <div><a :href="basketDetail?.url" target="_blank" class="link-btn">打开原文 ↗</a></div>
+              <div><a :class="{'link-btn-blocked': isBlockedUrl(basketDetail?.url)}" :href="safeHref(basketDetail?.url)" target="_blank" rel="noopener noreferrer" class="link-btn">打开原文 ↗</a></div>
             </div>
             <div class="detail-field" x-show="basketDetail?.raw_content">
               <label>内容预览</label>
@@ -2120,7 +2123,8 @@
                       </td>
                       <td>
                         <a class="link" x-show="row.article_url"
-                           :href="row.article_url" target="_blank" rel="noopener noreferrer"
+                           :class="{'link-blocked': isBlockedUrl(row.article_url)}"
+                           :href="safeHref(row.article_url)" target="_blank" rel="noopener noreferrer"
                            x-text="row.article_title || row.article_url"></a>
                         <span x-show="!row.article_url" x-text="row.article_title || '—'"></span>
                       </td>
@@ -2827,7 +2831,7 @@
                     <td x-text="run.new_articles ?? run.articles_fetched ?? 0"></td>
                     <td x-text="run.duration != null ? run.duration + 's' : '-'"></td>
                     <td>
-                      <a x-show="run.log_url" :href="run.log_url" target="_blank" class="link-btn">查看日志</a>
+                      <a x-show="run.log_url" :class="{'link-btn-blocked': isBlockedUrl(run.log_url)}" :href="safeHref(run.log_url)" target="_blank" rel="noopener noreferrer" class="link-btn">查看日志</a>
                       <span x-show="!run.log_url">-</span>
                     </td>
                   </tr>
@@ -2967,7 +2971,7 @@
               <span x-show="!caseExtractLoading">提取案例</span>
               <span x-show="caseExtractLoading">提取中...</span>
             </button>
-            <a :href="articleDetail?.url" target="_blank" class="btn-secondary">查看原文</a>
+            <a :class="{'btn-blocked': isBlockedUrl(articleDetail?.url)}" :href="safeHref(articleDetail?.url)" target="_blank" rel="noopener noreferrer" class="btn-secondary">查看原文</a>
             <button class="btn-secondary" @click="copyArticleUrl()" title="复制原文链接到剪贴板">
               📋 复制链接
             </button>
@@ -3023,7 +3027,7 @@
                 <template x-for="(e, idx) in articleEvidenceList" :key="idx">
                   <li class="evidence-item">
                     <div class="evidence-query" x-text="e.query"></div>
-                    <a class="evidence-url" :href="e.url" target="_blank" x-text="e.url"></a>
+                    <a class="evidence-url" :class="{'link-blocked': isBlockedUrl(e.url)}" :href="safeHref(e.url)" target="_blank" rel="noopener noreferrer" x-text="e.url"></a>
                     <div class="evidence-snippet" x-text="e.snippet"></div>
                     <div class="evidence-meta">
                       <span x-text="e.domain"></span>
@@ -3076,7 +3080,7 @@
                     <template x-for="(e, idx) in jobDetailFactCheck.evidence" :key="idx">
                       <li class="evidence-item">
                         <div class="evidence-query" x-text="e.query"></div>
-                        <a class="evidence-url" :href="e.url" target="_blank" rel="noopener" x-text="e.url"></a>
+                        <a class="evidence-url" :class="{'link-blocked': isBlockedUrl(e.url)}" :href="safeHref(e.url)" target="_blank" rel="noopener noreferrer" x-text="e.url"></a>
                         <div class="evidence-snippet" x-text="e.snippet"></div>
                         <div class="evidence-meta">
                           <span x-show="e.domain" x-text="e.domain"></span>
@@ -3775,16 +3779,21 @@
 
   </div>
 
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <script defer src="vendor/alpine-3.14.1.min.js"></script>
   <!-- v1.0.44: defer added. Was a synchronous script, so the CDN round-trip
        blocked HTML parsing; offline it stalled until timeout. Deferred
        scripts still run in document order, so this stays ahead of every
        consumer below. Every gsap call site is window.gsap-guarded, so a
-       user action that beats this script degrades instead of throwing. -->
-  <script defer src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+       user action that beats this script degrades instead of throwing.
+       v1.0.47: 自托管, 见上方 preload 注释。 -->
+  <script defer src="vendor/gsap-3.12.5.min.js"></script>
   <!-- v1.0.13: dialog-certainty helpers (must load before app.js) -->
   <script src="js/toast.js?v=1785000000"></script>
   <script src="js/modal.js?v=1785000000"></script>
+  <!-- v1.0.47: URL 白名单护栏。必须早于 Alpine 初始化 —— 它是普通 script
+       (非 defer), 在文档解析期就执行完, 而 Alpine 是 defer, 解析结束后才跑。
+       所以 window.safeHref / window.isSafeUrl 在 Alpine 求值表达式时已就位。 -->
+  <script src="js/safe_url.js?v=20261023001"></script>
   <script src="js/calendar.js?v=20260810001"></script>
   <script src="js/cases.js?v=20260826023"></script>
   <script src="js/stats.js?v=20260827002"></script>

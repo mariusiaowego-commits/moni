@@ -3904,3 +3904,49 @@ label { font-size: 0.85rem; }
   animation-duration: 0.18s;
 }
 ::view-transition-new(root) { animation-duration: 0.24s; }
+
+/* ── v1.0.47 · 链接安全拦截态 (safeHref) ──────────────────────────
+   isSafeUrl() 判定为不安全时, safeHref() 返回 null, Alpine 会移除
+   href 属性 —— 链接退化成不可点击的纯文本。再用删除线 + 徽章告诉用户
+   "这条被拦了", 而不是让链接悄悄消失: 数据污染要看得见, 才查得动。
+
+   全部复用既有 design token (--muted-fg / --destructive / --radius 语义),
+   不新造颜色。徽章视觉等同 .badge.badge-danger。
+   pointer-events: none 是第二道防线 —— 即使将来有人手滑写回裸 href,
+   被拦的链接也点不动。 */
+:root .link-blocked,
+:root.dark .link-blocked,
+:root .link-btn-blocked,
+:root.dark .link-btn-blocked {
+  color: var(--muted-fg);
+  text-decoration: line-through;
+  opacity: 0.8;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+:root .btn-blocked,
+:root.dark .btn-blocked {
+  opacity: 0.55;
+  text-decoration: line-through;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.link-blocked::after,
+.link-btn-blocked::after,
+.btn-blocked::after {
+  content: "已拦截";
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  white-space: nowrap;
+  background: oklch(from var(--destructive) l c h / 0.15);
+  color: var(--destructive);
+  text-decoration: none;
+  vertical-align: middle;
+}
