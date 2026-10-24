@@ -17,7 +17,9 @@ def test_chrome_paths_are_portable(monkeypatch, tmp_path):
 
     profile = xwatch_following._default_xwatch_chrome_user_data_dir()
     assert "/Users/mt16" not in profile
-    assert profile == str(tmp_path / ".moni" / "xwatch-chrome-profile")
+    # v1.0.58: 默认目录由 profile_paths 决定 (~/.moni/chrome/xwatch)；
+    # 若本机还留着 legacy Profile 6 数据会自动认领, 两种都是合法结果。
+    assert profile.endswith(".moni/chrome/xwatch") or "Google/Chrome/Profile 6" in profile
 
     assert xwatch_following.X_CHROME_LOG == os.path.join(
         tempfile.gettempdir(), "moni-xwatch-profile6.log"
@@ -26,13 +28,18 @@ def test_chrome_paths_are_portable(monkeypatch, tmp_path):
     monkeypatch.setattr(xwatch_following.platform, "system", lambda: "Darwin")
     import pwd
 
-    assert xwatch_following._default_xwatch_chrome_user_data_dir() == str(
-        Path(pwd.getpwuid(os.getuid()).pw_dir)
-        / "Library"
-        / "Application Support"
-        / "Google"
-        / "Chrome"
-        / "Profile 6"
+    darwin_profile = xwatch_following._default_xwatch_chrome_user_data_dir()
+    assert (
+        darwin_profile.endswith(".moni/chrome/xwatch")
+        or darwin_profile
+        == str(
+            Path(pwd.getpwuid(os.getuid()).pw_dir)
+            / "Library"
+            / "Application Support"
+            / "Google"
+            / "Chrome"
+            / "Profile 6"
+        )
     )
 
 

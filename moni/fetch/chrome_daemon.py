@@ -97,15 +97,24 @@ CHROME_DEBUG_PORT = int(os.environ.get("MONI_CHROME_DEBUG_PORT", "9223"))
 
 
 def _default_chrome_user_data_dir() -> str:
-    if platform.system() == "Darwin":
-        try:
-            import pwd
+    """Resolve the daemon's Chrome user-data-dir (v1.0.58 wiring).
 
-            real_home = pwd.getpwuid(os.getuid()).pw_dir
-        except Exception:
-            real_home = str(Path.home())
-        return str(Path(real_home) / "Library" / "Application Support" / "Google" / "Chrome" / "Profile 7")
-    return str(Path.home() / ".moni" / "chrome-profile")
+    Single source of truth is :mod:`moni.fetch.profile_paths`:
+
+    * explicit ``MONI_CHROME_USER_DATA_DIR`` wins,
+    * a populated ``~/.moni/chrome/daemon`` wins,
+    * otherwise the legacy ``Chrome/Profile 7`` is auto-claimed **only if it
+      still holds data** (fresh installs and post-migration hosts get the new
+      location),
+    * finally falls back to ``~/.moni/chrome/daemon``.
+
+    Keeping the legacy branch means an un-migrated host behaves exactly as
+    before; running ``scripts/migrate-chrome-profiles.py --apply`` switches it
+    over without a code change.
+    """
+    from .profile_paths import resolve_daemon_user_data_dir
+
+    return str(resolve_daemon_user_data_dir())
 
 
 CHROME_USER_DATA_DIR = os.environ.get(
