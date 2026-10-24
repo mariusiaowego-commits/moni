@@ -4,9 +4,23 @@
 
 ---
 
-## 当前状态: **v1.0.60 — 中文独立博客信源** (2026-10-24 · **SHIPPED**)
+## 当前状态: **v1.0.61 — 36kr 历史 source id 归一化** (2026-10-24 · **SHIPPED**)
 
-**主分支**: main @ 待合并 PR (v1.0.60)
+**主分支**: main @ `246301f` · **Tag**: `v1.0.61`
+**上一版本**: v1.0.60 (PR #160) — 中文独立博客信源
+**热修 PR**: #161 — 修复 live DB 历史 id 漂移导致 `seed-config` 唯一约束失败
+
+### v1.0.61 交付要点
+
+- 新增 migration 036：把旧 id `src-36kr_rss` 归一化为 `src-36kr-rss`，保留 `source_tags`、`source_keyword_filters.id` 与 `article_keyword_hits.filter_id`。
+- canonical / legacy 并存时合并子数据，不静默丢弃。
+- `_run_sql_file()` 失败后显式 rollback，避免连接污染。
+- 全量测试 **1226 passed / 2 skipped**；独立审计两轮，最终 **APPROVE**。
+- 生产库已升至 schema 36；36kr 451 篇文章不变；新源 `chinese_independent_blogs` 已上线。
+
+## 历史状态: **v1.0.60 — 中文独立博客信源** (2026-10-24 · **SHIPPED**)
+
+**主分支**: main @ `ff84b27` · **Tag**: `v1.0.60` · **PR**: #160
 **新增信源**: `chinese_independent_blogs`「中文独立博客」
 **上游**: `github.com/geekplux/chinese-independent-blogs` (MIT)，`feed.opml`
 
