@@ -42,7 +42,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from .chrome_daemon import ChromeBackoffTracker
+from .chrome_daemon import resolve_chrome_binary
+from .chrome_guard import (
+    ChromeBackoffTracker,
+    check_and_record_spawn,
+    is_our_chrome_process,
+    is_sandboxed,
+    reset_spawn_history,
+    system_chrome_allowed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +68,9 @@ def get_x_chrome_status() -> dict[str, Any]:
 
 
 def reset_x_chrome_backoff() -> None:
-    """Reset backoff state (for testing)."""
+    """Reset backoff state and spawn history (for testing)."""
     _xwatch_backoff.reset()
+    reset_spawn_history("xwatch_chrome")
 
 
 def _default_xwatch_chrome_user_data_dir() -> str:
@@ -179,8 +188,13 @@ def _pids_on_port(port: int = X_CHROME_PORT) -> list[int]:
     return pids
 
 
-def stop_x_chrome(*, port: int = X_CHROME_PORT, grace_s: float = 2.0) -> int:
-    """Gracefully stop only the Chrome that owns the X debug port (9222).
+def stop_x_chrome(
+    *,
+    port: int = X_CHROME_PORT,
+    user_data_dir: str = X_CHROME_USER_DATA,
+    grace_s: float = 2.0,
+) -> int:
+    """Gracefully stop only the Chrome that owns the X debug port (9222) and matches our user-data-dir.
 
     Does **not** touch daily Chrome or moni Profile 7 (9223).
     Login cookies remain in Profile 6 user-data-dir on disk.
@@ -191,7 +205,19 @@ def stop_x_chrome(*, port: int = X_CHROME_PORT, grace_s: float = 2.0) -> int:
     if not pids:
         logger.debug("[xwatch.following] stop_x_chrome: nothing on %d", port)
         return 0
+
+    valid_pids: list[int] = []
     for pid in pids:
+        if is_our_chrome_process(pid, expected_user_data_dir=user_data_dir):
+            valid_pids.append(pid)
+        else:
+            logger.warning(
+                "[xwatch.following] Refusing to kill PID %d on port %d: "
+                "cmdline does not match expected user-data-dir %s (not our Chrome)",
+                pid, port, user_data_dir,
+            )
+
+    for pid in valid_pids:
         try:
             os.kill(pid, signal.SIGTERM)
             logger.info("[xwatch.following] SIGTERM Chrome pid=%d (port %d)", pid, port)
@@ -199,18 +225,23 @@ def stop_x_chrome(*, port: int = X_CHROME_PORT, grace_s: float = 2.0) -> int:
             pass
         except Exception as exc:
             logger.warning("[xwatch.following] kill %d failed: %s", pid, exc)
-    time.sleep(grace_s)
+
+    if grace_s > 0 and valid_pids:
+        time.sleep(grace_s)
+
     # Force leftovers on that port only
     left = _pids_on_port(port)
     for pid in left:
-        try:
-            os.kill(pid, signal.SIGKILL)
-            logger.info("[xwatch.following] SIGKILL Chrome pid=%d", pid)
-        except ProcessLookupError:
-            pass
-        except Exception as exc:
-            logger.warning("[xwatch.following] SIGKILL %d failed: %s", pid, exc)
-    return len(pids)
+        if pid in valid_pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+                logger.info("[xwatch.following] SIGKILL Chrome pid=%d", pid)
+            except ProcessLookupError:
+                pass
+            except Exception as exc:
+                logger.warning("[xwatch.following] SIGKILL %d failed: %s", pid, exc)
+
+    return len(valid_pids)
 
 
 def ensure_x_chrome(*, headed: bool = True) -> bool:
@@ -233,9 +264,13 @@ def ensure_x_chrome(*, headed: bool = True) -> bool:
         )
         return False
 
-    # Check if headed mode cannot run in sandbox
-    if headed and os.environ.get("MONI_RUNNING_IN_SANDBOX") == "1":
-        err_msg = "Headed Chrome cannot launch inside sandboxed environment (launchservicesd registration denied)"
+    binary_path, is_shell = resolve_chrome_binary(headless=not headed)
+    if not binary_path:
+        err_msg = (
+            "Headed Chrome cannot launch inside sandboxed environment (launchservicesd registration denied)"
+            if headed and is_sandboxed()
+            else "No valid Chrome binary available"
+        )
         _xwatch_backoff.record_failure(err_msg)
         logger.error(
             "[xwatch.following] %s. Headed Chrome is required for following scrape. "
@@ -244,9 +279,15 @@ def ensure_x_chrome(*, headed: bool = True) -> bool:
         )
         return False
 
+    can_spawn, limit_err = check_and_record_spawn("xwatch_chrome", max_per_hour=3)
+    if not can_spawn:
+        _xwatch_backoff.record_failure(limit_err or "hourly spawn limit exceeded")
+        logger.error("[xwatch.following] %s. Entering degraded state and skipping spawn.", limit_err)
+        return False
+
     Path(X_CHROME_USER_DATA).mkdir(parents=True, exist_ok=True)
     flags = [
-        X_CHROME_BINARY,
+        binary_path,
         f"--remote-debugging-port={X_CHROME_PORT}",
         f"--user-data-dir={X_CHROME_USER_DATA}",
         "--no-first-run",

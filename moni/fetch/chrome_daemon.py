@@ -52,79 +52,18 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from .chrome_guard import (
+    ChromeBackoffTracker,
+    acquire_daemon_lock,
+    check_and_record_spawn,
+    is_our_chrome_process,
+    is_sandboxed,
+    release_daemon_lock,
+    reset_spawn_history,
+    system_chrome_allowed,
+)
+
 logger = logging.getLogger(__name__)
-
-# ── Backoff Tracker ────────────────────────────────────────────────────────
-
-
-class ChromeBackoffTracker:
-    """Tracks launch failures and applies exponential backoff."""
-
-    def __init__(
-        self,
-        name: str,
-        base_backoff_s: float = 60.0,
-        max_backoff_s: float = 1800.0,  # 30 minutes
-        degraded_threshold: int = 3,
-    ) -> None:
-        self.name = name
-        self.base_backoff_s = float(
-            os.environ.get(f"MONI_{name.upper()}_BACKOFF_BASE_S", str(base_backoff_s))
-        )
-        self.max_backoff_s = float(
-            os.environ.get(f"MONI_{name.upper()}_BACKOFF_MAX_S", str(max_backoff_s))
-        )
-        self.degraded_threshold = degraded_threshold
-        self.consecutive_failures = 0
-        self.last_failure_time: float | None = None
-        self.last_error: str | None = None
-
-    def record_success(self) -> None:
-        self.consecutive_failures = 0
-        self.last_failure_time = None
-        self.last_error = None
-
-    def record_failure(self, error: str) -> None:
-        self.consecutive_failures += 1
-        self.last_failure_time = time.monotonic()
-        self.last_error = error
-
-    def reset(self) -> None:
-        self.consecutive_failures = 0
-        self.last_failure_time = None
-        self.last_error = None
-
-    @property
-    def current_backoff_s(self) -> float:
-        if self.consecutive_failures == 0:
-            return 0.0
-        backoff = self.base_backoff_s * (2 ** (self.consecutive_failures - 1))
-        return min(backoff, self.max_backoff_s)
-
-    @property
-    def remaining_backoff_s(self) -> float:
-        if not self.last_failure_time or self.consecutive_failures == 0:
-            return 0.0
-        elapsed = time.monotonic() - self.last_failure_time
-        return max(0.0, self.current_backoff_s - elapsed)
-
-    def is_in_backoff(self) -> bool:
-        return self.remaining_backoff_s > 0
-
-    @property
-    def is_degraded(self) -> bool:
-        return self.consecutive_failures >= self.degraded_threshold
-
-    def get_status(self) -> dict[str, Any]:
-        return {
-            "name": self.name,
-            "consecutive_failures": self.consecutive_failures,
-            "is_degraded": self.is_degraded,
-            "in_backoff": self.is_in_backoff(),
-            "remaining_backoff_s": round(self.remaining_backoff_s, 1),
-            "current_backoff_s": round(self.current_backoff_s, 1),
-            "last_error": self.last_error,
-        }
 
 
 # ── Configuration ──────────────────────────────────────────────────────────
@@ -227,21 +166,33 @@ def find_chrome_headless_shell() -> Path | None:
     return None
 
 
-def resolve_chrome_binary(*, headless: bool = True) -> tuple[str, bool]:
+def resolve_chrome_binary(*, headless: bool = True) -> tuple[str | None, bool]:
     """Resolve the executable binary path and whether it is a headless shell.
 
     Returns:
         (binary_path, is_headless_shell)
+        If no safe/allowed binary is available, returns (None, False).
     """
     if headless:
         shell = find_chrome_headless_shell()
         if shell:
             return str(shell), True
-        logger.warning(
-            "[chrome_daemon] Playwright chrome-headless-shell not found; falling back to "
-            "system Chrome %s (may fail in sandboxed environments)",
-            CHROME_BINARY,
+        logger.error(
+            "[chrome_daemon] Playwright chrome-headless-shell not found; "
+            "refusing to spawn system Chrome in headless mode."
         )
+        _daemon_backoff.record_failure("Playwright chrome-headless-shell not found")
+        return None, False
+
+    # Headed mode requested
+    if not system_chrome_allowed():
+        logger.error(
+            "[chrome_daemon] Headed system Chrome is not allowed in sandbox / "
+            "MONI_ALLOW_SYSTEM_CHROME=0."
+        )
+        _daemon_backoff.record_failure("System Chrome not allowed in sandbox")
+        return None, False
+
     return CHROME_BINARY, False
 
 
@@ -260,8 +211,10 @@ def get_daemon_status() -> dict[str, Any]:
 
 
 def reset_daemon_backoff() -> None:
-    """Reset backoff counter (e.g. for testing)."""
+    """Reset backoff counter, spawn history, and lock (e.g. for testing)."""
     _daemon_backoff.reset()
+    reset_spawn_history("chrome_daemon")
+    release_daemon_lock()
 
 
 def _chrome_is_running() -> bool:
@@ -314,17 +267,37 @@ def ensure_chrome() -> bool:
         )
         return False
 
-    profile_path = Path(CHROME_USER_DATA_DIR)
-    profile_path.mkdir(parents=True, exist_ok=True)
+    if not acquire_daemon_lock():
+        logger.warning(
+            "[chrome_daemon] Another instance holds daemon.lock; skipping spawn."
+        )
+        return False
+
+    can_spawn, limit_err = check_and_record_spawn("chrome_daemon", max_per_hour=3)
+    if not can_spawn:
+        release_daemon_lock()
+        _daemon_backoff.record_failure(limit_err or "hourly spawn limit exceeded")
+        logger.error(
+            "[chrome_daemon] %s. Entering degraded state and skipping spawn.",
+            limit_err,
+        )
+        return False
 
     binary_path, is_shell = resolve_chrome_binary(headless=not MONI_36KR_HEADED)
+    if not binary_path:
+        release_daemon_lock()
+        logger.error("[chrome_daemon] Cannot spawn Chrome: no valid binary available")
+        return False
 
-    # Fail-fast if headed Chrome is requested in a known sandbox environment
-    if MONI_36KR_HEADED and os.environ.get("MONI_RUNNING_IN_SANDBOX") == "1":
+    if MONI_36KR_HEADED and is_sandboxed():
+        release_daemon_lock()
         err_msg = "Headed Chrome cannot launch inside sandbox (launchservicesd registration denied)"
         _daemon_backoff.record_failure(err_msg)
         logger.error("[chrome_daemon] %s. Run outside sandbox or set MONI_36KR_HEADED=0.", err_msg)
         return False
+
+    profile_path = Path(CHROME_USER_DATA_DIR)
+    profile_path.mkdir(parents=True, exist_ok=True)
 
     flags = [
         binary_path,
@@ -356,6 +329,7 @@ def ensure_chrome() -> bool:
         )
     except FileNotFoundError:
         os.close(log_fd)
+        release_daemon_lock()
         _daemon_backoff.record_failure(f"Chrome binary not found at {binary_path}")
         logger.error(
             "[chrome_daemon] Chrome binary not found at %s — set MONI_CHROME_BINARY or install playwright",
@@ -364,6 +338,7 @@ def ensure_chrome() -> bool:
         return False
     except Exception as exc:
         os.close(log_fd)
+        release_daemon_lock()
         _daemon_backoff.record_failure(f"failed to spawn Chrome: {exc}")
         logger.error("[chrome_daemon] failed to spawn Chrome: %s", exc)
         return False
@@ -386,6 +361,7 @@ def ensure_chrome() -> bool:
         )
         return True
 
+    release_daemon_lock()
     exit_code = proc.poll() if proc is not None else None
     if exit_code is not None:
         err_msg = f"Chrome exited prematurely with code {exit_code}"
@@ -417,25 +393,34 @@ def _pids_on_debug_port(port: int = CHROME_DEBUG_PORT) -> list[int]:
     return pids
 
 
-def stop_chrome(*, port: int = CHROME_DEBUG_PORT, grace_s: float = 1.0) -> int:
-    """Kill any Chrome process bound to our debug port.
+def stop_chrome(
+    *,
+    port: int = CHROME_DEBUG_PORT,
+    user_data_dir: str = CHROME_USER_DATA_DIR,
+    grace_s: float = 1.0,
+) -> int:
+    """Kill any Chrome process bound to our debug port that matches our user-data-dir.
 
     Used in tests and for manual teardown.  Production code should let
     the daemon persist between fetches for speed.
     """
     pids = _pids_on_debug_port(port)
     if not pids:
-        try:
-            subprocess.run(
-                ["pkill", "-f", f"remote-debugging-port={port}"],
-                capture_output=True,
-                check=False,
-            )
-        except Exception:
-            pass
+        release_daemon_lock()
         return 0
 
+    valid_pids: list[int] = []
     for pid in pids:
+        if is_our_chrome_process(pid, expected_user_data_dir=user_data_dir):
+            valid_pids.append(pid)
+        else:
+            logger.warning(
+                "[chrome_daemon] Refusing to kill PID %d on port %d: "
+                "cmdline does not match expected user-data-dir %s (not our Chrome)",
+                pid, port, user_data_dir,
+            )
+
+    for pid in valid_pids:
         try:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
@@ -443,16 +428,18 @@ def stop_chrome(*, port: int = CHROME_DEBUG_PORT, grace_s: float = 1.0) -> int:
         except Exception as exc:
             logger.warning("[chrome_daemon] kill %d failed: %s", pid, exc)
 
-    if grace_s > 0:
+    if grace_s > 0 and valid_pids:
         time.sleep(grace_s)
 
     leftovers = _pids_on_debug_port(port)
     for pid in leftovers:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        except Exception as exc:
-            logger.warning("[chrome_daemon] SIGKILL %d failed: %s", pid, exc)
+        if pid in valid_pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except Exception as exc:
+                logger.warning("[chrome_daemon] SIGKILL %d failed: %s", pid, exc)
 
-    return len(pids)
+    release_daemon_lock()
+    return len(valid_pids)
