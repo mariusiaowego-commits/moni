@@ -113,3 +113,73 @@ class TestScrapeFollowingMocked:
         ):
             out = scrape_following(max_posts=10, max_scrolls=2, ensure=False)
         assert out == []
+
+
+class TestEnsureXChromeFailFastAndBackoff:
+    def test_headed_chrome_fails_fast_in_sandbox_env(self, monkeypatch):
+        from moni.fetch.xwatch_following import (
+            ensure_x_chrome,
+            reset_x_chrome_backoff,
+            get_x_chrome_status,
+        )
+
+        reset_x_chrome_backoff()
+        monkeypatch.setattr("moni.fetch.xwatch_following._port_alive", lambda *a, **kw: False)
+        monkeypatch.setenv("MONI_RUNNING_IN_SANDBOX", "1")
+
+        with patch("subprocess.Popen") as mock_popen:
+            res = ensure_x_chrome(headed=True)
+            assert res is False
+            mock_popen.assert_not_called()
+
+        status = get_x_chrome_status()
+        assert status["consecutive_failures"] == 1
+        assert "launchservicesd" in status["last_error"]
+        reset_x_chrome_backoff()
+
+    def test_headed_chrome_early_sigabrt_triggers_backoff(self, monkeypatch):
+        import signal
+        from moni.fetch.xwatch_following import (
+            ensure_x_chrome,
+            reset_x_chrome_backoff,
+            _xwatch_backoff,
+        )
+
+        reset_x_chrome_backoff()
+        monkeypatch.setattr("moni.fetch.xwatch_following._port_alive", lambda *a, **kw: False)
+
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = -signal.SIGABRT
+
+        with patch("subprocess.Popen", return_value=mock_proc):
+            res = ensure_x_chrome(headed=True)
+            assert res is False
+            assert _xwatch_backoff.consecutive_failures == 1
+            assert "SIGABRT" in (_xwatch_backoff.last_error or "")
+            assert _xwatch_backoff.is_in_backoff() is True
+
+        # Subsequent call should be blocked by backoff immediately without spawning
+        with patch("subprocess.Popen") as mock_popen2:
+            res2 = ensure_x_chrome(headed=True)
+            assert res2 is False
+            mock_popen2.assert_not_called()
+
+        reset_x_chrome_backoff()
+
+    def test_status_reflects_degraded(self):
+        from moni.fetch.xwatch_following import (
+            reset_x_chrome_backoff,
+            get_x_chrome_status,
+            _xwatch_backoff,
+        )
+
+        reset_x_chrome_backoff()
+        assert get_x_chrome_status()["is_degraded"] is False
+
+        _xwatch_backoff.record_failure("f1")
+        _xwatch_backoff.record_failure("f2")
+        _xwatch_backoff.record_failure("f3")
+        status = get_x_chrome_status()
+        assert status["is_degraded"] is True
+        assert status["consecutive_failures"] == 3
+        reset_x_chrome_backoff()

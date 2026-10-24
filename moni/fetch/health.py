@@ -96,11 +96,9 @@ def check_xwatch(*, probe_ddg: bool = True, probe_synd: bool = True) -> HealthRe
     }
     # Channel C readiness: Profile 6 / 9222
     try:
-        from .xwatch_following import X_CHROME_PORT, _port_alive
-        detail["following_chrome"] = {
-            "port": X_CHROME_PORT,
-            "alive": _port_alive(),
-        }
+        from .xwatch_following import get_x_chrome_status
+
+        detail["following_chrome"] = get_x_chrome_status()
     except Exception as exc:
         detail["following_chrome"] = {"error": str(exc)}
     synd_ok = False
@@ -244,6 +242,8 @@ def check_xwatch(*, probe_ddg: bool = True, probe_synd: bool = True) -> HealthRe
             # Only warn if source is active and we expected inserts
             if passive.get("is_active", True):
                 warnings.append("no inserts in 48h")
+        if detail.get("following_chrome", {}).get("is_degraded"):
+            warnings.append("following_chrome=degraded")
         if warnings:
             err = "ok with warnings: " + ", ".join(warnings)
 
