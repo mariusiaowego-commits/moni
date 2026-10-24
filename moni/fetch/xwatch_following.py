@@ -32,7 +32,10 @@ import json
 import logging
 import os
 import signal
+import platform
+import shutil
 import subprocess
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -41,17 +44,39 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
+
+def _default_xwatch_chrome_user_data_dir() -> str:
+    if platform.system() == "Darwin":
+        try:
+            import pwd
+            real_home = pwd.getpwuid(os.getuid()).pw_dir
+        except Exception:
+            real_home = str(Path.home())
+        return str(Path(real_home) / "Library" / "Application Support" / "Google" / "Chrome" / "Profile 6")
+    return str(Path.home() / ".moni" / "xwatch-chrome-profile")
+
+
+def _default_x_chrome_binary() -> str:
+    if platform.system() == "Darwin":
+        return "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
+        found = shutil.which(name)
+        if found:
+            return found
+    return "google-chrome"
+
+
 # Isolated from moni Profile 7 / 9223
 X_CHROME_PORT = int(os.environ.get("MONI_XWATCH_CHROME_PORT", "9222"))
 X_CHROME_USER_DATA = os.environ.get(
     "MONI_XWATCH_CHROME_USER_DATA",
-    "/Users/mt16/Library/Application Support/Google/Chrome/Profile 6",
+    _default_xwatch_chrome_user_data_dir(),
 )
 X_CHROME_BINARY = os.environ.get(
     "MONI_CHROME_BINARY",
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    _default_x_chrome_binary(),
 )
-X_CHROME_LOG = "/tmp/moni-xwatch-profile6.log"
+X_CHROME_LOG = os.path.join(tempfile.gettempdir(), "moni-xwatch-profile6.log")
 
 FOLLOWING_URL = "https://x.com/home?following=true"
 

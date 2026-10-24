@@ -165,14 +165,25 @@ class TestChromeDaemonUnit:
     helper functions are testable + the constants are sane."""
 
     def test_chrome_binary_default_is_mac_path(self):
+        import platform
+
         from moni.fetch.chrome_daemon import CHROME_BINARY, CHROME_DEBUG_PORT, CHROME_USER_DATA_DIR
-        assert CHROME_BINARY.endswith("Google Chrome")
         assert CHROME_DEBUG_PORT == 9223
-        # Hardcoded to the real home (NOT Path.home()) so that the
-        # hermes sandbox's $HOME redirect doesn't trap us into a
-        # sandbox-only profile.
-        assert CHROME_USER_DATA_DIR == "/Users/mt16/Library/Application Support/Google/Chrome/Profile 7"
-        assert "Profile 7" in CHROME_USER_DATA_DIR
+        if platform.system() == "Darwin":
+            assert CHROME_BINARY.endswith("Google Chrome")
+            # Resolve the real passwd home rather than Path.home(), so the
+            # hermes sandbox's $HOME redirect doesn't trap us in a
+            # sandbox-only profile.
+            assert "/Library/Application Support/Google/Chrome/Profile 7" in CHROME_USER_DATA_DIR
+            assert "Profile 7" in CHROME_USER_DATA_DIR
+        else:
+            # v1.0.51: the macOS path is a portability bug. On Linux /
+            # Docker, creating /Users/mt16/... dies with
+            # "PermissionError: '/Users'" — that was the real root
+            # cause of the first CI failure. Non-macOS uses a
+            # per-user profile under HOME instead.
+            assert "/Users/mt16" not in CHROME_USER_DATA_DIR
+            assert CHROME_USER_DATA_DIR.endswith(".moni/chrome-profile")
 
     def test_env_override_takes_precedence(self, monkeypatch):
         monkeypatch.setenv("MONI_CHROME_BINARY", "/custom/chrome")
