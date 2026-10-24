@@ -54,7 +54,13 @@ fi
 # Python-only; the shell path used to reference $LOG_FILE without defining
 # it → under `set -u`, brief html_landing always failed with
 # "LOG_FILE: unbound variable" misreported as "brief_html render failed".
-ARTIFACTS_DIR="${ARTIFACTS_DIR:-${REPO_ROOT}/data/artifacts}"
+if [[ -n "${MONI_OUTPUT_DIR:-}" ]]; then
+    ARTIFACTS_DIR="${MONI_OUTPUT_DIR}"
+elif [[ -n "${MONI_DATA_DIR:-}" ]]; then
+    ARTIFACTS_DIR="${MONI_DATA_DIR}/artifacts"
+else
+    ARTIFACTS_DIR="${ARTIFACTS_DIR:-${REPO_ROOT}/data/artifacts}"
+fi
 LOG_FILE="${MONI_WORKER_LOG:-${ARTIFACTS_DIR}/worker.log}"
 mkdir -p "$ARTIFACTS_DIR"
 # Touch so 2>>"$LOG_FILE" never fails if parent was just created.

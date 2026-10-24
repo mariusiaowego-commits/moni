@@ -279,6 +279,8 @@ def launch_worker() -> WorkerLaunch:
     env["MONI_DB"] = str(db_path)
     env["MONI_QUEUE_DIR"] = str(_queue_dir())
     env["MONI_OUTPUT_DIR"] = str(output_dir)
+    env["ARTIFACTS_DIR"] = str(output_dir)
+    env["MONI_WORKER_LOG"] = str(log_file)
 
     # v1.0.5.26: defense-in-depth PATH prepend.  default_worker.sh
     # also does this on its own, but the worker Popen here might
