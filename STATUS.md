@@ -4,7 +4,24 @@
 
 ---
 
-## 当前状态: **v1.0.61 — 36kr 历史 source id 归一化** (2026-10-24 · **SHIPPED**)
+## 当前状态: **v1.0.63 — 独立博客源改用现有业务标签** (2026-10-24 · **IN REVIEW**)
+
+**分支**: `fix/v1.0.63-cn-indie-use-existing-tags` · **基线**: main @ `5997444` (v1.0.62)
+
+### v1.0.63 交付要点
+
+- 删除 v1.0.60 引入的一次性 tag `independent-blog`（无关键词 → 标签闸门形同虚设）。
+- 新源改绑现有 10 个业务 tag：`APP` / `ai-fintech` / `banking` / `general-tech` /
+  `miniprogram` / `model-providers` / `payment` / `regulation` / `wechat` / `workbuddy`。
+- 新增 migration 037：清 `independent-blog` 的 tag_definitions / source_tags /
+  article_tags 关联，补齐 10 条 source_tags 绑定，写 `schema_cleanup_log`。
+- `seed_config` 补齐 `APP` / `model-providers` / `workbuddy` 三个 tag 定义
+  （原先只在 live DB 用 /config 建过，空库 seed 会 FK 失败）；**不覆盖**用户已配的关键词。
+- 新增 `scripts/purge_cn_indie_unmatched.py`：一次性清理历史 105 篇，
+  命中保留并补打 tag + `article_keyword_hits`，未命中直接删除。
+- 测试：全量 **1289 passed / 2 skipped**；定向 037 + 独立博客 + 迁移回归 94 passed。
+
+## 历史状态: **v1.0.61 — 36kr 历史 source id 归一化** (2026-10-24 · **SHIPPED**)
 
 **主分支**: main @ `246301f` · **Tag**: `v1.0.61`
 **上一版本**: v1.0.60 (PR #160) — 中文独立博客信源

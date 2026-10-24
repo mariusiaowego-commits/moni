@@ -507,7 +507,7 @@ class TestRegistrationAndSeed:
         parsed = fetcher.parse({"title": "x", "url": "https://x", "content": "c"})
         assert parsed["source"] == "chinese_independent_blogs"
 
-    def test_seed_defines_source_and_tag(self):
+    def test_seed_defines_source_and_reuses_existing_tags(self):
         from moni.db import seed_config
         src = next(s for s in seed_config._DEFAULT_SOURCES
                    if s["name"] == "chinese_independent_blogs")
@@ -515,7 +515,77 @@ class TestRegistrationAndSeed:
         assert src["fetch_interval_min"] == 180
         cfg = json.loads(src["fetch_config"])
         assert cfg["max_feeds"] == 80
-        assert ("src-chinese-independent-blogs", "independent-blog") in seed_config._DEFAULT_SOURCE_TAGS
+        bound = {
+            tag for source_id, tag in seed_config._DEFAULT_SOURCE_TAGS
+            if source_id == "src-chinese-independent-blogs"
+        }
+        assert bound == {
+            "APP", "ai-fintech", "banking", "general-tech", "miniprogram",
+            "model-providers", "payment", "regulation", "wechat", "workbuddy",
+        }
+        # The v1.0.60 one-off keyword-less tag must be gone for good.
+        assert "independent-blog" not in {t[0] for t in seed_config._DEFAULT_TAGS}
+
+    def test_seed_binds_every_tag_it_references(self, seeded_db):
+        """Every binding must resolve to a real tag_definitions row.
+
+        v1.0.63 binds cn-indie to APP / model-providers / workbuddy, which
+        existed only in the live DB (created through /config).  Without seed
+        definitions the source_tags insert failed the FK on a fresh database.
+        """
+        rows = seeded_db.execute(
+            """
+            SELECT st.tag_name
+            FROM source_tags st
+            JOIN tag_definitions t ON t.name = st.tag_name
+            WHERE st.source_id = 'src-chinese-independent-blogs'
+            ORDER BY st.tag_name
+            """
+        ).fetchall()
+        assert {r["tag_name"] for r in rows} == {
+            "APP", "ai-fintech", "banking", "general-tech", "miniprogram",
+            "model-providers", "payment", "regulation", "wechat", "workbuddy",
+        }
+        assert seeded_db.execute(
+            "SELECT COUNT(*) FROM source_tags "
+            "WHERE source_id = 'src-chinese-independent-blogs'"
+        ).fetchone()[0] == 10
+
+    def test_tag_gate_drops_offtopic_posts(self, seeded_db):
+        """Regression: the old keyword-less tag let every post through.
+
+        With the existing business tags bound, an on-topic post is kept and
+        gets its matched tag; an off-topic one (travel notes) is dropped and
+        never reaches the repository, so it can't land untagged.
+        """
+        from moni.fetch.tag_filter import apply_tag_keyword_filter
+
+        seeded_db.execute(
+            "UPDATE tag_definitions SET keywords = ? WHERE name = 'general-tech'",
+            (json.dumps(["Kubernetes", "防火墙"], ensure_ascii=False),),
+        )
+        seeded_db.commit()
+
+        arts = [
+            {
+                "title": "Kubernetes 应用之 JupyterHub 搭建和运维",
+                "url": "https://example.com/on-topic",
+                "content": "集群部署笔记",
+            },
+            {
+                "title": "2024 北海道 Part 3",
+                "url": "https://example.com/off-topic",
+                "content": "游记",
+            },
+        ]
+        kept, stats, hits = apply_tag_keyword_filter(
+            "chinese_independent_blogs", arts
+        )
+
+        assert [a["url"] for a in kept] == ["https://example.com/on-topic"]
+        assert stats["dropped_tag_filter"] == 1
+        assert stats["tags_used"] > 0
+        assert {h["tag_name"] for h in hits} == {"general-tech"}
 
     def test_fetch_config_default_exposed(self):
         from moni.web.routes.config_sources import _FETCH_CONFIG_DEFAULTS
