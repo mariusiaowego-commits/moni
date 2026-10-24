@@ -576,7 +576,7 @@ def test_sigterm_kills_blocking_child_that_ignores_term(tmp_path):
         f"  trap '' TERM\n"
         f"  while true; do sleep 1; done\n"
         f"fi\n"
-        f"exec /usr/local/bin/python3 \"$@\"\n",
+        f"exec {sys.executable} \"$@\"\n",
         encoding="utf-8",
     )
     fake_python.chmod(0o755)
@@ -714,4 +714,32 @@ def test_signal_traps_and_flock_structural_invariants():
     assert "kill -KILL -- \"-$_child_to_stop\"" in src
     assert "sleep 0.8" in src
     assert "run_in_new_group.py" not in src
+
+
+def test_launch_worker_uses_current_interpreter(queue_dir, monkeypatch):
+    """launch_worker() must spawn worker_lock_exec.py with sys.executable, not a hardcoded host path."""
+    spawned_args = []
+
+    def fake_popen(args, *p_args, **kwargs):
+        spawned_args.append(args)
+
+        class FakeProc:
+            pid = 99999
+
+            def poll(self):
+                return 0
+
+        return FakeProc()
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(sw, "_read_worker_result", lambda: "nothing_to_do")
+    db = queue_dir.parent.parent / "news.db"
+    monkeypatch.setenv("MONI_QUEUE_DIR", str(queue_dir))
+    monkeypatch.setenv("HOME", str(queue_dir.parent.parent))
+    monkeypatch.setattr(sw, "DEFAULT_DB", db)
+
+    sw.launch_worker()
+    assert spawned_args, "Popen was not called"
+    assert spawned_args[0][0] == sys.executable
+
 
