@@ -1,0 +1,46 @@
+{
+  "base": "http://127.0.0.1:8903",
+  "capturedAt": "2026-10-10T07:08:34.842Z",
+  "states": [
+    {
+      "state": "online (warm)",
+      "elapsedMs": 4032,
+      "screenshot": "01-online-warm.png",
+      "metrics": {
+        "title": "瞭望 moni — 同业信源本地新闻库",
+        "bodyChars": 195,
+        "firstText": "瞭望 MONI 抓取管理 文章查阅 行业日历 案例库 量化看板 数据维护 大模型任务 分享 菜篮子 配置管理 已停止 ↻ 🎨 🌙 文章查阅 浏览本地新闻库，Pin 收藏后可一键生成简报 🔍 所有来源 所有分类 全部 Pin ( 0",
+        "bg": "oklch(0.963 0.013 97.4)",
+        "navPresent": true,
+        "gsapLoaded": "object",
+        "alpineLoaded": "object",
+        "interLoaded": true,
+        "fontFaceCount": 2
+      }
+    },
+    {
+      "state": "offline (CDN blocked)",
+      "firstReadableMs": 105,
+      "budgetMs": 3000,
+      "withinBudget": true,
+      "screenshot": "02-offline-blocked.png",
+      "metrics": {
+        "bodyChars": 60,
+        "firstText": "瞭望 MONI 抓取管理 文章查阅 行业日历 案例库 量化看板 数据维护 大模型任务 分享 菜篮子 配置管理 ↻ 🎨",
+        "gsapLoaded": "undefined",
+        "alpineLoaded": "undefined",
+        "appVisible": true,
+        "xcloakLeft": 39,
+        "interLoaded": true
+      }
+    },
+    {
+      "state": "reduced-motion: reduce",
+      "screenshot": "03-reduced-motion.png",
+      "metrics": {
+        "reducedMotion": true,
+        "gsap": "object"
+      }
+    }
+  ]
+}

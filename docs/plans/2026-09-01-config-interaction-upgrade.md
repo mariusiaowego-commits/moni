@@ -13,8 +13,8 @@
 ## 需求 3.3: 关键词输入方式升级为 Chip / Tag CRUD 组件
 
 ### 1. 现状梳理与痛点
-- **Filter 弹窗**（[`moni/web/static/index.html:3540-3548`](file:///Users/mt16/dev/moni/moni/web/static/index.html#L3540-L3548)）：单行 `<input type="text" x-model="configModalTarget.keywordsText">`，以逗号分隔一坨字符串，保存时通过正则与 split 转换回数组。
-- **Tag 弹窗**（[`moni/web/static/index.html:3312-3318`](file:///Users/mt16/dev/moni/moni/web/static/index.html#L3312-L3318)）：多行 `<textarea x-model="configModalTarget.keywordsText" rows="4">`，以换行符分隔。
+- **Filter 弹窗**（[`moni/web/static/index.html:3540-3548`](../../moni/web/static/index.html#L3540-L3548)）：单行 `<input type="text" x-model="configModalTarget.keywordsText">`，以逗号分隔一坨字符串，保存时通过正则与 split 转换回数组。
+- **Tag 弹窗**（[`moni/web/static/index.html:3312-3318`](../../moni/web/static/index.html#L3312-L3318)）：多行 `<textarea x-model="configModalTarget.keywordsText" rows="4">`，以换行符分隔。
 - **痛点**：
   1. 纯文本输入体验原始，删除/修改单项关键词需要光标在长串文本中来回移动；
   2. 容易产生冗余空格、中英文标点混杂、首尾残缺逗号等格式错误；
@@ -145,14 +145,14 @@ Alpine.data('keywordChipEditor', (getKeywordsArray, setKeywordsArray) => ({
 ## 需求 3.4: 全局关键词配置 (Global Keyword Filters)
 
 ### 1. 现状梳理
-- **数据表**：`source_keyword_filters` ([`004_sources_and_tags.sql`](file:///Users/mt16/dev/moni/moni/db/migrations/004_sources_and_tags.sql#L40-L51))，`source_id TEXT NOT NULL` 外键约束到 `sources.id`；
+- **数据表**：`source_keyword_filters` ([`004_sources_and_tags.sql`](../../moni/db/migrations/004_sources_and_tags.sql#L40-L51))，`source_id TEXT NOT NULL` 外键约束到 `sources.id`；
 - **抓取管线**：
-  - [`moni/fetch/base.py:215-256`](file:///Users/mt16/dev/moni/moni/fetch/base.py#L215-L256)：
+  - [`moni/fetch/base.py:215-256`](../../moni/fetch/base.py#L215-L256)：
     1. HTML cleaner 清洗 HTML；
     2. `apply_keyword_filters(source, parsed_articles)`：查当前 source_id 的黑白名单；
     3. `apply_tag_keyword_filter(source, filtered_articles)`：查当前 source 绑定的 tags keywords OR 集；
     4. `dedupe_insert` 落库。
-  - [`moni/fetch/filters.py:66-95`](file:///Users/mt16/dev/moni/moni/fetch/filters.py#L66-L95)：仅根据 `WHERE source_id = ? AND is_active = 1` 加载单源规则。
+  - [`moni/fetch/filters.py:66-95`](../../moni/fetch/filters.py#L66-L95)：仅根据 `WHERE source_id = ? AND is_active = 1` 加载单源规则。
 
 ### 2. 方案设计
 
@@ -243,7 +243,7 @@ CREATE INDEX IF NOT EXISTS idx_global_kw_active ON global_keyword_filters(is_act
 ## 需求 4.1: 业务 Tag 编辑时增加 Name 字段提交确认机制
 
 ### 1. 现状梳理
-- 在 [`moni/web/static/index.html:3250-3260`](file:///Users/mt16/dev/moni/moni/web/static/index.html#L3250-L3260)：
+- 在 [`moni/web/static/index.html:3250-3260`](../../moni/web/static/index.html#L3250-L3260)：
   ```html
   <div class="form-row">
     <label>标识 name <span class="required">*</span>
@@ -363,16 +363,16 @@ PR 2 (核心能力层 · 全栈管线): 需求 3.4
 
 | 需求模块 | 改动类型 | 涉及文件路径 | 改动概要 |
 | :--- | :---: | :--- | :--- |
-| **3.3 Chip CRUD** | 前端 | [`moni/web/static/js/app.js`](file:///Users/mt16/dev/moni/moni/web/static/js/app.js) | 注册 `keywordChipEditor` 统一组件，简化 `openConfigModal` 状态 |
-| | 前端 | [`moni/web/static/index.html`](file:///Users/mt16/dev/moni/moni/web/static/index.html) | Filter/Tag 弹窗关键词区域替换为 Chip DOM 结构 |
-| | 样式 | [`moni/web/static/css/main.css`](file:///Users/mt16/dev/moni/moni/web/static/css/main.css) | 添加 `.keyword-chip-container`, `.chip-item`, `.chip-remove` 样式 |
-| **4.1 Name 确认** | 前端 | [`moni/web/static/index.html`](file:///Users/mt16/dev/moni/moni/web/static/index.html) | Tag modal 增加确认按钮与 `:disabled` 状态联动 |
-| | 前端 | [`moni/web/static/js/app.js`](file:///Users/mt16/dev/moni/moni/web/static/js/app.js) | `openConfigModal` 初始化 `nameConfirmed`，增加 `toggleConfirmTagName` |
+| **3.3 Chip CRUD** | 前端 | [`moni/web/static/js/app.js`](../../moni/web/static/js/app.js) | 注册 `keywordChipEditor` 统一组件，简化 `openConfigModal` 状态 |
+| | 前端 | [`moni/web/static/index.html`](../../moni/web/static/index.html) | Filter/Tag 弹窗关键词区域替换为 Chip DOM 结构 |
+| | 样式 | [`moni/web/static/css/main.css`](../../moni/web/static/css/main.css) | 添加 `.keyword-chip-container`, `.chip-item`, `.chip-remove` 样式 |
+| **4.1 Name 确认** | 前端 | [`moni/web/static/index.html`](../../moni/web/static/index.html) | Tag modal 增加确认按钮与 `:disabled` 状态联动 |
+| | 前端 | [`moni/web/static/js/app.js`](../../moni/web/static/js/app.js) | `openConfigModal` 初始化 `nameConfirmed`，增加 `toggleConfirmTagName` |
 | **3.4 全局关键词** | DB | `moni/db/migrations/033_global_keyword_filters.sql` | 新增全局关键词表 |
-| | DB | [`moni/db/migrate.py`](file:///Users/mt16/dev/moni/moni/db/migrate.py) | 版本号提升至 33 |
-| | 后端 | [`moni/web/models.py`](file:///Users/mt16/dev/moni/moni/web/models.py) | `GlobalKeywordFilter` Pydantic schemas |
-| | 后端 | [`moni/web/routes/config_filters.py`](file:///Users/mt16/dev/moni/moni/web/routes/config_filters.py) | 全局规则 CRUD REST API |
-| | 管线 | [`moni/fetch/filters.py`](file:///Users/mt16/dev/moni/moni/fetch/filters.py) | `apply_keyword_filters` 融入全局黑白名单优先级计算 |
-| | 管线 | [`moni/fetch/base.py`](file:///Users/mt16/dev/moni/moni/fetch/base.py) | 统计数据收集与日志记录 |
+| | DB | [`moni/db/migrate.py`](../../moni/db/migrate.py) | 版本号提升至 33 |
+| | 后端 | [`moni/web/models.py`](../../moni/web/models.py) | `GlobalKeywordFilter` Pydantic schemas |
+| | 后端 | [`moni/web/routes/config_filters.py`](../../moni/web/routes/config_filters.py) | 全局规则 CRUD REST API |
+| | 管线 | [`moni/fetch/filters.py`](../../moni/fetch/filters.py) | `apply_keyword_filters` 融入全局黑白名单优先级计算 |
+| | 管线 | [`moni/fetch/base.py`](../../moni/fetch/base.py) | 统计数据收集与日志记录 |
 | | 测试 | `tests/test_global_filters.py` | 全局黑/白名单与信源黑/白名单组合测试 |
-| | 前端 | [`moni/web/static/index.html`](file:///Users/mt16/dev/moni/moni/web/static/index.html) / [`app.js`](file:///Users/mt16/dev/moni/moni/web/static/js/app.js) | Config 关键词过滤面板支持全局规则管理 |
+| | 前端 | [`moni/web/static/index.html`](../../moni/web/static/index.html) / [`app.js`](../../moni/web/static/js/app.js) | Config 关键词过滤面板支持全局规则管理 |

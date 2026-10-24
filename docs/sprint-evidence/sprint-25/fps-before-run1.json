@@ -1,0 +1,50 @@
+{
+  "base": "http://127.0.0.1:8906",
+  "capturedAt": "2026-10-13T06:47:08.277Z",
+  "chromeDebugPort": 9342,
+  "env": {
+    "devicePixelRatio": 1,
+    "hardwareConcurrency": 10
+  },
+  "stage": {
+    "stateFlag": true,
+    "fetchModalFound": true,
+    "backdropDisplay": "flex",
+    "modalVisible": true,
+    "canvasSizeBeforeInit": [
+      300,
+      150
+    ],
+    "stageRect": [
+      537,
+      407
+    ]
+  },
+  "note": "headless rAF; use for before/after RELATIVE comparison (warden R1)",
+  "secondsSampled": 20,
+  "frameCount": 804,
+  "totalFrames": 804,
+  "averageFps": 45.13,
+  "p95Fps": 29.94,
+  "minFps": 0,
+  "medianFps": 59.52,
+  "droppedFrames": 61,
+  "longFrames": 396,
+  "longFrameCriterionMs": 20,
+  "longFrameRatioPct": 49.254,
+  "overBudgetFrames": 396,
+  "overBudgetRatio": 0.49254,
+  "maxFrameMs": 50,
+  "p95FrameMs": 33.4,
+  "peakParticles": 134,
+  "avgLiveParticles": 116.8,
+  "particleCap": null,
+  "workPerFrameMs": {
+    "mean": 2.296,
+    "p95": 2.7,
+    "max": 5,
+    "samples": 1608
+  },
+  "budgetMs": 16.7,
+  "budgetUsagePct": 16.2
+}

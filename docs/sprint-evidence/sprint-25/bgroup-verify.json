@@ -1,0 +1,62 @@
+{
+  "base": "http://127.0.0.1:8906",
+  "capturedAt": "2026-10-13T09:04:44.670Z",
+  "checks": {
+    "bootErrorCount": 10,
+    "settledErrors": [],
+    "boot": {
+      "alpineAttached": true,
+      "currentView": "articles",
+      "hasNavigate": true,
+      "hasNavigateNow": true,
+      "startViewTransitionSupported": true,
+      "reducedMotion": false
+    },
+    "transitionPathNormal": {
+      "before": "articles",
+      "after": "stats",
+      "viewChanged": true,
+      "startViewTransitionCalls": 1
+    },
+    "transitionPathReduced": {
+      "before": "stats",
+      "after": "articles",
+      "viewChanged": true,
+      "startViewTransitionCalls": 0
+    },
+    "focusRing": {
+      "ok": true,
+      "ruleFound": true,
+      "ruleOutline": "2px solid var(--accent)",
+      "outlineStyleOnScriptFocus": "none",
+      "note": ":focus-visible does not match programmatic focus; asserting on the rule declaration instead"
+    },
+    "bulkBar": {
+      "ok": true,
+      "animationName": "bulkBarIn"
+    },
+    "rowHoverToken": {
+      "ok": true,
+      "usesVar": false,
+      "ruleCssText": "tbody tr:hover { background: var(--row-hover); }",
+      "inlineBackground": "var(--row-hover)",
+      "ruleFound": true,
+      "resolvedBackground": "#F9F2E4",
+      "tokenValue": "#F9F2E4"
+    }
+  },
+  "bootErrors": [
+    "Uncaught TypeError: Cannot read properties of null (reading 'totals')",
+    "Uncaught TypeError: Cannot read properties of null (reading 'totals')",
+    "Uncaught TypeError: Cannot read properties of null (reading 'totals')",
+    "Uncaught TypeError: Cannot read properties of null (reading 'totals')",
+    "Uncaught TypeError: Cannot read properties of null (reading 'totals')",
+    "Uncaught TypeError: Cannot read properties of null (reading 'totals')",
+    "Uncaught TypeError: Cannot read properties of null (reading 'by_model')",
+    "Uncaught TypeError: Cannot read properties of null (reading 'by_model')",
+    "Uncaught TypeError: Cannot read properties of null (reading 'by_model')",
+    "Uncaught (in promise)"
+  ],
+  "settledErrors": [],
+  "verdict": "ALL B-GROUP CHECKS PASS"
+}

@@ -4,7 +4,44 @@
 
 ---
 
-## 当前状态: **v1.0.45 — 动画与微交互 (sprint-25)** (2026-10-13 · **SHIPPED**)
+## 当前状态: **v1.0.46 — 测试基线可信化** (2026-10-23 · **SHIPPED**)
+
+**主分支**: main @ `0f8c056` (PR #145 squash-merged)
+**Tag 链**: v1.0.46 **未打 tag** → v1.0.45 → v1.0.44 → v1.0.42 → ...
+**状态**: 已合并到 main; **tag 待打**
+**范围**: 只改测试, 0 DDL / 0 migration / 0 产品代码改动
+
+> **v1.0.46 (2026-10-23) 测试基线可信化** — 起因: 2026-10-23 的架构审计发现 `pytest tests/` 长期有 8 个"已知失败"(STATUS v1.0.42~45 都记着), 逐个查下来**全部是跨模块状态污染, 不是产品回归**。建可信基线才有意义让后续 CI 当门禁。
+>
+> **只改 3 个测试文件** (`tests/test_db_leases.py` / `tests/test_prompts.py` / `tests/test_share_manifest.py`), 3 个根因:
+>
+> - **`tests/test_share_manifest.py`**: 全局 `monkeypatch.setattr(Path, "write_text", boom)` —— pytest 自己的 `tmp_path` 清理也走 `write_text`, 补丁活过本用例, 泄漏到后续模块 (含 `test_api.py` 的 share 用例)。改成只替换 manifest 队列路径的窄桩。
+> - **`tests/test_db_leases.py`**: 模块 import 时 `os.environ.setdefault("MONI_DB_PATH", ...)` 把 `/tmp/moni-test-leases.db` 泄漏给后续所有测试模块 (monkeypatch 只还原自己改过的值)。改成 fixture 内 `monkeypatch.setenv`, 自动还原。
+> - **`tests/test_prompts.py`**: 过期 mock —— 它 patch `moni.llm.client.subprocess.run`, 但 v1.0.42 已把子进程执行挪到 `moni/llm/runner.py`, 补丁打空、断言失去意义。改为 patch `moni.llm.runner.HardenedSubprocess.run` 并经 `_build_argv()` 断言 argv。
+> - **结果**: `1045 passed / 2 skipped / 0 failed` (修前 `8 failed`)。
+
+---
+
+## 当前状态: **v1.0.47 ~ v1.0.51 — 2026-10-23 审计整改批次** (2026-10-24 · **待 dad 批准合并**)
+
+**来源**: 2026-10-23 架构审计 (`docs/sprint-audit-2026/`) + 5 路独立 re-audit
+**合并顺序**: #146 → #147 → #148 → #149 → #151 → #150 (版本号递增, 文档最后)
+**范围**: 5 个 PR 各自独立, 互不依赖; 0 DDL / 0 migration / 0 schema 变更
+
+| PR | 版本 | 分支 | 修什么 | 用户可见影响 | 复审结论 |
+|---|---|---|---|---|---|
+| #146 | v1.0.47 | `feature/v1.0.47-predict-tags-modernize` | 打标定时任务 `predict_tags` 的 3 处致命缺陷 (查了不存在的列 → 进程内直接崩, 从没成功跑过) | 打标任务终于能产出标签 | **APPROVE** (7 项 P3 跟进) |
+| #147 | v1.0.48 | `feature/v1.0.48-safe-href-offline-assets` | 抓取内容里的恶意链接 (`javascript:`) 拦掉 + Alpine/GSAP 本地化, 断网也能开页面 | 链接点不动 + 离线不白屏 | **APPROVE 有条件** (3 条 P2 测试加固) |
+| #148 | v1.0.49 | `feature/v1.0.49-worker-atomic-lock` | 分享队列 worker 锁改原子获取 (原来两个 worker 同时起来都以为拿到活儿) | 分享任务不再重复跑 | 复审中 |
+| #149 | v1.0.50 | `feature/v1.0.50-ci-workflow` | GitHub Actions 自动测试流水线; 顺带修掉它首次跑就抓出的路径硬编码问题 | 合并后 CI 自动跑测试 | 复审中 |
+| #151 | v1.0.51 | `feature/v1.0.51-remove-fetch-sources-fanout` | 删掉 `PUT /api/fetch/sources` —— 它把请求体应用到**所有**源并重写整个 `config/sources.yaml` | 少一个危险接口 | 复审中 |
+| #150 | — | `docs/2026-10-23-audit-and-sprint-plan` | 审计报告归档 + 文档纠错 (17 处修正) | 仅文档 | — |
+
+> **注意**: 各 PR 的 `STATUS.md` / `USER_GUIDE.md` 条目统一由 #150 承担 (PR 顺序上 #150 最后合), 避免多个分支互相改同一文件冲突。
+
+---
+
+## 历史: **v1.0.45 — 动画与微交互 (sprint-25)** (2026-10-13 · **SHIPPED**)
 
 **主分支**: main @ `b09e599` (PR #144 squash-merged @ `b09e599`; 源分支 head `74ade9a`)
 **Tag 链**: v1.0.45 → v1.0.44 → v1.0.42 → v1.0.41 → v1.0.40 → ...
