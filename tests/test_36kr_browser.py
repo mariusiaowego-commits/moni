@@ -342,21 +342,27 @@ class TestChromeDaemonUnit:
 
     def test_ensure_chrome_fails_fast_on_sigabrt(self, monkeypatch):
         import signal
-        from moni.fetch.chrome_daemon import ensure_chrome, reset_daemon_backoff, _daemon_backoff
+        from moni.fetch import chrome_daemon as cd
         from unittest.mock import MagicMock, patch
 
-        reset_daemon_backoff()
+        cd.reset_daemon_backoff()
         monkeypatch.setattr("moni.fetch.chrome_daemon._chrome_is_running", lambda: False)
+        # 这条用例验的是"spawn 之后立刻 SIGABRT"的分支。CI runner 上没有 playwright
+        # headless-shell，若不显式注入二进制，v1.0.54 会在 spawn 之前就 fail-fast，
+        # 反而测不到 SIGABRT 路径。
+        monkeypatch.setattr(cd, "resolve_chrome_binary", lambda **kw: ("/fake/chrome-headless-shell", True))
+        monkeypatch.setattr(cd, "is_sandboxed", lambda: False)
+        monkeypatch.setattr(cd, "system_chrome_allowed", lambda: True)
 
         mock_proc = MagicMock()
         mock_proc.poll.return_value = -signal.SIGABRT
 
         with patch("subprocess.Popen", return_value=mock_proc):
-            res = ensure_chrome()
+            res = cd.ensure_chrome()
             assert res is False
-            assert _daemon_backoff.consecutive_failures == 1
-            assert "SIGABRT" in (_daemon_backoff.last_error or "")
-        reset_daemon_backoff()
+            assert cd._daemon_backoff.consecutive_failures == 1
+            assert "SIGABRT" in (cd._daemon_backoff.last_error or "")
+        cd.reset_daemon_backoff()
 
     def test_mutation_headless_must_use_shell_not_bundle(self, fake_playwright_shell):
         """Mutation sentinel: headless mode must strictly use headless-shell, NOT the .app bundle."""

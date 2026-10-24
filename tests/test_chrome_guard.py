@@ -140,8 +140,17 @@ class TestResolveChromeBinaryGuard:
 
         bin_path, is_shell = resolve_chrome_binary(headless=False)
         assert bin_path is not None
-        assert "Google Chrome" in bin_path or "chromium" in bin_path
         assert is_shell is False
+        # v1.0.55 起该文件要在 Linux CI 上跑：Darwin 是 Google Chrome.app，
+        # Linux runner 解析到 /usr/bin/google-chrome。断言"是个真实存在的可执行路径"
+        # 或"已知候选名之一"，而不是钉死 macOS 的 bundle 名。
+        name = Path(bin_path).name.lower()
+        assert bin_path == str(Path(bin_path))
+        assert (
+            "google chrome" in bin_path.lower()
+            or "chromium" in bin_path.lower()
+            or name in {"google-chrome", "google-chrome-stable", "chromium", "chromium-browser"}
+        ), f"unexpected headed binary: {bin_path}"
 
 
 # ── Single-Instance Lock & Rate Limiting Tests ───────────────────────────────
