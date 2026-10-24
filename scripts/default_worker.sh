@@ -9,8 +9,9 @@
 # Hermes invocation: `hermes -z "<prompt>" --profile default`
 #   -z = inline prompt mode (no interactive chat)
 #
-# Concurrency: PID-file lock on $QUEUE_DIR/.lock (POSIX, macOS + Linux).
-#              Workers that can't acquire the lock exit 0 immediately.
+# Concurrency: kernel flock on $QUEUE_DIR/.lock (POSIX, macOS + Linux).
+#              The flock is acquired by worker_lock_exec.py and survives
+#              exec into this script through inherited fd 9.
 #
 # Dependencies: bash, python3, sqlite3, hermes CLI. No GNU timeout needed.
 # =============================================================================
@@ -23,6 +24,10 @@ set -euo pipefail
 # moni/share/prompts/ regardless of how it was launched.
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 QUEUE_DIR="${MONI_QUEUE_DIR:-${HOME:-~}/.moni/queue}"
+# v1.0.49.2 (audit F3): bash 变量展开不会自动做 tilde expansion, 如果用户/cron
+# 传入 MONI_QUEUE_DIR=~/custom, 这里必须显式把前缀 ~ 换成真实 $HOME, 否则
+# 会在当前工作目录下建一个字面量名为 '~' 的目录, 导致与 Python 侧分裂。
+QUEUE_DIR="${QUEUE_DIR/#\~/$HOME}"
 LOCK_FILE="${QUEUE_DIR}/.lock"
 # v1.0.9.3 fix: handle MONI_DB='' (empty) explicitly.  bash's ${VAR:-default}
 # only triggers on unset, not empty.  A caller that explicitly exports
@@ -40,6 +45,10 @@ TIMEOUT_SECONDS="${MONI_WORKER_TIMEOUT:-600}"  # 10 minutes default, override vi
 # the worker finds the per-format prompt files regardless of the
 # worker's CWD.  Defaults to ${REPO_ROOT}/moni/share/prompts/.
 PROMPT_DIR="${MONI_PROMPT_DIR:-${REPO_ROOT}/moni/share/prompts}"
+PYTHON_BIN="${MONI_PYTHON:-/usr/local/bin/python3}"
+if [[ ! -x "$PYTHON_BIN" ]]; then
+    PYTHON_BIN=python3
+fi
 
 # v1.0.14: artifacts + worker log paths.  moni.share.worker.LOG_FILE is
 # Python-only; the shell path used to reference $LOG_FILE without defining
@@ -65,29 +74,94 @@ fi
 # without depending on the caller's PATH.  Idempotent.
 export PATH="$HOME/.local/bin:$PATH"
 
-# --- Concurrent execution guard (POSIX, works on macOS + Linux) -----------
-# Atomic creation of $QUEUE_DIR/.lock containing our PID.
-# - If the lock file doesn't exist, create it with our PID and hold it.
-# - If it exists and the PID is alive, another worker is running — exit.
-# - If the PID is dead (stale), overwrite the lock with our PID.
-_acquired_lock=false
-if [[ ! -e "$LOCK_FILE" ]]; then
-    echo $$ > "$LOCK_FILE" && _acquired_lock=true
-elif pid=$(cat "$LOCK_FILE" 2>/dev/null) && kill -0 "$pid" 2>/dev/null; then
-    echo "[worker] another instance (PID $pid) is running — exiting" >&2
-    exit 0
-else
-    # Stale lock — overwrite with our PID
-    echo $$ > "$LOCK_FILE" && _acquired_lock=true
+# --- Single-instance kernel lock (POSIX, works on macOS + Linux) ----------
+# v1.0.49.4 (R3): the directory/claim protocol was removed.  flock() is
+# owned by the kernel; it is released automatically when the last process
+# referring to the open file description exits, so stale locks, stale
+# guards, PID liveness checks and reclaim races no longer exist.
+#
+# A direct `bash scripts/default_worker.sh` re-enters this same script via
+# worker_lock_exec.py, so cron/manual launches cannot bypass the lock.
+if [[ "${MONI_WORKER_LOCK_ACQUIRED:-}" != "1" ]]; then
+    exec "$PYTHON_BIN" \
+        "$REPO_ROOT/scripts/worker_lock_exec.py" \
+        "$LOCK_FILE" "${BASH_SOURCE[0]}"
 fi
 
-if ! "$_acquired_lock"; then
-    echo "[worker] failed to acquire lock — exiting" >&2
+# The helper owns the flock in fd 9 and execs this bash.  Verify fd 9 is
+# valid so an accidental call with the marker set cannot claim the lock.
+if ! "$PYTHON_BIN" -c '
+import os, sys
+try:
+    os.fstat(9)
+except OSError:
+    sys.exit(1)
+' >/dev/null 2>&1; then
+    echo "[worker] lock marker is set but fd 9 is not open — exiting" >&2
     exit 1
 fi
 
-# Release lock on exit
-trap 'rm -f "$LOCK_FILE"' EXIT
+# The lock must never be removed: unlink would let a new worker lock a new
+# inode while this worker still owns the old one.  A separate result file
+# gives Python an explicit "empty queue" signal after the child exits.
+_child_pid=""
+LOCK_RESULT_FILE="${LOCK_FILE}.result"
+
+_write_worker_result() {
+    local result="$1"
+    printf '%s\n' "$result" >"$LOCK_RESULT_FILE" 2>/dev/null || true
+}
+
+_run_worker_child() {
+    local out_file="$1"
+    local err_file="$2"
+    shift 2
+
+    # Each long child gets its own process group.  This avoids the worker's
+    # own group signal reaching an unrelated sibling and makes the child's
+    # PGID exactly its PID, so cleanup can target it precisely.
+    "$PYTHON_BIN" -c '
+import os, sys
+os.setsid()
+os.execvp(sys.argv[1], sys.argv[1:])
+' "$@" >"$out_file" 2>"$err_file" &
+    _child_pid=$!
+    local rc=0
+    wait "$_child_pid" || rc=$?
+    _child_pid=""
+    return "$rc"
+}
+
+_stop_child_group() {
+    if [[ -z "${_child_pid:-}" ]]; then
+        return 0
+    fi
+    # On macOS bash 3.2 a trapped TERM interrupts `wait`, but the handler's
+    # `exit` stays pending until the wait is re-entered.  Kill the child's
+    # own group, with a background watchdog to KILL it if TERM is ignored.
+    # Waiting immediately below reaps the child (including zombies), so the
+    # normal TERM-responsive path does not pay the full grace period.
+    local _child_to_stop="$_child_pid"
+    (
+        sleep 0.8
+        kill -KILL -- "-$_child_to_stop" 2>/dev/null || true
+    ) &
+    local _kill_watchdog=$!
+    kill -TERM -- "-$_child_to_stop" 2>/dev/null || true
+    wait "$_child_to_stop" 2>/dev/null || true
+    kill "$_kill_watchdog" 2>/dev/null || true
+    wait "$_kill_watchdog" 2>/dev/null || true
+    _child_pid=""
+}
+
+_worker_cleanup() {
+    _stop_child_group
+}
+
+trap _worker_cleanup EXIT
+trap '_stop_child_group; exit 143' TERM
+trap '_stop_child_group; exit 130' INT
+trap 'exit 141' PIPE
 
 # --- Helpers ----------------------------------------------------------------
 
@@ -149,7 +223,8 @@ task_status_update() {
     local output_path="${3:-}"
     local error_msg="${4:-}"
 
-    python3 - "$task_id" "$status" "$output_path" "$error_msg" "$DB_PATH" <<'PYEOF'
+    local result
+    result=$(python3 - "$task_id" "$status" "$output_path" "$error_msg" "$DB_PATH" <<'PYEOF'
 import json, sys, sqlite3
 
 task_id   = sys.argv[1]
@@ -192,9 +267,16 @@ elif status == "running":
         "WHERE id=? AND status='pending'",
         (status, now, task_id)
     )
+    print("claimed" if cur.rowcount == 1 else "lost")
 
 conn.commit()
 PYEOF
+)
+    if [[ "$status" == "running" && "$result" != "claimed" ]]; then
+        log "SKIP $task_id — another worker already claimed it"
+        return 1
+    fi
+    return 0
 }
 
 # Build the skill flag from format name.
@@ -361,7 +443,9 @@ PYEOF
     # separately moves queued → fetching because "running" is a
     # status state (queue position) while "fetching" is a pipeline
     # stage.  Two columns, two concepts.
-    task_status_update "$task_id" "running"
+    if ! task_status_update "$task_id" "running"; then
+        return 0
+    fi
     # Claim may lose race with user cancel between SELECT and UPDATE
     if task_should_abort "$task_id"; then
         return 0
@@ -648,9 +732,17 @@ print('true' if v else 'false')
             "正在生成 AI 摘要 (首次生成会调 LLM, 已有则跳过) ..."
         log "SUMMARY_GEN $task_id — checking articles for missing ai_summary"
 
-        local gen_result
-        gen_result=$(python3 "$REPO_ROOT/moni/share/summary_gen.py" \
-            "$DB_PATH" "$article_ids_str" "$manifest_path" 2>/dev/null || echo "{}")
+        local gen_result_file gen_result_err gen_result
+        gen_result_file=$(mktemp "${TMPDIR:-/tmp}/moni_summary_XXXXXX.json")
+        gen_result_err=$(mktemp "${TMPDIR:-/tmp}/moni_summary_XXXXXX.err")
+        if _run_worker_child "$gen_result_file" "$gen_result_err" \
+            "$PYTHON_BIN" "$REPO_ROOT/moni/share/summary_gen.py" \
+            "$DB_PATH" "$article_ids_str" "$manifest_path"; then
+            gen_result=$(cat "$gen_result_file" 2>/dev/null) || gen_result="{}"
+        else
+            gen_result="{}"
+        fi
+        rm -f "$gen_result_file" "$gen_result_err"
 
         # Append newly generated summaries to article_content
         local new_summaries
@@ -711,14 +803,21 @@ print('true' if p.get('include_business_value') else 'false')
             "正在富化（事实核查/业务价值）..."
         log "ENRICH $task_id — running moni.share.enrichment (brief=$brief_val fc=$include_fc_val bv=$include_bv_val)"
 
-        # Prefer python -m so editable install resolves moni package
-        local enrich_out
-        enrich_out=$(python3 -m moni.share.enrichment \
+        # Prefer python -m so editable install resolves moni package.
+        # Command substitution around a background+wait child would delay
+        # the trap, so capture stdout in a file and wait in _run_worker_child.
+        local enrich_out enrich_err enrich_out_file
+        enrich_err="/tmp/moni_enrich_${task_id}.err"
+        enrich_out_file=$(mktemp "${TMPDIR:-/tmp}/moni_enrich_XXXXXX.out")
+        _run_worker_child "$enrich_out_file" "$enrich_err" \
+            "$PYTHON_BIN" -m moni.share.enrichment \
             --db "$DB_PATH" \
             --task-id "$task_id" \
             --manifest "$manifest_path" \
             --article-ids "$article_ids_str" \
-            --print-content 2>/tmp/moni_enrich_${task_id}.err || true)
+            --print-content || true
+        enrich_out=$(cat "$enrich_out_file" 2>/dev/null || true)
+        rm -f "$enrich_out_file"
 
         if [[ -n "$enrich_out" ]]; then
             article_content="$enrich_out"
@@ -748,16 +847,18 @@ print(p.get('title') or ('同业简报 — ' + date.today().isoformat()))
 " "$manifest_path" 2>/dev/null || echo "同业简报")
         # stderr → LOG_FILE (now defined above under set -u).  Also keep a
         # temp copy so failure messages surface in share_tasks.error.
-        local brief_err
+        local brief_err brief_out
         brief_err=$(mktemp "${TMPDIR:-/tmp}/moni_brief_XXXXXX.err")
-        if python3 -m moni.share.brief_html \
+        brief_out=$(mktemp "${TMPDIR:-/tmp}/moni_brief_XXXXXX.out")
+        if _run_worker_child "$brief_out" "$brief_err" \
+            "$PYTHON_BIN" -m moni.share.brief_html \
             --db "$DB_PATH" \
             --article-ids "$article_ids_str" \
             --output "$output_path" \
             --title "$brief_title" \
-            >"$brief_err" 2>&1; then
+            ; then
             cat "$brief_err" >>"$LOG_FILE" 2>/dev/null || true
-            rm -f "$brief_err"
+            rm -f "$brief_err" "$brief_out"
             log "BRIEF_HTML $task_id -> $output_path"
             update_progress "$task_id" "writing_artifact" 95 "HTML 已写入 $output_path"
             task_status_update "$task_id" "done" "$output_path"
@@ -770,7 +871,7 @@ print(p.get('title') or ('同业简报 — ' + date.today().isoformat()))
             cat "$brief_err" >>"$LOG_FILE" 2>/dev/null || true
             local brief_tail
             brief_tail=$(tail -c 400 "$brief_err" 2>/dev/null | tr '\n' ' ' | head -c 300 || true)
-            rm -f "$brief_err"
+            rm -f "$brief_err" "$brief_out"
             error_msg="brief_html render failed"
             if [[ -n "${brief_tail// /}" ]]; then
                 error_msg="brief_html render failed: $brief_tail"
@@ -968,7 +1069,9 @@ print(p.get('generation_approach',''))
     [[ -n "$model_override" ]] && llm_args+=("--model" "$model_override")
     llm_args+=("--output" "$hermes_out_file" "--usage-file" "$hermes_usage_file" "--" "$prompt")
 
-    python3 "$REPO_ROOT/moni/share/worker_llm.py" "${llm_args[@]}" >/dev/null 2>&1 \
+    _run_worker_child "$artifacts_dir/${task_id}-hermes.stdout" \
+        "$artifacts_dir/${task_id}-hermes.err" \
+        "$PYTHON_BIN" "$REPO_ROOT/moni/share/worker_llm.py" "${llm_args[@]}" \
         || hermes_exit=$?
     # hermes 输出已经由 worker_llm.py 写到 hermes_out_file; 超时/失败时
     # 文件可能不存在, 所以 read 前先兜底。
@@ -1143,7 +1246,12 @@ except Exception as e:
 PYEOF
 )
 
+_processed_any=false
 if [[ -n "$pending_ids" ]]; then
+    _processed_any=true
+    # Tell the launcher that there is real work before entering the first
+    # manifest.  A long task must report started without waiting to exit.
+    _write_worker_result "started"
     while IFS= read -r tid; do
         [[ -z "$tid" ]] && continue
         manifest="$QUEUE_DIR/${tid}.json"
@@ -1155,6 +1263,7 @@ if [[ -n "$pending_ids" ]]; then
     done <<< "$pending_ids"
 else
     log "no pending share_tasks in DB — nothing to process"
+    _write_worker_result "nothing_to_do"
 fi
 
 log "worker finished"

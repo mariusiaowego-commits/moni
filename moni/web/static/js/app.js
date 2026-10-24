@@ -3615,6 +3615,11 @@ function app() {
       if (!r) return '处理队列';
       if (r.started) return '处理队列 - 已启动 worker';
       if (r.already_running) return '处理队列 - 已有 worker 在跑';
+      // v1.0.49.1 (audit F5): the worker ran and exited 0 without
+      // taking the lock — the queue was already drained.  Calling
+      // that "启动失败" was a lie: it made the user click the button
+      // again (which would spawn a second worker for no work).
+      if (r.nothing_to_do) return '处理队列 - 队列已处理完';
       return '处理队列 - 启动失败';
     },
 

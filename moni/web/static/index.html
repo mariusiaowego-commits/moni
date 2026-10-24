@@ -3223,7 +3223,9 @@
                             ? '已启动'
                             : (workerModalResult?.already_running
                                ? '已在跑 (无需重启)'
-                               : '失败')"></span>
+                               : (workerModalResult?.nothing_to_do
+                                  ? '队列已处理完 (无需启动)'
+                                  : '失败'))"></span>
             </span>
             <span class="meta-chip" x-show="workerModalResult?.pid">
               <b>PID:</b>

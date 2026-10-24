@@ -509,8 +509,17 @@ def create_brief(body: BriefCreateRequest) -> BriefCreateResponse:
         "already_running": worker.already_running,
         "pid": worker.pid,
         "error": worker.error,
+        # v1.0.49.1: an empty queue is not a failure.  Without this the UI
+        # told the user "worker 未能自动启动" right after it had actually
+        # processed everything and exited 0.
+        "nothing_to_do": worker.completed_nothing_to_do,
         "needs_manual_start": bool(
-            (not worker.started and not worker.already_running) or worker.error
+            (
+                not worker.started
+                and not worker.already_running
+                and not worker.completed_nothing_to_do
+            )
+            or worker.error
         ),
     }
     logger.info(
@@ -725,6 +734,12 @@ def run_worker() -> dict:
     - {started: false, already_running: false, pid: null,
        error: '...', log_path: '...'}
       — failed (e.g. worker script missing); UI shows the error
+    - {started: false, already_running: false, pid: null,
+       nothing_to_do: true, log_path: '...'}
+      — the worker ran and exited 0 without taking the lock: the
+        queue was already drained (or the queue dir is missing).
+        **Not a failure** — the UI must say so instead of
+        "启动失败".
     """
     result = launch_worker()
     if result.error:
@@ -735,6 +750,10 @@ def run_worker() -> dict:
         "pid": result.pid,
         "log_path": result.log_path,
         "error": result.error,
+        # v1.0.49.1 (audit F5): without this the modal said
+        # "启动失败" right after the worker had drained the queue
+        # and exited 0.
+        "nothing_to_do": result.completed_nothing_to_do,
     }
 
 
