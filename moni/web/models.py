@@ -198,16 +198,6 @@ class FetchSource(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class FetchSourceUpdate(BaseModel):
-    """Schema for updating a FetchSource."""
-
-    name: str | None = None
-    base_url: str | None = None
-    crawler_type: str | None = None
-    is_active: bool | None = None
-    config: dict[str, Any] | None = None
-
-
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
@@ -621,7 +611,6 @@ __all__ = [
     "CronJobCreate",
     "CronRun",
     "FetchSource",
-    "FetchSourceUpdate",
     "HealthResponse",
     "ShareTask",
     "ShareTaskCreate",

@@ -367,6 +367,8 @@ class TestFetchJobsEndpoints:
         # endpoint blocks until the job is done", so stub the fetcher.
         from moni.fetch.base import _FETCHER_REGISTRY
 
+        calls: list[dict] = []
+
         class _Stub36kr:
             source_name = "36kr_rss"
             date_from = None
@@ -374,6 +376,7 @@ class TestFetchJobsEndpoints:
             progress_callback = None
 
             def run(self, **kwargs):
+                calls.append(kwargs)
                 if self.progress_callback:
                     self.progress_callback(total_feeds=1, done_feeds=1)
                 return {
@@ -386,12 +389,40 @@ class TestFetchJobsEndpoints:
         monkeypatch.setitem(_FETCHER_REGISTRY, "36kr_rss", _Stub36kr)
 
         r = client.post("/api/fetch/sources/36kr_rss/run-sync")
-        # 36kr_rss is fast (< 30s), should complete normally
         assert r.status_code == 200
         body = r.json()
-        assert body.get("source") == "36kr_rss"
-        assert body.get("inserted") == 1
+        assert len(calls) == 1, "run-sync must execute the fetcher synchronously"
+        assert body == {
+            "source": "36kr_rss",
+            "fetched": 1,
+            "parsed": 1,
+            "inserted": 1,
+        }
         assert body.get("error") is None
+
+    def test_run_sync_returns_skipped_when_source_not_due(
+        self, client, monkeypatch, tmp_path
+    ):
+        """force=false must preserve dad's "skipped tick still succeeds" contract."""
+        import json
+        from datetime import datetime, timezone
+
+        from moni.fetch import scheduler as scheduler_mod
+
+        last_run_path = tmp_path / ".last_run.json"
+        last_run_path.write_text(
+            json.dumps({"36kr_rss": datetime.now(timezone.utc).isoformat()}),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(scheduler_mod, "_LAST_RUN_PATH", last_run_path)
+
+        r = client.post("/api/fetch/sources/36kr_rss/run-sync?force=false")
+        assert r.status_code == 200
+        assert r.json() == {
+            "source": "36kr_rss",
+            "status": "skipped",
+            "message": "Source not due for fetching",
+        }
 
 
 def test_run_sync_returns_skipped_when_source_not_due(client, monkeypatch, tmp_path):
