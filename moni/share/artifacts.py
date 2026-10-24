@@ -17,12 +17,21 @@ This is fire-and-forget.  Failures are logged, never raised.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-ARTIFACTS_DIR = Path(__file__).resolve().parents[2] / "data" / "artifacts"
+
+def _artifacts_dir() -> Path:
+    env_dir = os.environ.get("MONI_DATA_DIR")
+    if env_dir:
+        return Path(env_dir) / "artifacts"
+    return Path(__file__).resolve().parents[2] / "data" / "artifacts"
+
+
+ARTIFACTS_DIR = _artifacts_dir()
 
 
 def _ext_for_format(fmt: str) -> str:
@@ -52,10 +61,11 @@ def ensure_artifact(task_id: str, format_name: str, output_path: str) -> str | N
     Returns the artifact filename (e.g. ``abc123-info_graphic_png.png``)
     if a file is present at the destination, else None.
     """
-    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    dest_dir = _artifacts_dir()
+    dest_dir.mkdir(parents=True, exist_ok=True)
     ext = _ext_for_format(format_name)
     dest_name = f"{task_id}-{format_name}.{ext}"
-    dest = ARTIFACTS_DIR / dest_name
+    dest = dest_dir / dest_name
 
     if dest.exists():
         return dest_name  # idempotent re-run

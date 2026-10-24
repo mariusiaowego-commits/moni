@@ -155,6 +155,60 @@ class TestArticles:
         r = client.post(f"/api/articles/{seeded_article}/fact-check", json={"article_id": str(seeded_article)})
         assert r.status_code in (200, 503)
 
+    def test_resolve_user_home_pwd_branch(self, monkeypatch):
+        """Verify _resolve_user_home actively executes the pwd branch without NameError."""
+        from types import SimpleNamespace
+        from moni.web.routes.articles import _resolve_user_home
+
+        dummy_entry = SimpleNamespace(pw_dir="/mock/pwd/home")
+        monkeypatch.setattr("pwd.getpwuid", lambda uid: dummy_entry)
+        assert _resolve_user_home() == Path("/mock/pwd/home")
+
+    def test_resolve_user_home_fallback_on_error(self, monkeypatch):
+        """Verify _resolve_user_home falls back to Path.home() on KeyError."""
+        from moni.web.routes.articles import _resolve_user_home
+
+        def _raise_key_error(uid):
+            raise KeyError("uid not found")
+
+        monkeypatch.setattr("pwd.getpwuid", _raise_key_error)
+        assert _resolve_user_home() == Path.home()
+
+    def test_import_fulltext_validates_path_against_home(
+        self, client: TestClient, seeded_article: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Verify import-fulltext uses the resolved home and guards against path traversal."""
+        from types import SimpleNamespace
+
+        dummy_entry = SimpleNamespace(pw_dir=str(tmp_path))
+        monkeypatch.setattr("pwd.getpwuid", lambda uid: dummy_entry)
+
+        doc_dir = tmp_path / "Documents"
+        doc_dir.mkdir(parents=True, exist_ok=True)
+        md_file = doc_dir / "article.md"
+        md_file.write_text("# Full Content\nUpdated via import.", encoding="utf-8")
+
+        r = client.post(
+            f"/api/articles/{seeded_article}/import-fulltext",
+            json={"file_path": str(md_file)},
+        )
+        assert r.status_code == 200
+        assert r.json()["article_id"] == str(seeded_article)
+        assert r.json()["char_count"] == len("# Full Content\nUpdated via import.")
+
+        r2 = client.get(f"/api/articles/{seeded_article}")
+        assert r2.status_code == 200
+        assert r2.json()["content"] == "# Full Content\nUpdated via import."
+
+        outside_file = tmp_path / "outside.md"
+        outside_file.write_text("Disallowed content", encoding="utf-8")
+        r3 = client.post(
+            f"/api/articles/{seeded_article}/import-fulltext",
+            json={"file_path": str(outside_file)},
+        )
+        assert r3.status_code == 400
+        assert "File must be under" in r3.json()["message"]
+
 
 # ---------------------------------------------------------------------------
 # crud
