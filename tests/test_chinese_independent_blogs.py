@@ -587,6 +587,7 @@ class TestRegistrationAndSeed:
         assert stats["tags_used"] > 0
         assert {h["tag_name"] for h in hits} == {"general-tech"}
 
+
     def test_fetch_config_default_exposed(self):
         from moni.web.routes.config_sources import _FETCH_CONFIG_DEFAULTS
         assert "chinese_independent_blogs" in _FETCH_CONFIG_DEFAULTS

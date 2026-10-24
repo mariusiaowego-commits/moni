@@ -127,14 +127,26 @@ def main() -> int:
     print(f"keep (>=1 tag hit)  : {len(keep)}")
     print(f"drop (no tag hit)   : {len(drop)}")
     print()
-    print("kept samples:")
-    for article_id, hits in keep[:10]:
-        title = conn.execute(
-            "SELECT title FROM articles WHERE id = ?", (article_id,)
-        ).fetchone()["title"]
-        print(f"  + {title[:46]:48s} {sorted(hits)}")
-    print("dropped samples:")
-    for _, title in drop[:10]:
+
+    # Keyword matching is substring-based, so short entries in tag_definitions
+    # (e.g. "MA" in general-tech, "不良"/"消费" in banking) can keep an
+    # off-topic post.  Always print the FULL keep list with the exact
+    # evidence, otherwise --apply can only be reviewed after the fact.
+    titles = {
+        row["id"]: row["title"] or "(无标题)"
+        for row in conn.execute(
+            "SELECT id, title FROM articles WHERE source = ?", (SOURCE_NAME,)
+        ).fetchall()
+    }
+    print(f"full keep list (evidence = the keyword that matched):")
+    for article_id, hits in keep:
+        evidence = "; ".join(
+            f"{tag}<-{'/'.join(kws)}" for tag, kws in sorted(hits.items())
+        )
+        print(f"  + {titles.get(article_id, article_id)[:44]:46s} {evidence}")
+    print()
+    print("dropped (all):")
+    for _, title in drop:
         print(f"  - {title[:60]}")
 
     if not args.apply:

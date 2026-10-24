@@ -33,16 +33,26 @@ WHERE s.id = 'src-chinese-independent-blogs';
 
 -- Remove the retired one-off tag.  Explicit child deletes first so the
 -- result does not depend on PRAGMA foreign_keys being enabled on this
--- connection.
-DELETE FROM article_tags WHERE tag_name = 'independent-blog';
-DELETE FROM source_tags  WHERE tag_name = 'independent-blog';
-DELETE FROM tag_definitions WHERE name = 'independent-blog';
+-- connection.  article_keyword_hits carries tag_name without an FK, so it
+-- needs its own DELETE.
+DELETE FROM article_tags         WHERE tag_name = 'independent-blog';
+DELETE FROM article_keyword_hits WHERE tag_name = 'independent-blog';
+DELETE FROM source_tags          WHERE tag_name = 'independent-blog';
+DELETE FROM tag_definitions      WHERE name     = 'independent-blog';
 
+-- Only record success when the source really ended up with the ten
+-- bindings.  Without this guard an unseeded database would silently keep
+-- zero bindings, turning the tag gate back into the pass-through this
+-- migration exists to remove.
 CREATE TABLE IF NOT EXISTS schema_cleanup_log (
     migration   TEXT PRIMARY KEY,
     applied_at  TEXT NOT NULL
 );
 INSERT OR IGNORE INTO schema_cleanup_log (migration, applied_at)
-VALUES ('037_cn_indie_existing_tags', datetime('now'));
+SELECT '037_cn_indie_existing_tags', datetime('now')
+WHERE (
+    SELECT COUNT(*) FROM source_tags
+    WHERE source_id = 'src-chinese-independent-blogs'
+) >= 10;
 
 COMMIT;

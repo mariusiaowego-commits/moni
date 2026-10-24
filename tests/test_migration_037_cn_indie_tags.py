@@ -133,6 +133,47 @@ def test_037_cleanup_logged(v36_db):
     ).fetchone()[0] == 1
 
 
+def test_037_does_not_log_success_when_bindings_are_missing(v36_db):
+    """Without the ten tags the gate would silently fall back to pass-through.
+
+    The migration must not report success in that case, otherwise a
+    half-provisioned database looks migrated while every article passes.
+    """
+    conn = get_db()
+    conn.execute("DELETE FROM source_tags")
+    conn.execute("UPDATE tag_definitions SET is_active = 0")
+    conn.execute("DELETE FROM tag_definitions WHERE name != 'banking'")
+    conn.commit()
+
+    _run_sql_file(conn, MIGRATION_037)
+
+    assert conn.execute(
+        "SELECT COUNT(*) FROM schema_cleanup_log "
+        "WHERE migration = '037_cn_indie_existing_tags'"
+    ).fetchone()[0] == 0
+    assert conn.execute(
+        "SELECT COUNT(*) FROM source_tags WHERE source_id = ?", (SOURCE_ID,)
+    ).fetchone()[0] < 10
+
+
+def test_037_clears_legacy_tag_from_keyword_hits(v36_db):
+    """article_keyword_hits.tag_name has no FK, so it needs an explicit delete."""
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO article_keyword_hits "
+        "(article_id, keyword, filter_id, hit_field, tag_name, created_at) "
+        "VALUES ('cn037a', '(bypass)', NULL, 'bypass', 'independent-blog', '2026-10-24')"
+    )
+    conn.commit()
+
+    migrate()
+
+    assert get_db().execute(
+        "SELECT COUNT(*) FROM article_keyword_hits "
+        "WHERE tag_name = 'independent-blog'"
+    ).fetchone()[0] == 0
+
+
 def test_seed_after_037_keeps_user_keywords(v36_db):
     """seed() must not blank keywords that were configured through /config."""
     conn = get_db()
