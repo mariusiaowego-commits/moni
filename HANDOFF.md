@@ -1,5 +1,89 @@
 
 
+## [2026-10-24] v1.0.53 — 审计整改批次 + Chrome 沙箱护栏 (PR #146~#153 全部入库, SHIPPED)
+
+**主分支**: main @ `8ce4f15` · **Tag**: `v1.0.53` → `8ce4f15`, `v1.0.52` → `7d56649` (无 force push; 真实历史记录: v1.0.52 tag 打在 #150 docs commit 上因 #150 后合)  
+**PR 链路 (8 PR 合并入库)**:
+- #146 (v1.0.47, squash `66cc665`): 修复 `predict_tags` 定时任务 3 处致命缺陷 (SQL 查不存在的列 → 进程内崩, 从未成功跑过)
+- #147 (v1.0.48, squash `013647f`): safeHref URL scheme 白名单护栏 (拦 `javascript:` 等) + Alpine/GSAP 自托管 (离线不白屏)
+- #148 (v1.0.49, squash `a49b035`): 分享队列 worker 锁改原子获取 + 如实上报启动结果
+- #149 (v1.0.50, squash `0c84875`): 加 GitHub Actions CI + 修掉首次暴露的 fetch job 测试隔离问题
+- #151 (v1.0.51, merge `8c884b6` / `b942100`): 删掉 `PUT /api/fetch/sources` 扇出地雷 + 封死测试改生产配置
+- #152 (v1.0.52, merge `fa0efdc` / `5aa1461`): 测试数据隔离: 生产 `data/` 目录全路径隔离 + 会话级护栏
+- #150 (squash `7d56649`): 归档 2026-09 架构审计包 + 10-23 复核结论 + sprint-23 计划
+- #153 (v1.0.53, squash `8ce4f15`): 沙箱内改走 playwright headless-shell、headed xwatch fail-fast、指数退避  
+**Prod**: 8900 端口由 macOS launchd 用户代理 `com.moni.web` 托管运行 (KeepAlive, 重启用 `launchctl kickstart -k gui/$(id -u)/com.moni.web`, `scripts/web.sh status` 暂不认识)  
+**测试数**: 本地 pytest 运行全量通过 (1149 tests: 1147 passed / 2 skipped / 0 failed); CI 运行状态为红 (7 failed / 1142 passed / 2 skipped, 修复中)
+
+**What shipped**:
+- **定时打标治愈 (#146, v1.0.47)**: 修正 `predict_tags` 查非存在列导致的进程内崩溃，打标定时任务首次具备可用生产能力。
+- **前端资产与链接安全 (#147, v1.0.48)**: 建立 safeHref 链接 scheme 校验护栏，阻断 `javascript:` 伪协议点击；自托管 Alpine.js 与 GSAP，实现断网离线不白屏。
+- **分享队列原子锁 (#148, v1.0.49)**: 并发 share worker 抢占锁重构为原子获取，解决重复消费与状态误报。
+- **CI 流水线基建 (#149, v1.0.50)**: 建立 GitHub Actions 测试矩阵并清理环境变量与路径隔离。
+- **信源配置危险接口封堵 (#151, v1.0.51)**: 移除 `PUT /api/fetch/sources` 危险扇出重写逻辑，封死测试污染配置通道。
+- **测试生产数据强隔离 (#152, v1.0.52)**: 引入 `MONI_DATA_DIR` 会话级与套件级护栏，彻底保护真实 `data/news.db` 与生产配置。
+- **架构审计包与资产归档 (#150)**: 归档 2026-09 架构审计包、10-23 复核结论与 sprint-23 实施计划。
+- **沙箱环境 Headless Shell 隔离 (#153, v1.0.53)**: 在沙箱下改用 Playwright 自带 headless-shell，阻断向系统 Chrome 的危险回落，headed 模式 fail-fast，退避算法增强。
+
+**关键踩坑 (8 条核心经验与教训)**:
+1. **`git update-ref -d` 删本地分支时把当前 checkout 的分支也删了** — 导致 index 全部变为 staged 状态（全 `A`）。恢复方式：`git update-ref refs/heads/<b> <sha>` + `git reset --mixed <sha>`（不动工作区）。**教训：清理本地分支前必须先 `git checkout main`。**
+2. **`herdr` 的 `agent prompt` 会把 `$`、反引号、`Chrome/Profile` 这类词吃掉或展开** — 导致长任务书传输变形失效。长任务书必须写到文件里再用 `$(cat file)` 传，或者干脆让 agent 直接读取文件。
+3. **静态检查通过不等于完成证据** — 本轮出现多次"本地全绿、CI 全红"的反差，根因是开发机硬编码了本地路径（如 `/usr/local/bin/python3`）及隐式依赖本地 Playwright 缓存。**教训：新增自动化测试必须能在干净隔离环境（如 `HOME=$(mktemp -d)`）下跑绿。**
+4. **GitHub 没有配 required check** — 哪怕 GitHub Actions 持续全红，PR 依然能直接合并进 main 分支，门禁形同虚设。必须在 GitHub 仓库配置 branch protection 并将 CI 设置为必选门禁才能真正拦截问题。
+5. **`gh` 命令行工具的 GraphQL 端点频繁 EOF** — 导致 `gh pr list` / `gh pr merge` 等高频失败。应果断改用 REST API 兜底（例如 `gh api -X PUT repos/.../pulls/N/merge`）。
+6. **macOS 沙箱内使用裸 `&` 启动的后台服务会被子系统直接回收** — 导致服务无法在后台长期存活。生产 8900 现已改用 launchd 用户代理 `com.moni.web`（配置 KeepAlive）保证守护进程常驻。
+7. **沙箱环境检测写成读取未配置的环境变量 = 纯死代码** — `MONI_RUNNING_IN_SANDBOX` 全仓库 0 处设置，导致条件分支形同虚设。沙箱检测必须依赖系统真实注入的信号（如 `CODEX_SANDBOX=seatbelt` 或 `CODEX_CI=1`）。
+8. **Chrome `--user-data-dir` 传入 `Profile N` 当作根目录，会在其下再建一层 `Default/`** — 表面上看以为"没有动用户根 profile"，实际上把用户的 `Profile 6/` 整个目录及内部 Preferences 状态写脏写崩。判断"到底是谁的 profile"，必须读取根层 `Preferences` 的 `account_info` 账号标识，绝不能仅凭目录名臆断。
+
+**Next session 候选**:
+1. **CI 修绿 (v1.0.55)**: 分支 `feature/v1.0.55-ci-green`，修复 runner Python 解释器路径、Playwright 缓存依赖与 dev 依赖补齐 Pillow，实现 Actions 门禁全绿。
+2. **Chrome 守护护栏 (v1.0.54)**: 分支 `feature/v1.0.54-chrome-guard`，落地 `moni/fetch/chrome_guard.py`，彻底封死沙箱内拉起系统 Chrome、退避持久化、单实例锁与误杀防范。
+3. **Chrome Profile 目录搬迁 (v1.0.56)**: 分支 `feature/v1.0.56-chrome-profile-migration`，将 moni 专用的 36kr daemon (Profile 7) 和 xwatch (Profile 6/Default) 数据搬迁至 `~/.moni/chrome/{xwatch,daemon}`，彻底杜绝污染用户个人 profile（待 dad 拍板）。
+4. **`articles.py:394` 异常捕获收窄漏补**: 补充捕获 `AttributeError` / `TypeError`，防止特定解析路径漏崩。
+5. **#153 degraded 暴露点测试补强**: 补齐 #153 引入的降级分支自动化测试。
+6. **`scripts/web.sh` 适配 launchd**: 让 `scripts/web.sh status/restart` 能无缝识别与接管 `com.moni.web` 用户代理。
+
+---
+
+## [2026-09-10] v1.0.42 — sprint-22 双 PR 双 ship: 统一租约运行时 + LLM 调用层完全体 (PR #141+#142, SHIPPED)
+
+**主分支**: main @ `cbd0b6a` · **Tag**: v1.0.42 → origin/cbd0b6a (sha 一致, 无 drift)
+**PR 链路**: #141 (web 防御, 叶子) → #142 (DB 租约 + LLM runner, 核心, 升库 v33→v35)
+**Prod**: 8900 pid 93202, 5/5 端点 200 OK
+**测试**: 171/171 全部通过 (8 套测试套件)
+
+**What shipped**:
+- **统一租约运行时 (S2-1 + P1-7)**: `moni/db/leases.py` (acquire/heartbeat/finish/sweep_expired 四原语, fence 单调递增, SQLite 端 strftime 跨进程钟差免疫) + `migration 034_leases.sql` (fetch_jobs + llm_jobs 加 lease_owner / lease_heartbeat_at / fence 三列) + 改写 `moni/fetch/jobs.py` + `moni/llm/jobs.py` + `moni/web/routes/fetch.py` (daemon heartbeat) + 删 `STALE_THRESHOLD_SECONDS` v1.0.35.17 墙钟补丁
+- **LLM 调用层完全体 (P1-5 + P1-6 + P0-4)**: `moni/llm/runner.py` (HardenedSubprocess 进程组 killpg + 200KB argv 预检 + stdin 协议 + CircuitBreaker + FailoverRunner) + `migration 035_llm_runner_config.sql` (4 个 llm_settings key) + `moni/llm/client.py` 收敛到 runner + `moni/share/worker_llm.py` run_hermes 走 HardenedSubprocess
+- **测试净增 34 项**: `tests/test_db_leases.py` 17 + `tests/test_llm_runner.py` 17 (含真子进程复现 — 进程组击杀零孤儿)
+
+**关键踩坑 (8 条新坑, 9-10)**:
+1. **Migration 033→34→35 bump 必须同步 hard-coded `_CURRENT_VERSION`** — `tests/test_migration_030_ghost_cleanup.py` L114 / L248 + `tests/test_llm_usage_counters.py` L123 都钉死 33, 漏改即 fail。
+2. **`_run_fetch_job` daemon thread 不能重新 `acquire`** — INSERT 时 mint 的 lease_owner/fence 已经在行上, daemon thread 直接 SELECT + finish() fence-bump 即可, 重新走 acquire 会 race。
+3. **worker_llm `_invoke` usage_file 重读覆盖** — 测试桩 SubprocessResult 填了 input_tokens=111, 但 runner 又重读文件覆盖回 0。加 guard `result.input_tokens == 0 AND result.output_tokens == 0` 才重读。
+4. **`estimate_tokens` 循环 import** — client.py 想要 runner, runner 想要 client.estimate_tokens, 死锁。把 estimate_tokens + `_CN_RANGE` 移入 runner.py, client.py 也内联一份即可(两处都用纯 stdlib re)。
+5. **`ChatClient` 兼容保留 DeprecationWarning** — 老代码还引用 `from moni.llm.client import ChatClient`, 单测 fixture + 老 cli 都依赖。保留 + 警告, 不破坏 ABI。
+6. **`gh pr merge --squash` GraphQL EOF** — `gh pr merge 142` 报 EOF 实际命令未执行, REST API `PUT /repos/.../pulls/.../merge` 走通。**sprint-08 教训已经踩过, 这次再踩** — GraphQL endpoint 偶发不可靠, 收尾脚本应 fallback REST。
+7. **`worktree remove` cwd 在已删目录时报 "Unable to read current working directory"** — 但 worktree 实际已删。修法: `git worktree prune` 然后 `cd /Users/mt16/dev/moni && git worktree remove ...` 二次执行。
+8. **SSL_ERROR_SYSCALL 偶发** — `git push origin v1.0.42` 偶发 LibreSSL 中断, 30-45s sleep 后重试成功。**v1.0.35.1 sprint-08 教训已踩过**, 同模式 — 网络重试 SOP。
+
+**架构决策**:
+- 双 PR 同步 ship (叶子 #141 + 核心 #142) 而非"PR-A 先 ship 24h 观察再 PR-B": dad 9-10 14:30 拍板。M3 + DeepSeek 双 agent 1.5h 并发, 互不冲突。
+- 熔断器默认阈值 3 次失败 / 60s reset: 保守值, production 观察期后若 false-positive 偏多应调 5/120s (写进 STATUS.md 教训)。
+- 租约 fence 单调递增 (而非 owner 唯一): 支持同 owner 重连 (worker 重启 + 同一 job 接管) 但拒绝迟到写者。
+
+**服务状态 (sprint-22 ship 后)**:
+- 8900 生产: PID 93202, 200 OK, v1.0.42 + schema v35
+- 8901 dev: idle (主 checkout main)
+- DB: schema_version=35, integrity_check=ok
+- tag v1.0.42 → origin/cbd0b6a (sha 一致)
+
+**Next session 候选**:
+- sprint-22 review 文件里 P0-1 / P0-5 / P2-15 等剩余工单
+- 熔断阈值 9-13 production 观察后调整
+- moni/llm/jobs.py retry 路径 fences 验证 + 测试补强 (test_llm_jobs.py 当前仅 11 用例, 跟 leases.py 17 用例 + 既有 22 比略薄)
+- AGENTS.md sprint-22 段长期补 lessons learned (目前只写了 8 条立即踩坑)
+
 ## [2026-09-02] v1.0.41 — follow_builders 新源接入 (sprint-21, PR #140, SHIPPED)
 
 **status**: ✅ **SHIPPED** — PR #140 @ `023c1e3`, tag v1.0.41. 全量 pytest 889 pass + 2 skip. prod 8900 已重启 pid 6346, 源仍默关 (is_active=0).

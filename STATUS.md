@@ -4,7 +4,78 @@
 
 ---
 
-## 当前状态: **v1.0.46 — 测试基线可信化** (2026-10-23 · **SHIPPED**)
+## 当前状态: **v1.0.53 — 2026-10-24 审计整改批次 + Chrome 沙箱护栏** (2026-10-24 · **SHIPPED**)
+
+**主分支**: main @ `8ce4f15` (PR #153 squash-merged)  
+**Tag 链**: `v1.0.53` (`8ce4f15`) → `v1.0.52` (`7d56649`) → v1.0.45 → v1.0.44 → ... (均未 force push)  
+**注意**: `v1.0.52` 的 tag 打在 #150 的 docs commit (`7d56649`) 上（因 #150 后于 #152 合并，此为当时实际合并状态与真实历史，照实记录）。  
+**测试基线**: 本地全量测试通过 (1149 tests: 1147 passed / 2 skipped / 0 failed)；GitHub Actions CI 状态**红**（修复进行中：`feature/v1.0.55-ci-green`，见下文诚实披露）。  
+**服务状态**: 生产端口 8900 当前由 macOS launchd 用户代理 `com.moni.web` 托管（KeepAlive 保持运行，PID 会随重启变化；重启使用 `launchctl kickstart -k gui/$(id -u)/com.moni.web`，**`scripts/web.sh status` 暂不认识 launchd 进程** —— 这是本轮新增的部署事实）。
+
+### 本轮交付清单 (v1.0.47 ~ v1.0.53)
+
+| 版本 | PR | squash commit | 一句话 |
+|---|---|---|---|
+| v1.0.47 | #146 | `66cc665` | 修 `predict_tags` 定时任务 3 处致命缺陷（SQL 查不存在的列 → 进程内崩，**从没跑成功过**） |
+| v1.0.48 | #147 | `013647f` | 前端 safeHref URL scheme 白名单（拦 `javascript:` 等）+ Alpine/GSAP 自托管（离线不白屏） |
+| v1.0.49 | #148 | `a49b035` | 分享队列 worker 锁改原子获取 + 如实上报启动结果 |
+| v1.0.50 | #149 | `0c84875` | 加 GitHub Actions CI + 修掉它首次跑出的 fetch job 测试隔离问题 |
+| v1.0.51 | #151 | `8c884b6`(merge) / `b942100` | 删掉 `PUT /api/fetch/sources` 扇出地雷 + 封死测试改生产配置 |
+| v1.0.52 | #152 | `fa0efdc`(merge) / `5aa1461` | 测试数据隔离：生产 `data/` 目录全路径隔离 + 会话级护栏 |
+| — | #150 | `7d56649` | 归档 2026-09 架构审计包 + 10-23 复核结论 + sprint-23 计划 |
+| v1.0.53 | #153 | `8ce4f15` | 沙箱内改走 playwright headless-shell、headed xwatch fail-fast、指数退避 |
+
+### ⚠️ 本轮最重要的三项事实与教训 (必须诚实面对)
+
+1. **CI 一直是红的，而且是在红 CI 下合的 PR**：
+   - GitHub Actions 从 #149 首次引入起，**每次 CI run 均为 failure**。#151 / #152 / #150 / #153 全部是在红 CI 状态下合并进 main 的。
+   - 最近一次 main 分支 run（ID: `40059182154`）结果为 **7 failed / 1142 passed / 2 skipped**。
+   - 7 个失败包含三组根因：
+     1. `moni/share/worker.py::launch_worker()` 把 Python 解释器路径硬编码为 `/usr/local/bin/python3`（GitHub runner 虚拟环境中不存在该路径）。
+     2. `tests/test_36kr_browser.py` 中的 3 个新测试依赖**本机** Playwright 缓存环境，在无预装缓存的 runner 上失败。
+     3. `tests/test_frontend_safe_href_and_vendor.py` 运行时直接 import PIL，但 `pyproject.toml` 的 dev 依赖中遗漏了 Pillow。
+   - **修复进行中**：已建立分支 `feature/v1.0.55-ci-green`（v1.0.55），必须彻底解决上述环境依赖，CI 跑绿才算整改完毕。
+   - **流程漏洞警示**：GitHub 仓库此前**没有配置 required check（必选状态检查）**，导致 CI 虽然全红但 PR 仍能直接合并，门禁形同虚设。必须配置 branch protection 才能形成真实防御。
+
+2. **Chrome 守护护栏（v1.0.54，`feature/v1.0.54-chrome-guard`）**：
+   - **事故起因**：2026-10-24 09:11–09:35 期间，macOS 系统生成了 **25 份** `Google Chrome-*.ips` 崩溃日志（SIGABRT / parent=Python / coalition=com.openai.codex）。moni 在 Codex 沙箱里反复拉起**系统 Google Chrome**，每次被 launchservicesd 拒绝当场崩溃，用户感知为浏览器被反复拉起、疯狂抢占前台焦点并不断弹崩溃窗。
+   - **两大致命根因**：
+     - (a) 沙箱检测代码读取 `MONI_RUNNING_IN_SANDBOX` 环境变量，但**全仓库没有任何地方设置过它**，属于纯死代码；
+     - (b) `resolve_chrome_binary()` 在找不到 headless-shell 时**静默回落到系统 Chrome**。
+     - 附带问题：`stop_chrome()` 原使用 `pkill -f` 容易误杀用户打开的其他 Chrome 进程；退避计数只保存在进程内存中，进程崩溃重启后计数重置，导致退避失效。
+   - **治理方案**：新增 `moni/fetch/chrome_guard.py` 实现真实沙箱环境检测（检测 `CODEX_SANDBOX=seatbelt` / `CODEX_CI=1` 等信号）、沙箱内绝不 spawn 系统 Chrome、彻底删除静默回落系统 Chrome、杀进程前严格校验 cmdline、加入跨进程单实例锁 + 每小时最多 spawn 3 次硬上限、退避状态落盘持久化、xwatch headed 在沙箱内直接 fail-fast。
+
+3. **Chrome profile 目录归属混乱（v1.0.56，`feature/v1.0.56-chrome-profile-migration`）**：
+   - **排查发现**：磁盘上的 `Chrome/Profile 6` 实际上是**用户真实的「hermes」账号 profile**（1.6G，包含 Bookmarks、History 以及 338 个 Cookies）。
+   - **污染后果**：moni 的 xwatch 任务此前将 `Profile 6` 直接作为 `--user-data-dir` 启动，导致 Chrome 在其内部又新建了一层 `Profile 6/Default/`（存有 moni 的 274 个 cookie，含 x.com 的 `auth_token`/`ct0`）。导致 `Profile 6/Default/Preferences` 的 `exit_type = Crashed`，用户日常打开 Chrome 经常遭遇「恢复页面」弹窗。
+   - 此外，`Chrome/Profile 7` 整个是 moni 专用的 36kr daemon profile（153M）。
+   - **治理方案**：
+     - 将 moni 的自动化数据彻底搬迁到专属目录 `~/.moni/chrome/{xwatch,daemon}`，与用户个人浏览器数据彻底解耦；
+     - 新增 `chrome-profiles.py` 工具脚本，输出「Chrome UI 名字 ↔ 磁盘目录」对照表（解决用户分不清 profile 的痛点）；
+     - **目前默认值改动与迁移脚本就绪，真正目录搬迁操作待 dad 拍板后执行。**
+
+---
+
+## 历史: **v1.0.47 ~ v1.0.51 — 2026-10-23 审计整改批次** (2026-10-24 · **SHIPPED**)
+
+**来源**: 2026-10-23 架构审计 (`docs/sprint-audit-2026/`) + 5 路独立 re-audit  
+**合并顺序**: #146 → #147 → #148 → #149 → #151 → #152 → #150 → #153 (版本号递增, 架构文档归档与沙箱护栏收尾)  
+**范围**: 8 个 PR 各自独立收敛; 0 DDL / 0 migration / 0 schema 变更  
+
+| PR | 版本 | 分支 | 修什么 | 用户可见影响 | 最终结论 |
+|---|---|---|---|---|---|
+| #146 | v1.0.47 | `feature/v1.0.47-predict-tags-modernize` | 打标定时任务 `predict_tags` 的 3 处致命缺陷 (查了不存在的列 → 进程内直接崩, 从没成功跑过) | 打标任务终于能产出标签 | **SHIPPED** (squash @ `66cc665`) |
+| #147 | v1.0.48 | `feature/v1.0.48-safe-href-offline-assets` | 抓取内容里的恶意链接 (`javascript:`) 拦掉 + Alpine/GSAP 本地化, 断网也能开页面 | 链接点不动 + 离线不白屏 | **SHIPPED** (squash @ `013647f`) |
+| #148 | v1.0.49 | `feature/v1.0.49-worker-atomic-lock` | 分享队列 worker 锁改原子获取 (原来两个 worker 同时起来都以为拿到活儿) | 分享任务不再重复跑 | **SHIPPED** (squash @ `a49b035`) |
+| #149 | v1.0.50 | `feature/v1.0.50-ci-workflow` | GitHub Actions 自动测试流水线; 顺带修掉它首次跑就抓出的路径硬编码问题 | 合并后 CI 自动跑测试 | **SHIPPED** (squash @ `0c84875`) |
+| #151 | v1.0.51 | `feature/v1.0.51-remove-fetch-sources-fanout` | 删掉 `PUT /api/fetch/sources` —— 它把请求体应用到**所有**源并重写整个 `config/sources.yaml` | 少一个危险接口 | **SHIPPED** (merge @ `8c884b6` / `b942100`) |
+| #152 | v1.0.52 | `feature/v1.0.52-test-data-isolation` | 测试数据隔离：生产 `data/` 目录全路径隔离 + 会话级护栏 | 测试不再污染生产数据库与配置 | **SHIPPED** (merge @ `fa0efdc` / `5aa1461`) |
+| #150 | — | `docs/2026-10-23-audit-and-sprint-plan` | 审计报告归档 + 文档纠错 (17 处修正) + sprint-23 计划 | 仅文档 | **SHIPPED** (commit @ `7d56649`, tag `v1.0.52`) |
+| #153 | v1.0.53 | `feature/v1.0.53-sandbox-headless-shell` | 沙箱内改走 playwright headless-shell、headed xwatch fail-fast、指数退避 | 沙箱内抓取不崩、不抢用户浏览器 | **SHIPPED** (squash @ `8ce4f15`, tag `v1.0.53`) |
+
+---
+
+## 历史: **v1.0.46 — 测试基线可信化** (2026-10-23 · **SHIPPED**)
 
 **主分支**: main @ `0f8c056` (PR #145 squash-merged)
 **Tag 链**: v1.0.46 **未打 tag** → v1.0.45 → v1.0.44 → v1.0.42 → ...
@@ -19,25 +90,6 @@
 > - **`tests/test_db_leases.py`**: 模块 import 时 `os.environ.setdefault("MONI_DB_PATH", ...)` 把 `/tmp/moni-test-leases.db` 泄漏给后续所有测试模块 (monkeypatch 只还原自己改过的值)。改成 fixture 内 `monkeypatch.setenv`, 自动还原。
 > - **`tests/test_prompts.py`**: 过期 mock —— 它 patch `moni.llm.client.subprocess.run`, 但 v1.0.42 已把子进程执行挪到 `moni/llm/runner.py`, 补丁打空、断言失去意义。改为 patch `moni.llm.runner.HardenedSubprocess.run` 并经 `_build_argv()` 断言 argv。
 > - **结果**: `1045 passed / 2 skipped / 0 failed` (修前 `8 failed`)。
-
----
-
-## 当前状态: **v1.0.47 ~ v1.0.51 — 2026-10-23 审计整改批次** (2026-10-24 · **待 dad 批准合并**)
-
-**来源**: 2026-10-23 架构审计 (`docs/sprint-audit-2026/`) + 5 路独立 re-audit
-**合并顺序**: #146 → #147 → #148 → #149 → #151 → #150 (版本号递增, 文档最后)
-**范围**: 5 个 PR 各自独立, 互不依赖; 0 DDL / 0 migration / 0 schema 变更
-
-| PR | 版本 | 分支 | 修什么 | 用户可见影响 | 复审结论 |
-|---|---|---|---|---|---|
-| #146 | v1.0.47 | `feature/v1.0.47-predict-tags-modernize` | 打标定时任务 `predict_tags` 的 3 处致命缺陷 (查了不存在的列 → 进程内直接崩, 从没成功跑过) | 打标任务终于能产出标签 | **APPROVE** (7 项 P3 跟进) |
-| #147 | v1.0.48 | `feature/v1.0.48-safe-href-offline-assets` | 抓取内容里的恶意链接 (`javascript:`) 拦掉 + Alpine/GSAP 本地化, 断网也能开页面 | 链接点不动 + 离线不白屏 | **APPROVE 有条件** (3 条 P2 测试加固) |
-| #148 | v1.0.49 | `feature/v1.0.49-worker-atomic-lock` | 分享队列 worker 锁改原子获取 (原来两个 worker 同时起来都以为拿到活儿) | 分享任务不再重复跑 | 复审中 |
-| #149 | v1.0.50 | `feature/v1.0.50-ci-workflow` | GitHub Actions 自动测试流水线; 顺带修掉它首次跑就抓出的路径硬编码问题 | 合并后 CI 自动跑测试 | 复审中 |
-| #151 | v1.0.51 | `feature/v1.0.51-remove-fetch-sources-fanout` | 删掉 `PUT /api/fetch/sources` —— 它把请求体应用到**所有**源并重写整个 `config/sources.yaml` | 少一个危险接口 | 复审中 |
-| #150 | — | `docs/2026-10-23-audit-and-sprint-plan` | 审计报告归档 + 文档纠错 (17 处修正) | 仅文档 | — |
-
-> **注意**: 各 PR 的 `STATUS.md` / `USER_GUIDE.md` 条目统一由 #150 承担 (PR 顺序上 #150 最后合), 避免多个分支互相改同一文件冲突。
 
 ---
 
