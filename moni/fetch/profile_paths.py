@@ -1,4 +1,4 @@
-"""moni.fetch.chrome_profile_paths — centralized Chrome profile path resolution.
+"""moni.fetch.profile_paths — centralized Chrome profile path resolution.
 
 Part of v1.0.56 Chrome profile isolation:
 Moves moni Chrome user-data-dir profiles out of macOS ~/Library/Application Support/Google/Chrome/

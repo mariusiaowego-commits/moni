@@ -1,6 +1,7 @@
-"""tests/test_chrome_profile_migration.py — comprehensive tests for Chrome profile migration script."""
+"""tests/test_chrome_profile_migration.py — comprehensive tests for Chrome profile migration and tooling."""
 
 import json
+import logging
 from pathlib import Path
 import pytest
 import sqlite3
@@ -11,10 +12,22 @@ repo_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(repo_root / "scripts"))
 
 from importlib import import_module
+
 migrate_mod = import_module("migrate-chrome-profiles")
 ChromeProfileMigrator = migrate_mod.ChromeProfileMigrator
 count_cookies = migrate_mod.count_cookies
 create_lean_tarball = migrate_mod.create_lean_tarball
+
+chrome_profiles_mod = import_module("chrome-profiles")
+inspect_chrome_profiles = chrome_profiles_mod.inspect_chrome_profiles
+format_table = chrome_profiles_mod.format_table
+
+from moni.fetch.profile_paths import (
+    resolve_user_data_dir,
+    resolve_daemon_user_data_dir,
+    resolve_xwatch_user_data_dir,
+    load_profile_map,
+)
 
 
 def create_fake_cookies_db(db_path: Path, cookies: list[tuple[str, str, str]]) -> None:
@@ -94,7 +107,6 @@ def mock_migration_env(tmp_path):
 def test_dry_run_case_1_both_exist(mock_migration_env):
     """Case 1: Both old directories and new directories exist."""
     env = mock_migration_env
-    # Pre-create target directories as well
     (env["moni_chrome_dir"] / "xwatch" / "Default").mkdir(parents=True)
     (env["moni_chrome_dir"] / "daemon").mkdir(parents=True)
 
@@ -132,7 +144,6 @@ def test_dry_run_case_2_only_old_exists(mock_migration_env):
 def test_dry_run_case_3_only_new_exists(mock_migration_env):
     """Case 3: Only new directories exist (post-migration state)."""
     env = mock_migration_env
-    # Remove old moni directories, populate new
     import shutil
     shutil.rmtree(env["p6_default"])
     shutil.rmtree(env["p7_dir"])
@@ -235,10 +246,8 @@ def test_apply_migrates_moni_profiles_and_preserves_user_profile(mock_migration_
     assert tar_xwatch.exists()
     with tarfile.open(tar_xwatch, "r:gz") as tar:
         names = tar.getnames()
-        # Cookies and Preferences must be in backup
         assert any("Cookies" in n for n in names)
         assert any("Preferences" in n for n in names)
-        # Service Worker must NOT be in backup
         assert not any("Service Worker" in n for n in names)
 
     # 8. Idempotence: applying again should report already_migrated
@@ -284,7 +293,235 @@ def test_rollback_restores_pre_migration_state(mock_migration_env):
     assert not (env["moni_chrome_dir"] / "profile-map.json").exists()
 
 
-# ── Acceptance: Lean tarball excludes cache ─────────────────────────────────
+# ── Acceptance 4: Path resolution & auto-claiming legacy directories ─────────
+
+
+def test_env_var_override_takes_precedence(tmp_path, monkeypatch):
+    custom_dir = tmp_path / "custom_chrome_profile"
+    monkeypatch.setenv("MONI_CHROME_USER_DATA_DIR", str(custom_dir))
+
+    resolved = resolve_daemon_user_data_dir()
+    assert resolved == custom_dir
+
+
+def test_env_var_override_xwatch_takes_precedence(tmp_path, monkeypatch):
+    custom_dir = tmp_path / "custom_xwatch_profile"
+    monkeypatch.setenv("MONI_XWATCH_CHROME_USER_DATA", str(custom_dir))
+
+    resolved = resolve_xwatch_user_data_dir()
+    assert resolved == custom_dir
+
+
+def test_new_dir_used_when_it_has_data(tmp_path, monkeypatch):
+    monkeypatch.delenv("MONI_CHROME_USER_DATA_DIR", raising=False)
+    new_dir = tmp_path / "new_daemon"
+    new_dir.mkdir(parents=True)
+    (new_dir / "Default").mkdir()
+
+    legacy_dir = tmp_path / "legacy_daemon"
+    legacy_dir.mkdir(parents=True)
+    (legacy_dir / "Default").mkdir()
+
+    resolved = resolve_user_data_dir(
+        env_var_name="MONI_CHROME_USER_DATA_DIR",
+        new_path=new_dir,
+        legacy_path=legacy_dir,
+        target_name="daemon",
+    )
+    assert resolved == new_dir
+
+
+def test_legacy_dir_auto_claimed_with_warning_when_new_missing(tmp_path, monkeypatch, caplog):
+    monkeypatch.delenv("MONI_CHROME_USER_DATA_DIR", raising=False)
+    new_dir = tmp_path / "new_daemon"
+
+    legacy_dir = tmp_path / "legacy_daemon"
+    legacy_dir.mkdir(parents=True)
+    (legacy_dir / "Default").mkdir()
+
+    with caplog.at_level(logging.WARNING):
+        resolved = resolve_user_data_dir(
+            env_var_name="MONI_CHROME_USER_DATA_DIR",
+            new_path=new_dir,
+            legacy_path=legacy_dir,
+            target_name="daemon",
+        )
+
+    assert resolved == legacy_dir
+    assert "Using legacy Chrome user-data-dir" in caplog.text
+    assert "scripts/migrate-chrome-profiles.py --dry-run" in caplog.text
+
+
+def test_legacy_xwatch_claimed_when_nested_default_has_data(tmp_path, monkeypatch, caplog):
+    monkeypatch.delenv("MONI_XWATCH_CHROME_USER_DATA", raising=False)
+    new_dir = tmp_path / "new_xwatch"
+
+    legacy_dir = tmp_path / "Profile 6"
+    legacy_dir.mkdir(parents=True)
+    nested_default = legacy_dir / "Default"
+    nested_default.mkdir()
+    (nested_default / "Cookies").write_text("dummy")
+
+    with caplog.at_level(logging.WARNING):
+        resolved = resolve_user_data_dir(
+            env_var_name="MONI_XWATCH_CHROME_USER_DATA",
+            new_path=new_dir,
+            legacy_path=legacy_dir,
+            target_name="xwatch",
+        )
+
+    assert resolved == legacy_dir
+    assert "Using legacy Chrome user-data-dir" in caplog.text
+
+
+def test_new_dir_used_by_default_when_neither_has_data(tmp_path, monkeypatch, caplog):
+    monkeypatch.delenv("MONI_CHROME_USER_DATA_DIR", raising=False)
+    new_dir = tmp_path / "new_daemon"
+    legacy_dir = tmp_path / "legacy_daemon"
+
+    with caplog.at_level(logging.WARNING):
+        resolved = resolve_user_data_dir(
+            env_var_name="MONI_CHROME_USER_DATA_DIR",
+            new_path=new_dir,
+            legacy_path=legacy_dir,
+            target_name="daemon",
+        )
+
+    assert resolved == new_dir
+    assert "Using legacy Chrome user-data-dir" not in caplog.text
+
+
+def test_load_profile_map_empty_when_missing(tmp_path):
+    assert load_profile_map(tmp_path / "nonexistent.json") == {}
+
+
+def test_load_profile_map_parses_json(tmp_path):
+    map_file = tmp_path / "profile-map.json"
+    map_file.write_text('{"profiles": {"xwatch": {"total_cookies": 274}}}', encoding="utf-8")
+    data = load_profile_map(map_file)
+    assert data["profiles"]["xwatch"]["total_cookies"] == 274
+
+
+# ── Acceptance 5: chrome-profiles inspector & UI / account alignment ─────────
+
+
+@pytest.fixture
+def fake_chrome_inspect_setup(tmp_path):
+    chrome_dir = tmp_path / "Google" / "Chrome"
+    chrome_dir.mkdir(parents=True)
+
+    local_state_data = {
+        "profile": {
+            "info_cache": {
+                "Default": {
+                    "name": "用户1",
+                    "user_name": "fledgeel@gmail.com",
+                },
+                "Profile": {
+                    "name": "您的 Chrome",
+                    "user_name": "linqin7533@gmail.com",
+                },
+                "Profile 1": {
+                    "name": "Marius",
+                    "user_name": "mariusiaowego@gmail.com",
+                },
+                "Profile 6": {
+                    "name": "hermes",
+                    "user_name": "matthew.qi.tao@gmail.com",
+                },
+            }
+        }
+    }
+    (chrome_dir / "Local State").write_text(json.dumps(local_state_data), encoding="utf-8")
+
+    for d in ["Default", "Profile", "Profile 1", "Profile 6", "Profile 7"]:
+        p = chrome_dir / d
+        p.mkdir()
+        (p / "dummy.txt").write_bytes(b"hello" * 100)
+
+    moni_chrome_dir = tmp_path / ".moni" / "chrome"
+    moni_chrome_dir.mkdir(parents=True)
+    daemon_dir = moni_chrome_dir / "daemon"
+    daemon_dir.mkdir()
+    (daemon_dir / "data.bin").write_bytes(b"x" * 1024)
+    xwatch_dir = moni_chrome_dir / "xwatch"
+    xwatch_dir.mkdir()
+    (xwatch_dir / "data.bin").write_bytes(b"x" * 2048)
+
+    map_data = {
+        "version": 1,
+        "profiles": {
+            "xwatch": {
+                "account": "matthew.qi.tao@gmail.com",
+            }
+        }
+    }
+    (moni_chrome_dir / "profile-map.json").write_text(json.dumps(map_data), encoding="utf-8")
+
+    return chrome_dir, moni_chrome_dir
+
+
+def test_inspect_profiles_matches_ui_names_and_accounts(fake_chrome_inspect_setup):
+    chrome_dir, moni_chrome_dir = fake_chrome_inspect_setup
+    profiles = inspect_chrome_profiles(chrome_dir=chrome_dir, moni_chrome_dir=moni_chrome_dir)
+    prof_by_dir = {p["disk_dir"]: p for p in profiles}
+
+    # Verify Profile 6 -> hermes / matthew.qi.tao@gmail.com
+    assert "Profile 6" in prof_by_dir
+    p6 = prof_by_dir["Profile 6"]
+    assert p6["ui_name"] == "hermes"
+    assert p6["account"] == "matthew.qi.tao@gmail.com"
+    assert p6["owner"] == "用户"
+    assert p6["moni_in_use"] == "否"
+
+    # Verify Profile 1 -> Marius / mariusiaowego@gmail.com
+    assert "Profile 1" in prof_by_dir
+    p1 = prof_by_dir["Profile 1"]
+    assert p1["ui_name"] == "Marius"
+    assert p1["account"] == "mariusiaowego@gmail.com"
+    assert p1["owner"] == "用户"
+    assert p1["moni_in_use"] == "否"
+
+    # Verify Profile -> 您的 Chrome
+    assert "Profile" in prof_by_dir
+    assert prof_by_dir["Profile"]["ui_name"] == "您的 Chrome"
+    assert prof_by_dir["Profile"]["account"] == "linqin7533@gmail.com"
+
+    # Verify Default -> 用户1
+    assert "Default" in prof_by_dir
+    assert prof_by_dir["Default"]["ui_name"] == "用户1"
+    assert prof_by_dir["Default"]["account"] == "fledgeel@gmail.com"
+
+    # Verify moni daemon and xwatch
+    assert "~/.moni/chrome/daemon" in prof_by_dir
+    p_daemon = prof_by_dir["~/.moni/chrome/daemon"]
+    assert p_daemon["ui_name"] == "(moni daemon)"
+    assert p_daemon["owner"] == "moni"
+    assert p_daemon["moni_in_use"] == "是"
+
+    assert "~/.moni/chrome/xwatch" in prof_by_dir
+    p_xwatch = prof_by_dir["~/.moni/chrome/xwatch"]
+    assert p_xwatch["ui_name"] == "(moni xwatch)"
+    assert p_xwatch["owner"] == "moni"
+    assert p_xwatch["account"] == "matthew.qi.tao@gmail.com"
+    assert p_xwatch["moni_in_use"] == "是(登录态)"
+
+
+def test_format_table_renders_all_columns(fake_chrome_inspect_setup):
+    chrome_dir, moni_chrome_dir = fake_chrome_inspect_setup
+    profiles = inspect_chrome_profiles(chrome_dir=chrome_dir, moni_chrome_dir=moni_chrome_dir)
+    table_str = format_table(profiles)
+
+    assert "Chrome UI 名字" in table_str
+    assert "Marius" in table_str
+    assert "mariusiaowego@gmail.com" in table_str
+    assert "hermes" in table_str
+    assert "matthew.qi.tao@gmail.com" in table_str
+    assert "(moni daemon)" in table_str
+    assert "(moni xwatch)" in table_str
+
+
+# ── Acceptance: Lean tarball excludes cache ──────────────────────────────────
 
 
 def test_create_lean_tarball_excludes_cache(tmp_path):
