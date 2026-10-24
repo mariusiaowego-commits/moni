@@ -4,9 +4,11 @@
 
 ---
 
-## 当前状态: **v1.0.63 — 独立博客源改用现有业务标签** (2026-10-24 · **IN REVIEW**)
+## 当前状态: **v1.0.63 — 独立博客源改用现有业务标签** (2026-10-25 · **SHIPPED**)
 
-**分支**: `fix/v1.0.63-cn-indie-use-existing-tags` · **基线**: main @ `5997444` (v1.0.62)
+**主分支**: main @ `3f7c4e8` · **Tag**: `v1.0.63` · **PR**: #164
+**schema**: 37 · **测试**: 1298 passed / 2 skipped
+**审计**: 两轮独立审计，均 APPROVE WITH NITS，无 P0/P1 阻塞
 
 ### v1.0.63 交付要点
 
@@ -19,7 +21,24 @@
   （原先只在 live DB 用 /config 建过，空库 seed 会 FK 失败）；**不覆盖**用户已配的关键词。
 - 新增 `scripts/purge_cn_indie_unmatched.py`：一次性清理历史 105 篇，
   命中保留并补打 tag + `article_keyword_hits`，未命中直接删除。
-- 测试：全量 **1289 passed / 2 skipped**；定向 037 + 独立博客 + 迁移回归 94 passed。
+- 测试：全量 **1298 passed / 2 skipped**（含新增 purge 脚本 6 个测试、037 迁移 9 个测试）。
+
+### 上线执行记录 (2026-10-25)
+
+| 步骤 | 结果 |
+|---|---|
+| 迁移 037 | schema 36 → 37；legacy tag 定义/source_tags/article_tags 全部清零 |
+| seed-config | 10 tag / 16 source / 50 source-tag；**用户配置的 keywords 零变化**（逐 tag diff 验证） |
+| 存量清理 | 105 篇 → 保留 39 / 删除 66；全部 39 篇带 tag；其他 12 个源计数零变化（4725 → 4659） |
+| 8900 重启 | launchd 重启成功；`/api/articles`、`/api/config/sources`、`/api/config/tags`、`/api/fetch/sources`、`/api/stats/cases-dashboard` 均 200 |
+| 真实抓取验证 | 抓 114 / 入库 43 / **标签闸门拦下 70**；入库后 82 篇 100% 带 tag（修复前是 105/105 无 tag） |
+| 备份 | `/private/tmp/news.db.pre-037-002102`（迁移前完整库） |
+
+### 已知遗留（不在本版范围）
+
+- 短关键词误命中：`general-tech` 的 `MA`、`model-providers` 的 `ark`、`banking` 的
+  `不良`/`消费` 等 1-3 字符词，会让游记/读书笔记类文章误过闸门（本次保留的 39 篇里约 12 篇属此类）。
+  需要在 `/config` 治理这些 tag 的关键词，单独开 PR 处理。
 
 ## 历史状态: **v1.0.61 — 36kr 历史 source id 归一化** (2026-10-24 · **SHIPPED**)
 
