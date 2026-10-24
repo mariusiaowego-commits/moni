@@ -317,16 +317,69 @@ class TestFetchJobsEndpoints:
             if t is not threading.current_thread() and t.name.startswith("fetch-"):
                 t.join(timeout=2.5)
 
-    def test_run_sync_legacy_endpoint_still_blocks(self, client):
+    def test_run_sync_legacy_endpoint_still_blocks(self, client, monkeypatch):
         """v1.0.7.6: /run-sync kept for CLI smoke tests — still blocks
         until done (preserves old behaviour)."""
+        # This test used to perform a REAL 36kr_rss fetch. Stub the fetcher
+        # so the assertion can focus on the synchronous endpoint contract.
+        from moni.fetch.base import _FETCHER_REGISTRY
+
+        calls: list[dict] = []
+
+        class _Stub36kr:
+            source_name = "36kr_rss"
+            date_from = None
+            date_to = None
+            progress_callback = None
+
+            def run(self, **kwargs):
+                calls.append(kwargs)
+                if self.progress_callback:
+                    self.progress_callback(total_feeds=1, done_feeds=1)
+                return {
+                    "source": "36kr_rss",
+                    "fetched": 1,
+                    "parsed": 1,
+                    "inserted": 1,
+                }
+
+        monkeypatch.setitem(_FETCHER_REGISTRY, "36kr_rss", _Stub36kr)
+
         r = client.post("/api/fetch/sources/36kr_rss/run-sync")
-        # 36kr_rss is fast (< 30s), should complete normally
         assert r.status_code == 200
         body = r.json()
-        # Either done result or skipped
-        assert body.get("source") == "36kr_rss"
-        assert body.get("status") in ("done", "skipped") or "fetched" in body
+        assert len(calls) == 1, "run-sync must execute the fetcher synchronously"
+        assert body == {
+            "source": "36kr_rss",
+            "fetched": 1,
+            "parsed": 1,
+            "inserted": 1,
+        }
+        assert body.get("error") is None
+
+    def test_run_sync_returns_skipped_when_source_not_due(
+        self, client, monkeypatch, tmp_path
+    ):
+        """force=false must preserve dad's "skipped tick still succeeds" contract."""
+        import json
+        from datetime import datetime, timezone
+
+        from moni.fetch import scheduler as scheduler_mod
+
+        last_run_path = tmp_path / ".last_run.json"
+        last_run_path.write_text(
+            json.dumps({"36kr_rss": datetime.now(timezone.utc).isoformat()}),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(scheduler_mod, "_LAST_RUN_PATH", last_run_path)
+
+        r = client.post("/api/fetch/sources/36kr_rss/run-sync?force=false")
+        assert r.status_code == 200
+        assert r.json() == {
+            "source": "36kr_rss",
+            "status": "skipped",
+            "message": "Source not due for fetching",
+        }
 
 
 # ── background-thread integration test ─────────────────────────────────────
