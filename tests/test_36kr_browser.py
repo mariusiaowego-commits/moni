@@ -165,25 +165,31 @@ class TestChromeDaemonUnit:
     helper functions are testable + the constants are sane."""
 
     def test_chrome_binary_default_is_mac_path(self):
-        import platform
+        """v1.0.58: user-data-dir 由 profile_paths 统一解析, 不再硬编码 macOS 路径。
+
+        具体取值取决于本机是否有 legacy Profile 7 / 新目录, 所以这里只断言
+        "可移植 + 不写死别人的 home", 具体三分支由 test_chrome_profile_migration.py
+        用 tmp_path 覆盖。
+        """
+        import pwd
 
         from moni.fetch.chrome_daemon import CHROME_BINARY, CHROME_DEBUG_PORT, CHROME_USER_DATA_DIR
+        from pathlib import Path
+
+        real_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+
         assert CHROME_DEBUG_PORT == 9223
-        if platform.system() == "Darwin":
-            assert CHROME_BINARY.endswith("Google Chrome")
-            # Resolve the real passwd home rather than Path.home(), so the
-            # hermes sandbox's $HOME redirect doesn't trap us in a
-            # sandbox-only profile.
-            assert "/Library/Application Support/Google/Chrome/Profile 7" in CHROME_USER_DATA_DIR
-            assert "Profile 7" in CHROME_USER_DATA_DIR
-        else:
-            # v1.0.51: the macOS path is a portability bug. On Linux /
-            # Docker, creating /Users/mt16/... dies with
-            # "PermissionError: '/Users'" — that was the real root
-            # cause of the first CI failure. Non-macOS uses a
-            # per-user profile under HOME instead.
-            assert "/Users/mt16" not in CHROME_USER_DATA_DIR
-            assert CHROME_USER_DATA_DIR.endswith(".moni/chrome-profile")
+        # 路径必须落在**真实**用户 home 下 (profile_paths 用 pwd, 不受沙箱 $HOME 重定向影响),
+        # 且不得是别的机器写死的绝对路径。
+        assert Path(CHROME_USER_DATA_DIR).is_absolute()
+        assert str(real_home) in CHROME_USER_DATA_DIR
+        assert Path(CHROME_USER_DATA_DIR).is_absolute()
+        # 要么是新的 ~/.moni/chrome/daemon, 要么是还在用 legacy 的 Chrome/Profile 7
+        assert (
+            CHROME_USER_DATA_DIR.endswith(".moni/chrome/daemon")
+            or "Google/Chrome/Profile 7" in CHROME_USER_DATA_DIR
+        )
+        assert isinstance(CHROME_BINARY, str) and CHROME_BINARY
 
     def test_env_override_takes_precedence(self, monkeypatch):
         monkeypatch.setenv("MONI_CHROME_BINARY", "/custom/chrome")

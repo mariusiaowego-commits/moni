@@ -74,15 +74,16 @@ def reset_x_chrome_backoff() -> None:
 
 
 def _default_xwatch_chrome_user_data_dir() -> str:
-    if platform.system() == "Darwin":
-        try:
-            import pwd
+    """Resolve xwatch's Chrome user-data-dir (v1.0.58 wiring).
 
-            real_home = pwd.getpwuid(os.getuid()).pw_dir
-        except Exception:
-            real_home = str(Path.home())
-        return str(Path(real_home) / "Library" / "Application Support" / "Google" / "Chrome" / "Profile 6")
-    return str(Path.home() / ".moni" / "xwatch-chrome-profile")
+    Single source of truth is :mod:`moni.fetch.profile_paths`.  Note the legacy
+    location is ``Chrome/Profile 6`` — the *whole* profile directory, which the
+    user also owns as their "hermes" Chrome profile.  We deliberately do **not**
+    claim it when the new ``~/.moni/chrome/xwatch`` already holds data.
+    """
+    from .profile_paths import resolve_xwatch_user_data_dir
+
+    return str(resolve_xwatch_user_data_dir())
 
 
 def _default_x_chrome_binary() -> str:

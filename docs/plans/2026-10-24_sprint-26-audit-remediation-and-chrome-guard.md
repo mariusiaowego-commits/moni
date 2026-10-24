@@ -93,3 +93,33 @@
 2. **PR #153 degraded 暴露点补充自动化测试**：沙箱降级分支的 mock 单测补强留待下一阶段。
 3. **`scripts/web.sh` 适配接管 launchd `com.moni.web`**：暂由 CLI 手动 kickstart，下阶段改造脚本。
 4. **`pyproject.toml` 依赖全面精确版本锁定 (pip pin)**：保持现行宽松版本约束惯例，避免产生连锁破坏。
+
+---
+
+## 附: v1.0.58 接线 (2026-10-24 同日)
+
+v1.0.56 只交付了 `profile_paths.py` + 迁移/回滚脚本，**默认路径还没有接到调用点**
+（PR 描述里留了 TODO）。v1.0.58 补上这条线：
+
+- `moni/fetch/chrome_daemon.py::_default_chrome_user_data_dir()` → `resolve_daemon_user_data_dir()`
+- `moni/fetch/xwatch_following.py::_default_xwatch_chrome_user_data_dir()` → `resolve_xwatch_user_data_dir()`
+
+解析顺序（唯一真源 `moni.fetch.profile_paths`）：
+
+1. 显式 `MONI_CHROME_USER_DATA_DIR` / `MONI_XWATCH_CHROME_USER_DATA` → 原样尊重
+2. `~/.moni/chrome/{daemon,xwatch}` 已有数据 → 用它
+3. 新目录为空且 legacy 有数据 → **自动认领 legacy** + warning 提示跑迁移
+4. 都没有 → 新目录
+
+第 3 条是关键：**未迁移的机器行为与 v1.0.53 完全一致**，迁移只改磁盘布局、不改代码分支。
+真机验证（2026-10-24）：
+
+```
+daemon : /Users/mt16/Library/Application Support/Google/Chrome/Profile 7
+xwatch : /Users/mt16/Library/Application Support/Google/Chrome/Profile 6
+```
+（两台 legacy 都被认领，并打出迁移提示）
+
+测试：`tests/test_36kr_browser.py` / `tests/test_xwatch_following.py` 里两条钉死旧
+macOS 绝对路径的断言，改为断言"落在真实 home 下 + 新/旧二者之一"，具体三分支由
+`tests/test_chrome_profile_migration.py` 用 `tmp_path` 覆盖。干净 HOME 全量 1189 passed / 2 skipped。
