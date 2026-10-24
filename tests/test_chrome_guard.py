@@ -9,6 +9,7 @@ import pytest
 
 from moni.fetch.chrome_daemon import (
     ensure_chrome,
+    is_headless_shell_binary,
     reset_daemon_backoff,
     resolve_chrome_binary,
     stop_chrome,
@@ -315,4 +316,36 @@ class TestXWatchGuard:
         with patch("subprocess.Popen") as mock_popen:
             res = ensure_x_chrome(headed=True)
             assert res is False
+            mock_popen.assert_not_called()
+
+    @pytest.mark.parametrize("binary", [
+        "/Users/me/Library/Caches/ms-playwright/chromium_headless_shell-1223/"
+        "chrome-headless-shell-mac-arm64/chrome-headless-shell",
+        "chrome-headless-shell",
+        None,
+    ])
+    def test_headless_shell_binary_detection(self, binary):
+        expected = bool(binary) and "chrome-headless-shell" in str(binary)
+        assert is_headless_shell_binary(binary) is expected
+
+    def test_ensure_x_chrome_rejects_headless_shell_result(self, monkeypatch):
+        monkeypatch.setattr("moni.fetch.xwatch_following._port_alive", lambda *a, **kw: False)
+        monkeypatch.setattr(
+            "moni.fetch.xwatch_following.resolve_chrome_binary",
+            lambda **kwargs: ("/tmp/chrome-headless-shell", True),
+        )
+
+        with patch("subprocess.Popen") as mock_popen:
+            assert ensure_x_chrome(headed=True) is False
+            mock_popen.assert_not_called()
+
+    def test_ensure_x_chrome_rejects_headless_shell_already_listening(self, monkeypatch):
+        monkeypatch.setattr("moni.fetch.xwatch_following._port_alive", lambda *a, **kw: True)
+        monkeypatch.setattr(
+            "moni.fetch.xwatch_following._port_owned_by_headless_shell",
+            lambda *a, **kw: True,
+        )
+
+        with patch("subprocess.Popen") as mock_popen:
+            assert ensure_x_chrome(headed=True) is False
             mock_popen.assert_not_called()

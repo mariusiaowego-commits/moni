@@ -41,6 +41,9 @@ def _get_app() -> TestClient:
 def fresh_db(tmp_path, monkeypatch):
     """Reset the database to a temp file before every test."""
     db_path = tmp_path / "test.db"
+    # Share-queue tests hit the real ~/.moni/queue unless redirected. Keep
+    # every test's manifests inside tmp_path (sandbox/CI home is read-only).
+    monkeypatch.setenv("MONI_QUEUE_DIR", str(tmp_path / "queue"))
     set_db_path(db_path)
     migrate()
     yield

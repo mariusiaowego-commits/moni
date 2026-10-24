@@ -12,9 +12,18 @@ Relocations:
 4. Catalog file              -> ~/.moni/chrome/profile-map.json
 
 Commands:
-    --dry-run   (default) Read-only safety check, planned actions, lock detection, and baseline metrics
-    --apply     Execute backup, directory relocation, catalog creation, and cookie count validation
-    --rollback  Restore moved directories back to their original locations from ~/.moni/chrome/
+    --dry-run          (default) Read-only safety check, planned actions, lock detection, and baseline metrics
+    --apply            Migrate the daemon profile only (safe default)
+    --apply --include-xwatch
+                       Explicitly also migrate xwatch Profile 6/Default. Requires a headed,
+                       non-sandbox verification of X login; never open the result with
+                       chrome-headless-shell (doing so reproduces cookie loss).
+    --rollback         Restore moved directories back to their original locations from ~/.moni/chrome/
+
+v1.0.59 incident guard:
+    A headless-shell run against a migrated xwatch profile was observed to clear the
+    x.com login cookies (274 -> 5, auth_token/ct0 gone). Migration was rolled back and
+    the backup restored byte-for-byte. xwatch migration therefore remains opt-in.
 """
 
 from __future__ import annotations
@@ -186,11 +195,13 @@ class ChromeProfileMigrator:
         moni_chrome_dir: Path | None = None,
         backup_dir: Path | None = None,
         force_ignore_locks: bool = False,
+        include_xwatch: bool = False,
     ) -> None:
         self.chrome_dir = (chrome_dir or get_default_chrome_dir()).resolve()
         self.moni_chrome_dir = (moni_chrome_dir or get_default_moni_chrome_dir()).resolve()
         self.backup_dir = (backup_dir or get_default_backup_dir()).resolve()
         self.force_ignore_locks = force_ignore_locks
+        self.include_xwatch = include_xwatch
 
         # Source paths
         self.p6_dir = self.chrome_dir / "Profile 6"
@@ -331,7 +342,11 @@ class ChromeProfileMigrator:
 
         lines.append("")
         lines.append("[3] 备份与搬迁计划:")
-        lines.append(f"    - 备份文件 1: {self.backup_dir}/xwatch-profile6-default-backup.tar.gz (排除 1.2G Service Worker)")
+        if self.include_xwatch:
+            lines.append(f"    - 备份文件 1: {self.backup_dir}/xwatch-profile6-default-backup.tar.gz (排除 1.2G Service Worker)")
+        else:
+            lines.append("    - XWatch 默认不搬迁 (v1.0.59 事故护栏)")
+            lines.append("      如需搬迁, 必须显式加 --include-xwatch, 并在非沙箱 headed Chrome 中验证 X 登录。")
         lines.append(f"    - 备份文件 2: {self.backup_dir}/daemon-profile7-backup.tar.gz")
         lines.append(f"    - 元数据索引: {self.backup_dir}/backup-manifest.json")
         lines.append(f"    - Catalog 文件: {self.profile_map_file}")
@@ -348,6 +363,10 @@ class ChromeProfileMigrator:
         if status["p6_default_exists"] or status["p7_exists"]:
             lines.append("    ℹ️ 当前为 DRY RUN 模式，未修改任何磁盘文件。")
             lines.append("    ℹ️ 待审计通过并确认后，可运行 `--apply` 执行实际搬迁。")
+            if status["p6_default_exists"] and not self.include_xwatch:
+                lines.append("    ⚠️ `--apply` 默认只搬迁 daemon (Profile 7)，不会搬 XWatch。")
+            if self.include_xwatch:
+                lines.append("    ⚠️ XWatch 搬迁已显式启用；禁止用 chrome-headless-shell 打开该 profile。")
         elif status["target_xwatch_exists"] and status["target_daemon_exists"]:
             lines.append("    ✅ 目标目录已存在且老目录已清理，系统已处于迁移完成状态。")
         lines.append("=" * 80)
@@ -358,9 +377,28 @@ class ChromeProfileMigrator:
         """Perform the actual migration with safety checks and backup."""
         status = self.assess_status()
 
+        # v1.0.59: xwatch is opt-in. A headless-shell navigation previously
+        # cleared X login cookies, so the default --apply must not touch it.
+        migrate_xwatch = self.include_xwatch
+        if migrate_xwatch:
+            try:
+                from moni.fetch.chrome_guard import is_sandboxed
+
+                sandboxed = is_sandboxed()
+            except Exception:
+                sandboxed = False
+            if sandboxed:
+                raise RuntimeError(
+                    "xwatch profile migration is forbidden inside a sandbox. "
+                    "Run outside the sandbox, then verify https://x.com/home in headed Chrome. "
+                    "Never open the migrated xwatch profile with chrome-headless-shell."
+                )
+
         # Idempotence check
         if not status["p6_default_exists"] and not status["p7_exists"]:
-            if status["target_xwatch_exists"] and status["target_daemon_exists"]:
+            if status["target_daemon_exists"] and (
+                status["target_xwatch_exists"] or not migrate_xwatch
+            ):
                 return {
                     "success": True,
                     "message": "Already migrated. Target directories exist and legacy directories are clean.",
@@ -390,12 +428,12 @@ class ChromeProfileMigrator:
         self.backup_dir.mkdir(parents=True, exist_ok=True)
         backed_up_files = []
 
-        if status["p6_default_exists"]:
+        if status["p6_default_exists"] and migrate_xwatch:
             tar1 = self.backup_dir / "xwatch-profile6-default-backup.tar.gz"
             size1 = create_lean_tarball(self.p6_default, tar1, exclude_cache=True)
             backed_up_files.append({"path": str(tar1), "size": size1})
 
-        if status["p6_local_state_exists"]:
+        if status["p6_local_state_exists"] and migrate_xwatch:
             b_ls = self.backup_dir / "xwatch-profile6-local-state.json"
             shutil.copy2(self.p6_local_state, b_ls)
             backed_up_files.append({"path": str(b_ls), "size": b_ls.stat().st_size})
@@ -425,12 +463,12 @@ class ChromeProfileMigrator:
         self.moni_chrome_dir.mkdir(parents=True, exist_ok=True)
 
         # Move Profile 6/Default -> ~/.moni/chrome/xwatch/Default
-        if status["p6_default_exists"]:
+        if status["p6_default_exists"] and migrate_xwatch:
             self.target_xwatch.mkdir(parents=True, exist_ok=True)
             shutil.move(str(self.p6_default), str(self.target_xwatch_default))
 
         # Move Profile 6/Local State -> ~/.moni/chrome/xwatch/Local State
-        if status["p6_local_state_exists"]:
+        if status["p6_local_state_exists"] and migrate_xwatch:
             shutil.move(str(self.p6_local_state), str(self.target_xwatch_local_state))
 
         # Clean stale Singleton symlinks in Profile 6 if any
@@ -448,27 +486,30 @@ class ChromeProfileMigrator:
             shutil.move(str(self.p7_dir), str(self.target_daemon))
 
         # Step 3: Write catalog profile-map.json
+        profiles = {
+            "daemon": {
+                "name": "daemon",
+                "target_dir": str(self.target_daemon),
+                "legacy_user_data_dir": str(self.p7_dir),
+                "total_cookies": p7_total,
+            },
+        }
+        if migrate_xwatch:
+            profiles["xwatch"] = {
+                "name": "xwatch",
+                "target_dir": str(self.target_xwatch),
+                "legacy_user_data_dir": str(self.p6_dir),
+                "legacy_profile_dir": "Default",
+                "total_cookies": p6_def_total,
+                "x_cookies": p6_def_x,
+                "account": "matthew.qi.tao@gmail.com",
+            }
+
         profile_map = {
             "version": 1,
             "migrated_at": datetime.datetime.now().isoformat(),
             "backup_dir": str(self.backup_dir),
-            "profiles": {
-                "xwatch": {
-                    "name": "xwatch",
-                    "target_dir": str(self.target_xwatch),
-                    "legacy_user_data_dir": str(self.p6_dir),
-                    "legacy_profile_dir": "Default",
-                    "total_cookies": p6_def_total,
-                    "x_cookies": p6_def_x,
-                    "account": "matthew.qi.tao@gmail.com",
-                },
-                "daemon": {
-                    "name": "daemon",
-                    "target_dir": str(self.target_daemon),
-                    "legacy_user_data_dir": str(self.p7_dir),
-                    "total_cookies": p7_total,
-                },
-            },
+            "profiles": profiles,
         }
         with open(self.profile_map_file, "w", encoding="utf-8") as f:
             json.dump(profile_map, f, ensure_ascii=False, indent=2)
@@ -478,11 +519,11 @@ class ChromeProfileMigrator:
         new_daemon_cookies, _ = count_cookies(self.target_daemon / "Default" / "Cookies")
         new_p6_root_cookies, _ = count_cookies(self.p6_dir / "Cookies") if status["p6_exists"] else (-1, -1)
 
-        if p6_def_total >= 0 and new_xwatch_cookies != p6_def_total:
+        if migrate_xwatch and p6_def_total >= 0 and new_xwatch_cookies != p6_def_total:
             raise RuntimeError(
                 f"Verification failed: xwatch cookies count mismatch! Expected {p6_def_total}, got {new_xwatch_cookies}"
             )
-        if p6_def_x >= 0 and new_xwatch_x_cookies != p6_def_x:
+        if migrate_xwatch and p6_def_x >= 0 and new_xwatch_x_cookies != p6_def_x:
             raise RuntimeError(
                 f"Verification failed: X cookies count mismatch! Expected {p6_def_x}, got {new_xwatch_x_cookies}"
             )
@@ -494,7 +535,7 @@ class ChromeProfileMigrator:
             raise RuntimeError(
                 f"Verification failed: user hermes cookies count changed! Expected {p6_root_user_cookies}, got {new_p6_root_cookies}"
             )
-        if self.p6_default.exists():
+        if migrate_xwatch and self.p6_default.exists():
             raise RuntimeError("Verification failed: Profile 6/Default still exists after move!")
         if self.p7_dir.exists():
             raise RuntimeError("Verification failed: Profile 7 still exists after move!")
@@ -502,7 +543,8 @@ class ChromeProfileMigrator:
         return {
             "success": True,
             "backup_dir": str(self.backup_dir),
-            "target_xwatch": str(self.target_xwatch),
+            "xwatch_migrated": migrate_xwatch,
+            "target_xwatch": str(self.target_xwatch) if migrate_xwatch else None,
             "target_daemon": str(self.target_daemon),
             "xwatch_cookies": new_xwatch_cookies,
             "xwatch_x_cookies": new_xwatch_x_cookies,
@@ -588,6 +630,14 @@ def main() -> int:
     parser.add_argument("--moni-chrome-dir", type=Path, default=None, help="Moni chrome destination directory")
     parser.add_argument("--backup-dir", type=Path, default=None, help="Backup destination directory")
     parser.add_argument("--force-ignore-locks", action="store_true", help="Bypass lsof locks check (testing only)")
+    parser.add_argument(
+        "--include-xwatch",
+        action="store_true",
+        help=(
+            "Explicitly migrate xwatch Profile 6/Default (opt-in). Requires non-sandbox "
+            "execution and headed Chrome login verification; never use chrome-headless-shell."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -596,6 +646,7 @@ def main() -> int:
         moni_chrome_dir=args.moni_chrome_dir,
         backup_dir=args.backup_dir,
         force_ignore_locks=args.force_ignore_locks,
+        include_xwatch=args.include_xwatch,
     )
 
     if args.apply:

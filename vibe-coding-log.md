@@ -2,6 +2,15 @@
 
 ## [2026-10-24] v1.0.53 — sprint-26 审计整改批次 + Chrome 沙箱护栏 (PR #146~#153, SHIPPED)
 
+## 2026-10-24 v1.0.59 — xwatch profile 搬迁事故护栏
+
+- **事故**：迁移脚本曾默认把 xwatch（Profile 6/Default）一起搬走；用 Playwright `chrome-headless-shell` 打开新 profile 访问 x.com 后，cookie 274 → 5，`auth_token`/`ct0` 丢失。
+- **定位**：复制 profile 后 about:blank 保留 274，导航 x.com 变 0，证明是 headless-shell 触发 cookie 清除，不是搬迁文件损坏。
+- **恢复**：`--rollback` + 备份恢复 Cookies，274 条和 `auth_token`/`ct0` 均恢复，SHA256 与备份一致。
+- **修复**：`--apply` 默认只搬 daemon；xwatch 需 `--include-xwatch` 且禁止沙箱执行；xwatch 启动/复用前拒绝任何 `chrome-headless-shell`。
+- **验证**：新增 headed-only 脚本 `scripts/verify-xwatch-profile.py`；迁移/守卫定向测试 45 passed。
+- **教训**：**有登录态的 Chrome profile 不能只测文件数量，必须测“谁打开它、打开到哪里”；headless 不是 headed 的无害替代品。**
+
 **v1.0.53 ship**: 2026-10-23 架构审计整改闭环，共计 8 个 PR 完整合并入库。PR #146 (打标定时任务修复) @ `66cc665`、#147 (safeHref URL 白名单 + Alpine/GSAP 自托管) @ `013647f`、#148 (分享 worker 原子锁) @ `a49b035`、#149 (GitHub Actions CI 流水线) @ `0c84875`、#151 (删 sources 危险扇出重写) @ `8c884b6`/`b942100`、#152 (测试生产数据强隔离) @ `fa0efdc`/`5aa1461`、#150 (架构审计归档 + 往届证据) @ `7d56649` (tag `v1.0.52`)、#153 (沙箱 playwright headless-shell + fail-fast) @ `8ce4f15` (tag `v1.0.53`)。main HEAD @ `8ce4f15`。本地全量测试 1149 tests (1147 pass / 2 skip)；GitHub Actions CI 处于红灯修复中 (7 fail / 1142 pass / 2 skip)。8900 端口由 launchd `com.moni.web` 托管保持运行。
 
 **交付清单与修复**:

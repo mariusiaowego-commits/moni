@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from .chrome_daemon import resolve_chrome_binary
+from .chrome_daemon import is_headless_shell_binary, resolve_chrome_binary
 from .chrome_guard import (
     ChromeBackoffTracker,
     check_and_record_spawn,
@@ -189,6 +189,22 @@ def _pids_on_port(port: int = X_CHROME_PORT) -> list[int]:
     return pids
 
 
+def _port_owned_by_headless_shell(port: int = X_CHROME_PORT) -> bool:
+    """Return True if a listener on *port* is Playwright's headless shell."""
+    for pid in _pids_on_port(port):
+        try:
+            out = subprocess.check_output(
+                ["ps", "-p", str(pid), "-o", "command="],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            continue
+        if is_headless_shell_binary(out.strip()):
+            return True
+    return False
+
+
 def stop_x_chrome(
     *,
     port: int = X_CHROME_PORT,
@@ -253,6 +269,17 @@ def ensure_x_chrome(*, headed: bool = True) -> bool:
     Dock is not stuck with two Chrome masters.
     """
     if _port_alive():
+        # v1.0.59: a headless-shell already listening on 9222 is not a valid
+        # X session. Refuse to reuse it rather than navigating a profile with
+        # a binary known to clear X login cookies.
+        if _port_owned_by_headless_shell():
+            err_msg = (
+                "Refusing to reuse chrome-headless-shell on the xwatch port; "
+                "it clears X login cookies. Stop it and launch headed Chrome instead."
+            )
+            _xwatch_backoff.record_failure(err_msg)
+            logger.error("[xwatch.following] %s", err_msg)
+            return False
         _xwatch_backoff.record_success()
         return True
 
@@ -278,6 +305,14 @@ def ensure_x_chrome(*, headed: bool = True) -> bool:
             "Please run outside sandbox or use syndication/API channels.",
             err_msg,
         )
+        return False
+    if is_shell or is_headless_shell_binary(binary_path):
+        err_msg = (
+            "xwatch requires headed system Chrome; refusing chrome-headless-shell "
+            "because it was observed to clear X login cookies"
+        )
+        _xwatch_backoff.record_failure(err_msg)
+        logger.error("[xwatch.following] %s (binary=%s)", err_msg, binary_path)
         return False
 
     can_spawn, limit_err = check_and_record_spawn("xwatch_chrome", max_per_hour=3)

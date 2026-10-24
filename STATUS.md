@@ -53,6 +53,7 @@
      - 将 moni 的自动化数据彻底搬迁到专属目录 `~/.moni/chrome/{xwatch,daemon}`，与用户个人浏览器数据彻底解耦；
      - 新增 `chrome-profiles.py` 工具脚本，输出「Chrome UI 名字 ↔ 磁盘目录」对照表（解决用户分不清 profile 的痛点）；
      - **目前默认值改动与迁移脚本就绪，真正目录搬迁操作待 dad 拍板后执行。**
+   - **v1.0.59 安全结论**：xwatch 搬迁实测后已完整回滚。headless-shell 访问 x.com 会清掉登录 cookie（274 → 5）；恢复后 274 条与 `auth_token`/`ct0` 完整。`--apply` 现默认只搬 daemon，xwatch 需显式 `--include-xwatch` 且禁止沙箱执行；xwatch 拒绝任何 headless-shell。真实 xwatch 搬迁仍待用户在沙箱外以 headed Chrome 验证后再决定。
 
 ---
 

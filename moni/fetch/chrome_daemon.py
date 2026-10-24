@@ -175,6 +175,19 @@ def find_chrome_headless_shell() -> Path | None:
     return None
 
 
+def is_headless_shell_binary(binary: str | os.PathLike[str] | None) -> bool:
+    """Return True if *binary* is Playwright's ``chrome-headless-shell``.
+
+    v1.0.59: opening a logged-in xwatch profile with this binary was observed
+    to clear X cookies (274 -> 5, auth_token/ct0 gone).  Keep the check
+    string-based because callers may pass a stale or not-yet-created path.
+    """
+    if not binary:
+        return False
+    text = str(binary).lower()
+    return Path(text).name == "chrome-headless-shell" or "chrome-headless-shell" in text
+
+
 def resolve_chrome_binary(*, headless: bool = True) -> tuple[str | None, bool]:
     """Resolve the executable binary path and whether it is a headless shell.
 

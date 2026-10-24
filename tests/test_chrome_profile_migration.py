@@ -188,13 +188,20 @@ def test_dry_run_case_4_neither_exists(tmp_path):
 # ── Acceptance 2: Apply migration with tmp_path ──────────────────────────────
 
 
-def test_apply_migrates_moni_profiles_and_preserves_user_profile(mock_migration_env):
+def test_apply_migrates_moni_profiles_and_preserves_user_profile(mock_migration_env, monkeypatch):
     env = mock_migration_env
+    monkeypatch.delenv("CODEX_SANDBOX", raising=False)
+    monkeypatch.delenv("CODEX_CI", raising=False)
+    monkeypatch.delenv("MONI_RUNNING_IN_SANDBOX", raising=False)
+    monkeypatch.delenv("HERMES_SANDBOX", raising=False)
+    real_exists = Path.exists
+    monkeypatch.setattr(Path, "exists", lambda self: False if str(self) == "/.dockerenv" else real_exists(self))
     migrator = ChromeProfileMigrator(
         chrome_dir=env["chrome_dir"],
         moni_chrome_dir=env["moni_chrome_dir"],
         backup_dir=env["backup_dir"],
         force_ignore_locks=True,
+        include_xwatch=True,
     )
 
     result = migrator.apply()
@@ -258,13 +265,20 @@ def test_apply_migrates_moni_profiles_and_preserves_user_profile(mock_migration_
 # ── Acceptance 3: Rollback restores to original state ────────────────────────
 
 
-def test_rollback_restores_pre_migration_state(mock_migration_env):
+def test_rollback_restores_pre_migration_state(mock_migration_env, monkeypatch):
     env = mock_migration_env
+    monkeypatch.delenv("CODEX_SANDBOX", raising=False)
+    monkeypatch.delenv("CODEX_CI", raising=False)
+    monkeypatch.delenv("MONI_RUNNING_IN_SANDBOX", raising=False)
+    monkeypatch.delenv("HERMES_SANDBOX", raising=False)
+    real_exists = Path.exists
+    monkeypatch.setattr(Path, "exists", lambda self: False if str(self) == "/.dockerenv" else real_exists(self))
     migrator = ChromeProfileMigrator(
         chrome_dir=env["chrome_dir"],
         moni_chrome_dir=env["moni_chrome_dir"],
         backup_dir=env["backup_dir"],
         force_ignore_locks=True,
+        include_xwatch=True,
     )
 
     # 1. Apply first
@@ -291,6 +305,59 @@ def test_rollback_restores_pre_migration_state(mock_migration_env):
 
     # 5. Verify catalog file removed
     assert not (env["moni_chrome_dir"] / "profile-map.json").exists()
+
+
+# ── v1.0.59: xwatch migration is opt-in ─────────────────────────────────────
+
+
+def test_default_apply_migrates_daemon_only_and_preserves_xwatch(mock_migration_env):
+    """The safe default must never move Profile 6/Default (xwatch cookies)."""
+    env = mock_migration_env
+    migrator = ChromeProfileMigrator(
+        chrome_dir=env["chrome_dir"],
+        moni_chrome_dir=env["moni_chrome_dir"],
+        backup_dir=env["backup_dir"],
+        force_ignore_locks=True,
+    )
+
+    result = migrator.apply()
+    assert result["success"] is True
+    assert result["xwatch_migrated"] is False
+    assert result["target_xwatch"] is None
+    assert result["daemon_cookies"] == 2
+
+    # xwatch remains byte-for-byte in place
+    assert env["p6_default"].exists()
+    assert (env["p6_default"] / "Cookies").exists()
+    assert not (env["moni_chrome_dir"] / "xwatch").exists()
+
+    # no xwatch backup is produced by the default path
+    assert not (env["backup_dir"] / "xwatch-profile6-default-backup.tar.gz").exists()
+
+    # daemon moved out of the user's Chrome root
+    assert not env["p7_dir"].exists()
+    assert (env["moni_chrome_dir"] / "daemon" / "Default" / "Cookies").exists()
+
+    profile_map = json.loads(
+        (env["moni_chrome_dir"] / "profile-map.json").read_text(encoding="utf-8")
+    )
+    assert "daemon" in profile_map["profiles"]
+    assert "xwatch" not in profile_map["profiles"]
+
+
+def test_include_xwatch_is_refused_inside_sandbox(mock_migration_env, monkeypatch):
+    env = mock_migration_env
+    monkeypatch.setenv("CODEX_SANDBOX", "seatbelt")
+    migrator = ChromeProfileMigrator(
+        chrome_dir=env["chrome_dir"],
+        moni_chrome_dir=env["moni_chrome_dir"],
+        backup_dir=env["backup_dir"],
+        force_ignore_locks=True,
+        include_xwatch=True,
+    )
+
+    with pytest.raises(RuntimeError, match="forbidden inside a sandbox"):
+        migrator.apply()
 
 
 # ── Acceptance 4: Path resolution & auto-claiming legacy directories ─────────

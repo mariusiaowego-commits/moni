@@ -15,6 +15,7 @@ import logging
 import os
 import platform
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -83,7 +84,19 @@ def get_moni_chrome_dir() -> Path:
         else:
             real_home = Path.home()
         d = real_home / ".moni" / "chrome"
-    d.mkdir(parents=True, exist_ok=True)
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        probe = d / f".write-probe-{os.getpid()}"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError:
+        # Existing but read-only directories do not raise on mkdir. Probe with
+        # a real write, then fall back to a writable temp dir (sandbox/CI).
+        d = Path(tempfile.gettempdir()) / f"moni-chrome-state-{os.getuid()}"
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
     return d
 
 
@@ -91,8 +104,17 @@ class ChromeDaemonLock:
     """Non-blocking single-instance lock using fcntl.flock on daemon.lock."""
 
     def __init__(self, lock_path: Path | None = None) -> None:
-        self.lock_path = lock_path or (get_moni_chrome_dir() / "daemon.lock")
+        self._fixed_lock_path = lock_path
         self._fd: int | None = None
+
+    @property
+    def lock_path(self) -> Path:
+        """Resolve the lock path at use time, not import time.
+
+        v1.0.59: tests and workers can change MONI_CHROME_STATE_DIR after this
+        module is imported.  A cached path made the lock escape that isolation.
+        """
+        return self._fixed_lock_path or (get_moni_chrome_dir() / "daemon.lock")
 
     def acquire(self) -> bool:
         """Attempt to acquire exclusive non-blocking lock.
@@ -103,6 +125,7 @@ class ChromeDaemonLock:
         if self._fd is not None:
             # Already acquired in this process
             return False
+        fd: int | None = None
         try:
             self.lock_path.parent.mkdir(parents=True, exist_ok=True)
             fd = os.open(str(self.lock_path), os.O_RDWR | os.O_CREAT, 0o644)
@@ -262,6 +285,11 @@ class ChromeBackoffTracker:
         )
         self.degraded_threshold = degraded_threshold
         self._state_dir = state_dir
+        # Keep the last state in memory so rate limiting/backoff still works
+        # when the on-disk state directory is read-only (sandbox/CI). Disk is
+        # authoritative when writable; memory is the fallback.
+        self._memory_state: dict[str, Any] | None = None
+        self._persistence_ok = True
 
     @property
     def state_file(self) -> Path:
@@ -291,26 +319,44 @@ class ChromeBackoffTracker:
             }
 
     def _write_state(self, state: dict[str, Any]) -> None:
+        self._memory_state = dict(state)
         try:
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
             tmp_file = self.state_file.with_suffix(".tmp")
             with open(tmp_file, "w") as f:
                 json.dump(state, f)
             tmp_file.replace(self.state_file)
+            self._persistence_ok = True
         except Exception as exc:
+            self._persistence_ok = False
             logger.warning("[chrome_guard] Failed to write backoff state for %s: %s", self.name, exc)
+
+    def _state(self) -> dict[str, Any]:
+        """Read disk state, falling back to the most recent in-memory state."""
+        # Disk is authoritative when writes work. If the latest write failed
+        # (read-only sandbox/CI), memory is the fallback so backoff still works.
+        if self.state_file.exists():
+            disk = self._read_state()
+            if self._persistence_ok:
+                return disk
+            if self._memory_state is not None:
+                return dict(self._memory_state)
+            return disk
+        if self._memory_state is not None:
+            return dict(self._memory_state)
+        return self._read_state()
 
     @property
     def consecutive_failures(self) -> int:
-        return self._read_state()["consecutive_failures"]
+        return self._state()["consecutive_failures"]
 
     @property
     def last_failure_time(self) -> float | None:
-        return self._read_state()["last_failure_time"]
+        return self._state()["last_failure_time"]
 
     @property
     def last_error(self) -> str | None:
-        return self._read_state()["last_error"]
+        return self._state()["last_error"]
 
     def record_success(self) -> None:
         self._write_state({
@@ -320,7 +366,7 @@ class ChromeBackoffTracker:
         })
 
     def record_failure(self, error: str) -> None:
-        current = self._read_state()
+        current = self._state()
         new_state = {
             "consecutive_failures": current["consecutive_failures"] + 1,
             "last_failure_time": time.time(),
@@ -329,6 +375,8 @@ class ChromeBackoffTracker:
         self._write_state(new_state)
 
     def reset(self) -> None:
+        self._memory_state = None
+        self._persistence_ok = True
         self._write_state({
             "consecutive_failures": 0,
             "last_failure_time": None,
@@ -345,7 +393,7 @@ class ChromeBackoffTracker:
 
     @property
     def remaining_backoff_s(self) -> float:
-        state = self._read_state()
+        state = self._state()
         fails = state["consecutive_failures"]
         fail_time = state["last_failure_time"]
         if not fail_time or fails == 0:
@@ -361,7 +409,7 @@ class ChromeBackoffTracker:
         return self.consecutive_failures >= self.degraded_threshold
 
     def get_status(self) -> dict[str, Any]:
-        state = self._read_state()
+        state = self._state()
         return {
             "name": self.name,
             "consecutive_failures": state["consecutive_failures"],
