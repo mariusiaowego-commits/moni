@@ -592,6 +592,31 @@ class TestRegistrationAndSeed:
         from moni.web.routes.config_sources import _FETCH_CONFIG_DEFAULTS
         assert "chinese_independent_blogs" in _FETCH_CONFIG_DEFAULTS
 
+    def test_bindings_reuse_shared_business_tags(self):
+        """Guard against a dedicated single-source tag coming back.
+
+        v1.0.60's bug was a tag made only for this source, which then had no
+        keywords and turned the gate into a pass-through.  A tag that several
+        sources already share is guaranteed to carry real keywords in the live
+        DB.  Asserting keywords directly is not possible here: on a fresh
+        database seed does not populate keywords (that would clobber the
+        values the user maintains through /config).
+        """
+        from moni.db import seed_config
+
+        users: dict[str, set[str]] = {}
+        for source_id, tag in seed_config._DEFAULT_SOURCE_TAGS:
+            users.setdefault(tag, set()).add(source_id)
+        bound = {
+            tag for source_id, tag in seed_config._DEFAULT_SOURCE_TAGS
+            if source_id == "src-chinese-independent-blogs"
+        }
+        # These four are used by at least three sources each, so they cannot
+        # be a cn-indie-only invention.
+        assert {"ai-fintech", "banking", "general-tech", "wechat"} <= bound
+        for tag in ("ai-fintech", "banking", "general-tech", "wechat"):
+            assert len(users[tag]) >= 3, f"{tag} is only used by {users[tag]}"
+
     def test_retired_config_key_is_hidden_and_not_written_back(self, seeded_db):
         from fastapi.testclient import TestClient
         from moni.web.server import create_app

@@ -51,8 +51,13 @@ CREATE TABLE IF NOT EXISTS schema_cleanup_log (
 INSERT OR IGNORE INTO schema_cleanup_log (migration, applied_at)
 SELECT '037_cn_indie_existing_tags', datetime('now')
 WHERE (
-    SELECT COUNT(*) FROM source_tags
-    WHERE source_id = 'src-chinese-independent-blogs'
+    -- Count only *effective* bindings: apply_tag_keyword_filter() joins
+    -- tag_definitions with is_active = 1, so ten inactive tags would still
+    -- leave the gate open while this log claimed success.
+    SELECT COUNT(*) FROM source_tags st
+    JOIN tag_definitions t ON t.name = st.tag_name
+    WHERE st.source_id = 'src-chinese-independent-blogs'
+      AND t.is_active = 1
 ) >= 10;
 
 COMMIT;

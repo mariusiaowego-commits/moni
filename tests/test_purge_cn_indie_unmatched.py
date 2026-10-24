@@ -66,6 +66,17 @@ def seeded(tmp_path):
         "VALUES ('other-1', 'Kubernetes 别的源', 'https://example.com/other', "
         "'mpaypass', '2026-10-24')"
     )
+    # Give the to-be-deleted row children so the cascade assertions below can
+    # tell "cascade worked" apart from "there was nothing to cascade".
+    conn.execute(
+        "INSERT INTO article_tags (article_id, tag_name, predicted, created_at) "
+        "VALUES ('cn-drop', 'banking', 0, '2026-10-24')"
+    )
+    conn.execute(
+        "INSERT INTO article_keyword_hits "
+        "(article_id, keyword, filter_id, hit_field, tag_name, created_at) "
+        "VALUES ('cn-drop', '资本', NULL, 'title+content', 'banking', '2026-10-24')"
+    )
     conn.commit()
     yield conn
     close_db()
@@ -94,6 +105,14 @@ def test_apply_deletes_only_unmatched_articles_of_this_source(
     assert "cn-drop" not in remaining
     # Other sources are never touched, even when they match no keyword.
     assert "other-1" in remaining
+    # Deleting the article must cascade to its children; this only holds
+    # because the script opens the connection with PRAGMA foreign_keys = ON.
+    assert seeded.execute(
+        "SELECT COUNT(*) FROM article_tags WHERE article_id = 'cn-drop'"
+    ).fetchone()[0] == 0
+    assert seeded.execute(
+        "SELECT COUNT(*) FROM article_keyword_hits WHERE article_id = 'cn-drop'"
+    ).fetchone()[0] == 0
 
 
 def test_apply_writes_tags_and_hits_for_kept_articles(
