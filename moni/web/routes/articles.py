@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -384,6 +385,16 @@ def fact_check_article(
 # ── import full-text (v1.0.5.24) ─────────────────────────────────────────
 
 
+def _resolve_user_home() -> Path:
+    """Resolve the user home directory, preferring pwd entry over $HOME."""
+    try:
+        import pwd
+
+        return Path(pwd.getpwuid(os.getuid()).pw_dir)
+    except (ImportError, KeyError, OSError):
+        return Path.home()
+
+
 @router.post("/{article_id}/import-fulltext")
 def import_fulltext(article_id: str, body: ImportFulltextRequest) -> dict[str, Any]:
     """Import full-text content from a local .md file into the article.
@@ -409,12 +420,7 @@ def import_fulltext(article_id: str, body: ImportFulltextRequest) -> dict[str, A
         )
 
     # Security: only allow files under common directories
-    try:
-        import pwd
-
-        home = Path(pwd.getpwuid(os.getuid()).pw_dir)
-    except Exception:
-        home = Path.home()
+    home = _resolve_user_home()
     allowed_prefixes = [
         home / "Documents",
         home / "Desktop",

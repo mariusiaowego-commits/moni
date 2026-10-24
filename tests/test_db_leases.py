@@ -23,11 +23,8 @@ from moni.db.connection import get_db, set_db_path
 # Force a per-test sqlite file so thread-local connections inside
 # TestClient / anyio workers don't leak between tests.
 #
-# v1.0.45 cleanup: do NOT set the env var at module import time.  That
-# leaked "/tmp/moni-test-leases.db" into every later test module because
-# pytest's monkeypatch only restores values it changed itself.  The
-# autouse fixture below sets and restores it per test instead.
-TEST_DB = "/tmp/moni-test-leases.db"
+# v1.0.52 cleanup: use tmp_path per test rather than a fixed /tmp file
+# so parallel test runners do not suffer disk I/O collision.
 
 
 @pytest.fixture(autouse=True)
