@@ -31,16 +31,17 @@ TEST_DB = "/tmp/moni-test-leases.db"
 
 
 @pytest.fixture(autouse=True)
-def _isolated_db(monkeypatch):
+def _isolated_db(tmp_path, monkeypatch):
     """Fresh DB per test, schema up-to-date."""
-    monkeypatch.setenv("MONI_DB_PATH", TEST_DB)
+    test_db = str(tmp_path / "moni-test-leases.db")
+    monkeypatch.setenv("MONI_DB_PATH", test_db)
     set_db_path(None)  # force re-resolve
     # Force this thread's connection to drop so the new path is honoured.
     from moni.db.connection import close_db
     close_db()
     # Recreate DB
     try:
-        os.unlink(TEST_DB)
+        os.unlink(test_db)
     except FileNotFoundError:
         pass
     from moni.db.migrate import migrate

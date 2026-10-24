@@ -409,7 +409,12 @@ def import_fulltext(article_id: str, body: ImportFulltextRequest) -> dict[str, A
         )
 
     # Security: only allow files under common directories
-    home = Path("/Users/mt16")  # hardcoded to avoid sandbox Path.home() issue
+    try:
+        import pwd
+
+        home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    except Exception:
+        home = Path.home()
     allowed_prefixes = [
         home / "Documents",
         home / "Desktop",
