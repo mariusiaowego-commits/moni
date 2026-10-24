@@ -349,3 +349,30 @@ class TestXWatchGuard:
         with patch("subprocess.Popen") as mock_popen:
             assert ensure_x_chrome(headed=True) is False
             mock_popen.assert_not_called()
+
+    def test_port_probe_fails_closed_for_unknown_listener(self, monkeypatch):
+        from moni.fetch.xwatch_following import _port_owned_by_headless_shell
+
+        monkeypatch.setattr(
+            "moni.fetch.xwatch_following._pids_on_port", lambda *a, **kw: [123]
+        )
+        monkeypatch.setattr(
+            "moni.fetch.xwatch_following.subprocess.check_output",
+            lambda *a, **kw: "/usr/sbin/unknown-daemon --port 9222\n",
+        )
+        assert _port_owned_by_headless_shell() is True
+
+    def test_port_probe_accepts_identified_headed_chrome(self, monkeypatch):
+        from moni.fetch.xwatch_following import _port_owned_by_headless_shell
+
+        monkeypatch.setattr(
+            "moni.fetch.xwatch_following._pids_on_port", lambda *a, **kw: [123]
+        )
+        monkeypatch.setattr(
+            "moni.fetch.xwatch_following.subprocess.check_output",
+            lambda *a, **kw: (
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome "
+                "--remote-debugging-port=9222\n"
+            ),
+        )
+        assert _port_owned_by_headless_shell() is False

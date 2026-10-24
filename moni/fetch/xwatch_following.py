@@ -190,8 +190,16 @@ def _pids_on_port(port: int = X_CHROME_PORT) -> list[int]:
 
 
 def _port_owned_by_headless_shell(port: int = X_CHROME_PORT) -> bool:
-    """Return True if a listener on *port* is Playwright's headless shell."""
-    for pid in _pids_on_port(port):
+    """Return True unless we can positively identify a headed Chrome listener.
+
+    v1.0.59: xwatch must fail closed. A headless-shell is explicitly rejected;
+    an unknown listener is also treated as unsafe because we cannot prove it
+    owns a usable, headed login session.
+    """
+    pids = _pids_on_port(port)
+    if not pids:
+        return False
+    for pid in pids:
         try:
             out = subprocess.check_output(
                 ["ps", "-p", str(pid), "-o", "command="],
@@ -199,8 +207,11 @@ def _port_owned_by_headless_shell(port: int = X_CHROME_PORT) -> bool:
                 stderr=subprocess.DEVNULL,
             )
         except Exception:
-            continue
-        if is_headless_shell_binary(out.strip()):
+            return True
+        cmd = out.strip().lower()
+        if is_headless_shell_binary(cmd):
+            return True
+        if "google chrome" not in cmd and "chromium" not in cmd:
             return True
     return False
 
