@@ -13,9 +13,11 @@ from moni.db.migrate import migrate
 from moni.db.seed_config import seed as seed_config
 from moni.fetch.sources.chinese_independent_blogs import (
     FetcherChineseIndependentBlogs,
+    _DEFAULTS,
     _inside_config_root,
     _is_http_url,
     _parse_date,
+    _validate_config,
 )
 
 
@@ -82,6 +84,57 @@ class TestHelpers:
         root = Path(__file__).resolve().parents[1] / "config"
         assert _inside_config_root(root / "chinese_independent_blogs.opml")
         assert not _inside_config_root(root.parent / "README.md")
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("12", 12),
+            (12.9, 12),
+            (0, 1),
+            (-5, 1),
+            (float("inf"), _DEFAULTS["max_feeds"]),
+            (True, _DEFAULTS["max_feeds"]),
+            (10**9, 10_000),
+            ("not-a-number", _DEFAULTS["max_feeds"]),
+        ],
+    )
+    def test_validate_config_coerces_integer_fields(self, raw, expected):
+        cfg = _validate_config({"max_feeds": raw})
+        assert cfg["max_feeds"] == expected
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("0.4", 0.4),
+            (-0.2, 0.0),
+            (1.2, 1.0),
+            (float("nan"), _DEFAULTS["max_failure_rate"]),
+            (float("inf"), _DEFAULTS["max_failure_rate"]),
+            (True, _DEFAULTS["max_failure_rate"]),
+            (10**400, _DEFAULTS["max_failure_rate"]),
+            ("not-a-number", _DEFAULTS["max_failure_rate"]),
+        ],
+    )
+    def test_validate_config_bounds_failure_rate(self, raw, expected):
+        cfg = _validate_config({"max_failure_rate": raw})
+        assert cfg["max_failure_rate"] == expected
+
+    def test_validate_config_defaults_missing_fields(self):
+        cfg = _validate_config({})
+        for key, value in _DEFAULTS.items():
+            assert cfg[key] == value
+
+    def test_validate_config_clamps_min_sample_to_max_feeds(self):
+        cfg = _validate_config({
+            "max_feeds": 5,
+            "min_feeds_before_failure_rate_check": 20,
+        })
+        assert cfg["min_feeds_before_failure_rate_check"] == 5
+
+    @pytest.mark.parametrize("key", ["request_delay", "http_timeout", "max_failure_rate"])
+    def test_validate_config_rejects_huge_integers(self, key):
+        cfg = _validate_config({key: 10**400})
+        assert cfg[key] == _DEFAULTS[key]
 
 
 class TestOpml:
@@ -152,6 +205,53 @@ class TestFeedParsing:
         with patch.object(fetcher, "_http_text", side_effect=httpx.ReadTimeout("slow")):
             assert fetcher._fetch_feed("https://x/feed", "x", timeout=1) == ("failed", [])
 
+    @pytest.mark.parametrize(
+        "error",
+        [
+            httpx.TooManyRedirects("loop"),
+            httpx.DecodingError("bad encoding"),
+            httpx.ConnectError("dns"),
+        ],
+    )
+    def test_all_request_errors_count_as_network_failures(self, error):
+        fetcher = FetcherChineseIndependentBlogs()
+        with patch.object(fetcher, "_http_text", side_effect=error):
+            assert fetcher._fetch_feed("https://x/feed", "x", timeout=1) == (
+                "failed",
+                [],
+            )
+
+    def test_http_status_error_is_not_network_failure(self):
+        fetcher = FetcherChineseIndependentBlogs()
+        request = httpx.Request("GET", "https://x/feed")
+        response = httpx.Response(404, request=request)
+        with patch.object(
+            fetcher,
+            "_http_text",
+            side_effect=httpx.HTTPStatusError("404", request=request, response=response),
+        ):
+            assert fetcher._fetch_feed("https://x/feed", "x", timeout=1) == (
+                "http_error",
+                [],
+            )
+
+    @pytest.mark.parametrize("status_code", [429, 500, 502, 503])
+    def test_transient_http_status_is_network_failure(self, status_code):
+        fetcher = FetcherChineseIndependentBlogs()
+        request = httpx.Request("GET", "https://x/feed")
+        response = httpx.Response(status_code, request=request)
+        with patch.object(
+            fetcher,
+            "_http_text",
+            side_effect=httpx.HTTPStatusError(
+                str(status_code), request=request, response=response
+            ),
+        ):
+            assert fetcher._fetch_feed("https://x/feed", "x", timeout=1) == (
+                "failed",
+                [],
+            )
+
     def test_size_limit(self):
         fetcher = FetcherChineseIndependentBlogs()
         class FakeResponse:
@@ -194,7 +294,9 @@ class TestRotationAndBudget:
              patch.object(fetcher, "_load_config", return_value={
                  "max_feeds": 2, "max_articles_per_feed": 1,
                  "max_articles_total": 10, "request_delay": 0,
-                 "http_timeout": 1, "consecutive_failure_limit": 3,
+                 "http_timeout": 1,
+                 "min_feeds_before_failure_rate_check": 10,
+                 "max_failure_rate": 0.7,
              }), \
              patch.object(fetcher, "_fetch_feed", side_effect=fake_fetch):
             first = fetcher.fetch()
@@ -217,30 +319,156 @@ class TestRotationAndBudget:
              patch.object(fetcher, "_load_config", return_value={
                  "max_feeds": 10, "max_articles_per_feed": 2,
                  "max_articles_total": 3, "request_delay": 0,
-                 "http_timeout": 1, "consecutive_failure_limit": 3,
+                 "http_timeout": 1,
+                 "min_feeds_before_failure_rate_check": 10,
+                 "max_failure_rate": 0.7,
              }), \
              patch.object(fetcher, "_fetch_feed", side_effect=fake_fetch):
             articles = fetcher.fetch()
         assert [x["title"] for x in articles] == ["A0", "A1", "B0"]
 
-    def test_consecutive_failures_stop_run(self, tmp_path, monkeypatch):
+    def test_isolated_failures_do_not_stop_run(self, tmp_path, monkeypatch):
         monkeypatch.setenv("MONI_DATA_DIR", str(tmp_path))
         fetcher = FetcherChineseIndependentBlogs()
         feeds = [(letter, f"https://{letter.lower()}/feed") for letter in "ABCDE"]
         calls = []
-        def fail(url, title, *, timeout):
+        def mixed(url, title, *, timeout):
             calls.append(title)
+            if title in ("A", "B", "C"):
+                return "failed", []
+            return "ok", [{"title": title, "url": f"{url}/post", "content": ""}]
+        with patch.object(fetcher, "_resolve_opml_urls", return_value=["https://opml"]), \
+             patch.object(fetcher, "_load_opml", return_value=feeds), \
+             patch.object(fetcher, "_load_config", return_value={
+                 "max_feeds": 10, "max_articles_per_feed": 1,
+                 "max_articles_total": 10, "request_delay": 0,
+                 "http_timeout": 1,
+                 "min_feeds_before_failure_rate_check": 10,
+                 "max_failure_rate": 0.7,
+             }), \
+             patch.object(fetcher, "_fetch_feed", side_effect=mixed):
+            articles = fetcher.fetch()
+        assert calls == ["A", "B", "C", "D", "E"]
+        assert [x["title"] for x in articles] == ["D", "E"]
+
+    def test_failure_rate_stops_run(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("MONI_DATA_DIR", str(tmp_path))
+        fetcher = FetcherChineseIndependentBlogs()
+        feeds = [(letter, f"https://{letter.lower()}/feed") for letter in "ABCDEFGHIJKL"]
+        calls = []
+        def mostly_fail(url, title, *, timeout):
+            calls.append(title)
+            if title == "A":
+                return "ok", [{"title": "A", "url": "https://a/post", "content": ""}]
             return "failed", []
         with patch.object(fetcher, "_resolve_opml_urls", return_value=["https://opml"]), \
              patch.object(fetcher, "_load_opml", return_value=feeds), \
              patch.object(fetcher, "_load_config", return_value={
                  "max_feeds": 10, "max_articles_per_feed": 1,
                  "max_articles_total": 10, "request_delay": 0,
-                 "http_timeout": 1, "consecutive_failure_limit": 3,
+                 "http_timeout": 1,
+                 "min_feeds_before_failure_rate_check": 10,
+                 "max_failure_rate": 0.7,
              }), \
-             patch.object(fetcher, "_fetch_feed", side_effect=fail):
+             patch.object(fetcher, "_fetch_feed", side_effect=mostly_fail):
+            articles = fetcher.fetch()
+        assert calls == list("ABCDEFGHIJ")
+        assert [x["title"] for x in articles] == ["A"]
+
+    def test_failure_rate_stops_at_eight_of_ten(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("MONI_DATA_DIR", str(tmp_path))
+        fetcher = FetcherChineseIndependentBlogs()
+        feeds = [(letter, f"https://{letter.lower()}/feed") for letter in "ABCDEFGHIJKL"]
+        calls = []
+        def eight_of_ten(url, title, *, timeout):
+            calls.append(title)
+            if title in "AB":
+                return "ok", [{"title": title, "url": f"{url}/post", "content": ""}]
+            return "failed", []
+        with patch.object(fetcher, "_resolve_opml_urls", return_value=["https://opml"]), \
+             patch.object(fetcher, "_load_opml", return_value=feeds), \
+             patch.object(fetcher, "_load_config", return_value={
+                 "max_feeds": 12, "max_articles_per_feed": 1,
+                 "max_articles_total": 10, "request_delay": 0,
+                 "http_timeout": 1,
+                 "min_feeds_before_failure_rate_check": 10,
+                 "max_failure_rate": 0.7,
+             }), \
+             patch.object(fetcher, "_fetch_feed", side_effect=eight_of_ten):
+            articles = fetcher.fetch()
+        assert calls == list("ABCDEFGHIJ")
+        assert [x["title"] for x in articles] == ["A", "B"]
+
+    def test_failure_rate_boundary_not_exceeded_continues(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("MONI_DATA_DIR", str(tmp_path))
+        fetcher = FetcherChineseIndependentBlogs()
+        feeds = [(letter, f"https://{letter.lower()}/feed") for letter in "ABCDEFGHIJKL"]
+        calls = []
+        def seven_of_ten(url, title, *, timeout):
+            calls.append(title)
+            if title in "ABCDEFG":
+                return "failed", []
+            return "ok", [{"title": title, "url": f"{url}/post", "content": ""}]
+        with patch.object(fetcher, "_resolve_opml_urls", return_value=["https://opml"]), \
+             patch.object(fetcher, "_load_opml", return_value=feeds), \
+             patch.object(fetcher, "_load_config", return_value={
+                 "max_feeds": 12, "max_articles_per_feed": 1,
+                 "max_articles_total": 10, "request_delay": 0,
+                 "http_timeout": 1,
+                 "min_feeds_before_failure_rate_check": 10,
+                 "max_failure_rate": 0.7,
+             }), \
+             patch.object(fetcher, "_fetch_feed", side_effect=seven_of_ten):
+            articles = fetcher.fetch()
+        assert calls == list("ABCDEFGHIJKL")
+        assert len(articles) == 5
+
+    def test_http_errors_do_not_count_toward_failure_rate(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("MONI_DATA_DIR", str(tmp_path))
+        fetcher = FetcherChineseIndependentBlogs()
+        feeds = [(f"F{i}", f"https://f{i}/feed") for i in range(12)]
+        calls = []
+        def mostly_404(url, title, *, timeout):
+            calls.append(title)
+            if title == "F0":
+                return "ok", [{"title": "F0", "url": "https://f0/post", "content": ""}]
+            return "http_error", []
+        with patch.object(fetcher, "_resolve_opml_urls", return_value=["https://opml"]), \
+             patch.object(fetcher, "_load_opml", return_value=feeds), \
+             patch.object(fetcher, "_load_config", return_value={
+                 "max_feeds": 10, "max_articles_per_feed": 1,
+                 "max_articles_total": 10, "request_delay": 0,
+                 "http_timeout": 1,
+                 "min_feeds_before_failure_rate_check": 10,
+                 "max_failure_rate": 0.7,
+             }), \
+             patch.object(fetcher, "_fetch_feed", side_effect=mostly_404):
+            articles = fetcher.fetch()
+        assert calls == [f"F{i}" for i in range(10)]
+        assert [x["title"] for x in articles] == ["F0"]
+
+    def test_invalid_and_empty_do_not_count_toward_failure_rate(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("MONI_DATA_DIR", str(tmp_path))
+        fetcher = FetcherChineseIndependentBlogs()
+        feeds = [(f"F{i}", f"https://f{i}/feed") for i in range(12)]
+        calls = []
+        def mixed(url, title, *, timeout):
+            calls.append(title)
+            return ("invalid" if title.endswith("0") else "empty"), []
+        with patch.object(fetcher, "_resolve_opml_urls", return_value=["https://opml"]), \
+             patch.object(fetcher, "_load_opml", return_value=feeds), \
+             patch.object(fetcher, "_load_config", return_value={
+                 "max_feeds": 12, "max_articles_per_feed": 1,
+                 "max_articles_total": 10, "request_delay": 0,
+                 "http_timeout": 1,
+                 "min_feeds_before_failure_rate_check": 10,
+                 "max_failure_rate": 0.7,
+             }), \
+             patch.object(fetcher, "_fetch_feed", side_effect=mixed):
             assert fetcher.fetch() == []
-        assert calls == ["A", "B", "C"]
+        assert len(calls) == 12
 
     def test_stats_are_returned_by_run(self, tmp_path, monkeypatch, seeded_db):
         monkeypatch.setenv("MONI_DATA_DIR", str(tmp_path))
@@ -255,7 +483,9 @@ class TestRotationAndBudget:
              patch.object(fetcher, "_load_config", return_value={
                  "max_feeds": 10, "max_articles_per_feed": 1,
                  "max_articles_total": 10, "request_delay": 0,
-                 "http_timeout": 1, "consecutive_failure_limit": 3,
+                 "http_timeout": 1,
+                 "min_feeds_before_failure_rate_check": 10,
+                 "max_failure_rate": 0.7,
              }), \
              patch.object(fetcher, "_fetch_feed", side_effect=fake_fetch):
             result = fetcher.run(dry_run=True)
@@ -290,3 +520,43 @@ class TestRegistrationAndSeed:
     def test_fetch_config_default_exposed(self):
         from moni.web.routes.config_sources import _FETCH_CONFIG_DEFAULTS
         assert "chinese_independent_blogs" in _FETCH_CONFIG_DEFAULTS
+
+    def test_retired_config_key_is_hidden_and_not_written_back(self, seeded_db):
+        from fastapi.testclient import TestClient
+        from moni.web.server import create_app
+
+        conn = seeded_db
+        conn.execute(
+            "UPDATE sources SET fetch_config = ? WHERE name = ?",
+            (
+                json.dumps({
+                    "max_feeds": 40,
+                    "consecutive_failure_limit": 3,
+                }),
+                "chinese_independent_blogs",
+            ),
+        )
+        conn.commit()
+
+        with TestClient(create_app()) as client:
+            got = client.get(
+                "/api/config/sources/src-chinese-independent-blogs/fetch_config"
+            )
+            assert got.status_code == 200
+            body = got.json()["fetch_config"]
+            assert body["max_feeds"] == 40
+            assert "consecutive_failure_limit" not in body
+
+            put = client.put(
+                "/api/config/sources/src-chinese-independent-blogs/fetch_config",
+                json=body,
+            )
+            assert put.status_code == 200
+
+        stored = json.loads(
+            get_db().execute(
+                "SELECT fetch_config FROM sources WHERE name = ?",
+                ("chinese_independent_blogs",),
+            ).fetchone()["fetch_config"]
+        )
+        assert "consecutive_failure_limit" not in stored

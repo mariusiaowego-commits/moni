@@ -49,7 +49,11 @@ def _is_source_bypassed(source_name: str) -> bool:
         if row and row["fetch_config"]:
             cfg = json.loads(row["fetch_config"])
             if isinstance(cfg, dict):
-                return bool(cfg.get("bypass_keyword_filters") or cfg.get("bypass_tag_filter"))
+                # The canonical key wins so a stale alias cannot silently
+                # re-enable bypass after the user turns it off.
+                if "bypass_keyword_filters" in cfg:
+                    return bool(cfg["bypass_keyword_filters"])
+                return bool(cfg.get("bypass_tag_filter"))
     except Exception:  # noqa: BLE001
         pass
     return False

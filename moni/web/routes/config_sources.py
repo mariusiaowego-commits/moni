@@ -34,24 +34,28 @@ _FETCH_CONFIG_DEFAULTS: dict[str, dict] = {
         "max_articles_per_feed": 5,
         "max_articles_total": 500,
         "request_delay": 0.5,
+        "timeout_sec": 1800,
     },
     "bestblog-podcast": {
         "max_feeds": 60,
         "max_articles_per_feed": 5,
         "max_articles_total": 100,
         "request_delay": 0.5,
+        "timeout_sec": 1800,
     },
     "bestblog-x": {
         "max_feeds": 160,
         "max_articles_per_feed": 5,
         "max_articles_total": 200,
         "request_delay": 0.5,
+        "timeout_sec": 1800,
     },
     "bestblog-yt": {
         "max_feeds": 20,
         "max_articles_per_feed": 5,
         "max_articles_total": 50,
         "request_delay": 0.5,
+        "timeout_sec": 1800,
     },
     "xwatch": {
         "following_enabled": True,
@@ -86,9 +90,13 @@ _FETCH_CONFIG_DEFAULTS: dict[str, dict] = {
         "max_articles_total": 240,
         "request_delay": 0.35,
         "http_timeout": 12.0,
-        "consecutive_failure_limit": 3,
+        "min_feeds_before_failure_rate_check": 10,
+        "max_failure_rate": 0.7,
+        "timeout_sec": 1200,
     },
 }
+
+_RETIRED_FETCH_CONFIG_KEYS = {"consecutive_failure_limit"}
 
 
 
@@ -355,7 +363,17 @@ def get_fetch_config(source_id: str) -> FetchConfigResponse:
 
     source_name = row["name"]
     defaults = _FETCH_CONFIG_DEFAULTS.get(source_name, {})
-    # Merge: defaults first, user overrides on top
+    # Only remove keys that were explicitly retired. A schema whitelist is
+    # unsafe here: fetch_config also carries runtime keys and documented
+    # aliases (timeout_sec, bypass_tag_filter) that older source schemas do
+    # not list.
+    user_cfg = {
+        k: v for k, v in user_cfg.items() if k not in _RETIRED_FETCH_CONFIG_KEYS
+    }
+    if "bypass_tag_filter" in user_cfg:
+        if "bypass_keyword_filters" not in user_cfg:
+            user_cfg["bypass_keyword_filters"] = user_cfg["bypass_tag_filter"]
+        user_cfg.pop("bypass_tag_filter")
     merged = {**defaults, **user_cfg}
 
     return FetchConfigResponse(

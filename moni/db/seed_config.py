@@ -273,7 +273,9 @@ _DEFAULT_SOURCES = [
             "max_articles_total": 240,
             "request_delay": 0.35,
             "http_timeout": 12.0,
-            "consecutive_failure_limit": 3,
+            "min_feeds_before_failure_rate_check": 10,
+            "max_failure_rate": 0.7,
+            "timeout_sec": 1200,
         }, ensure_ascii=False),
     },
 ]
@@ -437,7 +439,9 @@ def seed() -> None:
                 url                = excluded.url,
                 fetch_interval_min = excluded.fetch_interval_min,
                 notes              = excluded.notes,
-                fetch_config       = excluded.fetch_config,
+                fetch_config       = COALESCE(
+                    excluded.fetch_config, sources.fetch_config
+                ),
                 updated_at         = excluded.updated_at
             """,
             (src["id"], src["name"], src["display_name"], src["source_type"],

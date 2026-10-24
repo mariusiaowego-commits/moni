@@ -83,7 +83,9 @@
   "max_articles_total": 240,
   "request_delay": 0.35,
   "http_timeout": 12.0,
-  "consecutive_failure_limit": 3
+  "min_feeds_before_failure_rate_check": 10,
+  "max_failure_rate": 0.7,
+  "timeout_sec": 1200
 }
 ```
 
@@ -92,7 +94,8 @@
 - 695 个全扫一轮按中位 1.15s + delay 至少 17 分钟，且会产生 231 个超时，不适合每次运行都全扫。
 - `max_feeds=80` 让单轮可完成、可观测；用户可在 `/config` 调高。
 - 按 OPML 顺序轮转起点（round-robin cursor），避免永远只抓前 80 个。
-- 连续 3 个传输失败提前结束本轮，避免网络整体异常时把 80 个超时逐一打满。
+- 个别 feed 失败不中断；至少扫描 10 个后，网络失败率超过 70% 才提前结束。
+- `timeout_sec=1200`：80 × 12s + delay 约 988s，保留约 180s 下载/解析/入库余量。
 - 单 feed 失败只记录、不影响其他 feed；最终结果包含 `feeds_ok/feeds_failed/feeds_empty`。
 
 ### 2.5 安全边界
@@ -151,8 +154,8 @@
 ### AC-5 失败隔离
 
 - 单个 feed 超时/404/XML 非法不抛出到 `fetch()`
-- 连续失败达到阈值提前结束
-- 结果统计 `feeds_ok/feeds_failed/feeds_empty/feeds_invalid`
+- 至少扫描 10 个 feed 且网络失败率超过 70% 才提前结束
+- 结果统计 `feeds_ok/feeds_failed/feeds_http_error/feeds_empty/feeds_invalid`
 
 ### AC-6 安全
 

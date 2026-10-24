@@ -1237,7 +1237,10 @@ GET /api/stats/timeseries?metric=fetch|llm|... # 趋势数据
 - 上游名单 695 个 feed，实测约 **306 个可抓**。
 - 不会每轮全扫 695 个，默认每 3 小时抓一个 **80 feed 的轮转窗口**。
 - 默认每 feed 取最新 3 篇，单轮最多 240 篇。
-- 连续 3 个网络失败会提前结束本轮，避免网络异常时硬打 80 个超时。
+- 个别 feed 失效不会中断本轮：至少扫描 10 个 feed 后，若累计网络失败率
+  超过 70%，才判定整体网络异常并提前结束。
+- 404/410 这类永久失效、以及 XML 无法解析的 feed 不计入网络失败率；
+  429 限流和 5xx 服务端错误仍算网络失败。
 
 ### 在页面里怎么用
 
@@ -1248,7 +1251,9 @@ GET /api/stats/timeseries?metric=fetch|llm|... # 趋势数据
    - `max_articles_total`：单轮总上限（默认 240）
    - `request_delay`：feed 之间暂停秒数（默认 0.35）
    - `http_timeout`：单 feed 超时（默认 12 秒）
-   - `consecutive_failure_limit`：连续失败几次停下（默认 3）
+   - `min_feeds_before_failure_rate_check`：至少检查多少个 feed 再判断失败率（默认 10）
+   - `max_failure_rate`：失败率超过多少时提前结束（默认 0.7，即 70%）
+   - `timeout_sec`：整轮任务超时（默认 1200 秒；80 feed × 12 秒最坏约 988 秒）
 3. 抓取管理页手动触发或等 9:10 定时抓取。
 
 ### 筛选规则

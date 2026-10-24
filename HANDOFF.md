@@ -31,8 +31,7 @@ seed 按 id upsert 时插入第二条同名行，触发 `sources.name` 唯一约
 
 ### 待办
 
-- [ ] 观察 `chinese_independent_blogs` 首轮真实抓取成功率（当前 smoke 仅 3 篇，
-      因连续 3 个 transport 失败提前停止，见 P2 调优）
+- [ ] 观察 `chinese_independent_blogs` 首轮真实抓取成功率（v1.0.62 改为失败率熔断）
 
 ---
 
@@ -48,7 +47,7 @@ seed 按 id upsert 时插入第二条同名行，触发 `sources.name` 唯一约
 - 串行全量探测: **306 可抓**、13,107 篇文章、290 feeds 有正文片段、中位 1.15s
 - 失败: 231 transport / 108 HTTP / 37 invalid XML / 13 empty
 - 并发 8 路会出现 `PoolTimeout` 假失败；**串行数字才可信**
-- 真实 smoke: 12-feed 小窗口 → 16 篇文章全部解析成功
+- 真实 smoke（v1.0.62）: 12-feed 小窗口 → 4 ok / 7 网络失败 / 1 HTTP 错误，抓取 8 篇，未触发 70% 熔断
 
 ### 实现
 
@@ -58,7 +57,7 @@ seed 按 id upsert 时插入第二条同名行，触发 `sources.name` 唯一约
   - RSS2 + Atom
   - 轮转 cursor（`data/.cn_indie_cursor.json`）
   - 80 feeds / 3 per feed / 240 total 默认预算
-  - 连续 3 个 transport 失败提前结束
+  - 单 feed 失败不影响整轮；至少扫描 10 个后网络失败率超过 70% 才提前结束
   - 5MB 响应上限、仅 http(s)、本地 OPML 限 `config/`
   - `last_stats` 合入 `run()` 返回值
 - `config/chinese_independent_blogs.opml` 为离线 fixture（97KB, MIT）
@@ -66,9 +65,9 @@ seed 按 id upsert 时插入第二条同名行，触发 `sources.name` 唯一约
 
 ### 验证
 
-- 定向: `21 passed`
-- 全量: **1219 passed / 2 skipped / 0 failed**
-- 干净 HOME 隔离: `63 passed`
+- 定向: `90 passed`（含 follow-builders 99 passed）
+- 全量: **1280 passed / 2 skipped / 0 failed**
+- 真实网络 12 feeds: scanned 12 / ok 4 / failed 7 / http_error 1 / articles 8（58%，未熔断）
 - `git diff --check`: clean
 
 ### 待办

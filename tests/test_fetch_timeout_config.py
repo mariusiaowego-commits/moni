@@ -59,10 +59,11 @@ def test_reads_timeout_sec_from_config():
     assert _job_timeout("bestblogs") == 1800
 
 
-def test_fallback_to_global_default_when_key_absent():
+def test_fallback_uses_source_default_when_key_absent():
     conn = get_db()
     _seed_source(conn, "bestblogs", json.dumps({"max_articles_total": 1900}))
-    assert _job_timeout("bestblogs") == JOB_TIMEOUT_SECONDS == 600
+    assert _job_timeout("bestblogs") == 1800
+    assert JOB_TIMEOUT_SECONDS == 600
 
 
 def test_fallback_to_global_default_when_no_config():
@@ -71,9 +72,21 @@ def test_fallback_to_global_default_when_no_config():
     assert _job_timeout("36kr_rss") == JOB_TIMEOUT_SECONDS
 
 
+def test_fallback_uses_ui_default_for_bestblogs_without_config():
+    conn = get_db()
+    _seed_source(conn, "bestblogs", None)
+    assert _job_timeout("bestblogs") == 1800
+
+
+def test_fallback_uses_ui_default_for_cn_indie_without_config():
+    conn = get_db()
+    _seed_source(conn, "chinese_independent_blogs", None)
+    assert _job_timeout("chinese_independent_blogs") == 1200
+
+
 def test_invalid_timeout_sec_falls_back():
     conn = get_db()
-    for bad in ("1800", "abc", -10, 0, None):
+    for bad in ("1800", "abc", -10, 0, None, True, 10**400, 86_401):
         _seed_source(conn, f"src-{type(bad).__name__}", json.dumps({"timeout_sec": bad}))
         assert _job_timeout(f"src-{type(bad).__name__}") == JOB_TIMEOUT_SECONDS
 
