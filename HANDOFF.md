@@ -1,5 +1,42 @@
 
-## [2026-10-24] v1.0.60 — 中文独立博客信源 (sprint-27)
+## [2026-10-24] v1.0.61 — 36kr source id 归一化 (sprint-27 hotfix, SHIPPED)
+
+**PR**: #161 · **main**: `246301f` · **tag**: `v1.0.61` · **schema**: 36
+**审计**: `docs/sprint-evidence/sprint-27-hotfix/AUDIT.md`（第一轮 REQUEST_CHANGES → 第二轮 APPROVE）
+
+### 事故与根因
+
+v1.0.60 上线后执行 `moni db seed-config` 报：
+
+```
+sqlite3.IntegrityError: UNIQUE constraint failed: sources.name
+```
+
+live DB 里 36kr 的 id 仍是历史值 `src-36kr_rss`，代码 seed 约定 `src-36kr-rss`。
+seed 按 id upsert 时插入第二条同名行，触发 `sources.name` 唯一约束，整次 seed 回滚。
+
+### 修复
+
+- migration 036：复制 parent → 原地移动 `source_tags` / `source_keyword_filters`
+  → 删除 legacy parent；filter id 不变，`article_keyword_hits.filter_id` 保留。
+- canonical + legacy 并存时合并子数据，不静默丢。
+- `_run_sql_file()` 异常后 rollback，避免连接停在事务里。
+
+### 验证
+
+- 定向 29 passed；全量 **1226 passed / 2 skipped**
+- 生产副本重放：articles 421 不变、tags 1 保留、新源写入成功
+- 生产实测：schema 36、36kr 451 篇不变、新源 3 篇入库
+- 8900：5 端点 200；PID 34204
+
+### 待办
+
+- [ ] 观察 `chinese_independent_blogs` 首轮真实抓取成功率（当前 smoke 仅 3 篇，
+      因连续 3 个 transport 失败提前停止，见 P2 调优）
+
+---
+
+## [2026-10-24] v1.0.60 — 中文独立博客信源 (sprint-27, SHIPPED)
 
 **分支**: `feature/v1.0.60-chinese-independent-blogs`
 **上游**: `github.com/geekplux/chinese-independent-blogs` · MIT · `feed.opml`
@@ -36,12 +73,12 @@
 
 ### 待办
 
-- [ ] 独立 audit 结论归档（已审: encoding scope + stats 暴露，已修）
-- [ ] PR + CI 绿
-- [ ] squash merge + tag v1.0.60
-- [ ] 8900 重启 + 5 端点
-- [ ] Obsidian 双写 plan
-- [ ] 清 worktree / 临时文件
+- [x] 独立 audit 结论归档 — `docs/sprint-evidence/sprint-27/AUDIT.md`
+- [x] PR + CI 绿 — PR #160，CI success
+- [x] squash merge + tag v1.0.60 — `ff84b27`
+- [x] 8900 重启 + 5 端点 — 全部 200
+- [x] Obsidian 双写 plan
+- [ ] 清 worktree / 临时文件（feature 分支已清理，另行处理 /private/tmp 残留）
 
 ---
 

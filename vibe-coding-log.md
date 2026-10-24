@@ -1,4 +1,17 @@
 
+## 2026-10-24 v1.0.61 — 36kr source id 归一化 (sprint-27 hotfix)
+
+- **触发**: v1.0.60 上线后 `seed-config` 报 `UNIQUE constraint failed: sources.name`。
+- **根因**: live DB 历史 id 是 `src-36kr_rss`，代码约定 `src-36kr-rss`；seed 按 id upsert 时撞 name 唯一约束，整次回滚。
+- **修复**: migration 036 复制 parent → 原地搬 tags/filters → 删 legacy parent；filter id 不变，hits 关联保留。
+- **审计**: 第一轮 REQUEST_CHANGES（filter id 丢失、并存丢子数据、测试假绿）→ 修复 → 第二轮 APPROVE。
+- **加固**: `_run_sql_file()` 异常后 rollback，补失败回滚测试。
+- **测试**: 定向 29 passed；全量 **1226 passed / 2 skipped**。
+- **上线**: PR #161 merge commit `246301f`，tag `v1.0.61`，schema 36；8900 五端点 200。
+- **真实抓取**: 新源 smoke `fetched=3 / parsed=3 / inserted=3`；连续 3 个失败即熔断，抓取量偏少，作为后续 P2 调优。
+
+---
+
 
 ## 2026-10-24 v1.0.60 — 中文独立博客信源 (sprint-27)
 
