@@ -38,7 +38,7 @@ from moni.fetch import run_fetcher
 from moni.fetch.jobs import FetchJobStore
 from moni.fetch.base import _FETCHER_REGISTRY, _ensure_sources_loaded
 from moni.web.exceptions import NotFoundError
-from moni.web.models import FetchSource, FetchSourceUpdate, HealthResponse
+from moni.web.models import FetchSource, HealthResponse
 
 logger = logging.getLogger(__name__)
 
@@ -133,39 +133,6 @@ def _resolve_source_name(ref: str) -> str | None:
 def list_fetch_sources() -> list[FetchSource]:
     """List all fetch sources defined in config/sources.yaml."""
     sources = _load_sources()
-    return [_row_to_fetch_source(cfg.get("source_name", ""), cfg) for cfg in sources]
-
-
-@router.put("/sources", response_model=list[FetchSource])
-def update_fetch_sources(body: FetchSourceUpdate) -> list[FetchSource]:
-    """Update mutable fields on sources in config/sources.yaml (batch patch).
-
-    Only non-None fields are applied.  Changes are written back to the YAML file.
-    """
-    config_path = _CONFIG_PATH
-    if not config_path.exists():
-        return []
-
-    with config_path.open(encoding="utf-8") as fh:
-        data = yaml.safe_load(fh)
-
-    sources: list[dict[str, Any]] = data.get("sources", [])
-    for cfg in sources:
-        if body.name is not None:
-            cfg["source_name"] = body.name
-        if body.base_url is not None:
-            cfg["base_url"] = body.base_url
-        if body.crawler_type is not None:
-            cfg["crawler_type"] = body.crawler_type
-        if body.is_active is not None:
-            cfg["enabled"] = body.is_active
-        if body.config is not None:
-            cfg.update(body.config)
-
-    data["sources"] = sources
-    with config_path.open("w", encoding="utf-8") as fh:
-        yaml.safe_dump(data, fh, allow_unicode=True, sort_keys=False)
-
     return [_row_to_fetch_source(cfg.get("source_name", ""), cfg) for cfg in sources]
 
 
