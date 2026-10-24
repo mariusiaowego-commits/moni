@@ -1,5 +1,24 @@
 
 
+## [2026-10-24] v1.0.59 — xwatch profile 搬迁事故护栏
+
+**事故已回滚，不再重复**：
+
+1. 迁移前备份：`~/Documents/moni-chrome-profile-backup-20261024/`。
+2. 旧迁移脚本 `--apply` 会默认连 xwatch 一起搬；用 headless-shell 打开新 xwatch profile 访问 x.com 后，cookie 274 → 5，`auth_token`/`ct0` 丢失。
+3. 复制 profile 可复现：about:blank 保留 274，导航 x.com 变 0。结论是 **headless-shell 访问触发清除**，不是文件复制损坏。
+4. 已执行 `--rollback` + 从备份恢复 Cookies；274 条、`auth_token`/`ct0` 均在，SHA256 与备份一致。
+5. 残留清理：9223 headless-shell 已停止；`~/.moni/chrome/xwatch/DevToolsActivePort` 已删；8900 未受影响。
+
+**v1.0.59 操作规则**：
+
+- `--apply` 默认只搬 daemon（Profile 7），不碰 xwatch。
+- xwatch 必须 `--include-xwatch`，且禁止沙箱执行。
+- xwatch 启动或复用前拒绝任何 `chrome-headless-shell`。
+- 搬迁后只用**系统 Chrome headed**验证 `https://x.com/home`；脚本 `scripts/verify-xwatch-profile.py`。
+
+---
+
 ## [2026-10-24] v1.0.53 — 审计整改批次 + Chrome 沙箱护栏 (PR #146~#153 全部入库, SHIPPED)
 
 **主分支**: main @ `8ce4f15` · **Tag**: `v1.0.53` → `8ce4f15`, `v1.0.52` → `7d56649` (无 force push; 真实历史记录: v1.0.52 tag 打在 #150 docs commit 上因 #150 后合)  

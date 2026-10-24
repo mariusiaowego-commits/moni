@@ -9,6 +9,7 @@ import pytest
 
 from moni.fetch.chrome_daemon import (
     ensure_chrome,
+    is_headless_shell_binary,
     reset_daemon_backoff,
     resolve_chrome_binary,
     stop_chrome,
@@ -316,3 +317,62 @@ class TestXWatchGuard:
             res = ensure_x_chrome(headed=True)
             assert res is False
             mock_popen.assert_not_called()
+
+    @pytest.mark.parametrize("binary", [
+        "/Users/me/Library/Caches/ms-playwright/chromium_headless_shell-1223/"
+        "chrome-headless-shell-mac-arm64/chrome-headless-shell",
+        "chrome-headless-shell",
+        None,
+    ])
+    def test_headless_shell_binary_detection(self, binary):
+        expected = bool(binary) and "chrome-headless-shell" in str(binary)
+        assert is_headless_shell_binary(binary) is expected
+
+    def test_ensure_x_chrome_rejects_headless_shell_result(self, monkeypatch):
+        monkeypatch.setattr("moni.fetch.xwatch_following._port_alive", lambda *a, **kw: False)
+        monkeypatch.setattr(
+            "moni.fetch.xwatch_following.resolve_chrome_binary",
+            lambda **kwargs: ("/tmp/chrome-headless-shell", True),
+        )
+
+        with patch("subprocess.Popen") as mock_popen:
+            assert ensure_x_chrome(headed=True) is False
+            mock_popen.assert_not_called()
+
+    def test_ensure_x_chrome_rejects_headless_shell_already_listening(self, monkeypatch):
+        monkeypatch.setattr("moni.fetch.xwatch_following._port_alive", lambda *a, **kw: True)
+        monkeypatch.setattr(
+            "moni.fetch.xwatch_following._port_owned_by_headless_shell",
+            lambda *a, **kw: True,
+        )
+
+        with patch("subprocess.Popen") as mock_popen:
+            assert ensure_x_chrome(headed=True) is False
+            mock_popen.assert_not_called()
+
+    def test_port_probe_fails_closed_for_unknown_listener(self, monkeypatch):
+        from moni.fetch.xwatch_following import _port_owned_by_headless_shell
+
+        monkeypatch.setattr(
+            "moni.fetch.xwatch_following._pids_on_port", lambda *a, **kw: [123]
+        )
+        monkeypatch.setattr(
+            "moni.fetch.xwatch_following.subprocess.check_output",
+            lambda *a, **kw: "/usr/sbin/unknown-daemon --port 9222\n",
+        )
+        assert _port_owned_by_headless_shell() is True
+
+    def test_port_probe_accepts_identified_headed_chrome(self, monkeypatch):
+        from moni.fetch.xwatch_following import _port_owned_by_headless_shell
+
+        monkeypatch.setattr(
+            "moni.fetch.xwatch_following._pids_on_port", lambda *a, **kw: [123]
+        )
+        monkeypatch.setattr(
+            "moni.fetch.xwatch_following.subprocess.check_output",
+            lambda *a, **kw: (
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome "
+                "--remote-debugging-port=9222\n"
+            ),
+        )
+        assert _port_owned_by_headless_shell() is False

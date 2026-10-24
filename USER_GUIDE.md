@@ -1119,6 +1119,21 @@ Web UI **配置管理 → 抓取源 → xwatch → fetch_config**：
 
 **结论一句话**：Chrome 前端显示的是**名字**（Marius / hermes），磁盘上是**编号**（Profile 1 / Profile 6），两套对不上，所以容易搞错。moni 用的两个（`Profile 7` 和 `Profile 6/Default`）在 Chrome UI 里根本看不到。
 
+### v1.0.59 xwatch 搬迁事故与强制护栏
+
+2026-10-24 曾对 xwatch 做过一次搬迁实测，结果已完整回滚：
+
+- **做了什么**：`Profile 6/Default` + `Local State` 搬到 `~/.moni/chrome/xwatch`，`Profile 7` 搬到 `~/.moni/chrome/daemon`。
+- **为什么回滚**：用 Playwright 的 `chrome-headless-shell` 打开新 xwatch profile 访问 x.com 后，x.com cookie 从 **274 条掉到 5 条**，`auth_token` / `ct0` 丢失。
+- **证据边界**：在复制出来的 profile 上可复现：`about:blank` 保留 274 条，一导航到 x.com 就变 0 条。**搬运文件本身没有损坏 cookie**；触发清除的是 headless-shell 的访问。
+- **恢复结果**：已执行 `--rollback`，并从备份恢复 Cookies，274 条与 `auth_token` / `ct0` 均恢复；SHA256 与备份一致。
+
+因此 v1.0.59 起有三条硬规则：
+
+1. `scripts/migrate-chrome-profiles.py --apply` **默认只搬 daemon（Profile 7）**，不会碰 xwatch。
+2. 要搬 xwatch 必须显式加 `--include-xwatch`，且**禁止在沙箱内执行**。
+3. 搬迁后必须用**系统 Google Chrome（headed，有窗口）**验证 `https://x.com/home` 已登录；**绝不可以使用 `chrome-headless-shell` 打开 xwatch profile**。验证脚本：`scripts/verify-xwatch-profile.py`（需在沙箱外运行）。
+
 ### moni 当前使用的是哪两个？
 - **`Profile 7`**：用于 moni 的 36kr daemon 抓取（端口 9223）。
 - **`Profile 6/Default`**：用于 moni 的 xwatch 抓取（端口 9222）。此前因参数 `--user-data-dir` 错误指定为 `Profile 6`，Chrome 自动在其内部套了一层 `Default/` 目录，"借住"在了用户的 hermes 配置文件夹下。
