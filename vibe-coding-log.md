@@ -1,5 +1,60 @@
 
 
+## [2026-10-24] v1.0.53 — sprint-26 审计整改批次 + Chrome 沙箱护栏 (PR #146~#153, SHIPPED)
+
+**v1.0.53 ship**: 2026-10-23 架构审计整改闭环，共计 8 个 PR 完整合并入库。PR #146 (打标定时任务修复) @ `66cc665`、#147 (safeHref URL 白名单 + Alpine/GSAP 自托管) @ `013647f`、#148 (分享 worker 原子锁) @ `a49b035`、#149 (GitHub Actions CI 流水线) @ `0c84875`、#151 (删 sources 危险扇出重写) @ `8c884b6`/`b942100`、#152 (测试生产数据强隔离) @ `fa0efdc`/`5aa1461`、#150 (架构审计归档 + 往届证据) @ `7d56649` (tag `v1.0.52`)、#153 (沙箱 playwright headless-shell + fail-fast) @ `8ce4f15` (tag `v1.0.53`)。main HEAD @ `8ce4f15`。本地全量测试 1149 tests (1147 pass / 2 skip)；GitHub Actions CI 处于红灯修复中 (7 fail / 1142 pass / 2 skip)。8900 端口由 launchd `com.moni.web` 托管保持运行。
+
+**交付清单与修复**:
+- **打标定时任务修复 (#146, v1.0.47)**: 修复 `predict_tags` 查询不存在列导致进程内崩溃的 3 处致命缺陷，使定时打标首次具备生产可用性。
+- **前端资产与链接安全 (#147, v1.0.48)**: 建立 safeHref 白名单防范 `javascript:` 等恶意协议；自托管 Alpine.js 与 GSAP，断网不白屏。
+- **分享队列原子锁 (#148, v1.0.49)**: 分享队列 worker 锁改原子获取，如实上报启动结果，杜绝并发竞争。
+- **CI 流水线基建 (#149, v1.0.50)**: 引入 GitHub Actions 测试工作流，排查修复环境隔离问题。
+- **信源配置危险接口封堵 (#151, v1.0.51)**: 移除 `PUT /api/fetch/sources` 扇出重写，封死测试污染通道。
+- **测试生产数据隔离 (#152, v1.0.52)**: 引入 `MONI_DATA_DIR` 全路径隔离与 session 级防篡改校验，保护真实 `data/news.db`。
+- **审计包与文档归档 (#150)**: 归档 2026-09 架构审计与 sprint-23 计划。
+- **沙箱 Headless Shell 隔离 (#153, v1.0.53)**: 沙箱内改走 playwright headless-shell，阻断向系统 Chrome 的回落，headed fail-fast 与指数退避。
+
+**关键踩坑与教训 (8 条必记)**:
+1. **`git update-ref -d` 误删当前 checkout 分支**：导致 index 全变为 staged（`A`）。恢复：`git update-ref refs/heads/<b> <sha>` + `git reset --mixed <sha>`。**清理本地分支前务必先 checkout main。**
+2. **`herdr` 的 `agent prompt` 吃掉/展开关键字符**：`$`、反引号、`Chrome/Profile` 等字符易被转义破坏。长任务书必须写盘传参或让 agent 直接读文件。
+3. **静态检查不等于完成证据**：本地全绿但 CI 全红，因硬编码解释器路径与依赖本地缓存。新增测试必须在干净隔离环境验证。
+4. **GitHub 缺失 required check**：红 CI 下仍可合入 PR，缺乏硬门禁。必须配置分支保护规则。
+5. **`gh` GraphQL 偶发 EOF**：`gh pr merge` 等 GraphQL 频繁断连，使用 REST API 兜底。
+6. **沙箱裸 `&` 进程被回收**：macOS 沙箱内后台进程被杀，8900 现由 launchd `com.moni.web` 接管守护。
+7. **沙箱检测死代码**：读取未注入的 `MONI_RUNNING_IN_SANDBOX` 导致失效，真实信号应看 `CODEX_SANDBOX=seatbelt` / `CODEX_CI=1`。
+8. **Chrome `--user-data-dir` 嵌套污染**：用 `Profile 6` 做根目录导致新建 `Default/` 污染用户 hermes 配置。判断 profile 归属必须检查 Preferences 账号而非目录名。
+
+**Next sprint 候选**:
+- CI 修绿 (v1.0.55): `feature/v1.0.55-ci-green`
+- Chrome 守护护栏 (v1.0.54): `feature/v1.0.54-chrome-guard`
+- Chrome Profile 迁移 (v1.0.56): `feature/v1.0.56-chrome-profile-migration`
+- `articles.py:394` 异常捕获收窄漏补 (`AttributeError/TypeError`)
+- #153 degraded 暴露点补测
+- `scripts/web.sh` 适配 launchd
+
+---
+
+## [2026-09-10] v1.0.42 — sprint-22 双 PR 双 ship (PR #141+#142)
+
+**v1.0.42 ship**: sprint-22 完整, PR #141 (web 防御叶子) squash-merged @ `b02d53c` + PR #142 (核心租约+runner) squash-merged @ `cbd0b6a`. main HEAD `cbd0b6a`, tag v1.0.42 已推 origin. schema 升 v33→v35 (034 leases + 035 runner config). 9 套测试 171/171 全绿. prod 8900 pid 93202 重启 200 OK, 5/5 端点验证通过.
+
+**交付**:
+- **统一租约运行时**: `moni/db/leases.py` 4 原语 (acquire/heartbeat/finish/sweep_expired) + `migration 034_leases.sql` 3 列 (lease_owner/lease_heartbeat_at/fence) + 改写 `moni/fetch/jobs.py` mark_* + `moni/llm/jobs.py` _run_job handle + `moni/web/routes/fetch.py` 30s daemon heartbeat + 删 `STALE_THRESHOLD_SECONDS` v1.0.35.17 墙钟补丁
+- **LLM 调用层完全体**: `moni/llm/runner.py` (HardenedSubprocess killpg+argv预检+stdin / CircuitBreaker CLOSED/OPEN/HALF_OPEN / FailoverRunner 链式回退) + `migration 035_llm_runner_config.sql` 4 key + `moni/llm/client.py` 收敛到 runner.call + `moni/share/worker_llm.py` run_hermes 走 HardenedSubprocess
+- **测试**: `tests/test_db_leases.py` 17 + `tests/test_llm_runner.py` 17 (含真子进程复现) + bump 既有 schema_version 33→35
+
+**双 agent 并发 (M3 + DeepSeek)**:
+- M3: PR #142 核心 (DB 租约 + LLM runner), 9-10 14:00-15:30 1.5h 落地
+- DeepSeek (parallel): PR #141 叶子 (SPA path traversal + redact + modal escape), 同时段独立分支
+- 冲突域=0, 共享域=migrate.py (_CURRENT_VERSION), 各自改一行不打架
+
+**关键踩坑**: 8 条 (详见 HANDOFF.md / AGENTS.md) - schema_version hard-coded / daemon thread acquire race / usage_file 重读覆盖 / 循环 import / ChatClient 兼容 / GraphQL EOF / worktree cwd 已删 / SSL 偶发中断
+
+**Next sprint 候选**:
+- 熔断阈值 production 观察后调整 (9-13 后看 false-positive 率)
+- moni/llm/jobs.py retry fences 测试补强 (现 11 用例, 应到 17 配 leases.py)
+- sprint-22 review 剩余 P0-1 / P0-5 / P2-15 工单
+
 ## [2026-09-02] v1.0.41 — follow_builders 新源接入 (sprint-21, PR #140, SHIPPED)
 
 **v1.0.41 ship**: sprint-21 完整, PR #140 squash-merged, main @ `023c1e3`, tag v1.0.41. 全量 pytest 889 pass + 2 skip. prod 8900 已重启 pid 6346, 源仍默关 (is_active=0).

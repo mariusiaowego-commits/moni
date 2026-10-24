@@ -1,6 +1,6 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。**v1.0.46** (2026-10-23 SHIPPED)。schema v35。`pytest tests/` → **1045 passed / 2 skipped / 0 failed**（v1.0.42 时长期有 8 个"已知失败"，v1.0.46 查清是测试污染并修掉了，不再有红灯）。
+> 同业信源自动抓取与本地新闻库。**v1.0.53** (2026-10-24 SHIPPED)。schema v35。`pytest tests/` → **1149 passed / 2 skipped**（本地测试全绿；GitHub Actions CI 修复进行中：v1.0.55）。
 
 > v1.0.42 起的核心能力 (2026-09-10):
 > - **后台任务租约** — fetch_jobs / llm_jobs 任务运行期间每 30s 写入心跳, 心跳超期 sweep 标记为 stale (取代 v1.0.35.17 墙钟判死, 解决 bestblogs 187 篇跑完后被误杀 600s timeout 问题)
@@ -14,12 +14,15 @@
 > - **动画与微交互 (v1.0.45)** — 抓取弹窗粒子场封顶 200（原无上界，弹窗开久了内存涨）；16/16 动效全部支持 `prefers-reduced-motion`；顺带删掉 2.83 MiB 没被引用的死资源。
 > - **测试基线可信化 (v1.0.46)** — 只改测试，不改产品行为。修掉 3 处跨模块状态污染，测试从"8 个已知失败"变成全绿。
 >
-> v1.0.47 ~ v1.0.51 新增 (2026-10, 本批一起合并):
+> v1.0.47 ~ v1.0.53 新增 (2026-10, 本批审计整改 + 沙箱护栏):
 > - **打标定时任务修好 (v1.0.47)** —— `predict_tags` 这个任务**从来没真正跑成功过**（SQL 查了不存在的列，进程内直接崩）。修好后它才会真的给待打标文章自动打标签。
 > - **链接安全护栏 + 离线可用 (v1.0.48)** —— 抓取到的内容里的恶意链接（`javascript:` 之类）点不动，会显示成"已拦截"；Alpine / GSAP 改成本地文件，断网/内网也能打开页面，不再白屏。
 > - **分享队列锁改成原子获取 (v1.0.49)** —— 原来两个 worker 同时起来会都以为自己拿到活儿（同一批任务跑两遍）。
 > - **CI 自动测试流水线 (v1.0.50)** —— 每次推代码 GitHub 自动跑一遍测试，顺带修掉它首次跑就抓出的一处路径写死问题（换台机器/换个系统就跑不动）。
 > - **删掉一个危险接口 (v1.0.51)** —— `PUT /api/fetch/sources` 以前会把一次请求的改动套用到**所有**信源并重写整个配置文件，已删除。
+> - **测试数据隔离 (v1.0.52)** —— 跑测试不会再碰到你真实的 `data/news.db` 和 `config/sources.yaml`。
+> - **沙箱里不再抢你的 Chrome (v1.0.53)** —— 在 Codex/沙箱里跑抓取时改用独立的 headless 浏览器，不再反复拉起你正在用的 Chrome。
+> - **CI 修绿 (v1.0.55，进行中)** —— GitHub 自动测试之前一直是红的，正在修。
 >
 > 这份文档给**用户**（你自己）看 —— 怎么用 moni，不讲代码细节。
 
@@ -1100,6 +1103,31 @@ Web UI **配置管理 → 抓取源 → xwatch → fetch_config**：
 ```
 
 ⚠️ `moni db seed-config` 会重置 `fetch_config` 为 seed 默认。
+
+---
+
+## Chrome 的 4 个 profile 到底谁是谁
+
+| Chrome UI 里的名字 | 磁盘目录 | 谁的数据 | 账号 |
+|---|---|---|---|
+| 用户1 | `Default` | 你的 | fledgeel@gmail.com |
+| 您的 Chrome | `Profile` | 你的 | linqin7533@gmail.com |
+| **Marius（你日常在用的）** | `Profile 1` | 你的 | mariusiaowego@gmail.com |
+| **hermes** | `Profile 6` | 你的 | matthew.qi.tao@gmail.com |
+| （Chrome UI 里看不到） | `Profile 7` | **moni 的 36kr daemon** | — |
+| （Chrome UI 里看不到） | `Profile 6/Default` | **moni 的 xwatch**（借住在 hermes 目录里） | matthew.qi.tao@gmail.com |
+
+**结论一句话**：Chrome 前端显示的是**名字**（Marius / hermes），磁盘上是**编号**（Profile 1 / Profile 6），两套对不上，所以容易搞错。moni 用的两个（`Profile 7` 和 `Profile 6/Default`）在 Chrome UI 里根本看不到。
+
+### moni 当前使用的是哪两个？
+- **`Profile 7`**：用于 moni 的 36kr daemon 抓取（端口 9223）。
+- **`Profile 6/Default`**：用于 moni 的 xwatch 抓取（端口 9222）。此前因参数 `--user-data-dir` 错误指定为 `Profile 6`，Chrome 自动在其内部套了一层 `Default/` 目录，"借住"在了用户的 hermes 配置文件夹下。
+
+### 目录搬迁治理计划 (v1.0.56)
+在 **v1.0.56** (`feature/v1.0.56-chrome-profile-migration`) 中：
+- moni 抓取所用的 Chrome 配置目录将彻底从系统默认的 Chrome Application Support 路径剥离，统一搬迁到 moni 专用目录：`~/.moni/chrome/xwatch` 与 `~/.moni/chrome/daemon`。
+- 彻底解决 xwatch 误伤用户日常 Chrome 数据导致「恢复页面」崩溃弹窗的问题。
+- 搬迁前将提供独立的迁移脚本，严格遵循备份、干跑、校验与可回滚流程，真正执行待 dad 拍板。
 
 ---
 
