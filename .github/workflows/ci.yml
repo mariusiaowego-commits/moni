@@ -8,8 +8,15 @@ name: ci
 #
 # 为什么只测 3.12: AGENTS.md 明确全项目统一 Python 3.12 (系统 3.14 缺
 # yaml 依赖 → routes 全部不注册 → POST /run 返 405)。
-# pyproject 里写的是 >=3.11, 但 3.11 没有被任何一条项目文档支持过,
-# 真要支持再加一个 matrix 维度, 别让 CI 一上来就红。
+# pyproject 里写的是 >=3.11 (保持安装约束由 dad 拍板, 不擅改), 但 3.11 没有
+# 被任何一条项目文档支持过, 生产与 CI 均锁定 Python 3.12。
+#
+# v1.0.55 (CI 变绿治理):
+# 1. worker.py 解释器路径动态使用 sys.executable, 消除 /usr/local/bin/python3
+#    硬编码在 GitHub runner 上的 ENOENT。
+# 2. test_36kr_browser.py 改造为 hermetic 测试, 摆脱对宿主机 Playwright 缓存的
+#    强依赖。
+# 3. pyproject.toml dev 依赖补充 pillow>=10, 满足前端 safe_href 生成测试需求。
 
 on:
   push:

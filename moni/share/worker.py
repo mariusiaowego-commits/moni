@@ -27,7 +27,9 @@ from __future__ import annotations
 import fcntl
 import logging
 import os
+import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,6 +51,9 @@ def _default_db() -> Path:
 
 
 def _output_dir() -> Path:
+    env_out = os.environ.get("MONI_OUTPUT_DIR")
+    if env_out:
+        return Path(env_out)
     env_data = os.environ.get("MONI_DATA_DIR")
     if env_data:
         return Path(env_data) / "artifacts"
@@ -57,6 +62,15 @@ def _output_dir() -> Path:
 
 def _log_file() -> Path:
     return _output_dir() / "worker.log"
+
+
+def _python_binary() -> str:
+    """Return the Python interpreter executable for worker subprocesses.
+
+    Prefers sys.executable (so subprocs match the current virtualenv / runner
+    environment), falling back to PATH lookup or a default system path.
+    """
+    return sys.executable or shutil.which("python3") or "/usr/local/bin/python3"
 
 
 DEFAULT_DB = _default_db()
@@ -275,10 +289,14 @@ def launch_worker() -> WorkerLaunch:
     # the same MONI_DB / MONI_QUEUE_DIR the web layer uses.  We
     # use direct assignment (not setdefault) for MONI_DB so an
     # empty-string value in the caller's env doesn't leak through.
+    python_bin = _python_binary()
     env = os.environ.copy()
     env["MONI_DB"] = str(db_path)
     env["MONI_QUEUE_DIR"] = str(_queue_dir())
     env["MONI_OUTPUT_DIR"] = str(output_dir)
+    env["ARTIFACTS_DIR"] = str(output_dir)
+    env["MONI_WORKER_LOG"] = str(log_file)
+    env["MONI_PYTHON"] = python_bin
 
     # v1.0.5.26: defense-in-depth PATH prepend.  default_worker.sh
     # also does this on its own, but the worker Popen here might
@@ -319,7 +337,7 @@ def launch_worker() -> WorkerLaunch:
     try:
         proc = subprocess.Popen(
             [
-                "/usr/local/bin/python3",
+                python_bin,
                 str(REPO_ROOT / "scripts" / "worker_lock_exec.py"),
                 str(_lock_file()),
                 str(WORKER_SCRIPT),
