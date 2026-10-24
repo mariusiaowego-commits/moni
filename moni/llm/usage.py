@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -18,9 +19,18 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-# Default log path — resolved from project root
+# Default log path — resolved from project root or MONI_DATA_DIR
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_LOG = _REPO_ROOT / "data" / "llm_usage.log"
+
+
+def _default_log_path() -> Path:
+    env_dir = os.environ.get("MONI_DATA_DIR")
+    if env_dir:
+        return Path(env_dir) / "llm_usage.log"
+    return _REPO_ROOT / "data" / "llm_usage.log"
+
+
+_DEFAULT_LOG = _default_log_path()
 
 
 @dataclass
@@ -39,7 +49,7 @@ def parse_log(log_path: Path | str | None = None) -> list[UsageEntry]:
 
     Skips malformed lines (logged as warnings).
     """
-    path = Path(log_path) if log_path else _DEFAULT_LOG
+    path = Path(log_path) if log_path else _default_log_path()
     if not path.is_file():
         return []
 

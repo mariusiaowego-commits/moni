@@ -408,13 +408,26 @@ class TestFetchJobsEndpoints:
         from datetime import datetime, timezone
 
         from moni.fetch import scheduler as scheduler_mod
+        from moni.fetch.base import _FETCHER_REGISTRY
+
+        class _Stub36kr:
+            source_name = "36kr_rss"
+            date_from = None
+            date_to = None
+            progress_callback = None
+
+            def run(self, **kwargs):
+                return {"source": "36kr_rss", "fetched": 1, "parsed": 1, "inserted": 1}
+
+        monkeypatch.setitem(_FETCHER_REGISTRY, "36kr_rss", _Stub36kr)
 
         last_run_path = tmp_path / ".last_run.json"
         last_run_path.write_text(
             json.dumps({"36kr_rss": datetime.now(timezone.utc).isoformat()}),
             encoding="utf-8",
         )
-        monkeypatch.setattr(scheduler_mod, "_LAST_RUN_PATH", last_run_path)
+        monkeypatch.setattr(scheduler_mod, "_LAST_RUN_PATH", last_run_path, raising=False)
+        monkeypatch.setattr(scheduler_mod, "_last_run_path", lambda: last_run_path, raising=False)
 
         r = client.post("/api/fetch/sources/36kr_rss/run-sync?force=false")
         assert r.status_code == 200
