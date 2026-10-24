@@ -18,7 +18,16 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 35  # v1.0.42: LLM 调用层配置 (035_llm_runner_config)
+_CURRENT_VERSION = 36  # v1.0.61: normalize legacy 36kr source id (036)
+
+
+def _rollback_if_needed(conn: sqlite3.Connection) -> None:
+    """Leave the connection usable after a failed migration statement."""
+    if getattr(conn, "in_transaction", False):
+        try:
+            conn.rollback()
+        except sqlite3.Error:
+            logger.exception("rollback after failed migration statement failed")
 
 
 def current_version(conn: sqlite3.Connection) -> int:
@@ -46,7 +55,8 @@ def _run_sql_file(conn: sqlite3.Connection, path: Path) -> None:
     try:
         conn.executescript(sql)
         return
-    except sqlite3.OperationalError as exc:
+    except sqlite3.Error as exc:
+        _rollback_if_needed(conn)
         msg = str(exc).lower()
         # If duplicate column (idempotent ALTER), still try per-stmt and skip
         if "duplicate column" not in msg:
@@ -57,10 +67,11 @@ def _run_sql_file(conn: sqlite3.Connection, path: Path) -> None:
             continue
         try:
             conn.execute(stmt)
-        except sqlite3.OperationalError as exc:
+        except sqlite3.Error as exc:
             if "duplicate column" in str(exc).lower():
                 pass
             else:
+                _rollback_if_needed(conn)
                 raise
 
 
