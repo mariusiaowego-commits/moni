@@ -80,6 +80,14 @@ _FETCH_CONFIG_DEFAULTS: dict[str, dict] = {
         "http_timeout": 15.0,
         "skip_existing_urls": True,
     },
+    "chinese_independent_blogs": {
+        "max_feeds": 80,
+        "max_articles_per_feed": 3,
+        "max_articles_total": 240,
+        "request_delay": 0.35,
+        "http_timeout": 12.0,
+        "consecutive_failure_limit": 3,
+    },
 }
 
 

@@ -79,6 +79,11 @@ _DEFAULT_TAGS = [
     # the gap so xwatch's source_tags binding (src-xwatch → miniprogram)
     # doesn't violate the FK.
     ("miniprogram",  "小程序",      "微信小程序 (订阅消息 / 服务通知 / 搜一搜)", "#10B981"),  # emerald
+    # v1.0.60: independent-blog deliberately carries no keywords.  The
+    # cn-indie source is a long-tail discovery source, not a
+    # banking/payment keyword feed.  An empty keyword set makes
+    # apply_tag_keyword_filter() a pass-through for this source.
+    ("independent-blog", "独立博客", "中文独立博客 (技术/产品/生活/写作)", "#0F766E"),
 ]  # noqa: E501
 
 
@@ -250,6 +255,27 @@ _DEFAULT_SOURCES = [
             "skip_existing_urls": True,
         }, ensure_ascii=False),
     },
+    # v1.0.60 / sprint-27: Chinese independent blogs.
+    # 306/695 feeds were reachable in the 2026-10-24 feasibility sweep.
+    # The source rotates through a bounded window instead of sweeping all
+    # 695 feeds every run.  fetch_config is user-tunable in /config.
+    {
+        "id": "src-chinese-independent-blogs",
+        "name": "chinese_independent_blogs",
+        "display_name": "中文独立博客",
+        "source_type": "rss",
+        "url": "https://raw.githubusercontent.com/geekplux/chinese-independent-blogs/master/feed.opml",
+        "fetch_interval_min": 180,
+        "notes": "中文独立博客列表 (MIT)。695 feeds，2026-10-24 实测 306 可抓；轮转窗口抓取。",
+        "fetch_config": json.dumps({
+            "max_feeds": 80,
+            "max_articles_per_feed": 3,
+            "max_articles_total": 240,
+            "request_delay": 0.35,
+            "http_timeout": 12.0,
+            "consecutive_failure_limit": 3,
+        }, ensure_ascii=False),
+    },
 ]
 
 
@@ -294,6 +320,8 @@ _DEFAULT_SOURCE_TAGS = [
     ("src-xwatch", "miniprogram"),
     # v1.0.41 / sprint-21: follow_builders → ai-fintech tag (bypass 合成打 tag)
     ("src-follow-builders", "ai-fintech"),
+    # v1.0.60: independent-blog has no keywords → tag filter is pass-through.
+    ("src-chinese-independent-blogs", "independent-blog"),
 ]
 
 

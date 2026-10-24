@@ -4,7 +4,33 @@
 
 ---
 
-## 当前状态: **v1.0.53 — 2026-10-24 审计整改批次 + Chrome 沙箱护栏** (2026-10-24 · **SHIPPED**)
+## 当前状态: **v1.0.60 — 中文独立博客信源** (2026-10-24 · **SHIPPED**)
+
+**主分支**: main @ 待合并 PR (v1.0.60)
+**新增信源**: `chinese_independent_blogs`「中文独立博客」
+**上游**: `github.com/geekplux/chinese-independent-blogs` (MIT)，`feed.opml`
+
+### 可行性实测 (2026-10-24)
+
+| 指标 | 结果 |
+|---|---:|
+| OPML feeds | 695 |
+| 可抓取 feed | 306 |
+| 可解析文章 | 13,107 |
+| 有正文/摘要 | 290 feeds |
+| 中位响应 | 1.15 s |
+
+### 交付要点
+
+- 独立聚合源，不并入 `bestblogs`；复用 OPML + RSS/Atom 解析，独立限流与轮转。
+- 默认每轮 80 feeds / 每 feed 3 篇 / 总上限 240 篇，`fetch_interval_min=180`。
+- 连续 3 个传输失败提前结束，单 feed 失败不影响整轮。
+- 新 tag `independent-blog`（无关键词），避免被现有 `wechat` / `general-tech` 窄门控误杀。
+- 安全边界：仅 http(s) feed、5 MB 响应上限、本地 OPML 限 `config/`、编辑器路径越界拒绝。
+- 测试：定向 21 passed；全量 **1219 passed / 2 skipped / 0 failed**；干净 HOME 隔离 63 passed。
+- 真实 smoke：12 feeds 小窗口抓取，16 篇文章全部解析成功。
+
+### 历史状态: v1.0.53 — 2026-10-24 审计整改批次 + Chrome 沙箱护栏
 
 **主分支**: main @ `8ce4f15` (PR #153 squash-merged)  
 **Tag 链**: `v1.0.53` (`8ce4f15`) → `v1.0.52` (`7d56649`) → v1.0.45 → v1.0.44 → ... (均未 force push)  
