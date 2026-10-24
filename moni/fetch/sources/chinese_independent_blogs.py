@@ -23,13 +23,15 @@ Configuration lives in ``sources.fetch_config``::
         "max_articles_total": 240,
         "request_delay": 0.35,
         "http_timeout": 12.0,
-        "consecutive_failure_limit": 3
+        "min_feeds_before_failure_rate_check": 10,
+        "max_failure_rate": 0.7,
     }
 """
 from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from datetime import datetime
 from pathlib import Path
@@ -54,7 +56,8 @@ _DEFAULTS = {
     "max_articles_total": 240,
     "request_delay": 0.35,
     "http_timeout": 12.0,
-    "consecutive_failure_limit": 3,
+    "min_feeds_before_failure_rate_check": 10,
+    "max_failure_rate": 0.7,
 }
 
 _USER_AGENT = (
@@ -66,6 +69,76 @@ _USER_AGENT = (
 
 def _is_http_url(value: str) -> bool:
     return value.startswith("http://") or value.startswith("https://")
+
+
+def _positive_int(
+    value: Any,
+    default: int,
+    minimum: int = 1,
+    maximum: int | None = None,
+) -> int:
+    if isinstance(value, bool):
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    parsed = max(minimum, parsed)
+    if maximum is not None:
+        parsed = min(maximum, parsed)
+    return parsed
+
+
+def _bounded_float(value: Any, default: float, low: float, high: float) -> float:
+    if isinstance(value, bool):
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if not math.isfinite(parsed):
+        return default
+    return min(high, max(low, parsed))
+
+
+def _validate_config(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Coerce user-edited JSON values into safe runtime values."""
+    out = dict(cfg)
+    out["max_feeds"] = _positive_int(
+        cfg.get("max_feeds"), _DEFAULTS["max_feeds"], maximum=10_000
+    )
+    out["max_articles_per_feed"] = _positive_int(
+        cfg.get("max_articles_per_feed"),
+        _DEFAULTS["max_articles_per_feed"],
+        maximum=1_000,
+    )
+    out["max_articles_total"] = _positive_int(
+        cfg.get("max_articles_total"),
+        _DEFAULTS["max_articles_total"],
+        maximum=100_000,
+    )
+    out["request_delay"] = _bounded_float(
+        cfg.get("request_delay"), _DEFAULTS["request_delay"], 0.0, 60.0
+    )
+    out["http_timeout"] = _bounded_float(
+        cfg.get("http_timeout"), _DEFAULTS["http_timeout"], 1.0, 120.0
+    )
+    out["min_feeds_before_failure_rate_check"] = _positive_int(
+        cfg.get("min_feeds_before_failure_rate_check"),
+        _DEFAULTS["min_feeds_before_failure_rate_check"],
+        maximum=10_000,
+    )
+    out["max_failure_rate"] = _bounded_float(
+        cfg.get("max_failure_rate"), _DEFAULTS["max_failure_rate"], 0.0, 1.0
+    )
+    if out["min_feeds_before_failure_rate_check"] > out["max_feeds"]:
+        logger.warning(
+            "[cn-indie] min_feeds_before_failure_rate_check (%d) > max_feeds (%d); "
+            "clamping to max_feeds",
+            out["min_feeds_before_failure_rate_check"], out["max_feeds"],
+        )
+        out["min_feeds_before_failure_rate_check"] = out["max_feeds"]
+    return out
 
 
 def _inside_config_root(path: Path) -> bool:
@@ -112,6 +185,7 @@ class FetcherChineseIndependentBlogs(BaseFetcher):
             "feeds_empty": 0,
             "feeds_invalid": 0,
             "feeds_failed": 0,
+            "feeds_http_error": 0,
             "cursor_start": 0,
             "cursor_next": 0,
         }
@@ -145,7 +219,7 @@ class FetcherChineseIndependentBlogs(BaseFetcher):
 
         articles: list[dict[str, Any]] = []
         feeds_ok = feeds_empty = feeds_failed = feeds_invalid = 0
-        consecutive_failures = 0
+        feeds_http_error = 0
         scanned = 0
 
         for index, (feed_title, feed_url) in enumerate(window):
@@ -161,17 +235,15 @@ class FetcherChineseIndependentBlogs(BaseFetcher):
 
             if status == "ok":
                 feeds_ok += 1
-                consecutive_failures = 0
                 articles.extend(items[: config["max_articles_per_feed"]])
             elif status == "empty":
                 feeds_empty += 1
-                consecutive_failures = 0
             elif status == "invalid":
                 feeds_invalid += 1
-                consecutive_failures = 0
+            elif status == "http_error":
+                feeds_http_error += 1
             else:
                 feeds_failed += 1
-                consecutive_failures += 1
 
             if self.progress_callback is not None:
                 try:
@@ -184,10 +256,21 @@ class FetcherChineseIndependentBlogs(BaseFetcher):
                 except Exception:
                     pass
 
-            if consecutive_failures >= config["consecutive_failure_limit"]:
+            # A few dead feeds are normal in this long-tail OPML: 389 of
+            # 695 entries were unreachable in the 2026-10-24 sweep.  Stop
+            # only when the whole run looks network-broken, not after an
+            # arbitrary consecutive streak.
+            min_checked = config["min_feeds_before_failure_rate_check"]
+            if (
+                scanned >= min_checked
+                and feeds_failed / scanned > config["max_failure_rate"]
+            ):
                 logger.warning(
-                    "[cn-indie] stopping after %d consecutive transport failures",
-                    consecutive_failures,
+                    "[cn-indie] stopping: %d/%d transport failures (%.0f%%) "
+                    "exceeds %.0f%%",
+                    feeds_failed, scanned,
+                    feeds_failed / scanned * 100,
+                    config["max_failure_rate"] * 100,
                 )
                 break
 
@@ -202,13 +285,15 @@ class FetcherChineseIndependentBlogs(BaseFetcher):
             "feeds_empty": feeds_empty,
             "feeds_invalid": feeds_invalid,
             "feeds_failed": feeds_failed,
+            "feeds_http_error": feeds_http_error,
             "cursor_start": start,
             "cursor_next": next_cursor,
         })
         logger.info(
             "[cn-indie] done — scanned %d, ok %d, empty %d, invalid %d, "
-            "failed %d, articles %d, next cursor %d",
+            "failed %d, http_error %d, articles %d, next cursor %d",
             scanned, feeds_ok, feeds_empty, feeds_invalid, feeds_failed,
+            feeds_http_error,
             len(articles), next_cursor,
         )
         return articles
@@ -248,7 +333,7 @@ class FetcherChineseIndependentBlogs(BaseFetcher):
                     cfg.update({k: v for k, v in user.items() if k in _DEFAULTS})
         except Exception as exc:
             logger.debug("[cn-indie] failed to read fetch_config: %s", exc)
-        return cfg
+        return _validate_config(cfg)
 
     def _resolve_opml_urls(self) -> list[str]:
         try:
@@ -349,14 +434,22 @@ class FetcherChineseIndependentBlogs(BaseFetcher):
             return "invalid", []
         try:
             text = self._http_text(feed_url, timeout=timeout)
-        except (httpx.TimeoutException, httpx.TransportError) as exc:
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            logger.debug("[cn-indie] HTTP %d %s", status_code, feed_title)
+            # Permanent removals are not evidence that the network is
+            # down; transient throttling/server errors are.
+            if status_code == 429 or status_code >= 500:
+                return "failed", []
+            return "http_error", []
+        except httpx.RequestError as exc:
             logger.debug("[cn-indie] transport %s: %s: %s",
                          feed_title, type(exc).__name__, exc)
             return "failed", []
         except Exception as exc:
             logger.debug("[cn-indie] failed %s: %s: %s",
                          feed_title, type(exc).__name__, exc)
-            return "failed", []
+            return "http_error", []
 
         try:
             root = ET.fromstring(text.encode("utf-8"))

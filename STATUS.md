@@ -38,11 +38,11 @@
 
 - 独立聚合源，不并入 `bestblogs`；复用 OPML + RSS/Atom 解析，独立限流与轮转。
 - 默认每轮 80 feeds / 每 feed 3 篇 / 总上限 240 篇，`fetch_interval_min=180`。
-- 连续 3 个传输失败提前结束，单 feed 失败不影响整轮。
+- 单 feed 失败不影响整轮；v1.0.62 起仅在扫描满 10 个且网络失败率超过 70% 时提前结束。
 - 新 tag `independent-blog`（无关键词），避免被现有 `wechat` / `general-tech` 窄门控误杀。
 - 安全边界：仅 http(s) feed、5 MB 响应上限、本地 OPML 限 `config/`、编辑器路径越界拒绝。
-- 测试：定向 21 passed；全量 **1219 passed / 2 skipped / 0 failed**；干净 HOME 隔离 63 passed。
-- 真实 smoke：12 feeds 小窗口抓取，16 篇文章全部解析成功。
+- 测试：定向 90 passed（含 follow-builders 99 passed）；全量 **1280 passed / 2 skipped / 0 failed**。
+- 真实 smoke（v1.0.62）：12 feeds 扫描 12 个，ok 4 / 网络失败 7 / HTTP 错误 1，抓取 8 篇，未触发 70% 熔断。
 
 ### 历史状态: v1.0.53 — 2026-10-24 审计整改批次 + Chrome 沙箱护栏
 

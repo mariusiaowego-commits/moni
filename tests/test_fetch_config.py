@@ -115,6 +115,185 @@ class TestGetFetchConfig:
         assert data["fetch_config"] == {}
         assert data["defaults"] == {}
 
+    def test_bestblogs_timeout_survives_get_and_put(self, client):
+        conn = get_db()
+        _seed_bestblogs_source(conn)
+        conn.execute(
+            "UPDATE sources SET fetch_config = ? WHERE id = ?",
+            (
+                json.dumps({
+                    "max_feeds": 50,
+                    "max_articles_per_feed": 3,
+                    "timeout_sec": 1800,
+                }),
+                "src-bestblogs",
+            ),
+        )
+        conn.commit()
+
+        got = client.get("/api/config/sources/src-bestblogs/fetch_config")
+        assert got.status_code == 200
+        body = got.json()["fetch_config"]
+        assert body["timeout_sec"] == 1800
+
+        body["max_feeds"] = 60
+        put = client.put(
+            "/api/config/sources/src-bestblogs/fetch_config",
+            json=body,
+        )
+        assert put.status_code == 200
+        assert put.json()["fetch_config"]["timeout_sec"] == 1800
+
+        stored = json.loads(
+            conn.execute(
+                "SELECT fetch_config FROM sources WHERE id = ?",
+                ("src-bestblogs",),
+            ).fetchone()["fetch_config"]
+        )
+        assert stored["timeout_sec"] == 1800
+        assert stored["max_feeds"] == 60
+
+    def test_xwatch_timeout_survives_get_and_put(self, client):
+        conn = get_db()
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            """
+            INSERT INTO sources (id, name, display_name, source_type, url,
+                                 fetch_interval_min, is_active, fetch_config,
+                                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "src-xwatch", "xwatch", "XWatch", "x", "https://x.com",
+                30, 1, json.dumps({"timeout_sec": 900, "accounts_per_run": 2}),
+                now, now,
+            ),
+        )
+        conn.commit()
+
+        got = client.get("/api/config/sources/src-xwatch/fetch_config")
+        assert got.status_code == 200
+        body = got.json()["fetch_config"]
+        assert body["timeout_sec"] == 900
+
+        put = client.put(
+            "/api/config/sources/src-xwatch/fetch_config",
+            json=body,
+        )
+        assert put.status_code == 200
+        assert put.json()["fetch_config"]["timeout_sec"] == 900
+
+    def test_bypass_alias_is_not_semantically_reversed(self, client):
+        conn = get_db()
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            """
+            INSERT INTO sources (id, name, display_name, source_type, url,
+                                 fetch_interval_min, is_active, fetch_config,
+                                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "src-follow-builders", "follow_builders", "Follow Builders",
+                "json", "https://example.com/feed.json", 360, 1,
+                json.dumps({"bypass_tag_filter": False, "http_timeout": 15}),
+                now, now,
+            ),
+        )
+        conn.commit()
+
+        got = client.get("/api/config/sources/src-follow-builders/fetch_config")
+        assert got.status_code == 200
+        body = got.json()["fetch_config"]
+        assert body["bypass_keyword_filters"] is False
+
+        put = client.put(
+            "/api/config/sources/src-follow-builders/fetch_config",
+            json=body,
+        )
+        assert put.status_code == 200
+        assert put.json()["fetch_config"]["bypass_keyword_filters"] is False
+        assert put.json()["fetch_config"]["http_timeout"] == 15
+
+    @pytest.mark.parametrize(
+        ("canonical", "alias", "expected"),
+        [
+            (False, True, False),
+            (True, False, True),
+            (False, False, False),
+        ],
+    )
+    def test_bypass_conflict_prefers_canonical_key_and_drops_alias(
+        self, client, canonical, alias, expected
+    ):
+        conn = get_db()
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            """
+            INSERT INTO sources (id, name, display_name, source_type, url,
+                                 fetch_interval_min, is_active, fetch_config,
+                                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "src-follow-builders", "follow_builders", "Follow Builders",
+                "json", "https://example.com/feed.json", 360, 1,
+                json.dumps({
+                    "bypass_keyword_filters": canonical,
+                    "bypass_tag_filter": alias,
+                }),
+                now, now,
+            ),
+        )
+        conn.commit()
+
+        got = client.get("/api/config/sources/src-follow-builders/fetch_config")
+        body = got.json()["fetch_config"]
+        assert body["bypass_keyword_filters"] is expected
+        assert "bypass_tag_filter" not in body
+
+        put = client.put(
+            "/api/config/sources/src-follow-builders/fetch_config",
+            json=body,
+        )
+        assert put.status_code == 200
+        stored = json.loads(
+            conn.execute(
+                "SELECT fetch_config FROM sources WHERE id = ?",
+                ("src-follow-builders",),
+            ).fetchone()["fetch_config"]
+        )
+        assert stored["bypass_keyword_filters"] is expected
+        assert "bypass_tag_filter" not in stored
+
+    def test_runtime_bypass_uses_canonical_false_over_stale_alias(self):
+        from moni.fetch.filters import _is_source_bypassed
+        conn = get_db()
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            """
+            INSERT INTO sources (id, name, display_name, source_type, url,
+                                 fetch_interval_min, is_active, fetch_config,
+                                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "src-follow-builders", "follow_builders", "Follow Builders",
+                "json", "https://example.com/feed.json", 360, 1,
+                json.dumps({
+                    "bypass_keyword_filters": False,
+                    "bypass_tag_filter": True,
+                }),
+                now, now,
+            ),
+        )
+        conn.commit()
+        assert _is_source_bypassed("follow_builders") is False
+
     def test_get_not_found(self, client):
         resp = client.get("/api/config/sources/nonexistent/fetch_config")
         assert resp.status_code == 404

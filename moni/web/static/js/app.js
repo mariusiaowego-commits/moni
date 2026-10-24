@@ -567,6 +567,21 @@ function app() {
         hint: '两次 HTTP 请求之间的等待，减轻对方限流。',
         type: 'number',
       },
+      http_timeout: {
+        label: '单 Feed 超时（秒）',
+        hint: '单个 feed 的 HTTP 请求最多等多久，超时按失败计。',
+        type: 'number',
+      },
+      min_feeds_before_failure_rate_check: {
+        label: '失败率检查最小样本',
+        hint: '至少检查多少个 feed 后，才开始按失败率判断是否整体断网。',
+        type: 'number',
+      },
+      max_failure_rate: {
+        label: '最大失败率',
+        hint: '0.7 表示 70%。超过该比例才提前结束本轮；个别失效 feed 不会中断。',
+        type: 'number',
+      },
       // xwatch — Following (Channel C)
       following_enabled: {
         label: '启用 Following 通道',

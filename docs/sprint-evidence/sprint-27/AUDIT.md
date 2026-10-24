@@ -1,6 +1,7 @@
-# sprint-27 / v1.0.60 独立审计报告
+# sprint-27 / v1.0.60 + v1.0.62 独立审计报告
 
-- **审计对象**: PR #160 `feat(fetch): 接入中文独立博客 OPML 信源 (v1.0.60)`
+- **审计对象**: PR #160 `feat(fetch): 接入中文独立博客 OPML 信源 (v1.0.60)`；
+  v1.0.62 中文独立博客失败率熔断与配置链修复
 - **审计日期**: 2026-10-24
 - **审计方式**: 逐文件代码审 + 离线测试 + 真实网络 smoke + 干净 HOME 隔离
 - **结论**: **PASS（修复后）**
@@ -47,7 +48,8 @@
 - 无 SQL 注入：所有 DB 查询使用参数绑定。
 - 无任意文件读取：本地 OPML 被 `_inside_config_root()` 限制在仓库 `config/`。
 - 无无限重定向：使用 httpx 默认重定向上限，且仅 http(s) feed 进入抓取。
-- 无单 feed 拖垮整轮：传输/HTTP/XML 错误均被隔离；连续 3 个 transport 失败熔断。
+- 无单 feed 拖垮整轮：传输/HTTP/XML 错误均被隔离；v1.0.62 起改为失败率熔断，
+  404/410 与 XML 错误不计入网络失败率，429/5xx 计入。
 - 无每轮 695 全扫：`max_feeds` 窗口 + cursor 轮转。
 - 无 tag 门控误杀：新 tag 无关键词，天然 pass-through；未绑定 wechat/general-tech。
 
@@ -58,15 +60,18 @@
 ### 4.1 定向
 
 ```text
-/usr/local/bin/python3 -m pytest tests/test_chinese_independent_blogs.py -q -p no:cacheprovider
-21 passed
+/usr/local/bin/python3 -m pytest \
+  tests/test_chinese_independent_blogs.py tests/test_fetch_config.py \
+tests/test_fetch_timeout_config.py tests/test_seed_config_fetch_config.py \
+  -q -p no:cacheprovider
+90 passed
 ```
 
 ### 4.2 全量
 
 ```text
 /usr/local/bin/python3 -m pytest tests/ -q -p no:cacheprovider
-1219 passed, 2 skipped, 0 failed
+1280 passed, 2 skipped, 0 failed
 ```
 
 ### 4.3 干净隔离
@@ -76,15 +81,15 @@ HOME=$(mktemp -d) MONI_DATA_DIR=$(mktemp -d) \
   /usr/local/bin/python3 -m pytest \
   tests/test_chinese_independent_blogs.py tests/test_bestblogs.py tests/test_fetch_config.py \
   -q -p no:cacheprovider
-63 passed
+105 passed
 ```
 
 ### 4.4 真实 smoke
 
 ```text
-12 feeds / 20 article cap / 临时 DB
-RAW 16
-PARSED 16
+12 feeds / 24 article cap / 临时 DB / 当前代码
+scanned 12 / ok 4 / failed 7 / http_error 1 / invalid 0 / empty 0
+articles 8（网络失败率 58%，未触发 70% 熔断）
 ```
 
 样例字段：标题、URL、publisher、published_at、content_len 均非空。
@@ -111,7 +116,7 @@ PARSED 16
 - [x] 真实网络 smoke 通过
 - [ ] PR CI 绿
 - [ ] squash merge
-- [ ] tag v1.0.60
+- [ ] tag v1.0.62
 - [ ] 8900 重启 + 5 端点
 
 > 本文件只记录审计结论与证据，不直接触发发布。

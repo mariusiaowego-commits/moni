@@ -39,6 +39,7 @@ from moni.fetch.jobs import FetchJobStore
 from moni.fetch.base import _FETCHER_REGISTRY, _ensure_sources_loaded
 from moni.web.exceptions import NotFoundError
 from moni.web.models import FetchSource, HealthResponse
+from moni.web.routes.config_sources import _FETCH_CONFIG_DEFAULTS
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,8 @@ JOB_TIMEOUT_SECONDS = 600
 def _job_timeout(source_name: str) -> int:
     """Per-source job timeout (seconds), read from sources.fetch_config['timeout_sec'].
 
-    Falls back to ``JOB_TIMEOUT_SECONDS`` (600) when unset or invalid.
+    Falls back to the UI default for the source, then
+    ``JOB_TIMEOUT_SECONDS`` (600) when unset or invalid.
 
     v1.0.35.17: heavy sources like bestblogs (375-feed full sweep ~880s) were
     finishing the whole run but got falsely marked 'timeout after 10min' because
@@ -62,6 +64,9 @@ def _job_timeout(source_name: str) -> int:
     per-source (configurable in /config fetch_config) fixes that false positive
     without cutting coverage.
     """
+    fallback = _FETCH_CONFIG_DEFAULTS.get(source_name, {}).get(
+        "timeout_sec", JOB_TIMEOUT_SECONDS
+    )
     try:
         conn = get_db()
         row = conn.execute(
@@ -70,11 +75,15 @@ def _job_timeout(source_name: str) -> int:
         if row and row["fetch_config"]:
             cfg = json.loads(row["fetch_config"])
             val = cfg.get("timeout_sec")
-            if isinstance(val, int) and val > 0:
+            if (
+                isinstance(val, int)
+                and not isinstance(val, bool)
+                and 0 < val <= 86_400
+            ):
                 return val
     except Exception as exc:
         logger.debug("[%s] failed to read timeout_sec: %s", source_name, exc)
-    return JOB_TIMEOUT_SECONDS
+    return fallback
 
 
 def _load_sources() -> list[dict[str, Any]]:
