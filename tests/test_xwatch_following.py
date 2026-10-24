@@ -147,6 +147,13 @@ class TestEnsureXChromeFailFastAndBackoff:
 
         reset_x_chrome_backoff()
         monkeypatch.setattr("moni.fetch.xwatch_following._port_alive", lambda *a, **kw: False)
+        # v1.0.54: 沙箱内会在 spawn 之前就 fail-fast，走不到 SIGABRT 分支。
+        # 这条测试验的是"spawn 后立刻 SIGABRT"的后半段逻辑，所以要显式声明非沙箱。
+        monkeypatch.setattr("moni.fetch.xwatch_following.is_sandboxed", lambda: False)
+        monkeypatch.setattr(
+            "moni.fetch.xwatch_following.resolve_chrome_binary",
+            lambda **kw: ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", False),
+        )
 
         mock_proc = MagicMock()
         mock_proc.poll.return_value = -signal.SIGABRT
