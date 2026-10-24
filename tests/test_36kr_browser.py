@@ -202,11 +202,34 @@ class TestChromeDaemonUnit:
         monkeypatch.delenv("MONI_CHROME_USER_DATA_DIR", raising=False)
         importlib.reload(cd)
 
-    def test_find_chrome_headless_shell_discovery(self):
+    @pytest.fixture
+    def fake_playwright_shell(self, monkeypatch, tmp_path):
+        """Hermetic isolated environment with a fake chrome-headless-shell."""
+        import pwd
+
+        fake_home = tmp_path / "fake_pw_home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.delenv("MONI_CHROME_HEADLESS_BINARY", raising=False)
+        monkeypatch.setattr(
+            pwd, "getpwuid", lambda uid: type("PW", (), {"pw_dir": str(fake_home)})()
+        )
+
+        shell_dir = (
+            fake_home / ".cache" / "ms-playwright" / "chromium_headless_shell-9999"
+        )
+        shell_dir.mkdir(parents=True, exist_ok=True)
+        fake_shell = shell_dir / "chrome-headless-shell"
+        fake_shell.write_text("#!/bin/sh\nexit 0\n")
+        fake_shell.chmod(0o755)
+        return fake_shell
+
+    def test_find_chrome_headless_shell_discovery(self, fake_playwright_shell):
         from moni.fetch.chrome_daemon import find_chrome_headless_shell
 
         shell = find_chrome_headless_shell()
         assert shell is not None
+        assert shell == fake_playwright_shell
         assert "chrome-headless-shell" in str(shell)
         assert not str(shell).endswith(".app")
 
@@ -220,18 +243,37 @@ class TestChromeDaemonUnit:
 
         assert find_chrome_headless_shell() == fake_shell
 
-    def test_resolve_chrome_binary_selection(self, monkeypatch):
-        from moni.fetch.chrome_daemon import resolve_chrome_binary
+    def test_resolve_chrome_binary_selection(self, fake_playwright_shell):
+        from moni.fetch import chrome_daemon as cd
 
         # Headless should resolve to shell
-        bin_path, is_shell = resolve_chrome_binary(headless=True)
+        bin_path, is_shell = cd.resolve_chrome_binary(headless=True)
         assert is_shell is True
-        assert "chrome-headless-shell" in bin_path
+        assert bin_path == str(fake_playwright_shell)
 
-        # Headed should resolve to bundle
-        bin_path_h, is_shell_h = resolve_chrome_binary(headless=False)
+        # Headed should resolve to bundle / system Chrome
+        bin_path_h, is_shell_h = cd.resolve_chrome_binary(headless=False)
         assert is_shell_h is False
-        assert "Google Chrome" in bin_path_h
+        assert bin_path_h == cd.CHROME_BINARY
+
+    def test_resolve_chrome_binary_fallback_when_no_shell(self, monkeypatch, tmp_path):
+        """When no headless-shell exists in cache, resolve_chrome_binary falls back to system Chrome."""
+        import pwd
+        from moni.fetch import chrome_daemon as cd
+
+        empty_home = tmp_path / "empty_pw_home"
+        empty_home.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(empty_home))
+        monkeypatch.delenv("MONI_CHROME_HEADLESS_BINARY", raising=False)
+        monkeypatch.setattr(
+            pwd, "getpwuid", lambda uid: type("PW", (), {"pw_dir": str(empty_home)})()
+        )
+
+        assert cd.find_chrome_headless_shell() is None
+
+        bin_path, is_shell = cd.resolve_chrome_binary(headless=True)
+        assert is_shell is False
+        assert bin_path == cd.CHROME_BINARY
 
     def test_backoff_tracker_progression(self):
         from moni.fetch.chrome_daemon import ChromeBackoffTracker
@@ -303,7 +345,7 @@ class TestChromeDaemonUnit:
             assert "SIGABRT" in (_daemon_backoff.last_error or "")
         reset_daemon_backoff()
 
-    def test_mutation_headless_must_use_shell_not_bundle(self):
+    def test_mutation_headless_must_use_shell_not_bundle(self, fake_playwright_shell):
         """Mutation sentinel: headless mode must strictly use headless-shell, NOT the .app bundle."""
         from moni.fetch.chrome_daemon import resolve_chrome_binary
 
@@ -311,6 +353,7 @@ class TestChromeDaemonUnit:
         assert is_shell is True, "headless mode must select headless-shell"
         assert not bin_path.endswith(".app"), "must not be an app bundle"
         assert "chrome-headless-shell" in bin_path
+        assert bin_path == str(fake_playwright_shell)
 
 
 # ── browser_harness: body-extraction sentinel logic ───────────────────────
