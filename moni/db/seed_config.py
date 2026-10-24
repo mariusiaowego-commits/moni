@@ -59,7 +59,7 @@ def _env_token(account: str) -> str:
     return val or f"__{key}__"
 
 
-# ── Tag 定义 (5 个) ─────────────────────────────────────────────────────────
+# ── Tag 定义 ────────────────────────────────────────────────────────────────
 # v1.0.5.14: each tag now carries a `display_name` — a human-friendly
 # Chinese / unicode string the UI shows.  The `name` column is the
 # immutable system primary key + FK reference (source_tags /
@@ -79,11 +79,15 @@ _DEFAULT_TAGS = [
     # the gap so xwatch's source_tags binding (src-xwatch → miniprogram)
     # doesn't violate the FK.
     ("miniprogram",  "小程序",      "微信小程序 (订阅消息 / 服务通知 / 搜一搜)", "#10B981"),  # emerald
-    # v1.0.60: independent-blog deliberately carries no keywords.  The
-    # cn-indie source is a long-tail discovery source, not a
-    # banking/payment keyword feed.  An empty keyword set makes
-    # apply_tag_keyword_filter() a pass-through for this source.
-    ("independent-blog", "独立博客", "中文独立博客 (技术/产品/生活/写作)", "#0F766E"),
+    # v1.0.63: APP / model-providers / workbuddy were created through the
+    # /config UI in the live database, so seed never knew about them.  The
+    # cn-indie source now binds to them, which meant a fresh database hit a
+    # source_tags FK failure.  Values below mirror the live rows exactly.
+    # NOTE: keywords are NOT seeded here (they are user-managed in the DB);
+    # the ON CONFLICT clause below does not touch the keywords column.
+    ("APP",             "APP",          "APP手机应用",                     "#8A71E8"),
+    ("model-providers", "模型提供商",   "大模型提供商相关资讯",            "#EA580C"),
+    ("workbuddy",       "workbuddy",    "workbuddy",                       "#16A34A"),
 ]  # noqa: E501
 
 
@@ -322,8 +326,23 @@ _DEFAULT_SOURCE_TAGS = [
     ("src-xwatch", "miniprogram"),
     # v1.0.41 / sprint-21: follow_builders → ai-fintech tag (bypass 合成打 tag)
     ("src-follow-builders", "ai-fintech"),
-    # v1.0.60: independent-blog has no keywords → tag filter is pass-through.
-    ("src-chinese-independent-blogs", "independent-blog"),
+    # v1.0.63: cn-indie reuses the project's existing business tags instead of
+    # a dedicated no-keyword "independent-blog" tag.  A keyword-less tag made
+    # the tag gate a pass-through, so every long-tail post (travel notes,
+    # book reviews, ...) was ingested AND left without any article_tags row
+    # (dedupe_insert only writes tags that were actually hit).  These ten
+    # bindings mirror what the user picked in /config; the union of their
+    # keywords is the ingest gate, and only hit tags are written per article.
+    ("src-chinese-independent-blogs", "APP"),
+    ("src-chinese-independent-blogs", "ai-fintech"),
+    ("src-chinese-independent-blogs", "banking"),
+    ("src-chinese-independent-blogs", "general-tech"),
+    ("src-chinese-independent-blogs", "miniprogram"),
+    ("src-chinese-independent-blogs", "model-providers"),
+    ("src-chinese-independent-blogs", "payment"),
+    ("src-chinese-independent-blogs", "regulation"),
+    ("src-chinese-independent-blogs", "wechat"),
+    ("src-chinese-independent-blogs", "workbuddy"),
 ]
 
 

@@ -4,7 +4,24 @@
 
 ---
 
-## 当前状态: **v1.0.61 — 36kr 历史 source id 归一化** (2026-10-24 · **SHIPPED**)
+## 当前状态: **v1.0.63 — 独立博客源改用现有业务标签** (2026-10-24 · **IN REVIEW**)
+
+**分支**: `fix/v1.0.63-cn-indie-use-existing-tags` · **基线**: main @ `5997444` (v1.0.62)
+
+### v1.0.63 交付要点
+
+- 删除 v1.0.60 引入的一次性 tag `independent-blog`（无关键词 → 标签闸门形同虚设）。
+- 新源改绑现有 10 个业务 tag：`APP` / `ai-fintech` / `banking` / `general-tech` /
+  `miniprogram` / `model-providers` / `payment` / `regulation` / `wechat` / `workbuddy`。
+- 新增 migration 037：清 `independent-blog` 的 tag_definitions / source_tags /
+  article_tags 关联，补齐 10 条 source_tags 绑定，写 `schema_cleanup_log`。
+- `seed_config` 补齐 `APP` / `model-providers` / `workbuddy` 三个 tag 定义
+  （原先只在 live DB 用 /config 建过，空库 seed 会 FK 失败）；**不覆盖**用户已配的关键词。
+- 新增 `scripts/purge_cn_indie_unmatched.py`：一次性清理历史 105 篇，
+  命中保留并补打 tag + `article_keyword_hits`，未命中直接删除。
+- 测试：全量 **1289 passed / 2 skipped**；定向 037 + 独立博客 + 迁移回归 94 passed。
+
+## 历史状态: **v1.0.61 — 36kr 历史 source id 归一化** (2026-10-24 · **SHIPPED**)
 
 **主分支**: main @ `246301f` · **Tag**: `v1.0.61`
 **上一版本**: v1.0.60 (PR #160) — 中文独立博客信源
@@ -39,7 +56,8 @@
 - 独立聚合源，不并入 `bestblogs`；复用 OPML + RSS/Atom 解析，独立限流与轮转。
 - 默认每轮 80 feeds / 每 feed 3 篇 / 总上限 240 篇，`fetch_interval_min=180`。
 - 单 feed 失败不影响整轮；v1.0.62 起仅在扫描满 10 个且网络失败率超过 70% 时提前结束。
-- 新 tag `independent-blog`（无关键词），避免被现有 `wechat` / `general-tech` 窄门控误杀。
+- ~~新 tag `independent-blog`（无关键词），避免被现有 `wechat` / `general-tech` 窄门控误杀。~~
+  **v1.0.63 已移除**：无关键词 tag 会让闸门 pass-through 且文章全部无 tag，改为复用现有业务 tag。
 - 安全边界：仅 http(s) feed、5 MB 响应上限、本地 OPML 限 `config/`、编辑器路径越界拒绝。
 - 测试：定向 90 passed（含 follow-builders 99 passed）；全量 **1280 passed / 2 skipped / 0 failed**。
 - 真实 smoke（v1.0.62）：12 feeds 扫描 12 个，ok 4 / 网络失败 7 / HTTP 错误 1，抓取 8 篇，未触发 70% 熔断。

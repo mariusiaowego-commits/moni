@@ -16,12 +16,16 @@ def _now() -> str:
 
 @pytest.fixture
 def v35_db(tmp_path):
-    """Real v35 database, then step back so migrate() runs 036 for real."""
+    """Real v35 database, then step back so migrate() runs 036 for real.
+
+    Everything from 36 upward is removed so this fixture keeps working as new
+    migrations are added (037+); the assertions below are about 036 itself.
+    """
     close_db()
     set_db_path(tmp_path / "test.db")
     migrate()
     conn = get_db()
-    conn.execute("DELETE FROM schema_version WHERE version = 36")
+    conn.execute("DELETE FROM schema_version WHERE version >= 36")
     conn.commit()
     yield conn
     close_db()
@@ -113,7 +117,9 @@ def test_migrate_normalizes_id_and_moves_relations(v35_db):
     assert conn.execute(
         "SELECT filter_id FROM article_keyword_hits WHERE article_id = 'a036'"
     ).fetchone()["filter_id"] == filter_id
-    assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 36
+    assert conn.execute(
+        "SELECT MAX(version) FROM schema_version"
+    ).fetchone()[0] == _CURRENT_VERSION
 
 
 def test_seed_succeeds_after_migration(v35_db):
@@ -183,8 +189,9 @@ def test_cleanup_log_records_real_normalization(v35_db):
     ).fetchone()[0] == 1
 
 
-def test_version_constant_is_36():
-    assert _CURRENT_VERSION == 36
+def test_version_constant_is_current():
+    # 036 is a historical migration; the constant tracks the latest file.
+    assert _CURRENT_VERSION == 37
 
 
 def test_failed_migration_rolls_back_and_connection_is_usable(v35_db, tmp_path):
