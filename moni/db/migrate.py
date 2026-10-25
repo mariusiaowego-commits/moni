@@ -18,7 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 37  # v1.0.63: cn-indie reuses existing business tags (037)
+_CURRENT_VERSION = 38  # v1.0.65: ai-fintech += CVPR/ECCV (038)
 
 
 def _rollback_if_needed(conn: sqlite3.Connection) -> None:

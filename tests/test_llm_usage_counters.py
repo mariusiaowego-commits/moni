@@ -120,7 +120,7 @@ def test_migration_029_adds_usage_columns(fresh_db):
     assert "input_tokens" in cols
     assert "output_tokens" in cols
     assert "cost_usd" in cols
-    assert _CURRENT_VERSION == 37  # v1.0.63: 037 rebinds cn-indie to existing tags
+    assert _CURRENT_VERSION == 38  # v1.0.65: 038 appends CVPR/ECCV to ai-fintech
 
 
 # ── worker_llm.parse_usage_file ───────────────────────────────────────────
