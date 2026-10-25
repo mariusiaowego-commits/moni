@@ -159,7 +159,7 @@ v1.0.63 修好「新源走不带关键词的 pass-through tag」之后, 82 篇�
 | `moni/fetch/xwatch_gate.py` | **新增** xwatch 三条入口共用的闸门 (`gate_article` / `load_gate_keywords`) |
 | `moni/cli/main.py` | `xwatch ingest` + `xwatch following --ingest` 都改走同一闸门 (否则批处理拦下的推文能从 CLI 塞进来) |
 | `moni/cli/keyword_audit.py` | **新增** `moni keyword-audit` 只读重放命令 |
-| `tests/test_keyword_match.py` | **新增** 33 个规则单测 |
+| `tests/test_keyword_match.py` | **新增** 33 个用例函数 (含参数化共 47 个测试实例) |
 | `tests/test_keyword_match_integration.py` | **新增** 16 个跨调用点集成测试 |
 | `tests/test_keyword_audit_cli.py` | **新增** 16 个 CLI 测试 (含只读性断言) |
 | `tests/test_tag_filter.py` | 修 1 个既有测试 —— 它此前靠短正文豁免过, 没有真的测到 content 匹配 |
