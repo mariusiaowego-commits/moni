@@ -36,16 +36,24 @@ v1.0.63 修好「新源走不带关键词的 pass-through tag」之后, 82 篇�
 
 ## 2. 影响面实测 (2026-10-25 生产库快照, 4702 篇)
 
-用 `moni keyword-audit` 对存量做只读重放。基线必须按**各源真实旧行为**
-计算 —— bestblog* 系自 v1.0.5.24/7.5 起就是 title-only, 拿 title+content
-给它算基线会凭空造出「旧规则会留下的文章」:
+用 `moni keyword-audit` 对存量做只读重放。基线有两处口径必须对准真实
+旧行为, 否则算出来的差异是假的:
 
-| 规则 | 存活 | 丢弃 |
-|---|---:|---:|
-| 旧规则 (纯子串, 按源套 title-only) | 4547 | 155 |
-| 新规则 (本 sprint) | 4396 | 306 |
+1. **bestblog\* 系自 v1.0.5.24/7.5 起就是 title-only** —— 拿 title+content
+   给它算基线会凭空造出「旧规则会留下的文章」。
+2. **`bypass_keyword_filters` 的源完全不过闸门** —— `follow_builders`
+   库里 38 篇行, 那些文章从来没有任何 matcher 看过。注意它现在
+   `is_active=0`, 但文章是它在开启时入库的, 所以不能按活跃状态过滤。
 
-其中 **151 篇是「旧规则本会留下、新规则丢掉」** — 这就是误命中的体量。
+| 口径 | 篇数 |
+|---|---:|
+| 存量总量 | 4702 |
+| 跳过 (bypass 源) | 38 |
+| **受闸门约束** | **4664** |
+| 旧规则存活 | 4546 |
+| 新规则存活 | 4396 |
+| 新规则丢弃 | 268 |
+| **其中「旧规则本会留下」** | **150** ← 误命中的体量 |
 
 按源分布:
 
@@ -61,6 +69,10 @@ v1.0.63 修好「新源走不带关键词的 pass-through tag」之后, 82 篇�
 | bestblog-yt | 2 | 61 |
 | follow_builders | 1 | 38 |
 
+> 上表的受影响篇数是按 title-only 口径重算的 (bestblog-x 59 / bestblogs 48 /
+> chinese_independent_blogs 28 / 36kr_rss 4 / huxiu 4 / qbitai 3 / mpaypass 2 /
+> bestblog-yt 2 / follow_builders 1), 与 150 这个总数的差距来自多 tag 重叠计数。
+>
 > 独立博客源受影响比例最高 (28/82 = 34%): 它是纯个人博客, 正文长且话题
 > 发散, 最容易出现「顺带提一句金融」的形态。
 
@@ -147,10 +159,11 @@ tag 闸门、黑/白名单、xwatch CLI 是**三条独立的入口**。只改 ta
 
 ## 5. 验收标准
 
-- [ ] 全量 pytest 通过 (基线 1298 → 预期 1369)
-- [ ] 9 个变异全部被测试咬住 (纯子串回退×2 / title-only 丢失×2 / 词边界 / 中文门槛 / 短正文豁免边界 / 复数 / audit 基线 title-only)
+- [ ] 全量 pytest 通过 (基线 1298 → 预期 1372)
+- [ ] 12 个变异全部被测试咬住 (纯子串回退×2 / title-only 丢失×2 / 词边界 / 中文门槛 / 短正文豁免边界 / 复数 / audit 基线 title-only×2 / audit bypass 排除×2)
 - [ ] `moni keyword-audit` 只读 (articles/basket/tags/hits 计数不变)
-- [ ] 生产库重放: 幸存篇数与文档记录一致 (4547 → 4396, 丢 306, 其中 151 篇是旧规则本会留下)
+- [ ] 生产库重放: 4546 → 4396, 受闸门 4664, 丢 268, 其中 150 篇是旧规则本会留下
+- [ ] `moni keyword-audit` 跑完四张表计数不变 (articles/basket/article_tags/article_keyword_hits)
 - [ ] v1.0.63 修好的独立博客源没有回退 (82 篇仍全带 tag)
 - [ ] `bypass_keyword_filters` (follow_builders) 仍然短路
 - [ ] bestblog* 系仍然 title-only

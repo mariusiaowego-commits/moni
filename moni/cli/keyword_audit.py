@@ -18,6 +18,7 @@ import json
 from typing import Any
 
 from moni.db.connection import get_db
+from moni.fetch.filters import _is_source_bypassed
 from moni.fetch.keyword_match import (
     SHORT_CJK_MAX_LEN,
     keyword_matches,
@@ -107,6 +108,26 @@ def _iter_articles(source: str | None):
     yield from conn.execute(sql, params)
 
 
+def _bypassed_sources() -> set[str]:
+    """Sources whose ``bypass_keyword_filters`` short-circuits every gate.
+
+    They must be excluded from the delta, otherwise the report blames
+    the matcher for articles no gate ever looked at (``follow_builders``
+    is the live example).
+
+    Deliberately not filtered on ``is_active``: the stored articles were
+    inserted while the source was on, so they still bypassed the gate.
+    ``follow_builders`` is inactive today and its 38 stored rows would
+    otherwise be scored as if a matcher had seen them.
+    """
+    conn = get_db()
+    out: set[str] = set()
+    for row in conn.execute("SELECT name FROM sources"):
+        if _is_source_bypassed(row["name"]):
+            out.add(row["name"])
+    return out
+
+
 def run_keyword_audit(args) -> int:
     source = getattr(args, "source", None)
     show_lost = getattr(args, "show_lost", 10)
@@ -142,11 +163,18 @@ def run_keyword_audit(args) -> int:
 
     all_kws = [kw for kws in tag_keywords.values() for kw in kws]
     kept_legacy = kept_new = total = 0
+    bypassed = _bypassed_sources()
+    skipped = 0
     lost: list[tuple[str, str]] = []
     kw_delta: dict[str, list[int]] = {}
 
     for row in _iter_articles(source):
         total += 1
+        if row["source"] in bypassed:
+            # No gate runs on these — counting them would attribute a
+            # delta to a matcher that never saw them.
+            skipped += 1
+            continue
         title = row["title"] or ""
         body = row["raw_content"] or ""
         row_title_only = scoped_title_only or (row["source"] or "").startswith("bestblog")
@@ -165,8 +193,11 @@ def run_keyword_audit(args) -> int:
             if kw in new:
                 slot[1] += 1
 
-    dropped = total - kept_new
-    print(f"存量 {total} 篇")
+    gated = total - skipped
+    dropped = gated - kept_new
+    print(f"存量 {total} 篇" + (f" (跳过 {skipped} 篇 bypass 源)" if skipped else ""))
+    if skipped:
+        print(f"  受闸门约束:        {gated} 篇")
     print(f"  旧规则(纯子串) 存活: {kept_legacy}")
     print(f"  v1.0.64 规则存活:   {kept_new}")
     print(f"  新规则丢弃:        {dropped}  (其中 {len(lost)} 篇是旧规则本会留下)")

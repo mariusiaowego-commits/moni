@@ -205,3 +205,81 @@ def test_all_source_mode_applies_title_only_per_row(seeded, capsys):
     # neither the legacy nor the new survivor count.
     assert "旧规则(纯子串) 存活: 3" in out
     assert "v1.0.64 规则存活:   1" in out
+
+
+def test_bypass_sources_are_excluded_from_the_delta(seeded, capsys):
+    """follow_builders-style bypass never runs a gate — scoring it invents
+    a delta for articles no matcher ever saw."""
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO sources (id, name, display_name, source_type, url, "
+        "fetch_interval_min, is_active, created_at, updated_at, fetch_config) "
+        "VALUES ('src-fb', 'follow_builders', 'FB', 'json', 'https://e.com/fb', "
+        "360, 1, '2026-01-01', '2026-01-01', ?)",
+        (json.dumps({"bypass_keyword_filters": True}),),
+    )
+    conn.execute(
+        "INSERT INTO articles (id, title, url, source, fetched_at, raw_content) "
+        "VALUES ('fb00000000000001', 'Nothing matches here', "
+        "'https://e.com/fb/1', 'follow_builders', '2026-10-25', '无关正文')"
+    )
+    conn.commit()
+
+    run_keyword_audit(_args(show_lost=5))
+    out = capsys.readouterr().out
+    assert "跳过 1 篇 bypass 源" in out
+    assert "受闸门约束:        3 篇" in out
+    assert "Nothing matches here" not in out
+
+
+def test_bypass_exclusion_ignores_is_active(seeded, capsys):
+    """An inactive bypass source still holds articles that skipped the gate.
+
+    follow_builders is inactive in production today; its 38 stored rows
+    were ingested while it was on, so they must stay out of the delta.
+    """
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO sources (id, name, display_name, source_type, url, "
+        "fetch_interval_min, is_active, created_at, updated_at, fetch_config) "
+        "VALUES ('src-fb', 'follow_builders', 'FB', 'json', 'https://e.com/fb', "
+        "360, 0, '2026-01-01', '2026-01-01', ?)",
+        (json.dumps({"bypass_keyword_filters": True}),),
+    )
+    conn.execute(
+        "INSERT INTO articles (id, title, url, source, fetched_at, raw_content) "
+        "VALUES ('fb00000000000003', 'Old builders feed', "
+        "'https://e.com/fb/3', 'follow_builders', '2026-10-25', '无关正文')"
+    )
+    conn.commit()
+
+    run_keyword_audit(_args(show_lost=5))
+    out = capsys.readouterr().out
+    assert "跳过 1 篇 bypass 源" in out
+    assert "Old builders feed" not in out
+
+
+def test_scoped_run_on_a_bypassed_source_reports_zero_gated(seeded, capsys):
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO sources (id, name, display_name, source_type, url, "
+        "fetch_interval_min, is_active, created_at, updated_at, fetch_config) "
+        "VALUES ('src-fb', 'follow_builders', 'FB', 'json', 'https://e.com/fb', "
+        "360, 1, '2026-01-01', '2026-01-01', ?)",
+        (json.dumps({"bypass_keyword_filters": True}),),
+    )
+    conn.execute(
+        "INSERT INTO source_tags (source_id, tag_name, created_at) "
+        "VALUES ('src-fb', 'general-tech', '2026-01-01')"
+    )
+    conn.execute(
+        "INSERT INTO articles (id, title, url, source, fetched_at, raw_content) "
+        "VALUES ('fb00000000000002', 'AI builders roundup', "
+        "'https://e.com/fb/2', 'follow_builders', '2026-10-25', '无关正文')"
+    )
+    conn.commit()
+
+    run_keyword_audit(_args(source="follow_builders", show_lost=0))
+    out = capsys.readouterr().out
+    assert "受闸门约束:        0 篇" in out
+    assert "新规则丢弃:        0" in out
