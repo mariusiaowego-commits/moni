@@ -314,3 +314,71 @@ def test_xwatch_ingest_accepts_a_real_hit(fresh_db, monkeypatch):
     assert code == 0
     # cmd_xwatch_ingest closes the connection on success — reopen to verify.
     assert get_db().execute("SELECT COUNT(*) FROM articles").fetchone()[0] == 1
+
+
+# ── the three xwatch paths must share one gate ──────────────────────────────
+
+
+def test_xwatch_following_gate_rejects_the_same_text_as_ingest(fresh_db, monkeypatch):
+    """``following --ingest`` used to have its own copied substring gate.
+
+    The v1.0.64 audit caught that: fixing two of the three xwatch paths
+    left the Following timeline accepting "MASAJIN" tweets the other two
+    rejected.  All three now call ``moni.fetch.xwatch_gate``.
+    """
+    from moni.cli import main as cli_main
+    from moni.fetch import xwatch_following, xwatch_syndication
+
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO sources (id, name, display_name, source_type, url, "
+        "fetch_interval_min, is_active, created_at, updated_at) "
+        "VALUES ('src-x', 'xwatch', 'X', 'x', 'https://x.com/', 30, 1, "
+        "'2026-01-01', '2026-01-01')"
+    )
+    conn.execute(
+        "INSERT INTO source_tags (source_id, tag_name, created_at) "
+        "VALUES ('src-x', 'general-tech', '2026-01-01')"
+    )
+    conn.commit()
+
+    tweet = {
+        "account": "someone",
+        "text": "晚餐是 MASAJIN 富良野店",
+        "url": "https://x.com/someone/status/9",
+    }
+    monkeypatch.setattr(
+        xwatch_following, "scrape_following", lambda **kw: [tweet]
+    )
+    monkeypatch.setattr(
+        xwatch_following,
+        "following_tweet_to_synd_dict",
+        lambda tw: {"text": tw["text"], "id_str": "9"},
+    )
+    monkeypatch.setattr(
+        xwatch_syndication,
+        "tweet_to_article",
+        lambda data, fallback_url=None: {
+            "title": "北海道游记",
+            "content": "晚餐是 MASAJIN 富良野店",
+            "url": "https://x.com/someone/status/9",
+            "source": "xwatch",
+            "publisher": "someone",
+            "published_at": "2026-10-25",
+            "fetched_at": "2026-10-25",
+        },
+    )
+
+    code = cli_main.cmd_xwatch_following(max_posts=10, max_scrolls=1, ingest=True)
+    assert code == 0
+    assert get_db().execute("SELECT COUNT(*) FROM articles").fetchone()[0] == 0
+
+
+def test_xwatch_all_paths_share_one_implementation():
+    """Structural guard: a fourth copy of the gate must not appear."""
+    import pathlib
+
+    cli = pathlib.Path("moni/cli/main.py").read_text()
+    # No path may hand-roll the match any more.
+    assert "if kw in hay:" not in cli
+    assert cli.count("gate_article(") >= 2

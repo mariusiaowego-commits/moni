@@ -45,54 +45,68 @@ v1.0.63 修好「新源走不带关键词的 pass-through tag」之后, 82 篇�
    库里 38 篇行, 那些文章从来没有任何 matcher 看过。注意它现在
    `is_active=0`, 但文章是它在开启时入库的, 所以不能按活跃状态过滤。
 
+重放必须按**每篇文章自己所属源的绑定 tag** 计算 (而不是把所有 tag 并起来
+套给每篇), 否则会凭空多算出 190 篇「幸存者」。下面是按真实口径跑出来的
+结果 (`moni keyword-audit`, 2026-10-25 生产库快照):
+
 | 口径 | 篇数 |
 |---|---:|
 | 存量总量 | 4702 |
 | 跳过 (bypass 源) | 38 |
 | **受闸门约束** | **4664** |
-| 旧规则存活 | 4546 |
-| 新规则存活 | 4396 |
-| 新规则丢弃 | 268 |
-| **其中「旧规则本会留下」** | **150** ← 误命中的体量 |
+| 其中无绑定 tag (pass-through) | 6 |
+| 旧规则存活 | 4362 |
+| 新规则存活 | 4210 |
+| 新规则丢弃 | 454 |
+| **其中「旧规则本会留下」** | **152** ← 误命中的真实体量 |
 
 按源分布:
 
 | 源 | 受影响 | 库内总数 |
 |---|---:|---:|
 | bestblog-x | 59 | 150 |
-| bestblogs | 48 | 1736 |
+| bestblogs | 49 | 1736 |
 | chinese_independent_blogs | 28 | 82 |
-| 36kr_rss | 4 | 451 |
+| mpaypass | 5 | 1427 |
 | huxiu | 4 | 301 |
 | qbitai | 3 | 82 |
-| mpaypass | 2 | 1427 |
 | bestblog-yt | 2 | 61 |
-| follow_builders | 1 | 38 |
+| 36kr_rss | 2 | 451 |
 
-> 上表的受影响篇数是按 title-only 口径重算的 (bestblog-x 59 / bestblogs 48 /
-> chinese_independent_blogs 28 / 36kr_rss 4 / huxiu 4 / qbitai 3 / mpaypass 2 /
-> bestblog-yt 2 / follow_builders 1), 与 150 这个总数的差距来自多 tag 重叠计数。
+> 受影响 = 「旧规则会留下、新规则会丢弃」的篇数, 按 title-only 口径对
+> bestblog\* 系单独计算, 8 个源合计正好 152, 与总数一致。
 >
 > 独立博客源受影响比例最高 (28/82 = 34%): 它是纯个人博客, 正文长且话题
 > 发散, 最容易出现「顺带提一句金融」的形态。
+
+> bestblog-x 59/150 = 39% 更高, 但那是推文短文本里 `MA` / `CV` 这类
+> ASCII 短词命中单词内部的典型形态 (x.com 上 Markdown、CVPR 别名词极多)。
 
 单关键词层面最能说明问题的几个:
 
 | 关键词 | 旧命中 | 新命中 | 说明 |
 |---|---:|---:|---|
-| `ark` | 130 | **0** | 全部是 Markdown / DarkScrim / SarkGay, 从来没有独立出现过 |
-| `MA` | 79 | **0** | 全部在 MASAJIN / MAC / MAX_BOOKS / SMART 内部 |
-| `CV` | 64 | 5 | 多数在 CVPR / CV 文件里 |
-| `金融` | 1279 | 1052 | 长文顺带提及被收掉 |
-| `消费` | 636 | 444 | 同上 |
-| `保险` | 194 | 105 | 读书笔记里提一次「保险」不再算 |
-| `外汇` | 159 | 70 | 同上 |
+| `ark` | 20 | **0** | 全部是 Markdown / SarkGay 内部, 从来没有独立出现过 |
+| `MA` | 24 | **0** | 全部在 MASAJIN / MAC / SMART 内部 |
+| `CV` | 59 | 5 | 多数在 CVPR / 简历 "CV" 之外的文件名里 |
+| `App` | 299 | 184 | 之前 `Apple` / `Application` 都算命中 |
+| `金融` | 1212 | 1004 | 长文顺带提及被收掉 |
+| `消费` | 603 | 420 | 同上 |
+| `银行` | 1360 | 1185 | 同上 |
+| `保险` | 179 | 102 | 读书笔记里提一次「保险」不再算 |
+| `外汇` | 154 | 66 | 同上 |
 
 > `ark` 归零值得单独说: 它和 `MiniMax` / `deepseek` / `gemini` 并列在
 > model-providers 里, 但历史上从未真正命中过 ark 这个模型 —— 它此前
-> 命中的 130 篇全是别的词的碎片。保留它无害 (现在它只在真出现
+> 命中的 20 篇全是别的词的碎片。保留它无害 (现在它只在真出现
 > "ark" 独立词时才命中), 但这一条说明**纯子串统计不能用来判断关键词
 > 有没有价值**。
+
+> 上表分两组, 对应两条新规则: `ark` / `MA` / `CV` / `App` 走**纯 ASCII
+> 词边界** (`App` 少掉的 115 篇全是 `Apple` / `Application`); `金融` /
+> `银行` / `消费` / `支付` / `保险` / `外汇` 都是 **2 字中文**, 走「标题命中
+> 或正文 ≥2 次」门槛, 命中掉 10-30%。907 个关键词里 719 个仍走纯子串,
+> 命中数不变 —— 收紧只作用在有证据的两种形态上。
 
 ---
 
@@ -142,31 +156,38 @@ v1.0.63 修好「新源走不带关键词的 pass-through tag」之后, 82 篇�
 | `moni/fetch/keyword_match.py` | **新增** 规则引擎 (纯函数, 无 DB 依赖) |
 | `moni/fetch/tag_filter.py` | tag 闸门改用 `keyword_matches`; `hit_field` 现在如实反映 title-only 源 |
 | `moni/fetch/filters.py` | 黑/白名单 + keyword_hits 记录改用同一引擎; 删掉重复的 `_match_field` |
-| `moni/cli/main.py` | `xwatch ingest` 手动路径对齐批处理闸门 (否则批处理拦下的推文能从 CLI 塞进来) |
+| `moni/fetch/xwatch_gate.py` | **新增** xwatch 三条入口共用的闸门 (`gate_article` / `load_gate_keywords`) |
+| `moni/cli/main.py` | `xwatch ingest` + `xwatch following --ingest` 都改走同一闸门 (否则批处理拦下的推文能从 CLI 塞进来) |
 | `moni/cli/keyword_audit.py` | **新增** `moni keyword-audit` 只读重放命令 |
-| `tests/test_keyword_match.py` | **新增** 44 个规则单测 |
-| `tests/test_keyword_match_integration.py` | **新增** 14 个跨调用点集成测试 |
-| `tests/test_keyword_audit_cli.py` | **新增** 8 个 CLI 测试 (含只读性断言) |
+| `tests/test_keyword_match.py` | **新增** 33 个规则单测 |
+| `tests/test_keyword_match_integration.py` | **新增** 16 个跨调用点集成测试 |
+| `tests/test_keyword_audit_cli.py` | **新增** 16 个 CLI 测试 (含只读性断言) |
 | `tests/test_tag_filter.py` | 修 1 个既有测试 —— 它此前靠短正文豁免过, 没有真的测到 content 匹配 |
 
-### 4.1 为什么必须同时改 3 个调用点
+### 4.1 为什么必须同时改 4 个调用点
 
-tag 闸门、黑/白名单、xwatch CLI 是**三条独立的入口**。只改 tag 闸门会
-留下两个后门: 黑名单继续被 `MA` 误触发, CLI 继续能塞进批处理会拒绝的推文。
-集成测试 `test_keyword_match_integration.py` 就是钉这条一致性的。
+tag 闸门、黑/白名单、xwatch `ingest`、xwatch `following --ingest` 是**四条
+独立入口**。只改 tag 闸门会留下三个后门: 黑名单继续被 `MA` 误触发,
+两条 CLI 继续能塞进批处理会拒绝的推文。第一轮 audit 就是在 `following
+--ingest` 上抓到了这个漏洞 (它自己有一份 `kw in hay`)。
+
+集成测试 `test_keyword_match_integration.py` 钉这条一致性: 同一篇推文
+能否入库, 四条路径必须给出同一答案。
 
 ---
 
 ## 5. 验收标准
 
-- [ ] 全量 pytest 通过 (基线 1298 → 预期 1372)
-- [ ] 12 个变异全部被测试咬住 (纯子串回退×2 / title-only 丢失×2 / 词边界 / 中文门槛 / 短正文豁免边界 / 复数 / audit 基线 title-only×2 / audit bypass 排除×2)
-- [ ] `moni keyword-audit` 只读 (articles/basket/tags/hits 计数不变)
-- [ ] 生产库重放: 4546 → 4396, 受闸门 4664, 丢 268, 其中 150 篇是旧规则本会留下
-- [ ] `moni keyword-audit` 跑完四张表计数不变 (articles/basket/article_tags/article_keyword_hits)
-- [ ] v1.0.63 修好的独立博客源没有回退 (82 篇仍全带 tag)
-- [ ] `bypass_keyword_filters` (follow_builders) 仍然短路
-- [ ] bestblog* 系仍然 title-only
+- [x] 全量 pytest 通过 (基线 1298 → 实测 **1377 passed / 2 skipped**)
+- [x] 13 个变异全部被测试咬住 (纯子串回退×3 / title-only 丢失×2 / 词边界 / 中文门槛 / 短正文豁免边界 / 复数 / audit 基线 title-only×2 / audit bypass 排除×2 / audit 改回 tag 并集)
+- [x] `moni keyword-audit` 只读 (articles/basket/tags/hits 计数不变)
+- [x] 生产库重放: 4362 → 4210, 受闸门 4664, 丢 454, 其中 **152 篇**是旧规则本会留下
+- [x] `moni keyword-audit` 跑完四张表计数不变 — articles 4702 / basket 36952 /
+      article_tags 7581 / article_keyword_hits 123978, 重放前后完全一致
+- [x] v1.0.63 修好的独立博客源没有回退 (82 篇仍全带 tag)
+- [x] `bypass_keyword_filters` (follow_builders) 仍然短路
+- [x] bestblog* 系仍然 title-only
+- [x] audit 基线按**每篇所属源**的绑定 tag 计算 (并集口径虚增 190 篇)
 
 ---
 
@@ -174,7 +195,7 @@ tag 闸门、黑/白名单、xwatch CLI 是**三条独立的入口**。只改 ta
 
 - 不动任何**关键词内容** (不删 `MA` / `ark` / `支付`, 不加词) —— 那是数据决策,
   用户自己定; 本 sprint 只改匹配语义。
-- 不回补 / 不重扫存量文章 (194 篇的 tag 归属不回改)。下次抓取自然生效。
+- 不回补 / 不重扫存量文章 (152 篇的 tag 归属不回改)。下次抓取自然生效。
 - 不引入分词库 / jieba / 词典。
 - 不改 `basket` 里已有的历史记录。
 
@@ -185,4 +206,4 @@ tag 闸门、黑/白名单、xwatch CLI 是**三条独立的入口**。只改 ta
 - `payment` tag 只有 `支付` 一个关键词, 命中面太宽 —— 需要用户补词。
 - `general-tech` 的 `MA` 和 `CDP` 语义重叠 (营销自动化 vs 客户数据平台),
   按新规则 `MA` 归零, 可以考虑删掉。
-- 存量 194 篇的 tag 归属是否要重算, 需要单独决策 (涉及 basket 语义)。
+- 存量 152 篇的 tag 归属是否要重算, 需要单独决策 (涉及 basket 语义)。

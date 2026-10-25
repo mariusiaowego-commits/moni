@@ -26,27 +26,6 @@ from moni.fetch.keyword_match import (
 )
 
 
-def _load_tags() -> dict[str, list[str]]:
-    conn = get_db()
-    out: dict[str, list[str]] = {}
-    for row in conn.execute(
-        "SELECT name, keywords FROM tag_definitions WHERE is_active = 1 ORDER BY name"
-    ):
-        raw = row["keywords"]
-        if not raw:
-            continue
-        try:
-            arr = json.loads(raw)
-        except (TypeError, json.JSONDecodeError):
-            continue
-        if not isinstance(arr, list):
-            continue
-        kws = [k.strip() for k in arr if isinstance(k, str) and k.strip()]
-        if kws:
-            out[row["name"]] = kws
-    return out
-
-
 def _load_bound_tags_for_source(source: str) -> dict[str, list[str]]:
     """Only the tags actually bound to this source — mirrors the gate."""
     conn = get_db()
@@ -71,6 +50,37 @@ def _load_bound_tags_for_source(source: str) -> dict[str, list[str]]:
         kws = [k.strip() for k in arr if isinstance(k, str) and k.strip()]
         if kws:
             out[row["name"]] = kws
+    return out
+
+
+def _load_all_bound_tags() -> dict[str, dict[str, list[str]]]:
+    """``{source_name: {tag_name: [keywords]}}`` for every source.
+
+    The real gate unions only the tags bound to *that* source, so an
+    all-source replay that unions every tag everywhere over-reports
+    survivors.  Measured gap in the 2026-10-25 snapshot: 190 articles.
+    """
+    conn = get_db()
+    out: dict[str, dict[str, list[str]]] = {}
+    for row in conn.execute(
+        """
+        SELECT s.name AS source_name, t.name AS tag_name, t.keywords
+        FROM source_tags st
+        JOIN sources s          ON s.id = st.source_id
+        JOIN tag_definitions t  ON t.name = st.tag_name
+        WHERE t.is_active = 1
+        """
+    ):
+        raw = row["keywords"]
+        if not raw:
+            continue
+        try:
+            arr = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        kws = [k.strip() for k in arr if isinstance(k, str) and k.strip()]
+        if kws:
+            out.setdefault(row["source_name"], {})[row["tag_name"]] = kws
     return out
 
 
@@ -137,11 +147,20 @@ def run_keyword_audit(args) -> int:
         if not tag_keywords:
             print(f"ERROR: 源 {source!r} 没有绑定任何带关键词的 tag")
             return 2
+        per_source_tags: dict[str, dict[str, list[str]]] = {source: tag_keywords}
     else:
-        tag_keywords = _load_tags()
-        if not tag_keywords:
+        per_source_tags = _load_all_bound_tags()
+        if not per_source_tags:
             print("ERROR: 没有任何 tag 配置了关键词")
             return 2
+        # Union purely for the headline "rules in play" summary.
+        tag_keywords = {}
+        for src_tags in per_source_tags.values():
+            for tag_name, kws in src_tags.items():
+                merged = tag_keywords.setdefault(tag_name, [])
+                for kw in kws:
+                    if kw not in merged:
+                        merged.append(kw)
 
     # bestblog* sources are title-only (v1.0.5.24/7.5).  In all-source mode
     # this has to be decided per row, not globally — otherwise their
@@ -161,25 +180,36 @@ def run_keyword_audit(args) -> int:
         print("注意: bestblog* 系只匹配标题 (v1.0.5.24/7.5 既有行为)")
     print()
 
-    all_kws = [kw for kws in tag_keywords.values() for kw in kws]
     kept_legacy = kept_new = total = 0
     bypassed = _bypassed_sources()
     skipped = 0
+    ungated = 0
     lost: list[tuple[str, str]] = []
     kw_delta: dict[str, list[int]] = {}
 
     for row in _iter_articles(source):
         total += 1
-        if row["source"] in bypassed:
+        row_source = row["source"] or ""
+        if row_source in bypassed:
             # No gate runs on these — counting them would attribute a
             # delta to a matcher that never saw them.
             skipped += 1
             continue
+        # The real gate unions only the tags bound to *this* source.
+        row_tag_keywords = per_source_tags.get(row_source)
+        if not row_tag_keywords:
+            # Source has no bound tags with keywords → the gate is a
+            # pass-through, exactly like `apply_tag_keyword_filter`.
+            ungated += 1
+            kept_legacy += 1
+            kept_new += 1
+            continue
+        row_kws = [kw for kws in row_tag_keywords.values() for kw in kws]
         title = row["title"] or ""
         body = row["raw_content"] or ""
-        row_title_only = scoped_title_only or (row["source"] or "").startswith("bestblog")
-        legacy = _legacy_hits(all_kws, title, body, title_only=row_title_only)
-        new = _v164_hits(all_kws, title, body, title_only=row_title_only)
+        row_title_only = row_source.startswith("bestblog")
+        legacy = _legacy_hits(row_kws, title, body, title_only=row_title_only)
+        new = _v164_hits(row_kws, title, body, title_only=row_title_only)
         if legacy:
             kept_legacy += 1
         if new:
@@ -198,6 +228,8 @@ def run_keyword_audit(args) -> int:
     print(f"存量 {total} 篇" + (f" (跳过 {skipped} 篇 bypass 源)" if skipped else ""))
     if skipped:
         print(f"  受闸门约束:        {gated} 篇")
+    if ungated:
+        print(f"  其中无绑定 tag (pass-through): {ungated} 篇")
     print(f"  旧规则(纯子串) 存活: {kept_legacy}")
     print(f"  v1.0.64 规则存活:   {kept_new}")
     print(f"  新规则丢弃:        {dropped}  (其中 {len(lost)} 篇是旧规则本会留下)")
