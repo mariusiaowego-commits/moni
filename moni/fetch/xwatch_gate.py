@@ -29,7 +29,11 @@ SOURCE_NAME = "xwatch"
 
 
 def load_gate_keywords(source: str = SOURCE_NAME) -> dict[str, list[str]]:
-    """Bound tags with keywords for ``source`` (empty dict = no gate)."""
+    """Bound tags with keywords for ``source``.
+
+    An empty result means *no gate at all* (pass-through), matching
+    ``apply_tag_keyword_filter``.
+    """
     return _load_tag_keywords_for_source(source)
 
 
@@ -87,7 +91,13 @@ def gate_article(
 
 
 def describe_gate(tag_keywords: dict[str, list[str]]) -> str:
-    """Human-readable summary for the SKIP message."""
+    """Human-readable summary for the SKIP message.
+
+    Only meaningful when at least one keyword exists — an empty mapping is
+    a pass-through, so the caller never reaches a SKIP in that case.
+    """
+    if not tag_keywords:
+        return f"{SOURCE_NAME} 没有绑定任何带关键词的 tag — 闸门关闭"
     sample = [w for ws in tag_keywords.values() for w in ws][:5]
     return (
         f"未命中 {SOURCE_NAME} 绑定 tag 的关键词 "

@@ -162,11 +162,11 @@ def run_keyword_audit(args) -> int:
                     if kw not in merged:
                         merged.append(kw)
 
-    # bestblog* sources are title-only (v1.0.5.24/7.5).  In all-source mode
-    # this has to be decided per row, not globally — otherwise their
-    # baseline is scored against title+content and the report invents
-    # "lost" articles the old gate never kept.
-    scoped_title_only = bool(source) and source.startswith("bestblog")
+    # bestblog* sources are title-only (v1.0.5.24/7.5).  That must be
+    # decided per row (see `row_title_only` in the loop), never globally —
+    # otherwise their baseline is scored against title+content and the
+    # report invents "lost" articles the old gate never kept.
+    any_bestblog = any(s.startswith("bestblog") for s in per_source_tags)
 
     print(f"范围: {source or '全部信源'} | tag: {len(tag_keywords)} | "
           f"关键词: {sum(len(v) for v in tag_keywords.values())}")
@@ -176,7 +176,7 @@ def run_keyword_audit(args) -> int:
         f"≤{SHORT_CJK_MAX_LEN} 字中文 {profile['short_han']} | "
         f"普通子串 {profile['substring']} | 空 {profile['empty']}"
     )
-    if scoped_title_only:
+    if any_bestblog:
         print("注意: bestblog* 系只匹配标题 (v1.0.5.24/7.5 既有行为)")
     print()
 
