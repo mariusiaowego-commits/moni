@@ -1,6 +1,6 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。**v1.0.53** (2026-10-24 SHIPPED)。schema v35。`pytest tests/` → **1149 passed / 2 skipped**（本地测试全绿；GitHub Actions CI 修复进行中：v1.0.55）。
+> 同业信源自动抓取与本地新闻库。**v1.0.64** (2026-10-25 SHIPPED)。schema v37。`pytest tests/` → **1379 passed / 2 skipped**。
 
 > v1.0.42 起的核心能力 (2026-09-10):
 > - **后台任务租约** — fetch_jobs / llm_jobs 任务运行期间每 30s 写入心跳, 心跳超期 sweep 标记为 stale (取代 v1.0.35.17 墙钟判死, 解决 bestblogs 187 篇跑完后被误杀 600s timeout 问题)
@@ -242,6 +242,38 @@ topnav 右侧显示服务状态：
 - 点击展开 → 看到被过滤掉的文章标题列表
 - 帮你判断 tag 关键词是否设置过严（好文章被误丢）
 - 全部抓取时按源分组显示，单源抓取时直接显示
+
+### 5.2.1 关键词怎么才算命中 (v1.0.64 改)
+
+以前是纯子串匹配，导致「顺带提一句」也算命中。现在按关键词形态分三种：
+
+| 关键词形态 | 怎么算命中 | 例子 |
+|---|---|---|
+| 纯英文/数字 | 必须是独立的词（前后不是字母数字），容许复数 | `MA` 不再命中 **MASAJIN**；`AI Agent` 仍命中 "AI Agents" |
+| ≤2 字中文 | 标题里有，或正文里出现 2 次以上，或正文本身很短（≤200 字）| `消费` 在一篇长游记里提一次不算了 |
+| ≥3 字中文 / 中英混合 | 和以前一样，出现就算 | `软件工程` 不变 |
+
+> 为什么要这样：`ark` 以前「命中」20 篇，全是 **Markdown** / **SarkGay** 里的碎片，
+> 从来没真的出现过这个模型名。收紧后它归零，`MA` 同样归零。
+
+**改关键词前先看影响面**（只读，不动数据库）：
+
+```bash
+cd /Users/mt16/dev/moni
+set -a && source .env && set +a
+
+# 全库重放：新旧规则各留多少篇、丢掉的里面有多少是误命中
+/usr/local/bin/python3 -m moni keyword-audit
+
+# 只看某个源
+/usr/local/bin/python3 -m moni keyword-audit --source chinese_independent_blogs
+
+# 顺便列出会被丢掉的标题（前 N 篇）
+/usr/local/bin/python3 -m moni keyword-audit --show-lost 20
+```
+
+输出里看这三个数：`旧规则存活` → `v1.0.64 规则存活` → `其中 N 篇是旧规则本会留下`。
+最后那个 N 就是这个版本杀掉的真误命中数量。
 
 ### 5.3 单源抓取
 
