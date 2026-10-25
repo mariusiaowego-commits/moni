@@ -275,37 +275,18 @@ def cmd_xwatch_ingest(url_or_id: str, dry_run: bool = False) -> int:
         print("ERROR: tweet 内容解析失败 (缺少 text/id_str)")
         return 1
 
-    # Tag-keyword gate (mirrors apply_tag_keyword_filter for xwatch)
-    from ..fetch.tag_filter import _load_tag_keywords_for_source
-    tag_keywords = _load_tag_keywords_for_source("xwatch")
-    title = (art.get("title") or "").strip()
-    content = (art.get("content") or "").strip()
-    haystack = title + "\n" + content
+    # Tag-keyword gate — shared with the batch fetcher and `following` so
+    # the three xwatch ingestion paths cannot drift apart (v1.0.64).
+    from ..fetch.xwatch_gate import describe_gate, gate_article, load_gate_keywords
+    tag_keywords = load_gate_keywords()
+    if not tag_keywords:
+        # Same pass-through as the batch fetcher — but never silently.
+        print("WARN: xwatch 没有绑定任何带关键词的 tag — 闸门关闭 (check seed-config)")
+    gate = gate_article(art, tag_keywords)
 
-    matched_tags: list[str] = []
-    keyword_hits: list[dict] = []
-    for tag_name, kws in tag_keywords.items():
-        for kw in kws:
-            if kw in haystack:
-                matched_tags.append(tag_name)
-                keyword_hits.append({
-                    "article_url": art["url"],
-                    "keyword": kw,
-                    "tag_name": tag_name,
-                    "filter_id": None,
-                    "hit_field": "title+content",
-                })
-
-    if not matched_tags:
-        unique_tags = sorted(set(tag_keywords.keys()))
-        print(
-            f"SKIP: 未命中 wechat/miniprogram 关键词 "
-            f"(tweet id={tid}, url={art['url']!r}, "
-            f"expected one of {[w for ws in tag_keywords.values() for w in ws][:5]}...)"
-        )
-        # Tally hint to the user — still no DB write.
-        if not unique_tags:
-            print("        (xwatch has no bound tags with keywords — check seed-config)")
+    if not gate.allowed:
+        print(f"SKIP: {describe_gate(tag_keywords)} "
+              f"(tweet id={tid}, url={art['url']!r})")
         return 0
 
     if dry_run:
@@ -314,12 +295,12 @@ def cmd_xwatch_ingest(url_or_id: str, dry_run: bool = False) -> int:
             f"            url={art['url']}\n"
             f"            publisher={art['publisher']!r}\n"
             f"            published_at={art['published_at']!r}\n"
-            f"            matched_tags={sorted(set(matched_tags))}"
+            f"            matched_tags={gate.matched_tags}"
         )
         return 0
 
     from ..db.repository import ArticleRepository
-    inserted = ArticleRepository().dedupe_insert([art], keyword_hits)
+    inserted = ArticleRepository().dedupe_insert([art], gate.keyword_hits)
     print(f"inserted={inserted} url={art['url']}")
     close_db()
     return 0
@@ -403,11 +384,14 @@ def cmd_xwatch_following(
             return 1
         return 0
 
-    # Ingest with same tag gate as cmd_xwatch_ingest
+    # Ingest with the same gate as cmd_xwatch_ingest and the batch fetcher.
     from ..db.repository import ArticleRepository
-    from ..fetch.tag_filter import _load_tag_keywords_for_source
+    from ..fetch.xwatch_gate import gate_article, load_gate_keywords
 
-    tag_keywords = _load_tag_keywords_for_source("xwatch")
+    tag_keywords = load_gate_keywords()
+    if not tag_keywords:
+        # Match the batch fetcher's pass-through, but say so out loud.
+        print("WARN: xwatch 没有绑定任何带关键词的 tag — 闸门关闭 (check seed-config)")
     arts: list[dict] = []
     hits: list[dict] = []
     skipped = 0
@@ -418,23 +402,12 @@ def cmd_xwatch_following(
         art = tweet_to_article(data, fallback_url=tw.get("url"))
         if not art:
             continue
-        hay = (art.get("title") or "") + "\n" + (art.get("content") or "")
-        matched = False
-        for tag_name, kws in tag_keywords.items():
-            for kw in kws:
-                if kw in hay:
-                    matched = True
-                    hits.append({
-                        "article_url": art["url"],
-                        "keyword": kw,
-                        "tag_name": tag_name,
-                        "filter_id": None,
-                        "hit_field": "title+content",
-                    })
-        if not matched:
+        gate = gate_article(art, tag_keywords)
+        if not gate.allowed:
             skipped += 1
             continue
         arts.append(art)
+        hits.extend(gate.keyword_hits)
     inserted = ArticleRepository().dedupe_insert(arts, hits) if arts else 0
     print(f"tag_pass={len(arts)} tag_skip={skipped} inserted={inserted}")
     close_db()
@@ -779,6 +752,24 @@ verify_all_p.add_argument(
 )
 
 
+# ── keyword-audit (v1.0.64) ──────────────────────────────────────────────────
+# Read-only replay of the stored corpus through both the old substring rule
+# and the current match rules.  Run this BEFORE trusting a keyword change.
+
+keyword_audit_p = SUB.add_parser(
+    "keyword-audit",
+    help="只读: 用当前语料对比「旧子串规则」与「现规则」的命中差异",
+)
+keyword_audit_p.add_argument(
+    "--source", dest="source", metavar="NAME",
+    help="只审计某个信源 (默认全部; 自动套用该源的 tag 绑定与 title-only 规则)",
+)
+keyword_audit_p.add_argument(
+    "--show-lost", dest="show_lost", type=int, default=10,
+    help="列出多少篇「旧规则留下、新规则丢掉」的文章标题 (默认 10, 0=不列)",
+)
+
+
 # ── dispatch ─────────────────────────────────────────────────────────────────
 
 def main(argv: list[str] | None = None) -> int:
@@ -825,6 +816,12 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_cases_verify_all(args)
         cases_parser.print_help()
         return 1
+
+    if args.subcmd == "keyword-audit":
+        from .keyword_audit import run_keyword_audit
+        code = run_keyword_audit(args)
+        close_db()
+        return code
 
     if args.subcmd == "clean-articles":
         cmd_clean_articles()
