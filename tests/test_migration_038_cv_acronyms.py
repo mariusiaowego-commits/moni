@@ -93,7 +93,13 @@ def test_038_keeps_the_bare_cv_keyword(db_with_ai_fintech):
 
 
 def test_038_skips_a_tag_with_null_keywords(tmp_path):
-    """A tag with no keyword list must stay untouched (no crash, no [] + 2)."""
+    """A tag with no keyword list must stay untouched.
+
+    Observable contract: ``keywords`` is still NULL afterwards — not ``[]``
+    and not ``[] + 2``.  (The NULL survives because ``json_insert(NULL, ...)``
+    propagates NULL; the ``WHERE keywords IS NOT NULL`` clause is belt and
+    braces, not the thing being pinned here.)
+    """
     close_db()
     set_db_path(tmp_path / "news.db")
     migrate()
@@ -108,6 +114,32 @@ def test_038_skips_a_tag_with_null_keywords(tmp_path):
         "SELECT keywords FROM tag_definitions WHERE name = 'ai-fintech'"
     ).fetchone()[0]
     assert raw is None
+    close_db()
+
+
+def test_038_skips_a_tag_with_malformed_json_keywords(tmp_path):
+    """A row whose ``keywords`` is not valid JSON must not abort the migration.
+
+    ``json_valid(keywords)`` in the WHERE clause is the load-bearing guard
+    here: without it SQLite raises ``malformed JSON`` and the whole migration
+    dies, so no other tag ever gets its keywords.
+    """
+    close_db()
+    set_db_path(tmp_path / "news.db")
+    migrate()
+    seed()
+    conn = get_db()
+    conn.execute(
+        "UPDATE tag_definitions SET keywords = 'not-json' WHERE name = 'ai-fintech'"
+    )
+    conn.commit()
+
+    _run_sql_file(conn, MIGRATION_038)  # must not raise
+
+    raw = conn.execute(
+        "SELECT keywords FROM tag_definitions WHERE name = 'ai-fintech'"
+    ).fetchone()[0]
+    assert raw == "not-json"
     close_db()
 
 
