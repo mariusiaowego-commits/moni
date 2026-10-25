@@ -4,7 +4,55 @@
 
 ---
 
-## 当前状态: **v1.0.64 — 关键词匹配正确性** (2026-10-25 · **SHIPPED**)
+## 当前状态: **v1.0.65 — 词边界收紧后的召回补偿** (2026-10-25 · **SHIPPED**)
+
+**主分支**: main @ `dcd4178` · **Tag**: `v1.0.65` · **PR**: #168
+**schema**: 38（migration 038）· **测试**: 1387 passed / 2 skipped
+**审计**: 1 轮独立只读审计，**APPROVE WITH NITS**，无 P0/P1（P2-1/P2-2 已在本 PR 内补掉）
+
+### v1.0.65 交付要点
+
+v1.0.64 的词边界收紧是对的（`MA` 命中 MASAJIN、`ark` 命中 Markdown 确实是误命中），
+但**把「152 篇旧规则独有存活」当成了「152 篇误命中」** —— 拆开看等式不成立：
+
+| 关键词 | 篇数 | 判定 |
+|---|---|---|
+| `App` | 70 | 真误命中（`Application Security` 之类）|
+| `CV` | 41 | **真命中被误伤**（CVPR / ECCV 论文标题）|
+| `ark` | 11 | 真误命中（词内碎片）|
+| `MA` | 7 | 真误命中（MASAJIN 之类）|
+
+- 处置：**给 `ai-fintech` 补 `CVPR` / `ECCV` 两个关键词**（migration 038），不动规则、不删 `CV`。
+- 只读重放实测：存活 4210 → **4236（+26，CVPR 17 / ECCV 9）**，
+  旧规则独有存活 152 → **126**，**新增噪音 0**。
+- 刻意不加（抽样验证）：`Application`（救回的是 "Web Application Security" /
+  "Applications are now open for Fellowships"，与 APP=手机应用无关）、
+  `NTIRE`（只出现在 "CVPR NTIRE" 里，已被 CVPR 覆盖）、`CVE`（漏洞编号，非计算机视觉）。
+- **迁移保序是硬约束**：关键词是用户在 /config 手工维护的**有序**数据。第一版用 `UNION`
+  导致 SQLite 按字母重排，已改成 `json_insert(keywords,'$[#]',...)` + `json_each` 查重
+  （幂等），`test_038_preserves_the_existing_order` 钉死这条。
+
+### 上线执行记录 (2026-10-25)
+
+| 步骤 | 结果 |
+|---|---|
+| 审计 | 独立只读审计 `01a170db`：APPROVE WITH NITS；两条指定变异（改回 UNION / 去掉幂等查重）均被测试捕获 |
+| 合并 | PR #168 squash 合并 → `dcd4178`；远端分支已删除 |
+| Tag | `v1.0.65` → `dcd4178`（与 HEAD 一致，非覆盖）|
+| main 全量测试 | **1387 passed / 2 skipped**（基线 1379，新增 8：038 迁移 8 条测试）|
+| 8900 重启 | launchd `kickstart -k`（PID 74099 → 22620）；8 个端点全部 200 |
+| 生产库 | schema 38，`ai-fintech` 关键词 79 → 81（CVPR/ECCV 追加在末尾，顺序保持）|
+
+### 已知遗留（不在本版范围）
+
+- **存量 126 篇**仍不回补 tag（涉及 basket 语义），需单独决策。
+- 生产库先跑迁移、代码后合并（半小时窗口）。回滚安全：`migrate()` 在
+  `applied(38) >= _CURRENT_VERSION` 时早退，不会降级；闸门逻辑不依赖 schema 版本。
+- `payment` tag 只有 `支付` 一个词、`general-tech` 的 `MA` 已归零 —— 仍是用户数据决策。
+
+---
+
+## 历史状态: **v1.0.64 — 关键词匹配正确性** (2026-10-25 · SHIPPED)
 
 **主分支**: main @ `2ac5f73` · **Tag**: `v1.0.64` · **PR**: #166
 **schema**: 37（无迁移）· **测试**: 1379 passed / 2 skipped
