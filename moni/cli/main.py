@@ -279,15 +279,14 @@ def cmd_xwatch_ingest(url_or_id: str, dry_run: bool = False) -> int:
     # the three xwatch ingestion paths cannot drift apart (v1.0.64).
     from ..fetch.xwatch_gate import describe_gate, gate_article, load_gate_keywords
     tag_keywords = load_gate_keywords()
-    matched_tags, keyword_hits = gate_article(art, tag_keywords)
+    if not tag_keywords:
+        # Same pass-through as the batch fetcher — but never silently.
+        print("WARN: xwatch 没有绑定任何带关键词的 tag — 闸门关闭 (check seed-config)")
+    gate = gate_article(art, tag_keywords)
 
-    if not matched_tags:
-        unique_tags = sorted(set(tag_keywords.keys()))
+    if not gate.allowed:
         print(f"SKIP: {describe_gate(tag_keywords)} "
               f"(tweet id={tid}, url={art['url']!r})")
-        # Tally hint to the user — still no DB write.
-        if not unique_tags:
-            print("        (xwatch has no bound tags with keywords — check seed-config)")
         return 0
 
     if dry_run:
@@ -296,12 +295,12 @@ def cmd_xwatch_ingest(url_or_id: str, dry_run: bool = False) -> int:
             f"            url={art['url']}\n"
             f"            publisher={art['publisher']!r}\n"
             f"            published_at={art['published_at']!r}\n"
-            f"            matched_tags={sorted(set(matched_tags))}"
+            f"            matched_tags={gate.matched_tags}"
         )
         return 0
 
     from ..db.repository import ArticleRepository
-    inserted = ArticleRepository().dedupe_insert([art], keyword_hits)
+    inserted = ArticleRepository().dedupe_insert([art], gate.keyword_hits)
     print(f"inserted={inserted} url={art['url']}")
     close_db()
     return 0
@@ -390,6 +389,9 @@ def cmd_xwatch_following(
     from ..fetch.xwatch_gate import gate_article, load_gate_keywords
 
     tag_keywords = load_gate_keywords()
+    if not tag_keywords:
+        # Match the batch fetcher's pass-through, but say so out loud.
+        print("WARN: xwatch 没有绑定任何带关键词的 tag — 闸门关闭 (check seed-config)")
     arts: list[dict] = []
     hits: list[dict] = []
     skipped = 0
@@ -400,12 +402,12 @@ def cmd_xwatch_following(
         art = tweet_to_article(data, fallback_url=tw.get("url"))
         if not art:
             continue
-        matched_tags, keyword_hits = gate_article(art, tag_keywords)
-        if not matched_tags:
+        gate = gate_article(art, tag_keywords)
+        if not gate.allowed:
             skipped += 1
             continue
         arts.append(art)
-        hits.extend(keyword_hits)
+        hits.extend(gate.keyword_hits)
     inserted = ArticleRepository().dedupe_insert(arts, hits) if arts else 0
     print(f"tag_pass={len(arts)} tag_skip={skipped} inserted={inserted}")
     close_db()

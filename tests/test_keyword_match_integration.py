@@ -369,7 +369,11 @@ def test_xwatch_following_gate_rejects_the_same_text_as_ingest(fresh_db, monkeyp
         },
     )
 
-    code = cli_main.cmd_xwatch_following(max_posts=10, max_scrolls=1, ingest=True)
+    # ``dry_run`` defaults to True — without it the ingest branch is never
+    # entered and this test would pass even if the gate let everything in.
+    code = cli_main.cmd_xwatch_following(
+        max_posts=10, max_scrolls=1, ingest=True, dry_run=False
+    )
     assert code == 0
     assert get_db().execute("SELECT COUNT(*) FROM articles").fetchone()[0] == 0
 
@@ -382,3 +386,46 @@ def test_xwatch_all_paths_share_one_implementation():
     # No path may hand-roll the match any more.
     assert "if kw in hay:" not in cli
     assert cli.count("gate_article(") >= 2
+
+
+def test_empty_bindings_pass_through_like_the_batch_fetcher():
+    """No keywords configured must mean *no gate*, not *reject everything*.
+
+    ``apply_tag_keyword_filter`` returns articles untouched when no bound
+    tag carries keywords (the documented v1.0.5.4 backwards-compat path).
+    The shared xwatch gate has to agree, otherwise clearing xwatch's tags
+    would silently make both CLI paths reject every tweet while batch
+    scraping keeps ingesting them.
+    """
+    from moni.fetch.tag_filter import apply_tag_keyword_filter
+    from moni.fetch.xwatch_gate import gate_article
+
+    art = {"title": "晚餐是 MASAJIN", "content": "和关键词毫无关系", "url": "u"}
+
+    gate = gate_article(art, {})
+    assert gate.allowed is True
+    assert gate.matched_tags == []
+
+    kept, stats, hits = apply_tag_keyword_filter("no-such-source", [dict(art)])
+    assert stats["kept"] == 1 and stats["tags_used"] == 0
+    assert hits == []
+
+
+def test_gate_returns_one_entry_per_matching_tag():
+    """``matched_tags`` is a tag list, not a keyword list.
+
+    Two keywords from the same tag firing must not produce the tag twice —
+    callers sort/dedupe it, and a duplicate would be a silent API change.
+    """
+    from moni.fetch.xwatch_gate import gate_article
+
+    art = {
+        "title": "MA 与 CI/CD 都在标题里",
+        "content": "正文",
+        "url": "u",
+    }
+    gate = gate_article(art, {"general-tech": ["MA", "CI/CD"]})
+    assert gate.allowed is True
+    assert gate.matched_tags == ["general-tech"]
+    # Both hits are still recorded — the dedupe is only on the tag list.
+    assert len(gate.keyword_hits) == 2
