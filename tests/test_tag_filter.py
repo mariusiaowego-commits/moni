@@ -156,9 +156,12 @@ def test_bestblogs_matches_title_only(fresh_db):
 
 
 def test_non_bestblogs_matches_content(fresh_db):
-    """Non-bestblogs sources still match title+content."""
-    # Content contains keyword → kept (for non-bestblogs sources)
-    arts = [{"title": "普通标题", "content": "支付新闻"}]
+    """Non-bestblogs sources still match title+content.
+
+    v1.0.64: the body is padded past the short-body exemption so this
+    really exercises content matching rather than the leniency rule.
+    """
+    arts = [{"title": "普通标题", "content": "跨境支付" + "无关内容。" * 200}]
     kept, stats, _ = apply_tag_keyword_filter("mpaypass", arts)
     assert len(kept) == 1
 

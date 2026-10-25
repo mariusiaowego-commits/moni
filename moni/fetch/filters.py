@@ -28,6 +28,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from moni.db.connection import get_db
 
+from .keyword_match import matched_keywords
+
 logger = logging.getLogger(__name__)
 
 
@@ -164,34 +166,26 @@ def _load_active_filters(source_id: str) -> List[Dict[str, Any]]:
     return filters
 
 
-def _match_field(article: Dict[str, Any], match_field: str) -> str:
-    """取 article 用于匹配的文本."""
-    if match_field == "title":
-        return article.get("title", "") or ""
-    if match_field == "content":
-        return article.get("content", "") or article.get("raw_content", "") or ""
-    # default: title+content
-    title = article.get("title", "") or ""
-    content = article.get("content", "") or article.get("raw_content", "") or ""
-    return title + "\n" + content
-
-
 def _is_blacklist_match(article: Dict[str, Any], flt: Dict[str, Any]) -> Optional[str]:
     """黑名单: 返回命中的 keyword, 没命中返回 None."""
-    text = _match_field(article, flt["match_field"])
-    for kw in flt["keywords"]:
-        if kw and kw in text:
-            return kw
-    return None
+    hits = _filter_hits(article, flt)
+    return hits[0] if hits else None
 
 
 def _is_whitelist_pass(article: Dict[str, Any], flt: Dict[str, Any]) -> Optional[str]:
     """白名单: 返回命中的 keyword, 全不命中返回 None."""
-    text = _match_field(article, flt["match_field"])
-    for kw in flt["keywords"]:
-        if kw and kw in text:
-            return kw
-    return None
+    hits = _filter_hits(article, flt)
+    return hits[0] if hits else None
+
+
+def _filter_hits(article: Dict[str, Any], flt: Dict[str, Any]) -> List[str]:
+    """该 filter 命中的所有 keyword (v1.0.64 匹配规则)."""
+    return matched_keywords(
+        flt["keywords"],
+        title=article.get("title", "") or "",
+        body=article.get("content", "") or article.get("raw_content", "") or "",
+        field=flt["match_field"],
+    )
 
 
 def _append_hit(hits_list: List[Dict[str, Any]], hit: Dict[str, Any]) -> None:
@@ -285,9 +279,8 @@ def apply_keyword_filters(
                     "filter_id": None,
                     "hit_field": flt["match_field"],
                 })
-                text = _match_field(art, flt["match_field"])
-                for kw in flt["keywords"]:
-                    if kw and kw in text and kw != hit:
+                for kw in _filter_hits(art, flt):
+                    if kw != hit:
                         _append_hit(all_keyword_hits, {
                             "article_url": art_url,
                             "keyword": kw,
@@ -316,9 +309,8 @@ def apply_keyword_filters(
                     "filter_id": flt["id"],
                     "hit_field": flt["match_field"],
                 })
-                text = _match_field(art, flt["match_field"])
-                for kw in flt["keywords"]:
-                    if kw and kw in text and kw != hit:
+                for kw in _filter_hits(art, flt):
+                    if kw != hit:
                         _append_hit(all_keyword_hits, {
                             "article_url": art_url,
                             "keyword": kw,
@@ -345,9 +337,8 @@ def apply_keyword_filters(
                         "filter_id": None,
                         "hit_field": flt["match_field"],
                     })
-                    text = _match_field(art, flt["match_field"])
-                    for kw in flt["keywords"]:
-                        if kw and kw in text and kw != hit:
+                    for kw in _filter_hits(art, flt):
+                        if kw != hit:
                             _append_hit(all_keyword_hits, {
                                 "article_url": art_url,
                                 "keyword": kw,
@@ -378,9 +369,8 @@ def apply_keyword_filters(
                         "filter_id": flt["id"],
                         "hit_field": flt["match_field"],
                     })
-                    text = _match_field(art, flt["match_field"])
-                    for kw in flt["keywords"]:
-                        if kw and kw in text and kw != hit:
+                    for kw in _filter_hits(art, flt):
+                        if kw != hit:
                             _append_hit(all_keyword_hits, {
                                 "article_url": art_url,
                                 "keyword": kw,
@@ -399,18 +389,16 @@ def apply_keyword_filters(
         # ── 5. 若未被拦截，记录存活文章命中所有规则的关键词 ──
         for flt in global_filters + source_filters:
             is_global = flt.get("is_global", False)
-            text = _match_field(art, flt["match_field"])
-            for kw in flt["keywords"]:
-                if kw and kw in text:
-                    hit_record = {
-                        "article_url": art_url,
-                        "keyword": kw,
-                        "filter_id": None if is_global else flt["id"],
-                        "hit_field": flt["match_field"],
-                    }
-                    if is_global:
-                        hit_record["tag_name"] = "[global]"
-                    _append_hit(all_keyword_hits, hit_record)
+            for kw in _filter_hits(art, flt):
+                hit_record = {
+                    "article_url": art_url,
+                    "keyword": kw,
+                    "filter_id": None if is_global else flt["id"],
+                    "hit_field": flt["match_field"],
+                }
+                if is_global:
+                    hit_record["tag_name"] = "[global]"
+                _append_hit(all_keyword_hits, hit_record)
 
         kept.append(art)
 

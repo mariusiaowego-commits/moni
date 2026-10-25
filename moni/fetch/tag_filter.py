@@ -53,6 +53,7 @@ from typing import Any
 
 from moni.db.connection import get_db
 from .filters import _is_source_bypassed
+from .keyword_match import keyword_matches
 
 logger = logging.getLogger(__name__)
 
@@ -228,23 +229,26 @@ def apply_tag_keyword_filter(
         # v1.0.7.5: extend to all bestblog* subclasses (podcast/yt/x) —
         # their RSS/Atom <description> also contains boilerplate (subscribe
         # CTAs, sponsor mentions) that triggers false-positive tag matches.
-        if source.startswith("bestblog"):
-            haystack = title
-        else:
-            haystack = title + "\n" + content
+        title_only = source.startswith("bestblog")
         art_url = art.get("url", "")
 
         # 检查每个 tag 的命中情况
         article_hit_tags: set[str] = set()
         for tag_name, kws in tag_keywords.items():
             for kw in kws:
-                if kw in haystack:
+                # v1.0.64: boundary-aware matching — see keyword_match.
+                if keyword_matches(
+                    kw,
+                    title=title,
+                    body=content,
+                    field="title" if title_only else "title+content",
+                ):
                     keyword_hits.append({
                         "article_url": art_url,
                         "keyword": kw,
                         "tag_name": tag_name,
                         "filter_id": None,
-                        "hit_field": "title+content",
+                        "hit_field": "title" if title_only else "title+content",
                     })
                     article_hit_tags.add(tag_name)
 

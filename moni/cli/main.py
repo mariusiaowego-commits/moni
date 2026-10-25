@@ -276,17 +276,19 @@ def cmd_xwatch_ingest(url_or_id: str, dry_run: bool = False) -> int:
         return 1
 
     # Tag-keyword gate (mirrors apply_tag_keyword_filter for xwatch)
+    from ..fetch.keyword_match import keyword_matches
     from ..fetch.tag_filter import _load_tag_keywords_for_source
     tag_keywords = _load_tag_keywords_for_source("xwatch")
     title = (art.get("title") or "").strip()
     content = (art.get("content") or "").strip()
-    haystack = title + "\n" + content
 
     matched_tags: list[str] = []
     keyword_hits: list[dict] = []
     for tag_name, kws in tag_keywords.items():
         for kw in kws:
-            if kw in haystack:
+            # v1.0.64: same boundary rules as the batch gate, otherwise a
+            # tweet rejected in batch could slip in through --ingest.
+            if keyword_matches(kw, title=title, body=content):
                 matched_tags.append(tag_name)
                 keyword_hits.append({
                     "article_url": art["url"],
@@ -779,6 +781,24 @@ verify_all_p.add_argument(
 )
 
 
+# ── keyword-audit (v1.0.64) ──────────────────────────────────────────────────
+# Read-only replay of the stored corpus through both the old substring rule
+# and the current match rules.  Run this BEFORE trusting a keyword change.
+
+keyword_audit_p = SUB.add_parser(
+    "keyword-audit",
+    help="只读: 用当前语料对比「旧子串规则」与「现规则」的命中差异",
+)
+keyword_audit_p.add_argument(
+    "--source", dest="source", metavar="NAME",
+    help="只审计某个信源 (默认全部; 自动套用该源的 tag 绑定与 title-only 规则)",
+)
+keyword_audit_p.add_argument(
+    "--show-lost", dest="show_lost", type=int, default=10,
+    help="列出多少篇「旧规则留下、新规则丢掉」的文章标题 (默认 10, 0=不列)",
+)
+
+
 # ── dispatch ─────────────────────────────────────────────────────────────────
 
 def main(argv: list[str] | None = None) -> int:
@@ -825,6 +845,12 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_cases_verify_all(args)
         cases_parser.print_help()
         return 1
+
+    if args.subcmd == "keyword-audit":
+        from .keyword_audit import run_keyword_audit
+        code = run_keyword_audit(args)
+        close_db()
+        return code
 
     if args.subcmd == "clean-articles":
         cmd_clean_articles()
