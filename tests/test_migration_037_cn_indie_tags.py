@@ -70,7 +70,7 @@ def test_037_runs_after_036(v36_db):
     migrate()
     assert get_db().execute(
         "SELECT MAX(version) FROM schema_version"
-    ).fetchone()[0] == _CURRENT_VERSION == 37
+    ).fetchone()[0] == _CURRENT_VERSION == 38  # v1.0.65 bumped it to 038
 
 
 def test_037_binds_source_to_existing_tags(v36_db):
@@ -121,7 +121,7 @@ def test_037_tolerates_unseeded_database(tmp_path):
     migrate()
     assert get_db().execute(
         "SELECT MAX(version) FROM schema_version"
-    ).fetchone()[0] == 37
+    ).fetchone()[0] == _CURRENT_VERSION
     close_db()
 
 
