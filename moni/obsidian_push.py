@@ -32,8 +32,34 @@ VAULT = os.environ.get("OBSIDIAN_VAULT_PATH", "/Users/mt16/Library/Mobile Docume
 NOTE_NAME = "moni-待剪藏"
 
 # 微信生态源 (bestblogs 是 375 公众号聚合)
-# v1.0.66: xbot_feed 的 "wechat" topic 那半边也是微信生态, 一并纳入。
-WECHAT_SOURCES = {"bestblogs", "wechat_rss_a", "wechat_rss_b", "bestblog-podcast", "bestblog-x", "bestblog-yt", "xbot_feed"}
+#
+# v1.0.66 审计 B4: **xbot_feed 不在这里**。它是**混合源** —— 一半
+# wechat topic (微信/小程序), 一半 xcircle topic (推特圈)。整个塞进
+# WECHAT_SOURCES 会把 xcircle 的推文也当成微信生态推进 Obsidian 清单,
+# 清单语义被污染。改成按文章**实际挂的 tag** 判断 (见 _is_wechat_ecosystem)。
+WECHAT_SOURCES = {"bestblogs", "wechat_rss_a", "wechat_rss_b", "bestblog-podcast", "bestblog-x", "bestblog-yt"}
+
+# 微信生态的 tag 名单 (v1.0.66 审计 B4): 挂了这些 tag 的文章属于微信
+# 生态 —— xbot_feed 的 wechat 半边正是这样来的。
+WECHAT_TAGS = {"wechat", "miniprogram"}
+
+
+def _is_wechat_ecosystem(article: dict) -> bool:
+    """True if the article belongs to the WeChat ecosystem.
+
+    判定: 源在 ``WECHAT_SOURCES`` 里, **或者**文章挂了 ``wechat`` /
+    ``miniprogram`` tag。
+
+    v1.0.66 审计 B4: 之前是"源在集合里就算微信生态", 混合源 xbot_feed
+    只能整个算或整个不算。现在按文章实际的 tag 判断 —— xbot_feed 的
+    wechat 半边 (挂了 wechat tag) 照样进清单, xcircle 半边 (只挂
+    general-tech / ai-fintech) 不进。
+    """
+    if (article.get("source") or "") in WECHAT_SOURCES:
+        return True
+    raw = article.get("tag_names") or ""
+    tags = {t.strip() for t in raw.split(",") if t.strip()}
+    return bool(tags & WECHAT_TAGS)
 
 
 def _source_label(source: str) -> str:
@@ -44,6 +70,8 @@ def _source_label(source: str) -> str:
         "bestblog-podcast": "播客",
         "bestblog-x": "X",
         "bestblog-yt": "YouTube",
+        # v1.0.66 审计 S-3: 标签要如实反映来源 —— xbot_feed 是「X-bot 精选」,
+        # 不是纯微信源 (它只有挂了 wechat/miniprogram tag 的那半边会进清单)。
         "xbot_feed": "X-bot 精选",
     }.get(source, source)
 
@@ -62,24 +90,42 @@ def fetch_high_value_articles(
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
     sql = """
-        SELECT id, title, url, source, business_value_score, fetched_at
-        FROM articles
-        WHERE business_value_score IS NOT NULL
-          AND business_value_score >= ?
-          AND fetched_at >= ?
+        SELECT a.id, a.title, a.url, a.source, a.business_value_score, a.fetched_at,
+               GROUP_CONCAT(t.tag_name) AS tag_names
+        FROM articles a
+        LEFT JOIN article_tags t ON t.article_id = a.id
+        WHERE a.business_value_score IS NOT NULL
+          AND a.business_value_score >= ?
+          AND a.fetched_at >= ?
     """
     params: list = [min_score, since]
 
     if source_filter:
         if source_filter == "wechat":
             placeholders = ",".join("?" * len(WECHAT_SOURCES))
-            sql += f" AND source IN ({placeholders})"
+            tag_placeholders = ",".join("?" * len(WECHAT_TAGS))
+            # 源在微信生态集合里 **或者** 文章挂了微信生态 tag
+            # (v1.0.66 审计 B4: 混合源按文章实际 tag 判定, 不按源名)
+            sql += f"""
+              AND (
+                    a.source IN ({placeholders})
+                 OR EXISTS (
+                        SELECT 1 FROM article_tags t2
+                        WHERE t2.article_id = a.id
+                          AND t2.tag_name IN ({tag_placeholders})
+                    )
+              )
+            """
             params.extend(sorted(WECHAT_SOURCES))
+            params.extend(sorted(WECHAT_TAGS))
         else:
-            sql += " AND source = ?"
+            sql += " AND a.source = ?"
             params.append(source_filter)
 
-    sql += " ORDER BY business_value_score DESC LIMIT ?"
+    sql += """
+        GROUP BY a.id, a.title, a.url, a.source, a.business_value_score, a.fetched_at
+        ORDER BY a.business_value_score DESC LIMIT ?
+    """
     params.append(limit)
 
     rows = conn.execute(sql, params).fetchall()
