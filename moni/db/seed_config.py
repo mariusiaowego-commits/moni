@@ -282,6 +282,37 @@ _DEFAULT_SOURCES = [
             "timeout_sec": 1200,
         }, ensure_ascii=False),
     },
+    # v1.0.66: xbot_feed — X-bot 精选桥接源。
+    # 上游是私有仓库 mariusiaowego-commits/xbot-feed (X-bot 的导出器每天写
+    # 一份 feed/YYYY-MM-DD.json)。moni 侧不持有任何 key: 本地 clone 用机器
+    # 上已有的 git 凭据 (SSH agent / credential helper)。
+    # bypass_keyword_filters=true (同 follow_builders): 精选内容整体入库,
+    # tag 由 fetcher 按 topic 精确写入 (wechat → wechat+miniprogram,
+    # xcircle → general-tech+ai-fintech), 不靠全局/源级黑白名单。
+    {
+        "id": "src-xbot-feed",
+        "name": "xbot_feed",
+        "display_name": "X-bot 精选",
+        "source_type": "json",
+        "url": "https://github.com/mariusiaowego-commits/xbot-feed.git",
+        "fetch_interval_min": 60,
+        "notes": "X-bot 精选 feed (私有仓库 xbot-feed 的 feed/*.json)。moni 只做导入; 私有仓库访问权来自机器已有的 git 凭据。",
+        "fetch_config": json.dumps({
+            "bypass_keyword_filters": True,
+            "repo_url": "https://github.com/mariusiaowego-commits/xbot-feed.git",
+            "clone_dir": "",
+            "blacklisted_handles": [
+                "jkghzone",        # 代购/代付灰产
+                "sensenxnyz",      # 代购/代付灰产
+                "Eason3110188520",  # 签到打卡接单
+                "duizhanggege",     # 小程序副业营销号
+                "HunchoJ01",        # 关键词误命中的噪音号
+            ],
+            "max_days": 30,
+            "git_timeout": 120,
+            "skip_existing_urls": True,
+        }, ensure_ascii=False),
+    },
 ]
 
 
@@ -343,6 +374,17 @@ _DEFAULT_SOURCE_TAGS = [
     ("src-chinese-independent-blogs", "regulation"),
     ("src-chinese-independent-blogs", "wechat"),
     ("src-chinese-independent-blogs", "workbuddy"),
+    # v1.0.66: xbot_feed 绑 4 个已有业务 tag ——
+    #   wechat + miniprogram  → 微信/小程序那一半 (topic "wechat")
+    #   general-tech + ai-fintech → 推特圈那一半 (topic "xcircle"): 中文技术/
+    #     投资圈的一般讨论, 其中"AI × 金融/投资"归 ai-fintech。
+    # 这 4 个 tag 的关键词并集就是入库闸门; 具体每篇打哪些 tag 由
+    # FetcherXbotFeed 按 topic 精确计算 (bypass 模式下 bypass 分支会把
+    # 全部绑定 tag 都合成命中, 所以 fetcher 覆写了那批命中)。
+    ("src-xbot-feed", "wechat"),
+    ("src-xbot-feed", "miniprogram"),
+    ("src-xbot-feed", "general-tech"),
+    ("src-xbot-feed", "ai-fintech"),
 ]
 
 

@@ -4,7 +4,45 @@
 
 ---
 
-## 当前状态: **v1.0.65 — 词边界收紧后的召回补偿** (2026-10-25 · **SHIPPED**)
+## 当前状态: **v1.0.66 — xbot_feed 源（X-bot 精选桥接）** (2026-11-03 · **IN REVIEW**)
+
+**分支**: `feat/xbot-feed-source` · **schema**: 38（无新迁移）· **测试**: 见 PR 描述
+
+### v1.0.66 交付要点
+
+新增第 14 个抓取源 **`xbot_feed`**（DB id `src-xbot-feed`，显示名「X-bot 精选」）——
+把 X-bot 每天挑好的内容（微信话题 + 推特圈）导入 moni。
+
+| 项 | 决定 | 理由 |
+|---|---|---|
+| 取数 | 数据目录下 `git clone` / `git pull --ff-only` 私有仓库 `mariusiaowego-commits/xbot-feed`，读 `feed/*.json` | moni **不存任何 key**：私有仓库访问权来自机器已有的 git 凭据 |
+| 源名 | `xbot_feed`（不是 `x_wechat`） | 源不限微信（两个 topic 都导），且要跟 `xwatch`（X 关键词监控，自己抓）区分 |
+| topic → tag | `wechat` → `wechat` + `miniprogram`；`xcircle` → `general-tech` + `ai-fintech` | 不新建 tag：关键词为空的 tag 会让闸门透传（migration 037 的教训） |
+| 关键词闸门 | `bypass_keyword_filters: true`（同 `follow_builders`） | 精选内容整体入库；代价是源级黑名单失效 → 用 fetcher 内置 handle 黑名单补位 |
+| 频率 | `fetch_interval_min: 60` | 抓取本身很轻（一次 git pull + 读 JSON） |
+| 去重 | tweet id 去重（状态文件 `.xbot_feed_state.json`）+ 与 `bestblog-x`/`xwatch` 的跨源软去重 | 沿用 `follow_builders` 的 `normalize_tweet_url` + 全局 EXISTS 检查 |
+| 未知 topic | **不入库**，记 warning | 上游加新 topic 时宁可少收也不要错打 tag |
+
+**关键实现细节**：`bypass_keyword_filters` 打开后，`moni/fetch/tag_filter.py` 的 bypass
+分支会给**每一篇**文章合成**全部**绑定 tag 的命中 —— 推特圈的文章也会被打上"微信生态"。
+`FetcherXbotFeed` 因此覆写了 `dedupe_insert()`：丢掉 bypass 的全量合成命中，换成**按每篇
+自己的 topic 算出来的**命中。文章依然保证带 tag（AGENTS.md 铁律 3：零 tag 的文章前端筛不到），
+但带的 tag 是对的。
+
+**内置 handle 黑名单**（可在 `fetch_config.blacklisted_handles` 改）：`jkghzone` /
+`sensenxnyz`（代购代付灰产）、`Eason3110188520`（签到打卡接单）、`duizhanggege`
+（小程序副业营销号）、`HunchoJ01`（关键词误命中的噪音号）。判据来自 2026-11-03 首日
+feed 实测（46 条 wechat + 157 条 xcircle）。
+
+**git 失败必须报错**：clone/pull 失败时记 `error`，绝不静默返回 0 篇 —— 静默 0 篇跟
+"今天真的没内容"看起来一模一样，但含义完全相反。
+
+**首次在 Mac 上跑之前**：确认那台机器的 git 能访问私有仓库 `xbot-feed`
+（SSH agent 或 credential helper 里已有凭据）。
+
+---
+
+## 历史状态: **v1.0.65 — 词边界收紧后的召回补偿** (2026-10-25 · **SHIPPED**)
 
 **主分支**: main @ `dcd4178` · **Tag**: `v1.0.65` · **PR**: #168
 **schema**: 38（migration 038）· **测试**: 1387 passed / 2 skipped

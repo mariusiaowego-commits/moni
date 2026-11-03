@@ -1,0 +1,32 @@
+{
+  "date": "2026-11-02",
+  "generated_at": "2026-11-02T08:30:00.000000+08:00",
+  "counts_by_topic": {
+    "wechat": 1,
+    "xcircle": 0
+  },
+  "items": [
+    {
+      "id": "2117000000000000001",
+      "url": "https://x.com/oldposter/status/2117000000000000001",
+      "author_name": "Old Poster",
+      "author_handle": "oldposter",
+      "author_followers": 100,
+      "text": "昨天的一条微信小程序笔记",
+      "created_at": "2026-11-02T01:00:00.000Z",
+      "metrics": {
+        "like": 0,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": "zh",
+      "topic": "wechat",
+      "captured_at": "2026-11-02T08:30:00.000000+08:00",
+      "source_file": "/workspace/x-digest/wtoday2.txt",
+      "sent_by_xbot": false
+    }
+  ]
+}

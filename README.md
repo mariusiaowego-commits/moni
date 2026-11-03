@@ -37,6 +37,7 @@ open http://127.0.0.1:8900/
 | `bestblog-podcast` | 小宇宙播客 (60 feeds) | wechat |
 | `bestblog-x` | x.com / Twitter (160 feeds) | wechat |
 | `bestblog-yt` | YouTube 频道 (20 feeds) | wechat |
+| `xbot_feed` | X-bot 精选 (私有仓库 `xbot-feed` 的 `feed/*.json`) | wechat / miniprogram / general-tech / ai-fintech |
 
 ## 关键命令
 

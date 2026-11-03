@@ -32,7 +32,8 @@ VAULT = os.environ.get("OBSIDIAN_VAULT_PATH", "/Users/mt16/Library/Mobile Docume
 NOTE_NAME = "moni-待剪藏"
 
 # 微信生态源 (bestblogs 是 375 公众号聚合)
-WECHAT_SOURCES = {"bestblogs", "wechat_rss_a", "wechat_rss_b", "bestblog-podcast", "bestblog-x", "bestblog-yt"}
+# v1.0.66: xbot_feed 的 "wechat" topic 那半边也是微信生态, 一并纳入。
+WECHAT_SOURCES = {"bestblogs", "wechat_rss_a", "wechat_rss_b", "bestblog-podcast", "bestblog-x", "bestblog-yt", "xbot_feed"}
 
 
 def _source_label(source: str) -> str:
@@ -43,6 +44,7 @@ def _source_label(source: str) -> str:
         "bestblog-podcast": "播客",
         "bestblog-x": "X",
         "bestblog-yt": "YouTube",
+        "xbot_feed": "X-bot 精选",
     }.get(source, source)
 
 

@@ -94,6 +94,23 @@ _FETCH_CONFIG_DEFAULTS: dict[str, dict] = {
         "max_failure_rate": 0.7,
         "timeout_sec": 1200,
     },
+    # v1.0.66: xbot_feed — X-bot 精选桥接源。私有仓库的 clone 用机器上
+    # 已有的 git 凭据, moni 不存 key。
+    "xbot_feed": {
+        "bypass_keyword_filters": True,
+        "repo_url": "https://github.com/mariusiaowego-commits/xbot-feed.git",
+        "clone_dir": "",
+        "blacklisted_handles": [
+            "jkghzone",
+            "sensenxnyz",
+            "Eason3110188520",
+            "duizhanggege",
+            "HunchoJ01",
+        ],
+        "max_days": 30,
+        "git_timeout": 120,
+        "skip_existing_urls": True,
+    },
 }
 
 _RETIRED_FETCH_CONFIG_KEYS = {"consecutive_failure_limit"}
