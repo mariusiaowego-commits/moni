@@ -4,7 +4,62 @@
 
 ---
 
-## 当前状态: **v1.0.65 — 词边界收紧后的召回补偿** (2026-10-25 · **SHIPPED**)
+## 当前状态: **v1.0.66 — xbot_feed 源（X-bot 精选桥接）** (2026-11-03 · **IN REVIEW**)
+
+**分支**: `feat/xbot-feed-source` · **schema**: 38（无新迁移）· **测试**: 见 PR 描述
+
+### v1.0.66 交付要点
+
+新增第 14 个抓取源 **`xbot_feed`**（DB id `src-xbot-feed`，显示名「X-bot 精选」）——
+把 X-bot 每天挑好的内容（微信话题 + 推特圈）导入 moni。
+
+| 项 | 决定 | 理由 |
+|---|---|---|
+| 取数 | 数据目录下 `git clone` / `git pull --ff-only` 私有仓库 `mariusiaowego-commits/xbot-feed`，读 `feed/*.json` | moni **不存任何 key**：私有仓库访问权来自机器已有的 git 凭据 |
+| 源名 | `xbot_feed`（不是 `x_wechat`） | 源不限微信（两个 topic 都导），且要跟 `xwatch`（X 关键词监控，自己抓）区分 |
+| topic → **候选** tag | `wechat` → `wechat` + `miniprogram`；`xcircle` → `general-tech` + `ai-fintech`（可在 `fetch_config.topic_tags` 改） | 不新建 tag：关键词为空的 tag 会让闸门透传（migration 037 的教训） |
+| 关键词闸门 | tag 闸门在 **fetcher 内**执行；`bypass_keyword_filters: true` 只短路全局/源级黑白名单 | 精选内容整体入库，但 tag 仍由关键词决定 |
+| 频率 | `fetch_interval_min: 60` | 抓取本身很轻（一次 git pull + 读 JSON） |
+| 去重 | tweet id 去重（状态文件 `.xbot_feed_state.json`）+ 与 `bestblog-x`/`xwatch` 的跨源软去重（**精确 id 匹配**） | 沿用 `follow_builders` 的 `normalize_tweet_url` + 全局 EXISTS 检查 |
+| 未知 topic | **不入库**，记 warning | 上游加新 topic 时宁可少收也不要错打 tag |
+
+**关键实现细节（v1.0.66 审计 B1 重做）**：tag 不再按 topic **硬打**，而是
+「**topic → 候选 tag → 该 tag 当前关键词的真实命中**」：
+
+1. `fetch_config.topic_tags`（默认 `{"wechat": ["wechat","miniprogram"],
+   "xcircle": ["general-tech","ai-fintech"]}`）给出每个 topic 的**候选** tag，
+   可在 web 端改；未配置的 topic 若有**同名 active tag** 就用它，否则跳过 + warning。
+2. fetcher 从 `tag_definitions.keywords` 读该 tag **当前**的关键词，只用
+   `moni/fetch/keyword_match.py` 的 `keyword_matches` 匹配标题 + 正文
+   （AGENTS.md 铁律 1：关键词匹配只能走这一个引擎）。
+3. **只挂命中的 tag**，命中关键词写进 `article_keyword_hits`；
+   **零命中 → 该条不入库**（不产生零 tag 的文章，AGENTS.md 铁律 3）。
+4. **被关键词挡掉的条目不写进已导入 state** —— 用户在 `/config` 改完关键词，
+   下一轮它们还能进来。
+
+`bypass_keyword_filters` 打开时，`moni/fetch/tag_filter.py` 的 bypass 分支会
+给每一篇文章合成全部绑定 tag 的命中（`hit_field == "bypass"`）；那批是假的，
+`dedupe_insert()` 丢掉它，只透传 fetcher 自己算出来的真实命中。
+
+**内置 handle 黑名单**（可在 `fetch_config.blacklisted_handles` 改）：`jkghzone` /
+`sensenxnyz`（代购代付灰产）、`Eason3110188520`（签到打卡接单）、`duizhanggege`
+（小程序副业营销号）、`HunchoJ01`（关键词误命中的噪音号）。判据来自 2026-11-03 首日
+feed 实测（46 条 wechat + 157 条 xcircle）。
+
+**git 失败必须报错**：clone/pull 失败时记 `error`，绝不静默返回 0 篇 —— 静默 0 篇跟
+"今天真的没内容"看起来一模一样，但含义完全相反。
+
+**git 输入校验 + 输出脱敏（v1.0.66 审计 B-6/B-7）**：`repo_url` 只接受
+`https://github.com/<owner>/<repo>[.git]`（拒绝以 `-` 开头的 git 选项与非
+github 协议）；`clone_dir` 解析后必须落在 moni 数据目录内；git 的 stderr/stdout
+进日志前脱敏（URL 里的 `user:token@` → `***`），凭据不落盘。
+
+**首次在 Mac 上跑之前**：确认那台机器的 git 能访问私有仓库 `xbot-feed`
+（SSH agent 或 credential helper 里已有凭据）。
+
+---
+
+## 历史状态: **v1.0.65 — 词边界收紧后的召回补偿** (2026-10-25 · **SHIPPED**)
 
 **主分支**: main @ `dcd4178` · **Tag**: `v1.0.65` · **PR**: #168
 **schema**: 38（migration 038）· **测试**: 1387 passed / 2 skipped

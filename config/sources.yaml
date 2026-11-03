@@ -77,3 +77,9 @@ sources:
   fetch_interval_min: 180
   enabled: true
   crawler_type: rss
+- source_name: xbot_feed
+  type: json
+  feed_url: https://github.com/mariusiaowego-commits/xbot-feed.git
+  fetch_interval_min: 60
+  enabled: true
+  crawler_type: json

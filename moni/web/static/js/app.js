@@ -2662,6 +2662,9 @@ function app() {
         'wechat_rss_a': '/static/icons/sources/wechat_rss.png',
         'wechat_rss_b': '/static/icons/sources/wechat_rss_b.png',
         'xwatch': '/static/icons/sources/xwatch.png',
+        // v1.0.66: xbot_feed (X-bot 精选) — 蓝色 X 徽标, 跟 xwatch 的钴蓝
+        // 同族但更亮一档, 抓取链上两者挨着放。
+        'xbot_feed': '/static/icons/sources/xbot_feed.png',
       };
       const labelMap = {
         '36kr_rss': '36氪', 'bestblogs': 'bb公众号', 'bestblog-podcast': 'bb博客',
@@ -2669,6 +2672,7 @@ function app() {
         'huxiu': '虎嗅', 'mpaypass': '移动支付网', 'qbitai': '量子位',
         'wechat_rss_a': 'wechatrss-A', 'wechat_rss_b': 'wechatrss-B',
         'xwatch': 'X 关键词',
+        'xbot_feed': 'X-bot 精选',
       };
       const colorMap = {
         '36kr_rss': [90,140,220], 'bestblogs': [60,180,170], 'bestblog-podcast': [60,180,170],
@@ -2680,15 +2684,22 @@ function app() {
         // burst blends with the source icon. Earlier draft used X-brand
         // red [220,90,90] which clashed with the cobalt stroke.
         'xwatch': [30, 64, 175],
+        // v1.0.66: xbot_feed 用天蓝 [56,132,225] — 比 xwatch 的深钴蓝亮
+        // 一档, 两者在抓取链上相邻但不撞色。
+        'xbot_feed': [56, 132, 225],
       };
 
       if (this.fetchBatchMode) {
         // Custom sort order for batch fetch chain.
         // v1.0.13: xwatch slotted between bestblog-x and bestblog-yt to
         // keep "X-flavored" sources grouped on the right side of the chain.
+        // v1.0.66 审计 S-4: xbot_feed 移到 bestblog-yt 之后单列 —— 它是
+        // **导入型**源 (同步上游已筛好的 feed), 不是主动抓取节点, 挨着
+        // xwatch (X 关键词监控) 会让人误以为它在抓取链上主动抓。
         const sortOrder = [
           'wechat_rss_a', 'wechat_rss_b', 'bestblogs', 'qbitai', 'mpaypass',
-          '36kr_rss', 'bestblog-podcast', 'bestblog-x', 'xwatch', 'bestblog-yt', 'huxiu',
+          '36kr_rss', 'bestblog-podcast', 'bestblog-x', 'xwatch',
+          'bestblog-yt', 'xbot_feed', 'huxiu',
         ];
         return (this.sources || []).filter(s => s.is_active)
           .sort((a, b) => {
@@ -2982,6 +2993,8 @@ function app() {
         'wechat_rss_a': '/static/icons/sources/wechat_rss.png',
         'wechat_rss_b': '/static/icons/sources/wechat_rss_b.png',
         'xwatch': '/static/icons/sources/xwatch.png',
+        // v1.0.66: xbot_feed (X-bot 精选)
+        'xbot_feed': '/static/icons/sources/xbot_feed.png',
       };
       return map[name] || '/static/icons/sources/36kr.png';
     },

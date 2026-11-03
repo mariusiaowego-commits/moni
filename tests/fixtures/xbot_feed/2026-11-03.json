@@ -1,0 +1,142 @@
+{
+  "date": "2026-11-03",
+  "generated_at": "2026-11-03T08:31:42.881042+08:00",
+  "counts_by_topic": {
+    "wechat": 3,
+    "xcircle": 3
+  },
+  "items": [
+    {
+      "id": "2117412872158662796",
+      "url": "https://x.com/shihuangtimes/status/2117412872158662796",
+      "author_name": "拾荒旧时光",
+      "author_handle": "shihuangtimes",
+      "author_followers": 3280,
+      "text": "微信小程序代码审核通过啦！速度真够快的，不到四小时就搞定👍 https://t.co/ThZwe0bHxj",
+      "created_at": "2026-11-03T00:25:43.000Z",
+      "metrics": {
+        "like": 1,
+        "retweet": 0,
+        "impression": 9,
+        "reply": 1,
+        "quote": 0,
+        "bookmark": 0
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-03T08:31:42.881042+08:00",
+      "source_file": "/workspace/x-digest/wtoday3.txt",
+      "sent_by_xbot": false
+    },
+    {
+      "id": "2117325701435244885",
+      "url": "https://x.com/Nadja_lernt_Q/status/2117325701435244885",
+      "author_name": "Nadja",
+      "author_handle": "Nadja_lernt_Q",
+      "author_followers": 55,
+      "text": "On November 2, 2026, Tencent's TenPay Global and Mastercard signed a Memorandum of Understanding to explore cross-border payments and AI-powered commerce.",
+      "created_at": "2026-11-02T15:16:17.000Z",
+      "metrics": {
+        "like": 62,
+        "retweet": 9,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": "en",
+      "topic": "wechat",
+      "captured_at": "2026-11-03T08:31:42.881042+08:00",
+      "source_file": "/workspace/x-digest/wtoday3.txt",
+      "sent_by_xbot": true
+    },
+    {
+      "id": "2117078122927624554",
+      "url": "https://x.com/jkghzone/status/2117078122927624554",
+      "author_name": "joie",
+      "author_handle": "jkghzone",
+      "author_followers": 92,
+      "text": "china purchase assistance xianyu taobao wechat checkout — rate: rmb x 9.7 + 30 (200 below)",
+      "created_at": "2026-11-02T02:15:32.000Z",
+      "metrics": {
+        "like": 1,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": "en",
+      "topic": "wechat",
+      "captured_at": "2026-11-03T08:31:42.881042+08:00",
+      "source_file": "/workspace/x-digest/wtoday3.txt",
+      "sent_by_xbot": false
+    },
+    {
+      "id": "2117414151186502091",
+      "url": "https://x.com/oran_ge/status/2117414151186502091",
+      "author_name": "Orange AI",
+      "author_handle": "oran_ge",
+      "author_followers": 188424,
+      "text": "@rockeymen AI 是放大器\n感性的人只会更感性",
+      "created_at": "2026-11-03T00:30:47.000Z",
+      "metrics": {
+        "like": 0,
+        "retweet": 0,
+        "impression": 0,
+        "reply": 0,
+        "quote": 0,
+        "bookmark": 0
+      },
+      "lang": "zh",
+      "topic": "xcircle",
+      "captured_at": "2026-11-03T08:31:42.857042+08:00",
+      "source_file": "/workspace/x-digest/atoday3.txt",
+      "sent_by_xbot": false
+    },
+    {
+      "id": "2117398931932082403",
+      "url": "https://x.com/oran_ge/status/2117398931932082403",
+      "author_name": "Orange AI",
+      "author_handle": "oran_ge",
+      "author_followers": 188424,
+      "text": "RSI 初现端倪\n连模型训练都不需要了。。",
+      "created_at": "2026-11-02T23:30:19.000Z",
+      "metrics": {
+        "like": 24,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": "zh",
+      "topic": "xcircle",
+      "captured_at": "2026-11-03T08:31:42.857042+08:00",
+      "source_file": "/workspace/x-digest/atoday3.txt",
+      "sent_by_xbot": false
+    },
+    {
+      "id": "9999999999999999999",
+      "url": "https://x.com/someone/status/9999999999999999999",
+      "author_name": "Someone",
+      "author_handle": "someone",
+      "author_followers": 10,
+      "text": "一个未知 topic 的条目",
+      "created_at": "2026-11-03T01:00:00.000Z",
+      "metrics": {
+        "like": 0,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": "zh",
+      "topic": "brand_new_topic",
+      "captured_at": "2026-11-03T08:31:42.857042+08:00",
+      "source_file": "/workspace/x-digest/atoday3.txt",
+      "sent_by_xbot": false
+    }
+  ]
+}

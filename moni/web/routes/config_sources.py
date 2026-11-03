@@ -6,6 +6,7 @@ M:N table.
 """
 from __future__ import annotations
 
+import copy
 import json as _json
 import logging
 from datetime import datetime, timezone
@@ -13,6 +14,13 @@ from datetime import datetime, timezone
 from fastapi import APIRouter
 
 from moni.db.connection import get_db
+# v1.0.66 审计 B5: xbot_feed 的 fetch_config 默认值只有一个来源 ——
+# moni/fetch/sources/xbot_feed.py 的 DEFAULT_FETCH_CONFIG。
+# 循环 import 风险: xbot_feed.py 只在**函数内** import moni.db.*,
+# 模块层不 import moni.db → 这里从 moni.fetch 拉常量不会形成环。
+from moni.fetch.sources.xbot_feed import (
+    DEFAULT_FETCH_CONFIG as XBOT_FEED_DEFAULT_FETCH_CONFIG,
+)
 from moni.web.exceptions import ConflictError, NotFoundError
 from moni.web.models import (
     FetchConfigResponse,
@@ -94,6 +102,11 @@ _FETCH_CONFIG_DEFAULTS: dict[str, dict] = {
         "max_failure_rate": 0.7,
         "timeout_sec": 1200,
     },
+    # v1.0.66: xbot_feed — X-bot 精选桥接源。私有仓库的 clone 用机器上
+    # 已有的 git 凭据, moni 不存 key。
+    # v1.0.66 审计 B5: 默认值统一引用 moni.fetch.sources.xbot_feed 的
+    # DEFAULT_FETCH_CONFIG —— 不再在本文件里抄一遍 (三处抄本会漂移)。
+    "xbot_feed": copy.deepcopy(XBOT_FEED_DEFAULT_FETCH_CONFIG),
 }
 
 _RETIRED_FETCH_CONFIG_KEYS = {"consecutive_failure_limit"}

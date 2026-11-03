@@ -25,11 +25,20 @@ keyword filters (黑名单为主，过滤业务无关内容):
 """
 from __future__ import annotations
 
+import copy
 import json
 import sqlite3
 from datetime import datetime, timezone
 
 from .connection import get_db
+
+# v1.0.66 审计 B5: xbot_feed 的 fetch_config 默认值只有一个来源 ——
+# moni/fetch/sources/xbot_feed.py 的 DEFAULT_FETCH_CONFIG。
+# 循环 import 风险: moni/fetch/sources/xbot_feed.py 只在**函数内** import
+# moni.db.*, 模块层不 import moni.db → 这里从 moni.fetch 拉常量不会形成环。
+from moni.fetch.sources.xbot_feed import (
+    DEFAULT_FETCH_CONFIG as XBOT_FEED_DEFAULT_FETCH_CONFIG,
+)
 
 
 def _env_token(account: str) -> str:
@@ -282,6 +291,29 @@ _DEFAULT_SOURCES = [
             "timeout_sec": 1200,
         }, ensure_ascii=False),
     },
+    # v1.0.66: xbot_feed — X-bot 精选桥接源。
+    # 上游是私有仓库 mariusiaowego-commits/xbot-feed (X-bot 的导出器每天写
+    # 一份 feed/YYYY-MM-DD.json)。moni 侧不持有任何 key: 本地 clone 用机器
+    # 上已有的 git 凭据 (SSH agent / credential helper)。
+    # bypass_keyword_filters=true (同 follow_builders): 精选内容整体入库,
+    # 不受全局/源级黑白名单影响。tag 由 fetcher 按 topic 的**候选 tag**
+    # 的当前关键词真实命中写入 (wechat → wechat+miniprogram,
+    # xcircle → general-tech+ai-fintech), 不靠全局/源级黑白名单。
+    # v1.0.66 审计 B5: 默认值统一引用 moni.fetch.sources.xbot_feed 的
+    # DEFAULT_FETCH_CONFIG —— 不再在本文件里抄一遍 (三处抄本会漂移)。
+    {
+        "id": "src-xbot-feed",
+        "name": "xbot_feed",
+        "display_name": "X-bot 精选",
+        "source_type": "json",
+        "url": "https://github.com/mariusiaowego-commits/xbot-feed.git",
+        "fetch_interval_min": 60,
+        "notes": "X-bot 精选 feed (私有仓库 xbot-feed 的 feed/*.json)。moni 只做导入; 私有仓库访问权来自机器已有的 git 凭据。",
+        "fetch_config": json.dumps(
+            copy.deepcopy(XBOT_FEED_DEFAULT_FETCH_CONFIG),
+            ensure_ascii=False,
+        ),
+    },
 ]
 
 
@@ -343,6 +375,17 @@ _DEFAULT_SOURCE_TAGS = [
     ("src-chinese-independent-blogs", "regulation"),
     ("src-chinese-independent-blogs", "wechat"),
     ("src-chinese-independent-blogs", "workbuddy"),
+    # v1.0.66: xbot_feed 绑 4 个已有业务 tag ——
+    #   wechat + miniprogram  → 微信/小程序那一半 (topic "wechat")
+    #   general-tech + ai-fintech → 推特圈那一半 (topic "xcircle"): 中文技术/
+    #     投资圈的一般讨论, 其中"AI × 金融/投资"归 ai-fintech。
+    # 这 4 个 tag 的关键词并集就是入库闸门; 具体每篇打哪些 tag 由
+    # FetcherXbotFeed 按 topic 精确计算 (bypass 模式下 bypass 分支会把
+    # 全部绑定 tag 都合成命中, 所以 fetcher 覆写了那批命中)。
+    ("src-xbot-feed", "wechat"),
+    ("src-xbot-feed", "miniprogram"),
+    ("src-xbot-feed", "general-tech"),
+    ("src-xbot-feed", "ai-fintech"),
 ]
 
 

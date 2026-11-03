@@ -166,6 +166,20 @@ topnav 右侧显示服务状态：
 | bestblog-yt | OPML 聚合 | BestBlogs YouTube (20 feeds) | 5 min |
 | bestblog-x | 本地 OPML | BestBlogs X/Twitter (160 feeds) | 5 min |
 | follow_builders (默认关) | feed-x.json | follow-builders 精选 X (试验源) | 360 min |
+| xbot_feed | 私有仓库 xbot-feed 的 feed/*.json | X-bot 精选 (微信话题 + 推特圈, 本地 git clone) | 60 min |
+
+> **xbot_feed 说明**: 上游是私有仓库 `mariusiaowego-commits/xbot-feed`, moni 在数据目录下
+> `git clone` / `git pull --ff-only` 后读 `feed/*.json`。**moni 不存任何 key** —— 私有仓库的
+> 访问权来自机器上已有的 git 凭据 (SSH agent / credential helper)。首次在 Mac 上跑之前,
+> 先确认那台机器的 git 能访问这个私有仓库。
+>
+> **tag 怎么定的 (v1.0.66 起)**: 不是"按 topic 硬打", 而是 **topic → 候选 tag →
+> 该 tag 当前关键词的真实命中**。候选 tag 在 `/config` → xbot_feed → 抓取配置里
+> 改 (`topic_tags`, 默认 `wechat → [wechat, miniprogram]` /
+> `xcircle → [general-tech, ai-fintech]`); 关键词在 `/config` → 业务 tag 里改。
+> **改完关键词下一轮抓取立刻生效** —— 被关键词挡掉的条目不会记进"已导入",
+> 所以改宽松之后它们会重新进来。命中哪个 tag 就只挂哪个 (推特圈的推文不会被
+> 挂上"微信生态"); 一个都没命中则该条**不入库**。
 
 **新建源**: 点"+ 新建 source" → 填 id / name / url / type / interval → 保存
 **改 tags**: 行内 "改 tags" 按钮 → 多选弹窗

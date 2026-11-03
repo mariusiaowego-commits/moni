@@ -123,7 +123,7 @@ class BaseFetcher(ABC):
 
     # ── dedupe ─────────────────────────────────────────────────────────────
 
-    def dedupe_insert(self, articles: list[dict[str, Any]], keyword_hits: list[dict[str, Any]] = []) -> int:
+    def dedupe_insert(self, articles: list[dict[str, Any]], keyword_hits: list[dict[str, Any]] | None = None) -> int:
         """Insert articles into the DB, skipping duplicates.
 
         Args:
@@ -136,7 +136,7 @@ class BaseFetcher(ABC):
         from ..db.repository import ArticleRepository
 
         repo = ArticleRepository()
-        return repo.dedupe_insert(articles, keyword_hits)
+        return repo.dedupe_insert(articles, keyword_hits or ())
 
     # ── run ─────────────────────────────────────────────────────────────────
 
