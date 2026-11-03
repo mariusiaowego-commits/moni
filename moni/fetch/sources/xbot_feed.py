@@ -874,7 +874,17 @@ class FetcherXbotFeed(BaseFetcher):
 
     @staticmethod
     def _is_url_exists_globally(canonical_url: str, tweet_id: str) -> bool:
-        """True if any source already stored this tweet."""
+        """True if any source already stored this tweet.
+
+        v1.0.66 (audit B2): the old query was ``url LIKE '%status/{id}%'`` —
+        the trailing ``%`` made it a **prefix** match, so tweet id ``...123``
+        matched an already-stored ``...1234`` → the genuine row got silently
+        swallowed by the cross-source soft dedupe (漏采).
+
+        Now the id must be a **complete path segment**: ``/status/<id>`` must
+        be followed by the end of the string, a query/fragment marker, or a
+        path separator — never by another digit.
+        """
         try:
             from ...db.connection import get_db
 
@@ -885,13 +895,38 @@ class FetcherXbotFeed(BaseFetcher):
                     (canonical_url,),
                 ).fetchone()
                 return row is not None
+
+            # tweet id 一定是纯数字。非数字的 id 不做子串匹配 (LIKE 的
+            # `%` / `_` 通配符会引入误命中), 只按精确 url 查。
+            if not tweet_id.isdigit():
+                row = conn.execute(
+                    "SELECT 1 FROM articles WHERE url = ? LIMIT 1",
+                    (canonical_url,),
+                ).fetchone()
+                return row is not None
+
+            marker = f"/status/{tweet_id}"
+            # 精确尾部匹配: marker 之后只能是 字符串结束 / '?' / '#' / '/'。
+            # 用 4 个 LIKE 而不是 instr+substr —— 后者只看**第一次**出现,
+            # 万一 url 里有多处 marker 会漏判; 前者对所有出现都成立。
+            # tweet_id 已验证是纯数字 (不含 % / _ 通配符), 所以无需 ESCAPE。
             row = conn.execute(
                 """
                 SELECT 1 FROM articles
-                WHERE url = ? OR url LIKE ?
+                WHERE url = ?
+                   OR url LIKE ?
+                   OR url LIKE ?
+                   OR url LIKE ?
+                   OR url LIKE ?
                 LIMIT 1
                 """,
-                (canonical_url, f"%status/{tweet_id}%"),
+                (
+                    canonical_url,
+                    f"%{marker}",        # 正好在结尾
+                    f"%{marker}?%",      # 带 query
+                    f"%{marker}#%",      # 带 fragment
+                    f"%{marker}/%",      # 后面还有路径段
+                ),
             ).fetchone()
             return row is not None
         except Exception as exc:  # noqa: BLE001

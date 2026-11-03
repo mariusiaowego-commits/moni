@@ -630,6 +630,70 @@ def test_unconfigured_topic_falls_back_to_same_name_active_tag(fresh_db):
     assert art2 is None
 
 
+def test_cross_source_soft_dedupe_does_not_match_id_prefix(fresh_db):
+    """B2 回归: status/123 不得命中 status/1234 (前缀误命中 → 漏采)。"""
+    from moni.fetch.sources.xbot_feed import FetcherXbotFeed
+
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO articles (id, title, url, source, published_at, fetched_at) "
+        "VALUES ('best2', 'other', "
+        "'https://x.com/bar/status/1234', "
+        "'bestblog-x', NULL, '2026-11-01')"
+    )
+    conn.commit()
+
+    # id 123 与已入库的 1234 **不是**同一条 → 必须返回 False
+    assert FetcherXbotFeed._is_url_exists_globally(
+        "https://x.com/foo/status/123", "123",
+    ) is False
+
+    # id 1234 与已入库的 1234 是同一条 → True
+    assert FetcherXbotFeed._is_url_exists_globally(
+        "https://x.com/bar/status/1234", "1234",
+    ) is True
+
+
+def test_cross_source_soft_dedupe_matches_same_id_with_query(fresh_db):
+    """B2: 带 query 的同一条 (twitter.com?s=20) 仍应命中。"""
+    from moni.fetch.sources.xbot_feed import FetcherXbotFeed
+
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO articles (id, title, url, source, published_at, fetched_at) "
+        "VALUES ('best3', 'dup2', "
+        "'https://twitter.com/foo/status/123?s=20', "
+        "'bestblog-x', NULL, '2026-11-01')"
+    )
+    conn.commit()
+
+    assert FetcherXbotFeed._is_url_exists_globally(
+        "https://x.com/foo/status/123", "123",
+    ) is True
+
+
+def test_dedupe_insert_has_no_mutable_default_arg():
+    """B3: keyword_hits 不得用可变默认参数 (列表) —— 用 None 默认。"""
+    import inspect
+
+    from moni.fetch.sources.xbot_feed import FetcherXbotFeed
+
+    sig = inspect.signature(FetcherXbotFeed.dedupe_insert)
+    default = sig.parameters["keyword_hits"].default
+    assert default is None
+
+
+def test_round_ids_is_per_instance():
+    """B3: _round_ids 是实例属性, 不跨实例共享。"""
+    from moni.fetch.sources.xbot_feed import FetcherXbotFeed
+
+    a = FetcherXbotFeed()
+    b = FetcherXbotFeed()
+    a._round_ids.append("111")
+    assert b._round_ids == []
+    assert a._round_ids == ["111"]
+
+
 def test_source_is_registered():
     from moni.fetch.base import list_fetchers
     from moni.fetch.sources.xbot_feed import FetcherXbotFeed
