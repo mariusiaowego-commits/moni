@@ -82,4 +82,4 @@ sources:
   feed_url: https://github.com/mariusiaowego-commits/xbot-feed.git
   fetch_interval_min: 60
   enabled: true
-  crawler_type: rss
+  crawler_type: json

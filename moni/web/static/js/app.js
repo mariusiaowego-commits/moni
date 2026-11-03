@@ -2693,12 +2693,13 @@ function app() {
         // Custom sort order for batch fetch chain.
         // v1.0.13: xwatch slotted between bestblog-x and bestblog-yt to
         // keep "X-flavored" sources grouped on the right side of the chain.
-        // v1.0.66: xbot_feed 放在 xwatch 前面 —— 它是 X-bot 的精选导入源,
-        // 与 xwatch 的关键词监控同属 X 系。
+        // v1.0.66 审计 S-4: xbot_feed 移到 bestblog-yt 之后单列 —— 它是
+        // **导入型**源 (同步上游已筛好的 feed), 不是主动抓取节点, 挨着
+        // xwatch (X 关键词监控) 会让人误以为它在抓取链上主动抓。
         const sortOrder = [
           'wechat_rss_a', 'wechat_rss_b', 'bestblogs', 'qbitai', 'mpaypass',
-          '36kr_rss', 'bestblog-podcast', 'bestblog-x', 'xbot_feed', 'xwatch',
-          'bestblog-yt', 'huxiu',
+          '36kr_rss', 'bestblog-podcast', 'bestblog-x', 'xwatch',
+          'bestblog-yt', 'xbot_feed', 'huxiu',
         ];
         return (this.sources || []).filter(s => s.is_active)
           .sort((a, b) => {

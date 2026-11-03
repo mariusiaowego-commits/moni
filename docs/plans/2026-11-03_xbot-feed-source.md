@@ -68,12 +68,14 @@ moni 消费上游的产物，不直接调用需要鉴权的第三方 API。
 
 ---
 
-## 4. topic → tag
+## 4. topic → 候选 tag → 关键词闸门
 
-| topic | 内容 | tag | 理由 |
+| topic | 内容 | **候选** tag | 理由 |
 |---|---|---|---|
 | `wechat` | 微信/小程序话题 | `wechat` + `miniprogram` | 就是微信生态话题，小程序是核心议题 |
 | `xcircle` | 推特圈（28 个固定中文账号） | `general-tech` + `ai-fintech` | 中文技术/投资圈的一般讨论；其中"AI × 金融/投资"归 `ai-fintech` |
+
+候选名单写在 `fetch_config.topic_tags`（可在 web 端改），默认就是上面这张表。
 
 **不新建 tag**。理由两条：
 
@@ -83,43 +85,53 @@ moni 消费上游的产物，不直接调用需要鉴权的第三方 API。
 
 ---
 
-## 5. 关键实现：bypass 下按 topic 精确打 tag
+## 5. 关键实现：tag 由**关键词真实命中**决定（v1.0.66 审计 B1 重做）
 
-这是本 PR 最需要解释的一段设计。
+> **这一节在 2026-11-03 的独立审计里被整段推翻并重写。**
+> 原设计（按 topic 硬打 tag）见下面的「原设计（已废弃）」小节。
 
-`bypass_keyword_filters: true`（同 `follow_builders`）打开后，
-`moni/fetch/tag_filter.py` 的 bypass 分支会给**每一篇**文章合成**全部**绑定
-tag 的命中：
+现在的机制：
 
-```python
-# moni/fetch/tag_filter.py:183-202
-if _is_source_bypassed(source):
-    bound_tags = _load_bound_tag_names_for_source(source)
-    for art in articles:
-        for tag_name in bound_tags:
-            synthetic_hits.append({... "tag_name": tag_name,
-                                    "hit_field": "bypass"})
+```
+item.topic
+   ↓  fetch_config.topic_tags（默认表，可改）
+候选 tag 名单
+   ↓  tag_definitions.keywords 里该 tag **当前**的关键词
+   ↓  moni/fetch/keyword_match.py::keyword_matches（标题 + 正文）
+命中的 tag 名单 + 真实命中关键词
+   ↓
+只挂命中的 tag；零命中 → 该条不入库
 ```
 
-源绑了 4 个 tag，所以**每篇**文章都会被打上 `wechat` + `miniprogram` +
-`general-tech` + `ai-fintech` —— 推特圈的文章也会被标成"微信生态"。标签串台，
-前端按 tag 筛会乱。
+规则：
 
-`FetcherXbotFeed` 因此覆写了 `dedupe_insert()`：
+1. **候选名单**来自 `fetch_config.topic_tags`；没配过的 topic 若有**同名
+   active tag** 就用它（上游加 topic 的最小代价路径），否则跳过 + warning。
+2. **关键词**从 `tag_definitions.keywords` 读，每次抓取都重读 —— 用户在
+   `/config` 改完关键词，下一轮立刻生效。
+3. **匹配只用 `moni/fetch/keyword_match.py`**（AGENTS.md 铁律 1：关键词匹配
+   只能走这一个引擎）。
+4. **只挂命中的 tag**，命中关键词写进 `article_keyword_hits`（前端高亮的是
+   用户自己配的那个词，不是 `(topic:xxx)` 合成串）。
+5. **零命中 → 不入库**，不产生零 tag 的文章（AGENTS.md 铁律 3）。
+6. **被关键词挡掉的条目不写进已导入 state** —— 改完关键词下一轮还能进。
 
-```python
-# 丢掉 bypass 的全量合成
-real_hits = [h for h in keyword_hits if h.get("hit_field") != "bypass"]
-# 换成按每篇自己 topic 算出来的
-topic_hits = [{"article_url": art["url"],
-               "keyword": f"(topic:{art['xbot_topic']})",
-               "tag_name": tag, "filter_id": None,
-               "hit_field": "topic"} for ...]
-super().dedupe_insert(articles, real_hits + topic_hits)
-```
+`bypass_keyword_filters: true`（同 `follow_builders`）现在只短路**全局/源级
+黑白名单**。tag_filter 的 bypass 分支仍会合成一批 `hit_field == "bypass"`
+的假命中，`dedupe_insert()` 把它们丢掉，只透传 fetcher 自己算出来的真实命中。
 
-文章依然**保证带 tag**（AGENTS.md 铁律 3：任何 pass-through 路径都必须显式
-合成 hit，否则入库后零 tag、前端筛不到），但带的 tag 是对的。
+### 原设计（已废弃）
+
+~~`bypass_keyword_filters` 打开后，`moni/fetch/tag_filter.py` 的 bypass 分支
+会给**每一篇**文章合成**全部**绑定 tag 的命中。`FetcherXbotFeed` 因此覆写
+`dedupe_insert()`，丢掉那批合成命中，换成按 topic 硬打的命中。~~
+
+废弃原因（审计 B1）：
+
+- tag 关键词闸门一行都不跑 —— 用户在 `/config` 改 `wechat` / `miniprogram` /
+  `general-tech` / `ai-fintech` 的关键词对本源**零效果**，与已确认的设计冲突；
+- `xcircle` 的每一条推文都被挂上 `ai-fintech`，前端按 tag 筛全是噪音；
+- tag 决策完全不经过 `keyword_match` 引擎，违反 AGENTS.md 铁律 1。
 
 ---
 
@@ -132,8 +144,11 @@ super().dedupe_insert(articles, real_hits + topic_hits)
    闸门配置变了以后它们还有机会入库。
 3. **跨源软去重**：同一条推文可能已经被 `bestblog-x` / `xwatch` 存过
    （URL 变体：`twitter.com` vs `x.com`、带 `?s=20`）。沿用 `follow_builders`
-   的 `normalize_tweet_url()` + 全局 EXISTS 检查
-   （`WHERE url = ? OR url LIKE '%status/<id>%'`）。
+   的 `normalize_tweet_url()` + 全局 EXISTS 检查。
+   **v1.0.66 审计 B2**：旧查询 `url LIKE '%status/<id>%'` 的结尾 `%` 让它变成
+   **前缀**匹配 —— id `…123` 会把已入库的 `…1234` 当成同一条，真条目被软去重
+   吃掉（漏采）。现在改成**精确尾部匹配**：`/status/<id>` 之后只能是字符串
+   结束 / `?` / `#` / `/`，不能是另一个数字。
 
 ---
 
@@ -144,8 +159,12 @@ super().dedupe_insert(articles, real_hits + topic_hits)
 | 未知 topic | **不入库**，记 warning | 上游加新 topic 时宁可少收也不要错打 tag |
 | handle 黑名单 | 内置 5 个（刷量/营销/灰产号），可在 `fetch_config` 改 | 这是**按作者**的窄兜底，不是内容闸门（内容闸门统一走 `keyword_match` 引擎） |
 | git 失败 | 记 `error`，**绝不静默返回 0 篇** | 静默 0 篇跟"今天真的没内容"看起来一模一样，但含义完全相反 |
+| git 输入校验 | `repo_url` 只接受 `https://github.com/<owner>/<repo>[.git]`；`clone_dir` 必须落在数据目录内 | 审计 B-6：`/config` 可改的字段直接进 git argv / 写文件路径 |
+| git 输出脱敏 | URL 里的 `user:token@` → `***` | 审计 B-7：git 认证失败时会把带 token 的 URL 打进 stderr |
 | 黑名单账号 | `jkghzone` / `sensenxnyz`（代购代付灰产）、`Eason3110188520`（签到打卡接单）、`duizhanggege`（小程序副业营销号）、`HunchoJ01`（关键词误命中的噪音号） | 判据来自 2026-11-03 首日 feed 实测（46 条 wechat + 157 条 xcircle） |
 | 频率 | 60 分钟 | 抓取本身很轻（一次 git pull + 读 JSON） |
+| `max_days` | 按**文件名里的日期**判断（最近 N 天） | 审计 S-2：旧实现是"最近 N 个文件"，依赖排序，语义不对 |
+| fetch_config 默认值 | 单一来源 `moni/fetch/sources/xbot_feed.py::DEFAULT_FETCH_CONFIG` | 审计 B5：三处抄本会漂移 |
 
 ---
 
@@ -155,16 +174,18 @@ super().dedupe_insert(articles, real_hits + topic_hits)
 |---|---|---|
 | CREATE | `moni/fetch/sources/xbot_feed.py` | fetcher 本体 |
 | CREATE | `moni/web/static/icons/sources/xbot_feed.png` | 源图标 |
-| CREATE | `scripts/make_xbot_feed_icon.py` | 图标生成脚本 |
-| CREATE | `tests/test_xbot_feed_fetch.py` | 27 条离线测试 |
+| CREATE | `tests/test_xbot_feed_fetch.py` | 离线测试 |
+| CREATE | `tests/test_obsidian_push.py` | 微信生态 tag 判定测试（B4/S-3） |
 | CREATE | `tests/fixtures/xbot_feed/` | 2026-11-03 首日真实产出的样本 |
 | MODIFY | `moni/fetch/sources/__init__.py` | 注册 fetcher |
-| MODIFY | `config/sources.yaml` | 加条目（interval 60，enabled true） |
-| MODIFY | `moni/db/seed_config.py` | source + 4 个 tag 绑定 + `bypass_keyword_filters: true` |
-| MODIFY | `moni/web/routes/config_sources.py` | `_FETCH_CONFIG_DEFAULTS` 加默认值 |
+| MODIFY | `moni/fetch/base.py` | `dedupe_insert` 的可变默认参数 → None（B3） |
+| MODIFY | `config/sources.yaml` | 加条目（interval 60，enabled true，crawler_type json） |
+| MODIFY | `moni/db/seed_config.py` | source + 4 个 tag 绑定 + `bypass_keyword_filters: true`；默认值引用 `DEFAULT_FETCH_CONFIG` |
+| MODIFY | `moni/web/routes/config_sources.py` | `_FETCH_CONFIG_DEFAULTS` 引用 `DEFAULT_FETCH_CONFIG` |
 | MODIFY | `moni/web/static/js/app.js` | icon / label / color / sortOrder |
-| MODIFY | `moni/obsidian_push.py` | `WECHAT_SOURCES` + 来源标签 |
+| MODIFY | `moni/obsidian_push.py` | 微信生态判定改成按文章 tag |
 | MODIFY | `README.md` / `STATUS.md` / `USER_GUIDE.md` | 源表与状态同步 |
+| DELETE | ~~`scripts/make_xbot_feed_icon.py`~~ | 审计 B-9：一次性工具，与其他 12 个源图标不符，删掉只留 png |
 
 ---
 
@@ -175,12 +196,14 @@ uv venv --python 3.12 .venv && uv sync --extra dev
 .venv/bin/python -m pytest tests/ -p no:cacheprovider -q
 ```
 
-**结果：1414 passed / 2 skipped**（基线 1387 + 新增 27，无退步）。
+**结果：见 `docs/plans/2026-11-03_xbot-feed-source.md` 的「审计修复后的测试结果」
+一节（按独立审计的 15 条修复逐条补测试后的数字）。**
 
 新测试全程离线：git 操作全在 `tmp_path` 的本地 bare repo 上跑，不联网，
-不硬编码 `/Users` 路径。覆盖解析、topic→tag、id 去重、重复导入幂等、
-跨源软去重、黑名单、git 失败报错、clone vs pull 分支、bypass 按 topic
-打 tag，以及 bypass 不泄漏到别的源的回归。
+不硬编码 `/Users` 路径。覆盖解析、候选 tag → 关键词命中、id 去重、重复导入
+幂等、跨源软去重（精确 id 匹配）、黑名单、git 失败报错、clone vs pull 分支、
+git 输入校验与输出脱敏、零命中不入库、改关键词后下一轮能进、
+`max_days` 按文件名日期、Obsidian 微信生态判定。
 
 ---
 
@@ -197,3 +220,29 @@ git ls-remote https://github.com/mariusiaowego-commits/xbot-feed.git
 
 clone 落在 `<MONI_DATA_DIR>/xbot-feed/`，导入状态在
 `<MONI_DATA_DIR>/.xbot_feed_state.json`。换位置改 `fetch_config.clone_dir`。
+
+---
+
+## 11. 审计修复后的测试结果
+
+2026-11-03 的独立审计（`/workspace/moni-plan/pr172-audit.md`）提出 9 条
+blocking + 6 条 should-fix。修复分 6 个 commit 落在 `feat/xbot-feed-source`
+分支上：
+
+| Commit | 修的条目 |
+|---|---|
+| `59553f2` | B1（tag 闸门改成关键词真实命中）+ B-8（去掉多余的 bypass 命中过滤） |
+| `75983af` | B2（跨源去重精确 id 匹配）+ B3（可变默认参数 / 实例属性） |
+| `329814d` | B-6（git 输入注入防护）+ B-7（git 输出凭据脱敏） |
+| `9b520f9` | B5（fetch_config 默认值单一来源） |
+| `c171dfe` | B4 + S-3（Obsidian 微信生态判定按 tag） |
+| 本次提交 | B-9（删图标生成脚本）+ S-1（删死字段 `files`）+ S-2（`max_days` 按文件名日期）+ S-4（app.js sortOrder）+ S-5（`crawler_type: json`）+ S-6（本文档 / STATUS.md 同步） |
+
+**全量测试**：
+
+```bash
+.venv/bin/python -m pytest tests/ -q -p no:cacheprovider
+```
+
+**结果：1450 passed / 2 skipped**（基线 1414 + 新增 36 条审计回归测试，
+无退步）。CI 用同一条命令（`.github/workflows/ci.yml`）。

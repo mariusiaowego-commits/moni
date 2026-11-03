@@ -694,6 +694,70 @@ def test_round_ids_is_per_instance():
     assert a._round_ids == ["111"]
 
 
+def test_state_has_no_dead_files_field(fresh_db, monkeypatch):
+    """S-1: 状态文件里不再有死字段 files。"""
+    from moni.fetch.sources.xbot_feed import FetcherXbotFeed
+
+    data_dir = fresh_db
+    clone = _make_clone(data_dir)
+    f = _seeded_fetcher(data_dir, clone_dir=clone)
+    monkeypatch.setattr(FetcherXbotFeed, "_sync_clone", lambda self, cfg: clone)
+    f.run()
+
+    state = json.loads((data_dir / ".xbot_feed_state.json").read_text())
+    assert "files" not in state
+    assert "imported_ids" in state
+
+
+def test_max_days_uses_filename_date_not_file_count(fresh_db, monkeypatch):
+    """S-2: max_days 按**文件名日期**判断, 不依赖排序/文件个数。"""
+    from datetime import date, timedelta
+
+    from moni.fetch.sources.xbot_feed import FetcherXbotFeed
+
+    data_dir = fresh_db
+    clone = _make_clone(data_dir)
+    # 额外造一个"3 天前"的文件, 内容是一条**独有**的条目 ——
+    # "最近 2 天"应该只留今天 + 昨天, 3 天前那份要被挡掉。
+    feed = clone / "feed"
+    three_days_ago = (date.today() - timedelta(days=3)).isoformat()
+    old_payload = json.loads((_FIXTURE_DIR / "2026-11-02.json").read_text())
+    old_payload["items"][0]["id"] = "2116900000000000099"
+    old_payload["items"][0]["url"] = "https://x.com/oldposter/status/2116900000000000099"
+    (feed / f"{three_days_ago}.json").write_text(
+        json.dumps(old_payload, ensure_ascii=False), encoding="utf-8",
+    )
+
+    f = _seeded_fetcher(data_dir, clone_dir=clone, fetch_config={"max_days": 2})
+    monkeypatch.setattr(FetcherXbotFeed, "_sync_clone", lambda self, cfg: clone)
+
+    raws = f.fetch()
+    ids = [r["id"] for r in raws]
+    # 3 天前那份独有的条目被 max_days 挡掉
+    assert "2116900000000000099" not in ids
+    # 今天那份在
+    assert "2117412872158662796" in ids
+
+    # 同一批文件, max_days 放开 → 那条能被看到 (证明是日期窗口挡的,
+    # 不是文件内容/顺序问题)
+    f2 = _seeded_fetcher(data_dir, clone_dir=clone, fetch_config={"max_days": 30})
+    raws2 = f2.fetch()
+    assert "2116900000000000099" in [r["id"] for r in raws2]
+
+
+def test_max_days_zero_disables_filter(fresh_db, monkeypatch):
+    from moni.fetch.sources.xbot_feed import FetcherXbotFeed
+
+    data_dir = fresh_db
+    clone = _make_clone(data_dir)
+    f = _seeded_fetcher(data_dir, clone_dir=clone, fetch_config={"max_days": 0})
+    monkeypatch.setattr(FetcherXbotFeed, "_sync_clone", lambda self, cfg: clone)
+
+    raws = f.fetch()
+    ids = [r["id"] for r in raws]
+    assert "2117000000000000001" in ids   # 昨天那份没被挡
+
+
 def test_source_is_registered():
     from moni.fetch.base import list_fetchers
     from moni.fetch.sources.xbot_feed import FetcherXbotFeed
@@ -776,6 +840,41 @@ def test_sources_yaml_has_entry():
     entry = next(s for s in data["sources"] if s["source_name"] == "xbot_feed")
     assert entry["fetch_interval_min"] == 60
     assert entry["enabled"] is True
+
+
+def test_sources_yaml_crawler_type_is_json():
+    """S-5: 这个源读 JSON feed, 不是 RSS —— crawler_type 必须是 json。"""
+    import yaml
+
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "sources.yaml"
+    data = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    entry = next(s for s in data["sources"] if s["source_name"] == "xbot_feed")
+    assert entry["type"] == "json"
+    assert entry["crawler_type"] == "json"
+
+
+def test_app_js_sorts_xbot_feed_as_import_source():
+    """S-4: xbot_feed 是导入型源, 不挨着 xwatch 排在抓取链前面。"""
+    app_js = (Path(__file__).resolve().parents[1]
+              / "moni" / "web" / "static" / "js" / "app.js").read_text(encoding="utf-8")
+
+    idx_sort = app_js.index("const sortOrder = [")
+    block = app_js[idx_sort:idx_sort + 600]
+    assert "'xbot_feed'" in block
+    assert "'xwatch'" in block
+    # xbot_feed 排在 xwatch **之后** (导入型源单列)
+    assert block.index("'xbot_feed'") > block.index("'xwatch'")
+    # icon / label / color 三处映射保留 (源图标必须有)
+    assert "'xbot_feed': 'X-bot 精选'" in app_js
+    assert "'xbot_feed': [56, 132, 225]" in app_js
+
+
+def test_icon_script_removed():
+    """B-9: 一次性图标生成脚本已删, 只留 png。"""
+    repo_root = Path(__file__).resolve().parents[1]
+    assert not (repo_root / "scripts" / "make_xbot_feed_icon.py").exists()
+    assert (repo_root / "moni" / "web" / "static" / "icons" / "sources"
+            / "xbot_feed.png").is_file()
 
 
 def test_scheduler_knows_the_source():

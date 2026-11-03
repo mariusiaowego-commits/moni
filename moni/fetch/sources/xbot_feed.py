@@ -57,8 +57,7 @@ moni 不持有任何 key, 也不直接访问 X API。X-bot 那边已经用 Grok 
   物理 ``UNIQUE(source, url)`` 约束不动。
 * **id 去重 + 导入状态**: feed 里同一天可能有重复 id (``latest.json``
   与 ``YYYY-MM-DD.json`` 内容更是完全相同), 所以导入状态记在数据目录下
-  的 ``.xbot_feed_state.json`` 里 (已导入的 tweet id + 已处理文件的
-  sha256), 重复跑是幂等的。
+  的 ``.xbot_feed_state.json`` 里 (只记已导入的 tweet id), 重复跑是幂等的。
 * **topic → 候选 tag → 关键词闸门 (v1.0.66 审计 B1 重做)**: 一条 item
   先按 topic 找到**候选** tag (``fetch_config.topic_tags``, 默认
   ``wechat → [wechat, miniprogram]`` / ``xcircle → [general-tech,
@@ -87,7 +86,7 @@ import json
 import logging
 import re
 import subprocess
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -219,6 +218,20 @@ _CREDENTIAL_URL_RE = re.compile(
     r"(https?://)[^/\s:@]+(?::[^/\s@]*)?@(?=[^/\s]+)",
     re.IGNORECASE,
 )
+
+
+def _parse_feed_date(path: Path) -> date | None:
+    """Parse the ``YYYY-MM-DD`` date out of a feed file's name.
+
+    Returns ``None`` when the name doesn't carry a valid date (e.g. a
+    stray ``scratch.json``) — the caller then has to decide what to do
+    (the ``max_days`` filter drops such files).
+    """
+    stem = path.stem
+    try:
+        return datetime.strptime(stem, "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 def _redact_git_output(text: str) -> str:
@@ -590,19 +603,22 @@ class FetcherXbotFeed(BaseFetcher):
 
     # ── import state ─────────────────────────────────────────────────────
     def _load_state(self) -> dict[str, Any]:
+        """Load the import state (only the imported tweet ids).
+
+        v1.0.66 (audit S-1): the old version also round-tripped a ``files``
+        dict (supposedly "已处理文件的 sha256") — **nothing ever read it**,
+        and the sha256 part was never implemented.  Dead state + misleading
+        docstring → dropped.
+        """
         path = self._state_path()
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return {"imported_ids": [], "files": {}}
+            return {"imported_ids": []}
         if not isinstance(data, dict):
-            return {"imported_ids": [], "files": {}}
+            return {"imported_ids": []}
         ids = data.get("imported_ids")
-        files = data.get("files")
-        return {
-            "imported_ids": list(ids) if isinstance(ids, list) else [],
-            "files": files if isinstance(files, dict) else {},
-        }
+        return {"imported_ids": list(ids) if isinstance(ids, list) else []}
 
     def _save_state(self, state: dict[str, Any]) -> None:
         path = self._state_path()
@@ -643,12 +659,42 @@ class FetcherXbotFeed(BaseFetcher):
         return files
 
     def _filter_by_max_days(self, files: list[Path], max_days: int) -> list[Path]:
-        """只保留最近 N 天的日期文件 (latest.json 不受此限制)。"""
+        """只保留最近 N **天**的日期文件 (latest.json 不受此限制)。
+
+        v1.0.66 (audit S-2): 旧实现靠列表顺序切片 (``dated[:max_days]``),
+        隐含契约是"调用方已经按日期倒序排好" —— 而且 ``max_days`` 的实际
+        语义是"最近 N 个**文件**"而不是"最近 N 天": 某天没有导出文件时,
+        N 个文件可能覆盖超过 N 天。
+
+        现在按**文件名里的日期**判断: 解析 ``YYYY-MM-DD`` → 与"今天"比
+        真实日期, 落在窗口外的一律丢掉。语义变成字面意义的"最近 N 天",
+        不依赖排序。
+        """
         if not max_days or max_days <= 0:
             return files
-        dated = [p for p in files if p.name != LATEST_FILENAME]
-        latest = [p for p in files if p.name == LATEST_FILENAME]
-        return dated[:max_days] + latest
+
+        today = date.today()
+        cutoff = today - timedelta(days=max_days - 1)   # 含今天, 共 N 天
+
+        dated: list[Path] = []
+        latest: list[Path] = []
+        for path in files:
+            if path.name == LATEST_FILENAME:
+                latest.append(path)
+                continue
+            file_date = _parse_feed_date(path)
+            if file_date is None:
+                # 名字里没有合法日期 → 无法判断, 保守起见**丢掉**
+                # (旧实现会按排序把它算进"最近 N 个文件")。
+                logger.warning(
+                    "[xbot-feed] %s has no YYYY-MM-DD date in its name — "
+                    "skipped by max_days filter", path.name,
+                )
+                continue
+            if file_date >= cutoff:
+                dated.append(path)
+
+        return dated + latest
 
     def _read_feed_file(self, path: Path) -> list[dict[str, Any]]:
         """读一份 feed JSON, 返回 items 列表 (坏文件跳过, 不炸整轮)。"""
