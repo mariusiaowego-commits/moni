@@ -191,6 +191,35 @@ _HOST_ALIASES = (
     "x.com",
 )
 
+#: 允许的 repo_url 形态: https://github.com/<owner>/<repo>[.git]
+#: (moni 只跟 github.com 打交道 —— BRIEF: 网络只到 github.com)
+_REPO_URL_RE = re.compile(
+    r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?$"
+)
+
+#: git 输出里可能出现的 URL 凭据段 —— 脱敏时替换成 ***
+#:   https://user:token@github.com/...   → https://***@github.com/...
+#:   https://token@github.com/...        → https://***@github.com/...
+_CREDENTIAL_URL_RE = re.compile(
+    r"(https?://)[^/\s:@]+(?::[^/\s@]*)?@(?=[^/\s]+)",
+    re.IGNORECASE,
+)
+
+
+def _redact_git_output(text: str) -> str:
+    """Strip credentials out of git's stdout/stderr before logging it.
+
+    git 在认证失败时会把**带用户名/token 的 URL** 打进 stderr::
+
+        fatal: Authentication failed for 'https://<token>@github.com/.../xbot-feed.git'
+
+    那行原样写进 moni 的日志 = 凭据落盘 (BRIEF: 绝不读取/打印任何 token)。
+    这里把 URL 里的 ``user:token@`` / ``token@`` 段替换成 ``***``。
+    """
+    if not text:
+        return ""
+    return _CREDENTIAL_URL_RE.sub(r"\1***@", text)
+
 
 def normalize_tweet_url(raw_url: str, handle: str = "", tweet_id: str = "") -> str:
     """把 X / Twitter URL 归一成 ``https://x.com/<handle>/status/<id>``。
@@ -386,6 +415,56 @@ class FetcherXbotFeed(BaseFetcher):
             return Path(env_dir)
         return Path("data")
 
+    def _validate_repo_url(self, repo_url: str) -> str:
+        """Validate the upstream repo URL; raise ValueError if unusable.
+
+        v1.0.66 (audit B-6): ``repo_url`` comes from ``sources.fetch_config``
+        and is editable in the ``/config`` panel.  It goes straight into
+        ``git clone`` argv, so it must not be able to:
+
+        * look like a git **option** (``--upload-pack=...``,
+          ``-c core.sshCommand=...``) → arbitrary command execution;
+        * use a non-https scheme (``file://`` / ``ssh://`` / ``ext::``) →
+          the network egress is no longer confined to github.com;
+        * carry whitespace / control characters (argv smuggling into
+          git's own option parsing).
+
+        Only ``https://github.com/<owner>/<repo>[.git]`` is accepted.
+        """
+        url = (repo_url or "").strip()
+        if not url:
+            raise ValueError("repo_url is empty")
+        if url.startswith("-"):
+            raise ValueError(
+                f"repo_url must not start with '-': {url!r}"
+            )
+        if any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in url):
+            raise ValueError(
+                "repo_url must not contain whitespace or control characters"
+            )
+        if not _REPO_URL_RE.match(url):
+            raise ValueError(
+                "repo_url must look like https://github.com/<owner>/<repo>[.git]: "
+                f"{url!r}"
+            )
+        return url
+
+    def _validate_clone_dir(self, clone_root: Path) -> Path:
+        """Validate that the clone target stays inside moni's data dir.
+
+        v1.0.66 (audit B-6): ``clone_dir`` is user-editable too.  A path
+        like ``/etc`` or ``../../..`` would make moni write files **outside**
+        its data directory (BRIEF: 写文件只在 moni 数据目录下).
+        """
+        data_dir = self._data_dir().resolve()
+        resolved = clone_root.resolve()
+        if resolved != data_dir and not resolved.is_relative_to(data_dir):
+            raise ValueError(
+                f"clone_dir must stay inside the moni data dir ({data_dir}): "
+                f"{clone_root}"
+            )
+        return resolved
+
     def _clone_root(self, cfg: dict[str, Any]) -> Path:
         """The local clone directory of the upstream xbot-feed repo."""
         configured = (cfg.get("clone_dir") or "").strip()
@@ -409,9 +488,26 @@ class FetcherXbotFeed(BaseFetcher):
         没有就 ``git clone``, 有就 ``git pull --ff-only``。**不传任何
         凭据** —— 私有仓库的访问权来自机器上已有的 git 凭据 (SSH agent
         / credential helper), moni 自己不存 key。
+
+        v1.0.66 (audit B-6/B-7): repo_url 与 clone_dir 先过校验 (拒绝
+        以 ``-`` 开头的 git 选项 / 非 github.com 的协议 / 越出数据目录
+        的路径); 所有 git 输出进日志前先脱敏 (去掉 URL 里的
+        ``user:token@``)。
         """
-        clone_root = self._clone_root(cfg)
-        repo_url = (cfg.get("repo_url") or DEFAULT_REPO_URL).strip()
+        try:
+            clone_root = self._validate_clone_dir(self._clone_root(cfg))
+        except ValueError as exc:
+            logger.error("[xbot-feed] invalid clone_dir: %s", exc)
+            return None
+
+        try:
+            repo_url = self._validate_repo_url(
+                (cfg.get("repo_url") or DEFAULT_REPO_URL).strip()
+            )
+        except ValueError as exc:
+            logger.error("[xbot-feed] invalid repo_url: %s", exc)
+            return None
+
         timeout = float(cfg.get("git_timeout") or 120)
 
         if (clone_root / ".git").is_dir():
@@ -438,7 +534,9 @@ class FetcherXbotFeed(BaseFetcher):
                 logger.error(
                     "[xbot-feed] git pull failed (rc=%d): %s",
                     proc.returncode,
-                    (proc.stderr or proc.stdout or "").strip()[:300],
+                    _redact_git_output(
+                        (proc.stderr or proc.stdout or "").strip()
+                    )[:300],
                 )
                 return None
             return clone_root
@@ -446,8 +544,10 @@ class FetcherXbotFeed(BaseFetcher):
         logger.info("[xbot-feed] cloning %s → %s", repo_url, clone_root)
         clone_root.parent.mkdir(parents=True, exist_ok=True)
         try:
+            # `--` 之后的参数一律当**位置参数** (路径/URL), 不再被 git
+            # 当成选项解析 —— 双保险 (repo_url 已经过 _validate_repo_url)。
             proc = subprocess.run(
-                ["git", "clone", "--quiet", repo_url, str(clone_root)],
+                ["git", "clone", "--quiet", "--", repo_url, str(clone_root)],
                 capture_output=True,
                 text=True,
                 timeout=timeout,
@@ -466,7 +566,9 @@ class FetcherXbotFeed(BaseFetcher):
             logger.error(
                 "[xbot-feed] git clone failed (rc=%d): %s",
                 proc.returncode,
-                (proc.stderr or proc.stdout or "").strip()[:300],
+                _redact_git_output(
+                    (proc.stderr or proc.stdout or "").strip()
+                )[:300],
             )
             return None
         return clone_root

