@@ -60,14 +60,39 @@ def _seed_source(conn, name=_SOURCE_NAME, fetch_config=None, is_active=1,
     conn.commit()
 
 
-def _seed_tags(conn, names=("wechat", "miniprogram", "general-tech", "ai-fintech")):
+def _seed_tags(conn, names=("wechat", "miniprogram", "general-tech", "ai-fintech"),
+               keywords=None):
+    """Seed tag definitions.
+
+    ``keywords`` maps tag name → keyword list (JSON stored in the row).
+    Defaults to a small keyword set per tag so the B1 keyword gate has
+    something real to match against.
+    """
+    if keywords is None:
+        keywords = {
+            "wechat": ["微信", "小程序"],
+            "miniprogram": ["小程序"],
+            "general-tech": ["AI", "模型", "RSI"],
+            "ai-fintech": ["AI", "A股", "投顾", "量化"],
+        }
     for name in names:
+        kws = keywords.get(name)
         conn.execute(
-            "INSERT INTO tag_definitions (name, description, color, created_at, is_active) "
-            "VALUES (?, ?, '#000000', '2026-01-01', 1) "
-            "ON CONFLICT(name) DO UPDATE SET is_active=1",
-            (name, name),
+            "INSERT INTO tag_definitions (name, description, color, created_at, "
+            "is_active, keywords) "
+            "VALUES (?, ?, '#000000', '2026-01-01', 1, ?) "
+            "ON CONFLICT(name) DO UPDATE SET is_active=1, keywords=excluded.keywords",
+            (name, name, json.dumps(kws, ensure_ascii=False) if kws else None),
         )
+    conn.commit()
+
+
+def _set_tag_keywords(conn, tag_name, keywords):
+    """Replace one tag's keyword list (the web-端 edit path)."""
+    conn.execute(
+        "UPDATE tag_definitions SET keywords = ? WHERE name = ?",
+        (json.dumps(keywords, ensure_ascii=False), tag_name),
+    )
     conn.commit()
 
 
@@ -86,14 +111,26 @@ def _make_clone(data_dir: Path, *, with_feed: bool = True,
 
     ``repo_url`` non-empty → the fetcher will try a real clone against it
     (used by the clone-branch test, backed by a local bare repo).
+
+    The dated feed files are named with **today / yesterday** (not the
+    fixture's own 2026-11-0x dates) so the ``max_days`` filter — which
+    compares the date *in the filename* against today — behaves the same
+    whenever the suite runs.  The file *contents* are the fixtures verbatim,
+    so tweet ids stay stable.
     """
+    from datetime import date, timedelta
+
     clone = data_dir / "xbot-feed"
     clone.mkdir(parents=True, exist_ok=True)
     if with_feed:
         feed = clone / "feed"
         feed.mkdir(parents=True, exist_ok=True)
-        for name in ("2026-11-03.json", "2026-11-02.json", "latest.json"):
-            shutil.copy2(_FIXTURE_DIR / name, feed / name)
+        today = date.today()
+        for fixture_name, offset in (("2026-11-03.json", 0),
+                                     ("2026-11-02.json", 1)):
+            stamp = (today - timedelta(days=offset)).isoformat()
+            shutil.copy2(_FIXTURE_DIR / fixture_name, feed / f"{stamp}.json")
+        shutil.copy2(_FIXTURE_DIR / "latest.json", feed / "latest.json")
     return clone
 
 
@@ -125,9 +162,11 @@ def _load_fixture(name="2026-11-03.json"):
 
 # ── A. 解析层 ───────────────────────────────────────────────────────────
 
-def test_parse_maps_fields():
+def test_parse_maps_fields(fresh_db):
     from moni.fetch.sources.xbot_feed import FetcherXbotFeed
 
+    conn = get_db()
+    _seed_tags(conn)
     payload = _load_fixture()
     item = next(i for i in payload["items"] if i["topic"] == "wechat"
                 and i["author_handle"] == "shihuangtimes")
@@ -142,7 +181,13 @@ def test_parse_maps_fields():
     assert art["publisher"] == "拾荒旧时光 (@shihuangtimes)"
     assert art["published_at"] == "2026-11-03T00:25:43+00:00"
     assert art["xbot_topic"] == "wechat"
+    # 只挂**真实命中**的 tag: 正文命中 微信/小程序 → wechat + miniprogram
     assert art["xbot_tags"] == ["wechat", "miniprogram"]
+    assert art["xbot_candidate_tags"] == ["wechat", "miniprogram"]
+    # hit 里记的是**真实关键词** (不是 (topic:xxx) 合成串)
+    hit_kws = {h["keyword"] for h in art["xbot_hits"]}
+    assert hit_kws <= {"微信", "小程序"}
+    assert hit_kws
     # 互动数字落在正文末尾, 正文本身保留
     assert "❤ 1" in art["content"]
     assert "微信小程序代码审核通过" in art["content"]
@@ -176,6 +221,8 @@ def test_topic_to_tag_mapping():
 def test_parse_unknown_topic_is_skipped(fresh_db):
     from moni.fetch.sources.xbot_feed import FetcherXbotFeed
 
+    conn = get_db()
+    _seed_tags(conn)
     payload = _load_fixture()
     item = next(i for i in payload["items"] if i["topic"] == "brand_new_topic")
     f = FetcherXbotFeed()
@@ -194,11 +241,13 @@ def test_parse_missing_id_and_url_is_skipped(fresh_db):
 def test_parse_bad_created_at_gives_none(fresh_db):
     from moni.fetch.sources.xbot_feed import FetcherXbotFeed
 
+    conn = get_db()
+    _seed_tags(conn)
     f = FetcherXbotFeed()
     f._prepare({"blacklisted_handles": [], "skip_existing_urls": False})
     art = f.parse({
         "id": "123", "url": "https://x.com/a/status/123", "handle": "a",
-        "text": "hi", "topic": "wechat", "created_at": "not-a-date",
+        "text": "微信小程序 hi", "topic": "wechat", "created_at": "not-a-date",
     })
     assert art["published_at"] is None
 
@@ -317,14 +366,15 @@ def test_repeated_import_is_idempotent(fresh_db, monkeypatch):
 
     first = f.run()
     assert first["error"] is None
-    # 7 条唯一 id − 1 条黑名单 (jkghzone) − 1 条未知 topic = 5
-    assert first["inserted"] == 5
+    # 7 条唯一 id − 1 条黑名单 (jkghzone) − 1 条未知 topic − 1 条零关键词命中
+    # (Nadja_lernt_Q 那条讲跨境支付, 不含 微信/小程序) = 4
+    assert first["inserted"] == 4
 
     conn = get_db()
     n1 = conn.execute(
         "SELECT COUNT(*) FROM articles WHERE source=?", (_SOURCE_NAME,)
     ).fetchone()[0]
-    assert n1 == 5
+    assert n1 == 4
 
     # 第二遍: 状态文件里已经有这些 id → 一条都不再导
     f2 = _seeded_fetcher(data_dir, clone_dir=clone)
@@ -336,7 +386,7 @@ def test_repeated_import_is_idempotent(fresh_db, monkeypatch):
     n2 = conn.execute(
         "SELECT COUNT(*) FROM articles WHERE source=?", (_SOURCE_NAME,)
     ).fetchone()[0]
-    assert n2 == 5
+    assert n2 == 4
 
 
 def test_state_not_written_when_fetch_fails(fresh_db, monkeypatch):
@@ -374,6 +424,8 @@ def test_blacklisted_handle_is_dropped(fresh_db):
 def test_blacklist_is_configurable(fresh_db):
     from moni.fetch.sources.xbot_feed import FetcherXbotFeed
 
+    conn = get_db()
+    _seed_tags(conn)
     f = FetcherXbotFeed()
     f._prepare({"blacklisted_handles": ["oran_ge"]})
     item = next(i for i in _load_fixture()["items"]
@@ -386,8 +438,8 @@ def test_blacklist_is_configurable(fresh_db):
     assert f2.parse(dict(item)) is not None
 
 
-def test_bypass_synthesizes_tags_per_topic(fresh_db, monkeypatch):
-    """bypass 下文章一定有 tag, 且 tag 由 topic 决定 (不串台)。"""
+def test_tag_gate_tags_follow_real_keyword_hits(fresh_db, monkeypatch):
+    """只挂**真实命中**的 tag —— xcircle 不会挂 wechat。"""
     from moni.fetch.sources.xbot_feed import FetcherXbotFeed
 
     data_dir = fresh_db
@@ -414,13 +466,16 @@ def test_bypass_synthesizes_tags_per_topic(fresh_db, monkeypatch):
     ).fetchone()[0]
     assert len(by_url) == n_articles
 
-    # wechat 话题 → wechat + miniprogram, 不带 xcircle 的 tag
+    # wechat 话题命中 微信/小程序 → wechat + miniprogram
     wechat_tags = by_url["https://x.com/shihuangtimes/status/2117412872158662796"]
     assert wechat_tags == {"wechat", "miniprogram"}
 
-    # xcircle 话题 → general-tech + ai-fintech, 不带 wechat
+    # xcircle 话题 (oran_ge "AI 是放大器") → 只挂 general-tech/ai-fintech,
+    # **绝不挂 wechat** (B1 的核心回归)
     xcircle_tags = by_url["https://x.com/oran_ge/status/2117414151186502091"]
     assert xcircle_tags == {"general-tech", "ai-fintech"}
+    assert "wechat" not in xcircle_tags
+    assert "miniprogram" not in xcircle_tags
 
     # 零 tag 的文章数必须是 0
     n_untagged = conn.execute(
@@ -429,6 +484,150 @@ def test_bypass_synthesizes_tags_per_topic(fresh_db, monkeypatch):
         (_SOURCE_NAME,),
     ).fetchone()[0]
     assert n_untagged == 0
+
+
+def test_bypass_hits_are_dropped_from_article_tags(fresh_db, monkeypatch):
+    """bypass 合成的全量命中不得进 article_tags (否则 tag 串台)。"""
+    from moni.fetch.sources.xbot_feed import FetcherXbotFeed
+
+    data_dir = fresh_db
+    clone = _make_clone(data_dir)
+    f = _seeded_fetcher(data_dir, clone_dir=clone)
+    monkeypatch.setattr(FetcherXbotFeed, "_sync_clone", lambda self, cfg: clone)
+    f.run()
+
+    conn = get_db()
+    # 没有任何一条 article_keyword_hits 记的是 "(bypass)"
+    rows = conn.execute(
+        "SELECT keyword FROM article_keyword_hits WHERE keyword = '(bypass)'"
+    ).fetchall()
+    assert rows == []
+
+
+def test_item_with_no_keyword_hit_is_not_ingested(fresh_db, monkeypatch):
+    """零命中 → 不入库 (不产生零 tag 文章)。"""
+    from moni.fetch.sources.xbot_feed import FetcherXbotFeed
+
+    data_dir = fresh_db
+    clone = _make_clone(data_dir)
+    f = _seeded_fetcher(data_dir, clone_dir=clone)
+    monkeypatch.setattr(FetcherXbotFeed, "_sync_clone", lambda self, cfg: clone)
+
+    # 把 wechat tag 的关键词改成跟正文完全无关的词
+    conn = get_db()
+    _set_tag_keywords(conn, "wechat", ["完全不相关的关键词"])
+    _set_tag_keywords(conn, "miniprogram", ["完全不相关的关键词"])
+
+    result = f.run()
+    assert result["error"] is None
+
+    n_articles = conn.execute(
+        "SELECT COUNT(*) FROM articles WHERE source=?", (_SOURCE_NAME,)
+    ).fetchone()[0]
+    # 只有 xcircle 的两条命中 (AI/模型/RSI) —— wechat 半边全被挡掉
+    assert n_articles == 2
+
+    n_untagged = conn.execute(
+        "SELECT COUNT(*) FROM articles a WHERE a.source = ? AND NOT EXISTS ("
+        "  SELECT 1 FROM article_tags t WHERE t.article_id = a.id)",
+        (_SOURCE_NAME,),
+    ).fetchone()[0]
+    assert n_untagged == 0
+
+
+def test_blocked_item_can_enter_after_keyword_change(fresh_db, monkeypatch):
+    """被关键词挡掉的条目不写进已导入 state → 改完关键词下一轮能进。"""
+    from moni.fetch.sources.xbot_feed import FetcherXbotFeed
+
+    data_dir = fresh_db
+    clone = _make_clone(data_dir)
+    conn = get_db()
+
+    # 先建 fetcher (它会 seed 一次 tag), 再改关键词 ——
+    # 顺序反了的话 _seed_tags 会把关键词覆盖回默认值。
+    f = _seeded_fetcher(data_dir, clone_dir=clone)
+    monkeypatch.setattr(FetcherXbotFeed, "_sync_clone", lambda self, cfg: clone)
+
+    # 第一轮: wechat tag 的关键词跟正文无关 → 那三条被挡
+    _set_tag_keywords(conn, "wechat", ["完全不相关的关键词"])
+    _set_tag_keywords(conn, "miniprogram", ["完全不相关的关键词"])
+
+    first = f.run()
+    assert first["error"] is None
+    assert first["inserted"] == 2        # 只剩 xcircle 两条
+
+    state_path = data_dir / ".xbot_feed_state.json"
+    assert state_path.exists()
+    imported_ids = set(json.loads(state_path.read_text())["imported_ids"])
+    assert "2117412872158662796" not in imported_ids   # 被挡的没进 state
+
+    # 改关键词 (用户在 web 端 /config 改) → 第二轮被挡的条目能进来
+    _set_tag_keywords(conn, "wechat", ["微信", "小程序"])
+    _set_tag_keywords(conn, "miniprogram", ["小程序"])
+
+    f2 = _seeded_fetcher(data_dir, clone_dir=clone)
+    monkeypatch.setattr(FetcherXbotFeed, "_sync_clone", lambda self, cfg: clone)
+    # _seeded_fetcher 又把关键词 seed 回默认值 → 重新改一次
+    _set_tag_keywords(conn, "wechat", ["微信", "小程序"])
+    _set_tag_keywords(conn, "miniprogram", ["小程序"])
+
+    second = f2.run()
+    assert second["error"] is None
+    assert second["inserted"] == 2       # 两条 wechat 补进 (第三条本身零命中)
+
+    n_articles = conn.execute(
+        "SELECT COUNT(*) FROM articles WHERE source=?", (_SOURCE_NAME,)
+    ).fetchone()[0]
+    assert n_articles == 4
+
+    imported_ids2 = set(json.loads(state_path.read_text())["imported_ids"])
+    assert "2117412872158662796" in imported_ids2
+
+
+def test_topic_tags_config_is_honoured(fresh_db):
+    """fetch_config.topic_tags 可改候选 tag (web 端)。"""
+    from moni.fetch.sources.xbot_feed import FetcherXbotFeed
+
+    conn = get_db()
+    _seed_tags(conn)
+    f = FetcherXbotFeed()
+    # 用户把 xcircle 的候选 tag 改成只有 general-tech
+    f._prepare({
+        "blacklisted_handles": [], "skip_existing_urls": False,
+        "topic_tags": {"xcircle": ["general-tech"]},
+    })
+    assert f._topic_candidate_tags("xcircle", f._cfg) == ["general-tech"]
+    # 没配的 topic 走内置默认
+    assert f._topic_candidate_tags("wechat", f._cfg) == ["wechat", "miniprogram"]
+
+
+def test_unconfigured_topic_falls_back_to_same_name_active_tag(fresh_db):
+    """未配置的 topic 若有同名 active tag 就用它, 否则跳过 + warning。"""
+    from moni.fetch.sources.xbot_feed import FetcherXbotFeed
+
+    conn = get_db()
+    _seed_tags(conn, names=("brand_new_topic",),
+               keywords={"brand_new_topic": ["全新"]})
+    f = FetcherXbotFeed()
+    f._prepare({"blacklisted_handles": [], "skip_existing_urls": False})
+    # 同名 active tag → 用它当候选 tag
+    assert f._topic_candidate_tags("brand_new_topic", f._cfg) == ["brand_new_topic"]
+    art = f.parse({
+        "id": "555", "url": "https://x.com/a/status/555", "author_handle": "a",
+        "text": "全新内容", "topic": "brand_new_topic",
+    })
+    assert art is not None
+    assert art["xbot_tags"] == ["brand_new_topic"]
+
+    # 没有同名 tag → 空 → parse 返回 None (不入库)
+    f2 = FetcherXbotFeed()
+    f2._prepare({"blacklisted_handles": [], "skip_existing_urls": False})
+    assert f2._topic_candidate_tags("no_such_topic", f2._cfg) == []
+    art2 = f2.parse({
+        "id": "556", "url": "https://x.com/a/status/556", "author_handle": "a",
+        "text": "全新内容", "topic": "no_such_topic",
+    })
+    assert art2 is None
 
 
 def test_source_is_registered():

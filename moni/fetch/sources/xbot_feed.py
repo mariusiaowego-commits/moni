@@ -59,12 +59,19 @@ moni 不持有任何 key, 也不直接访问 X API。X-bot 那边已经用 Grok 
   与 ``YYYY-MM-DD.json`` 内容更是完全相同), 所以导入状态记在数据目录下
   的 ``.xbot_feed_state.json`` 里 (已导入的 tweet id + 已处理文件的
   sha256), 重复跑是幂等的。
-* **topic → tag**: 一条 item 只能带它自己 topic 对应的 tag。
-  ``bypass_keyword_filters`` 会让 moni 的 tag 闸门退化成透传并给**所有**
-  文章合成全部绑定 tag 的命中 (见 ``moni/fetch/tag_filter.py`` 的
-  bypass 分支), 那样一篇推特圈的推文也会被打上 ``wechat``。所以
-  ``dedupe_insert()`` 覆写掉了那批合成命中, 换成按 topic 精确计算的
-  命中 —— 文章一定带 tag (AGENTS.md 铁律 3), 但带的 tag 是对的。
+* **topic → 候选 tag → 关键词闸门 (v1.0.66 审计 B1 重做)**: 一条 item
+  先按 topic 找到**候选** tag (``fetch_config.topic_tags``, 默认
+  ``wechat → [wechat, miniprogram]`` / ``xcircle → [general-tech,
+  ai-fintech]``), 再拿这些 tag **当前**的关键词 (tag_definitions.keywords,
+  可在 web 端改) 走 ``moni/fetch/keyword_match.py`` 的 ``keyword_matches``
+  匹配标题 + 正文。
+  * **只挂命中的 tag** —— 命中哪个就挂哪个, 绝不按 topic 硬打。
+  * **零命中不入库** —— 不产生零 tag 的文章 (AGENTS.md 铁律 3)。
+  * **被关键词挡掉的条目不写进已导入 state** —— 用户改完关键词下一轮
+    它们还能进来。
+  * ``bypass_keyword_filters`` 只短路全局/源级黑白名单; 源级 tag 闸门
+    (tag_filter 的 bypass 分支) 合成的那批 ``hit_field="bypass"`` 命中
+    在 ``dedupe_insert()`` 里丢掉, 换成 fetcher 自己算出来的真实命中。
 * **handle 黑名单**: 明显的刷量 / 营销 / 灰产号在这里挡掉。这不是
   moni 的关键词闸门 (那套走 ``keyword_match`` 引擎, 管的是内容), 而是
   **按作者** 的一道窄兜底, 配置在 ``sources.fetch_config`` 的
@@ -75,13 +82,14 @@ moni 不持有任何 key, 也不直接访问 X API。X-bot 那边已经用 Grok 
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from ..base import BaseFetcher, register_fetcher
 
@@ -102,7 +110,7 @@ LATEST_FILENAME = "latest.json"
 #: 导入状态文件名 (放在 moni 数据目录下)
 STATE_FILENAME = ".xbot_feed_state.json"
 
-#: topic → tag 绑定。
+#: topic → **候选** tag (默认值; 可在 ``fetch_config.topic_tags`` 覆盖)。
 #:
 #: * ``wechat`` → ``wechat`` + ``miniprogram``: 这半边就是微信生态话题,
 #:   小程序是核心议题 (2026-11-03 首日 46 条里绝大多数是小程序/微信支付)。
@@ -113,9 +121,19 @@ STATE_FILENAME = ".xbot_feed_state.json"
 #:   (oran_ge 的 AI×A股讨论、量化、投顾)。**不新建 tag** —— 新建一个
 #:   关键词为空的 tag 会让 tag 闸门变成透传, 且每篇文章会带一个语义
 #:   空泛的标签 (migration 037 的教训)。
+#:
+#: 注意: 这些是**候选**, 不是最终 tag。最终挂哪些 tag 由
+#: ``_match_topic_tags()`` 按 tag 当前关键词的真实命中决定。
 TOPIC_TAGS: dict[str, tuple[str, ...]] = {
     "wechat": ("wechat", "miniprogram"),
     "xcircle": ("general-tech", "ai-fintech"),
+}
+
+#: ``fetch_config.topic_tags`` 的默认值 (topic → 候选 tag 名单)。
+#: 与 ``TOPIC_TAGS`` 同源 —— ``TOPIC_TAGS`` 是权威常量, 这里只是把它
+#: 摊平成可 JSON 序列化的形式, 供 ``DEFAULT_FETCH_CONFIG`` 用。
+DEFAULT_TOPIC_TAGS: dict[str, list[str]] = {
+    topic: list(tags) for topic, tags in TOPIC_TAGS.items()
 }
 
 #: 内置 handle 黑名单 —— 明显的刷量 / 营销 / 灰产号。
@@ -144,10 +162,14 @@ _DEFAULTS: dict[str, Any] = {
     # clone 放在 moni 数据目录下; 留空则用默认子目录名
     "clone_dir": "",
     # fetch_config 里的 bypass_keyword_filters (跟 follow_builders 同款):
-    # 精选内容整体入库, 不受全局/源级黑白名单影响。
+    # 精选内容整体入库, 不受全局/源级黑白名单影响。**tag 关键词闸门不受
+    # 影响** —— 那条由 fetcher 自己按候选 tag 执行 (见 _match_topic_tags)。
     "bypass_keyword_filters": True,
     # handle 黑名单 (覆盖内置黑名单)
     "blacklisted_handles": list(DEFAULT_BLACKLISTED_HANDLES),
+    # topic → 候选 tag (B1)。用户可在 web 端改; 没配的 topic 退到
+    # TOPIC_TAGS 默认值, 再没有就找同名 active tag, 都没有则跳过。
+    "topic_tags": dict(DEFAULT_TOPIC_TAGS),
     # 只导入最近 N 天的 feed (0 = 不限制)。历史文件留着不删, 但没必要
     # 全部导一遍 —— 默认只导最近 30 天。
     "max_days": 30,
@@ -240,12 +262,82 @@ def _normalize_published_at(raw: str | None) -> str | None:
 
 
 def topic_tags(topic: str) -> tuple[str, ...]:
-    """Return the tags bound to a feed topic.
+    """Return the **candidate** tags bound to a feed topic.
 
     未知 topic 返回空元组 —— 该条会被记成 warning 并且**不入库**:
     上游加新 topic 时不能默默塞进库里, 至少要人工确认它该绑哪个 tag。
+
+    这只是**候选**名单; 最终挂哪些 tag 由
+    ``FetcherXbotFeed._match_topic_tags()`` 按 tag 当前关键词的真实命中
+    决定 (只有命中的 tag 才会被挂上)。
     """
     return TOPIC_TAGS.get((topic or "").strip().lower(), ())
+
+
+def _load_tag_keywords(tag_names: Sequence[str]) -> dict[str, list[str]]:
+    """Return ``{tag_name: [keywords]}`` for the given **active** tags.
+
+    与 ``moni/fetch/tag_filter.py::_load_tag_keywords_for_source`` 同规则
+    (只取 ``is_active = 1`` 的 tag, ``keywords`` 为 NULL/空/非法 JSON 的
+    tag 直接跳过), 但作用域是**显式的 tag 名单**而不是"源绑定的 tag"。
+
+    tag 的关键词是用户可在 web 端改的 —— 每次抓取都重新读, 改完下一轮
+    立刻生效 (不缓存到磁盘)。
+    """
+    names = [t for t in dict.fromkeys(tag_names) if t]
+    if not names:
+        return {}
+    try:
+        from ...db.connection import get_db
+
+        placeholders = ",".join("?" * len(names))
+        rows = get_db().execute(
+            f"""
+            SELECT name, keywords FROM tag_definitions
+            WHERE is_active = 1 AND name IN ({placeholders})
+            """,
+            names,
+        ).fetchall()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[xbot-feed] cannot read tag keywords: %s", exc)
+        return {}
+
+    out: dict[str, list[str]] = {}
+    for row in rows:
+        raw = row["keywords"]
+        if not raw:
+            continue
+        try:
+            arr = json.loads(raw)
+        except (TypeError, ValueError):
+            logger.warning(
+                "[xbot-feed] tag %r has invalid JSON keywords — skipping",
+                row["name"],
+            )
+            continue
+        if not isinstance(arr, list):
+            continue
+        kws = [k.strip() for k in arr if isinstance(k, str) and k.strip()]
+        if kws:
+            out[row["name"]] = kws
+    return out
+
+
+def _is_active_tag(tag_name: str) -> bool:
+    """True if a tag with this exact name exists and is active."""
+    if not tag_name:
+        return False
+    try:
+        from ...db.connection import get_db
+
+        row = get_db().execute(
+            "SELECT 1 FROM tag_definitions WHERE name = ? AND is_active = 1 LIMIT 1",
+            (tag_name,),
+        ).fetchone()
+        return row is not None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[xbot-feed] cannot check tag %r: %s", tag_name, exc)
+        return False
 
 
 @register_fetcher
@@ -254,9 +346,19 @@ class FetcherXbotFeed(BaseFetcher):
 
     source_name: str = "xbot_feed"
 
+    def __init__(self) -> None:
+        super().__init__()
+        # 本轮生效的 fetch_config (fetch() 里从 DB 读一次)。
+        # parse() 要用它算候选 tag, 所以缓存在实例上。
+        self._cfg: dict[str, Any] = {}
+        # 本轮真正入库的 tweet id (实例属性, 不共享 —— 见 B3)。
+        self._round_ids: list[str] = []
+        self._inserted_ok = False
+        self._pending_state: dict[str, Any] | None = None
+
     # ── config ────────────────────────────────────────────────────────────
     def _load_config(self) -> dict[str, Any]:
-        cfg = dict(_DEFAULTS)
+        cfg = copy.deepcopy(_DEFAULTS)
         try:
             from ...db.connection import get_db
 
@@ -520,12 +622,14 @@ class FetcherXbotFeed(BaseFetcher):
             logger.debug("[xbot-feed] blacklisted handle %s — skipping", handle)
             return None
 
-        # topic → tag。未知 topic 不入库 (宁可少收也不要错打 tag)。
-        tags = topic_tags(topic)
-        if not tags:
+        # topic → 候选 tag → 关键词闸门 (B1)。
+        # 未知 topic (没配候选 tag、也没有同名 active tag) 不入库
+        # (宁可少收也不要错打 tag)。
+        candidates = self._topic_candidate_tags(topic, self._cfg)
+        if not candidates:
             logger.warning(
                 "[xbot-feed] item %s has unknown topic %r — skipping "
-                "(no tag binding for it)", tweet_id or raw.get("url"), topic,
+                "(no candidate tag for it)", tweet_id or raw.get("url"), topic,
             )
             return None
 
@@ -546,8 +650,24 @@ class FetcherXbotFeed(BaseFetcher):
         if meta:
             content = f"{text}\n\n[{meta}]" if text else f"[{meta}]"
 
+        title = _truncate_title(text, handle)
+
+        # 关键词闸门: 只挂**真实命中**的 tag; 零命中 → 不入库。
+        # (被挡掉的条目不会进 _round_ids, 所以不会写进已导入 state ——
+        #  用户改完关键词下一轮它们还能进来。)
+        hit_tags, hits = self._match_topic_tags(
+            topic, title, content, self._cfg
+        )
+        if not hit_tags:
+            logger.info(
+                "[xbot-feed] item %s (topic=%s) hit no candidate-tag keyword — "
+                "not ingested (stays eligible for a later round)",
+                tweet_id or canonical_url, topic or "?",
+            )
+            return None
+
         return {
-            "title": _truncate_title(text, handle),
+            "title": title,
             "url": canonical_url,
             "source": self.source_name,
             "published_at": published_at,
@@ -558,41 +678,143 @@ class FetcherXbotFeed(BaseFetcher):
             # topic / tag 信息: base.run() 会走 filters + tag_filter,
             # 这里只把 tag 名单带在 article dict 里给下游用。
             "xbot_topic": topic,
-            "xbot_tags": list(tags),
+            "xbot_tags": list(hit_tags),
+            "xbot_candidate_tags": list(candidates),
+            "xbot_hits": hits,
             "xbot_tweet_id": tweet_id,
         }
+
+    # ── topic → tag 闸门 (B1) ──────────────────────────────────────────
+    def _topic_candidate_tags(self, topic: str, cfg: dict[str, Any]) -> list[str]:
+        """候选 tag 名单 (topic → 候选 tag)。
+
+        有效映射 = 内置默认 (``wechat → [wechat, miniprogram]`` /
+        ``xcircle → [general-tech, ai-fintech]``) 叠加
+        ``fetch_config.topic_tags`` 里用户配的条目 (web 端可改, 逐 topic
+        覆盖)。
+
+        **没配过的 topic** (上游新增的): 若存在**同名**的 active tag 就用它
+        (一个人为新加 topic 的最小代价路径); 否则返回空列表 → 调用方记
+        warning 并跳过该条 (宁可少收也不要错打 tag)。
+        """
+        mapping: dict[str, list[str]] = {
+            t: list(v) for t, v in TOPIC_TAGS.items()
+        }
+
+        configured = cfg.get("topic_tags")
+        if isinstance(configured, dict):
+            for key, val in configured.items():
+                if not isinstance(key, str):
+                    continue
+                if isinstance(val, str):
+                    val = [val]
+                if not isinstance(val, (list, tuple)):
+                    continue
+                topic_key = key.strip().lower()
+                if not topic_key:
+                    continue
+                # 显式给空名单 = 停用这个 topic 的导入
+                mapping[topic_key] = [
+                    str(v).strip() for v in val if str(v).strip()
+                ]
+
+        topic_key = (topic or "").strip().lower()
+        if topic_key in mapping:
+            return list(mapping[topic_key])
+
+        # 没配过的 topic → 找同名 active tag?
+        if topic_key and _is_active_tag(topic_key):
+            return [topic_key]
+
+        return []
+
+    def _match_topic_tags(
+        self,
+        topic: str,
+        title: str,
+        body: str,
+        cfg: dict[str, Any],
+    ) -> tuple[list[str], list[dict[str, Any]]]:
+        """按候选 tag 的**当前关键词**匹配标题 + 正文。
+
+        返回 ``(hit_tags, hits)``:
+
+        * ``hit_tags`` — 真实命中的 tag 名单 (可能为空 → 该条不入库)。
+        * ``hits`` — ``article_keyword_hits`` 用的命中记录, ``keyword``
+          记的是**真实关键词** (不是 ``(topic:xxx)`` 这种合成串), 这样
+          前端高亮出来的就是用户自己在 ``/config`` 里配的那个词。
+
+        匹配一律走 ``moni/fetch/keyword_match.py`` 的 ``keyword_matches``
+        —— AGENTS.md 铁律 1, 关键词匹配只能有这一个引擎。
+        """
+        from ..keyword_match import keyword_matches
+
+        candidates = self._topic_candidate_tags(topic, cfg)
+        if not candidates:
+            return [], []
+
+        tag_keywords = _load_tag_keywords(candidates)
+
+        hit_tags: list[str] = []
+        hits: list[dict[str, Any]] = []
+        for tag_name in candidates:
+            kws = tag_keywords.get(tag_name)
+            if not kws:
+                # tag 不存在 / 不 active / 没有关键词 → 不算命中
+                continue
+            for kw in kws:
+                if keyword_matches(kw, title=title, body=body, field="title+content"):
+                    hit_tags.append(tag_name)
+                    hits.append({
+                        "article_url": "",          # 调用方补
+                        "keyword": kw,
+                        "tag_name": tag_name,
+                        "filter_id": None,
+                        "hit_field": "title+content",
+                    })
+                    break                    # 一个 tag 只记一个命中关键词
+
+        return hit_tags, hits
 
     # ── pipeline overrides ───────────────────────────────────────────────
     def dedupe_insert(
         self,
         articles: list[dict[str, Any]],
-        keyword_hits: list[dict[str, Any]] = [],
+        keyword_hits: list[dict[str, Any]] | None = None,
     ) -> int:
-        """Insert articles, but tag them by topic instead of by bound tag.
+        """Insert articles with the fetcher-computed, **real** keyword hits.
 
-        ``bypass_keyword_filters`` 让 ``moni/fetch/tag_filter.py`` 的
-        bypass 分支给**每一篇**文章合成**全部**绑定 tag 的命中 ——
-        一篇推特圈的推文也会被打上 ``wechat``。这里把那批合成命中丢掉,
-        换成按每篇自己 topic 算出来的命中。
+        ``bypass_keyword_filters`` 打开时, ``moni/fetch/tag_filter.py`` 的
+        bypass 分支会给**每一篇**文章合成**全部**绑定 tag 的命中
+        (``hit_field == "bypass"``) —— 那些是假的, 必须丢掉, 否则一篇
+        推特圈的推文也会被打上 ``wechat``。
+
+        真正挂到文章上的 tag 来自 ``_match_topic_tags()`` 算出的真实命中
+        (记在 article dict 的 ``xbot_hits`` 里), 只挂**命中的** tag。
 
         文章一定带 tag (AGENTS.md 铁律 3: 任何 pass-through 路径都必须
-        显式合成 hit, 否则入库后零 tag、前端筛不到)。
+        显式合成 hit, 否则入库后零 tag、前端筛不到) —— 零命中的条目在
+        ``parse()`` 阶段就被挡掉了, 根本走不到这里。
         """
-        topic_hits: list[dict[str, Any]] = []
+        hits: list[dict[str, Any]] = []
         for art in articles:
-            tags = art.get("xbot_tags") or topic_tags(art.get("xbot_topic") or "")
-            art_url = art.get("url", "")
-            for tag_name in tags:
-                topic_hits.append({
-                    "article_url": art_url,
-                    "keyword": f"(topic:{art.get('xbot_topic') or 'unknown'})",
-                    "tag_name": tag_name,
-                    "filter_id": None,
-                    "hit_field": "topic",
-                })
+            art_hits = art.get("xbot_hits") or []
+            for hit in art_hits:
+                record = dict(hit)
+                record["article_url"] = art.get("url", "")
+                hits.append(record)
 
-        # 保留真实命中 (hit_field != "bypass"), 丢掉 bypass 的全量合成。
-        real_hits = [h for h in keyword_hits if h.get("hit_field") != "bypass"]
+        # 上游闸门算出来的命中里, 只有带**真实 tag_name** 的才算数:
+        # bypass 分支合成的那批 (hit_field == "bypass") 必须丢掉 (否则
+        # 一篇推特圈的推文也会被打上 wechat); 全局/源级黑白名单的命中
+        # 带的是 "[global]" 或没有 tag_name, 不能进 article_tags (FK)。
+        for hit in keyword_hits or []:
+            if hit.get("hit_field") == "bypass":
+                continue
+            tag_name = hit.get("tag_name")
+            if not tag_name or tag_name == "[global]":
+                continue
+            hits.append(dict(hit))
 
         # 走到这一步的条目已经过了所有闸门 —— 记下它们的 id, 入库成功后
         # 才落盘 (见 _flush_state)。被闸门挡掉的条目不在这里, 所以下一轮
@@ -602,7 +824,7 @@ class FetcherXbotFeed(BaseFetcher):
             if tid:
                 self._round_ids.append(tid)
 
-        inserted = super().dedupe_insert(articles, real_hits + topic_hits)
+        inserted = super().dedupe_insert(articles, hits)
         self._inserted_ok = True
         return inserted
 
@@ -683,11 +905,12 @@ class FetcherXbotFeed(BaseFetcher):
     # parse() 逐条用 (parse() 不该再读一遍 DB)。
     _blacklist: frozenset[str] = frozenset()
     _skip_existing_urls: bool = True
-    _inserted_ok: bool = False
-    _pending_state: dict[str, Any] | None = None
-    _round_ids: list[str] = []
+    # _cfg / _inserted_ok / _pending_state / _round_ids 都是**实例**属性,
+    # 在 __init__ 里初始化 —— 绝不放在类体上共享 (见 B3)。
 
     def _prepare(self, cfg: dict[str, Any]) -> None:
+        """Cache the effective config for this round."""
+        self._cfg = cfg
         handles = cfg.get("blacklisted_handles")
         if handles is None:
             handles = DEFAULT_BLACKLISTED_HANDLES
