@@ -734,6 +734,37 @@ def test_fetch_config_defaults_present():
     assert "blacklisted_handles" in defaults
 
 
+def test_fetch_config_has_single_source():
+    """B5: fetcher / seed / web 三处引用同一份默认值, 不各抄一遍。"""
+    from moni.db.seed_config import _DEFAULT_SOURCES
+    from moni.fetch.sources.xbot_feed import DEFAULT_FETCH_CONFIG
+    from moni.web.routes.config_sources import _FETCH_CONFIG_DEFAULTS
+
+    # seed 写进库的
+    src = next(s for s in _DEFAULT_SOURCES if s["name"] == "xbot_feed")
+    seed_cfg = json.loads(src["fetch_config"])
+
+    # web 面板显示的
+    web_cfg = _FETCH_CONFIG_DEFAULTS["xbot_feed"]
+
+    assert seed_cfg == DEFAULT_FETCH_CONFIG
+    assert web_cfg == DEFAULT_FETCH_CONFIG
+
+    # 三份不是同一个对象 (改了 web 的那份不能影响 fetcher 的)
+    assert web_cfg is not DEFAULT_FETCH_CONFIG
+    assert seed_cfg is not DEFAULT_FETCH_CONFIG
+
+
+def test_fetch_config_defaults_present_topic_tags():
+    """B1: 候选 tag 映射也在默认值里 (web 端可见/可改)。"""
+    from moni.fetch.sources.xbot_feed import DEFAULT_FETCH_CONFIG
+
+    assert DEFAULT_FETCH_CONFIG["topic_tags"] == {
+        "wechat": ["wechat", "miniprogram"],
+        "xcircle": ["general-tech", "ai-fintech"],
+    }
+
+
 def test_sources_yaml_has_entry():
     import yaml
 

@@ -156,7 +156,19 @@ DEFAULT_BLACKLISTED_HANDLES: tuple[str, ...] = (
     "HunchoJ01",         # 关键词误命中的噪音号
 )
 
-_DEFAULTS: dict[str, Any] = {
+#: ``sources.fetch_config`` 里 xbot_feed 的**唯一**默认值来源。
+#:
+#: v1.0.66 (审计 B5): 同一份默认值原本抄在三处 ——
+#: ``moni/fetch/sources/xbot_feed.py`` 的 ``_DEFAULTS``、
+#: ``moni/db/seed_config.py`` 的 source 定义、
+#: ``moni/web/routes/config_sources.py`` 的 ``_FETCH_CONFIG_DEFAULTS``。
+#: 改一处忘另两处, 就会出现「web 面板显示的默认值」≠「seed 写进库的」
+#: ≠「fetcher 实际生效的」。现在这三个地方都引用这里。
+#:
+#: 注意: ``moni/db/seed_config.py`` 从这里 import 是安全的 ——
+#: ``moni/fetch/sources/xbot_feed.py`` 只在**函数内** import ``moni.db.*``,
+#: 模块层不 import ``moni.db`` → 无循环 import。
+DEFAULT_FETCH_CONFIG: dict[str, Any] = {
     # 上游仓库地址 (私有仓库; moni 不存 key, 用机器已有的 git 凭据)
     "repo_url": DEFAULT_REPO_URL,
     # clone 放在 moni 数据目录下; 留空则用默认子目录名
@@ -178,6 +190,9 @@ _DEFAULTS: dict[str, Any] = {
     # 是否跳过跨源已存在的 URL (软去重)
     "skip_existing_urls": True,
 }
+
+#: fetcher 内部的别名 —— 语义上就是 ``DEFAULT_FETCH_CONFIG``。
+_DEFAULTS: dict[str, Any] = DEFAULT_FETCH_CONFIG
 
 #: 匹配 X / Twitter URL 里的数字 tweet id
 _STATUS_RE = re.compile(r"/status/(\d+)")
