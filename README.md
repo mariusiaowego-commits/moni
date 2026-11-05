@@ -12,7 +12,7 @@
 # 1. 装包 (editable install, 必须用 3.12 pip)
 pip install -e .
 
-# 2. 初始化数据库 (首次, 或 schema 升级后)
+# 2. 初始化数据库 (首次安装时; 已装过的库升级见下面「升级到 v1.0.67 及以后」)
 /usr/local/bin/python3 -m moni db init
 # ⚠️ 必须用绝对路径 python3.12, 系统默认 python3 (3.14) 缺 yaml 依赖
 
@@ -47,15 +47,38 @@ open http://127.0.0.1:8900/
 /usr/local/bin/python3 -m moni fetch --source 36kr  # 单源抓
 
 # DB
-/usr/local/bin/python3 -m moni db init              # 初始化 + migrate
+/usr/local/bin/python3 -m moni db init              # 初始化 + migrate + seed ⚠️ 会重置你改过的源字段
+/usr/local/bin/python3 -m moni.db.migrate            # 只跑迁移（升级用这个，不碰你的配置）
 /usr/local/bin/python3 -m moni db stats             # 表格行数
-/usr/local/bin/python3 -m moni db seed-config       # 重置 source 配置 (需先 source .env)
+/usr/local/bin/python3 -m moni db seed-config       # 重置 source 配置 (需先 source .env) ⚠️ 会重置你改过的源字段
 sqlite3 data/news.db "SELECT source, COUNT(*) FROM articles GROUP BY source"
 
 # 测试
 set -a && source .env && set +a                    # ⚠️ 必须先加载 env
 /usr/local/bin/python3 -m pytest tests/ -q          # 425 passed, 2 skipped
 ```
+
+## 升级到 v1.0.67 及以后
+
+新抓取源由 **migration 落库**，不再需要跑 `moni db seed-config`。升级只要跑迁移：
+
+```bash
+/usr/local/bin/python3 -m moni.db.migrate   # 只跑迁移，不碰你在 /config 改过的任何东西
+```
+
+> ⚠️ **升级时不要跑 `moni db init`。**
+> `moni db init` = **migrate + seed**（`moni/cli/main.py:45-50`），它除了迁移还会跑
+> `seed-config`，而 **seed 会把你改过的源字段重置成出厂默认**
+> （display_name / url / 抓取间隔 / notes / fetch_config），
+> 并把你取消掉的 tag 绑定补回来，还会把你停用过的**业务 tag 重新启用**。
+> 迁移只 INSERT，不覆盖任何东西。
+> tag 的**关键词**不受影响（seed 也不动 keywords 列）。
+
+> ⚠️ **为什么是 `python3 -m moni.db.migrate` 而不是 `moni db init`**：
+> `migrate.py:124-133` 有现成的 migrate-only 入口（实跑确认：只建 schema + 跑迁移，
+> **不 seed 任何 sources / tag_definitions**）；`db init` 会额外跑
+> `seed_llm` + `seed_config`，后者正好会抹掉用户在 `/config` 改过的东西。
+> `moni db init` 本身的行为**不在本次改动范围**内（见 plan Q-O-10）。
 
 ## ⚠️ Env 加载 SOP (v1.0.7.6.2)
 

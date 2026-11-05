@@ -9,7 +9,14 @@ artifacts, not source files; nothing here is imported or served by the app.
 |---|---|---|
 | `sprint-24/` | `moni-worktrees/26101001-render-hygiene/docs/sprint-24-evidence/` | v1.0.44 render hygiene: online/offline/reduced-motion screenshots plus flash-timing, font-axis, font-platform and offline probe JSON |
 | `sprint-25/` | `moni-worktrees/26101201-motion/docs/sprint-25-evidence/` | v1.0.45 motion work: before/after FPS runs, B-group verification, mutation probes |
+| `sprint-27/` | sprint-27（中文独立博客源） | v1.0.60 / v1.0.62 中文独立博客源：独立审计报告 |
+| `sprint-27-hotfix/` | sprint-27 hotfix（失败率熔断 + 配置链修复） | v1.0.62 hotfix：审计 + 实施记录 |
+| `sprint-30/` | sprint-30（xbot_feed 回填与迁移 039） | v1.0.66 xbot_feed 真实运行：203 导出 / 71 入库 / rerun 0（三天数据）+ 真实库副本上的 migration 039 实测 |
 | `reference-reports/` | `moni-ref-fact-check/*REPORT.md` | Read-only research for sprint-16 ($name placeholder fix) and sprint-16.5/16.6 fact-check hardening |
+
+> **文件命名约定（2026-11-05 起）**：`sprint-27/` 只有 `AUDIT.md`；
+> **sprint-30 起新增 `RUN.md`** —— 真实运行记录（人读），配套 `*.json`（机器可读统计）。
+> 详见 `sprint-30/RUN.md`。
 
 ## Reference reports (逐份索引)
 

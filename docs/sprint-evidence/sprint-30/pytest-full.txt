@@ -1,0 +1,21 @@
+# sprint-30 全量测试日志（pytest-full.txt）
+
+- **日期**: 2026-11-05
+- **代码**: `feat/sprint-30-xbot-feed-migration` @ `507c2b2`（基线 `e53956c`）
+- **命令**（CI 同款）: `.venv/bin/python -m pytest tests/ -q -p no:cacheprovider`
+- **Python**: 3.12.15（`.venv`）
+
+## 汇总
+
+```
+=============================== warnings summary ===============================
+1486 passed, 2 skipped, 3 warnings in 100.71s (0:01:40)
+```
+
+## 结论
+
+- **1486 passed / 2 skipped** —— 无失败、无错误、无跳过新增。
+- 基线（`e53956c`）: **1456 passed / 2 skipped** → 本次新增 **30** 条（migration 039 的回归测试）。
+- 定向测试: `tests/test_migration_039_xbot_feed.py` 30 条全绿。
+
+> 只保留 pytest 的汇总行（counts only）。完整日志不入库 —— 里面有测试名，无个人数据。

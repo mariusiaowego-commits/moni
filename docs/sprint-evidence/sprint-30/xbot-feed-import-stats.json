@@ -1,0 +1,175 @@
+{
+  "sprint": "sprint-30",
+  "source": "xbot_feed",
+  "source_id": "src-xbot-feed",
+  "code": "feat/sprint-30-xbot-feed-migration @ 507c2b2",
+  "measured_at": "2026-11-05",
+  "feed_files": [
+    "2026-11-03.json",
+    "2026-11-04.json",
+    "2026-11-05.json"
+  ],
+  "per_file_replay": [
+    {
+      "file": "2026-11-03.json",
+      "exported": 203,
+      "unique_ids": 203,
+      "counts_by_topic": {
+        "wechat": 46,
+        "xcircle": 157
+      },
+      "blacklisted": 6,
+      "blacklisted_by_topic": {
+        "wechat": 6
+      },
+      "no_keyword_hit": 126,
+      "no_keyword_hit_by_topic": {
+        "wechat": 9,
+        "xcircle": 117
+      },
+      "inserted": 71,
+      "inserted_by_topic": {
+        "wechat": 31,
+        "xcircle": 40
+      },
+      "tag_distribution": {
+        "wechat": 28,
+        "miniprogram": 21,
+        "general-tech": 37,
+        "ai-fintech": 7
+      },
+      "zero_tag_articles": 0,
+      "cross_topic_mislabel": 0
+    },
+    {
+      "file": "2026-11-04.json",
+      "exported": 188,
+      "unique_ids": 188,
+      "counts_by_topic": {
+        "wechat": 83,
+        "xcircle": 105
+      },
+      "blacklisted": 1,
+      "blacklisted_by_topic": {
+        "wechat": 1
+      },
+      "no_keyword_hit": 72,
+      "no_keyword_hit_by_topic": {
+        "wechat": 21,
+        "xcircle": 51
+      },
+      "inserted": 115,
+      "inserted_by_topic": {
+        "wechat": 61,
+        "xcircle": 54
+      },
+      "tag_distribution": {
+        "wechat": 46,
+        "miniprogram": 45,
+        "general-tech": 54,
+        "ai-fintech": 1
+      },
+      "zero_tag_articles": 0,
+      "cross_topic_mislabel": 0
+    },
+    {
+      "file": "2026-11-05.json",
+      "exported": 188,
+      "unique_ids": 188,
+      "counts_by_topic": {
+        "wechat": 20,
+        "xcircle": 168
+      },
+      "blacklisted": 0,
+      "blacklisted_by_topic": {},
+      "no_keyword_hit": 102,
+      "no_keyword_hit_by_topic": {
+        "wechat": 3,
+        "xcircle": 99
+      },
+      "inserted": 86,
+      "inserted_by_topic": {
+        "wechat": 17,
+        "xcircle": 69
+      },
+      "tag_distribution": {
+        "wechat": 16,
+        "miniprogram": 5,
+        "general-tech": 68,
+        "ai-fintech": 2
+      },
+      "zero_tag_articles": 0,
+      "cross_topic_mislabel": 0
+    }
+  ],
+  "replay_totals": {
+    "exported": 579,
+    "blacklisted": 7,
+    "no_keyword_hit": 300,
+    "inserted": 272,
+    "zero_tag_articles": 0,
+    "cross_topic_mislabel": 0
+  },
+  "live_run": {
+    "fetched": 579,
+    "parsed": 270,
+    "inserted": 270,
+    "parse_errors": 0,
+    "zero_tag_articles": 0,
+    "article_tags_distribution": {
+      "wechat": 89,
+      "general-tech": 158,
+      "miniprogram": 71,
+      "ai-fintech": 9
+    },
+    "article_keyword_hits_distribution": {
+      "wechat": 89,
+      "general-tech": 158,
+      "miniprogram": 71,
+      "ai-fintech": 9
+    },
+    "rerun_fetched": 309,
+    "rerun_inserted": 0
+  },
+  "live_vs_replay_delta": {
+    "inserted": -2,
+    "why": "重放逐文件独立计数，跨文件重复的 tweet id 各算一次；实跑走 fetcher 的全局去重（tweet id + 跨源软去重）。实跑的 270 才是真实入库数。"
+  },
+  "test_keywords": {
+    "wechat": [
+      "微信",
+      "WeChat",
+      "公众号",
+      "视频号",
+      "微信支付"
+    ],
+    "miniprogram": [
+      "小程序",
+      "mini program",
+      "miniprogram"
+    ],
+    "general-tech": [
+      "AI",
+      "大模型",
+      "LLM",
+      "开源",
+      "Agent",
+      "模型"
+    ],
+    "ai-fintech": [
+      "量化",
+      "投资",
+      "A股",
+      "基金",
+      "金融"
+    ]
+  },
+  "replay_method": "moni.fetch.keyword_match.keyword_matches (title+content) + moni.fetch.sources.xbot_feed._truncate_title; title = _truncate_title(text, handle), content = text + '\\n\\n[metrics]'",
+  "environment": {
+    "moni_data_dir": "/tmp/xbot-evidence/data",
+    "upstream": "local bare git repo (stand-in for the private repo; the fetcher's repo_url validation only accepts https://github.com/<owner>/<repo>, so the clone is pre-seeded and _sync_clone() only runs git pull --ff-only against the local origin)",
+    "network": "none",
+    "credentials": "none"
+  },
+  "note": "测试关键词下的数字；生产库关键词不同，条数会不同。机制一样，数字不是承诺。"
+}
