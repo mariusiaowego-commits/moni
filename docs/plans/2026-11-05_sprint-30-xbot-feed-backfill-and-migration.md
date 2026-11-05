@@ -1133,38 +1133,38 @@ Contents 表加**三行**（sprint-30 一行 + **S-6 修法：顺手补上漏掉
 
 ## 11. 验收标准
 
-- [ ] `moni/db/migrations/039_xbot_feed_source.sql` 存在，`_CURRENT_VERSION == 39`
-- [ ] **039 的 SQL 里所有字符串字面量不含 `;` / `--`**（用例 18 钉死）
-- [ ] **强制走 runner 兜底路径（`split(';')`）时 039 不抛异常**（用例 19 钉死）
-- [ ] `moni/db/seed_config.py` 的 notes 与 039 的 notes **逐字相同**（用例 11 钉死）
-- [ ] 全新 DB → `migrate()` → schema 39，源存在，4 个绑定在 `seed()` 之后齐全
-- [ ] v38 库（无本源）→ `migrate()` → 源存在（**不跑 seed-config**）
-- [ ] 迁移后 `_is_source_bypassed("xbot_feed") == True`（源行缺失会让它静默变 False，见 §1.0）
-- [ ] 用户改过的源（含 `is_active=0`）跑完迁移**逐字段不变**
-- [ ] **migrate-only 路径（`python3 -m moni.db.migrate`）跑完，用户改过的字段逐字段不变**（用例 20）
-- [ ] 迁移连跑两遍结果完全一致
-- [ ] `tag_definitions.keywords` 迁移前后完全一致
-- [ ] 4 个 tag 缺失时不抛异常、不建悬空链接
-- [ ] **4 个 tag 全停用时 `schema_cleanup_log` 不记录 039**（S-1 守卫，用例 24）
-- [ ] **用户用自己的 id 占用 `name='xbot_feed'` 时迁移不抛异常、不建悬空绑定**（S-3，用例 23）
-- [ ] **迁移前后除本源以外的所有 `sources` 行逐字段不变**（用例 26）
-- [ ] **用 `015a2c5` 的旧代码建的库（schema 38、无本源）能被当前代码升级到 39**（用例 22）
-- [ ] 迁移写入的 `fetch_config` == `DEFAULT_FETCH_CONFIG`（测试钉死）
-- [ ] `grep -rn "== 38" tests/` **只命中 `tests/test_migration_039_xbot_feed.py` 里的
+- [x] `moni/db/migrations/039_xbot_feed_source.sql` 存在，`_CURRENT_VERSION == 39`
+- [x] **039 的 SQL 里所有字符串字面量不含 `;` / `--`**（用例 18 钉死）
+- [x] **强制走 runner 兜底路径（`split(';')`）时 039 不抛异常**（用例 19 钉死）
+- [x] `moni/db/seed_config.py` 的 notes 与 039 的 notes **逐字相同**（用例 11 钉死）
+- [x] 全新 DB → `migrate()` → schema 39，源存在，4 个绑定在 `seed()` 之后齐全
+- [x] v38 库（无本源）→ `migrate()` → 源存在（**不跑 seed-config**）
+- [x] 迁移后 `_is_source_bypassed("xbot_feed") == True`（源行缺失会让它静默变 False，见 §1.0）
+- [x] 用户改过的源（含 `is_active=0`）跑完迁移**逐字段不变**
+- [x] **migrate-only 路径（`python3 -m moni.db.migrate`）跑完，用户改过的字段逐字段不变**（用例 20）
+- [x] 迁移连跑两遍结果完全一致
+- [x] `tag_definitions.keywords` 迁移前后完全一致
+- [x] 4 个 tag 缺失时不抛异常、不建悬空链接
+- [x] **4 个 tag 全停用时 `schema_cleanup_log` 不记录 039**（S-1 守卫，用例 24）
+- [x] **用户用自己的 id 占用 `name='xbot_feed'` 时迁移不抛异常、不建悬空绑定**（S-3，用例 23）
+- [x] **迁移前后除本源以外的所有 `sources` 行逐字段不变**（用例 26）
+- [x] **用 `015a2c5` 的旧代码建的库（schema 38、无本源）能被当前代码升级到 39**（用例 22）
+- [x] 迁移写入的 `fetch_config` == `DEFAULT_FETCH_CONFIG`（测试钉死）
+- [x] `grep -rn "== 38" tests/` **只命中 `tests/test_migration_039_xbot_feed.py` 里的
       `assert old_version == 38`**（那是"旧代码建的库是 schema 38"的刻意断言）；
       5 个文件、6 处断言 + 1 处报错文案全部改成 39
-- [ ] `docs/plans/2026-11-05_...-AUDIT.md` 落盘，含 9/6/8 三组条目 + commit hash
-- [ ] `docs/sprint-evidence/sprint-30/` 落盘，含 203/71/6/126/0 与"测试关键词"说明
-- [ ] `docs/sprint-evidence/README.md` 的 Contents 表**同时**有 sprint-27 / sprint-27-hotfix /
+- [x] `docs/plans/2026-11-05_...-AUDIT.md` 落盘，含 9/6/8 三组条目 + commit hash
+- [x] `docs/sprint-evidence/sprint-30/` 落盘，含 203/71/6/126/0 与"测试关键词"说明
+- [x] `docs/sprint-evidence/README.md` 的 Contents 表**同时**有 sprint-27 / sprint-27-hotfix /
       sprint-30 三行（S-6）
-- [ ] `2026-11-03_xbot-feed-source.md` 加了指针、status 改成已合并
-- [ ] `README.md` / `USER_GUIDE.md` / `STATUS.md` 写清"升级不需要 seed-config"
+- [x] `2026-11-03_xbot-feed-source.md` 加了指针、status 改成已合并
+- [x] `README.md` / `USER_GUIDE.md` / `STATUS.md` 写清"升级不需要 seed-config"
       + "seed-config 会重置你改过的源字段"
-- [ ] **升级指令三处（README / USER_GUIDE / STATUS）一律是
+- [x] **升级指令三处（README / USER_GUIDE / STATUS）一律是
       `python3 -m moni.db.migrate`，且明确写了"`moni db init` = migrate + seed，
       升级不要跑它"** —— 全文 grep 不到"用 `moni db init` 升级"的表述（§4.3.1）
-- [ ] 全量 pytest 通过，**实际条数写进 STATUS**（基线 1456 passed / 2 skipped）
-- [ ] 独立审计 APPROVE
+- [x] 全量 pytest 通过，**实际条数写进 STATUS**（基线 1456 passed / 2 skipped）→ **1486 passed / 2 skipped**
+- [ ] 独立审计 APPROVE  ← **待办**（本 sprint 的实施方不做自审）
 
 ---
 
