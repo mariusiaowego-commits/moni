@@ -228,7 +228,10 @@ def sweep_expired(
             lease_heartbeat_at = NULL,
             lease_owner = NULL,
             finished_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-            error = COALESCE(error, 'lease heartbeat expired (grace={grace_sec}s)')
+            error = COALESCE(
+                error,
+                '服务进程中断或重启，任务已中止（心跳 {grace_sec}s 未续约）'
+            )
         WHERE status = 'running'
           AND (
             lease_heartbeat_at IS NULL

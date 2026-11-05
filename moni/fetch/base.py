@@ -154,22 +154,48 @@ class BaseFetcher(ABC):
         """
         source = self.source_name
         logger.info("[%s] starting fetch", source)
+        self._dry_run = dry_run
 
         raw_articles: list[dict[str, Any]] = []
         try:
             raw_articles = self.fetch()
         except Exception as exc:
             logger.error("[%s] fetch() raised %s: %s", source, type(exc).__name__, exc)
-            return {
+            stats = _merge_stats(getattr(self, "_chunk_stats", {}), {
                 "source": source,
                 "fetched": 0,
                 "parsed": 0,
                 "inserted": 0,
                 "parse_errors": 0,
                 "error": f"{type(exc).__name__}: {exc}",
-            }
+            })
+            return stats
 
         logger.info("[%s] fetched %d raw articles", source, len(raw_articles))
+        stats = self._ingest(raw_articles, dry_run=dry_run)
+
+        # Streaming fetchers (e.g. BestBlogs) persist in chunks from inside
+        # fetch(); merge their totals so the caller still gets one summary.
+        stats = _merge_stats(getattr(self, "_chunk_stats", {}), stats)
+        logger.info("[%s] done — inserted %d new articles", source, stats["inserted"])
+        return stats
+
+    def ingest_chunk(self, raw_articles: list[dict[str, Any]]) -> dict[str, Any]:
+        """Run the shared parse/filter/insert pipeline on one chunk.
+
+        Sources that sweep hundreds of feeds call this periodically so a
+        process restart can't discard everything fetched so far.
+        """
+        stats = self._ingest(raw_articles, dry_run=bool(getattr(self, "_dry_run", False)))
+        self._chunk_stats = _merge_stats(getattr(self, "_chunk_stats", {}), stats)
+        logger.info(
+            "[%s] chunk flushed — fetched %d, inserted %d new articles",
+            self.source_name, stats["fetched"], stats["inserted"],
+        )
+        return stats
+
+    def _ingest(self, raw_articles: list[dict[str, Any]], *, dry_run: bool) -> dict[str, Any]:
+        source = self.source_name
 
         parsed_articles: list[dict[str, Any]] = []
         parse_errors = 0
@@ -268,8 +294,6 @@ class BaseFetcher(ABC):
             inserted = 0
             logger.info("[%s] dry-run — skipped database insert", source)
 
-        logger.info("[%s] done — inserted %d new articles", source, inserted)
-
         return {
             "source": source,
             "fetched": len(raw_articles),
@@ -289,3 +313,37 @@ class BaseFetcher(ABC):
             "dropped_articles": tag_stats.get("dropped_articles", []),
             "error": None,
         }
+
+
+_SUM_STAT_FIELDS = (
+    "fetched",
+    "parsed",
+    "inserted",
+    "parse_errors",
+    "cleaned",
+    "filtered",
+    "dropped_blacklist",
+    "dropped_whitelist",
+    "dropped_global_blacklist",
+    "dropped_global_whitelist",
+    "dropped_tag_filter",
+)
+
+# Counts of distinct filters/tags — identical for every chunk, so take max
+# instead of summing (summing would multiply them by the chunk count).
+_MAX_STAT_FIELDS = ("filters_applied", "global_filters_applied", "tags_used")
+
+
+def _merge_stats(base: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
+    if not base:
+        return dict(extra)
+    merged = dict(extra)
+    for field in _SUM_STAT_FIELDS:
+        merged[field] = base.get(field, 0) + extra.get(field, 0)
+    for field in _MAX_STAT_FIELDS:
+        merged[field] = max(base.get(field, 0), extra.get(field, 0))
+    merged["dropped_articles"] = list(base.get("dropped_articles", [])) + list(
+        extra.get("dropped_articles", [])
+    )
+    merged["error"] = extra.get("error") or base.get("error")
+    return merged

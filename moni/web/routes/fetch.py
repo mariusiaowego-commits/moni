@@ -37,6 +37,7 @@ from moni.db.connection import get_db
 from moni.fetch import run_fetcher
 from moni.fetch.jobs import FetchJobStore
 from moni.fetch.base import _FETCHER_REGISTRY, _ensure_sources_loaded
+from moni.db import leases
 from moni.web.exceptions import NotFoundError
 from moni.web.models import FetchSource, HealthResponse
 from moni.web.routes.config_sources import _FETCH_CONFIG_DEFAULTS
@@ -44,6 +45,72 @@ from moni.web.routes.config_sources import _FETCH_CONFIG_DEFAULTS
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/fetch", tags=["fetch"])
+
+# Lease heartbeat cadence. Grace is 3× the interval (90s), so a heartbeat
+# may survive up to two transient failures; the third one means the DB has
+# been unreachable for ~90s and the row is about to be swept anyway.
+_HEARTBEAT_INTERVAL_SEC = 30.0
+_HEARTBEAT_MAX_FAILURES = 3
+
+
+def _start_heartbeat(
+    handle: leases.LeaseHandle,
+    source_name: str,
+    job_id: str,
+    *,
+    interval: float = _HEARTBEAT_INTERVAL_SEC,
+    max_failures: int = _HEARTBEAT_MAX_FAILURES,
+) -> tuple[threading.Event, threading.Thread]:
+    """Renew ``handle`` until the returned stop event is set.
+
+    A single transient SQLite error used to kill this thread for good, which
+    made a live job look like a dead one 90 seconds later.
+    """
+    stop = threading.Event()
+
+    def _beat() -> None:
+        failures = 0
+        while not stop.wait(interval):
+            try:
+                if leases.heartbeat(handle):
+                    failures = 0
+                    continue
+                row = FetchJobStore().get_raw(job_id)
+                if row is None or row.get("status") != "running":
+                    logger.info(
+                        "[%s] heartbeat stopping: job %s already finished",
+                        source_name, job_id[:8],
+                    )
+                    return
+                # Still running but our owner/fence no longer matches: another
+                # writer owns this row. Retrying can never succeed.
+                logger.error(
+                    "[%s] heartbeat lost lease for job %s (fence=%s)",
+                    source_name, job_id[:8], handle.fence,
+                )
+                return
+            except Exception as exc:  # noqa: BLE001 — never let the thread die silently
+                failures += 1
+                logger.warning(
+                    "[%s] heartbeat error %d/%d for job %s: %s",
+                    source_name, failures, max_failures,
+                    job_id[:8], exc,
+                )
+                if failures >= max_failures:
+                    logger.error(
+                        "[%s] heartbeat giving up after %d consecutive failures "
+                        "for job %s — sweep will mark it stale",
+                        source_name, failures, job_id[:8],
+                    )
+                    return
+
+    thread = threading.Thread(
+        target=_beat,
+        name=f"lease-hb-{source_name}-{job_id[:8]}",
+        daemon=True,
+    )
+    thread.start()
+    return stop, thread
 
 # Path to sources config — same resolution as moni.fetch.scheduler
 _CONFIG_PATH = Path(__file__).parent.parent.parent.parent / "config" / "sources.yaml"
@@ -346,33 +413,7 @@ def _run_fetch_job(
         )
         return
 
-    # Heartbeat thread: renew lease every 30s so sweep won't reap us.
-    _heartbeat_stop = threading.Event()
-
-    def _heartbeat_loop() -> None:
-        while not _heartbeat_stop.is_set():
-            _heartbeat_stop.wait(30.0)
-            if _heartbeat_stop.is_set():
-                break
-            try:
-                if not leases.heartbeat(handle):
-                    # Lease lost — either we got swept (rare) or our fence
-                    # is stale (would only happen if acquire returned a
-                    # new handle while the old heartbeat was queued).
-                    # Either way, the worker has or will write a terminal
-                    # status; this thread just quietly exits.
-                    return
-            except Exception as exc:  # noqa: BLE001 — heartbeat never kills the thread
-                # Typical: row already finished → _table() ValueError
-                logger.debug("[%s] heartbeat stopped (%s)", source_name, exc)
-                return
-
-    hb_thread = threading.Thread(
-        target=_heartbeat_loop,
-        name=f"lease-hb-{source_name}-{job_id[:8]}",
-        daemon=True,
-    )
-    hb_thread.start()
+    hb_stop, hb_thread = _start_heartbeat(handle, source_name, job_id)
 
     try:
         _ensure_sources_loaded()
@@ -448,7 +489,7 @@ def _run_fetch_job(
         except Exception as mf_exc:
             logger.warning("[%s] could not mark_failed for job %s: %s", source_name, job_id[:8], mf_exc)
     finally:
-        _heartbeat_stop.set()
+        hb_stop.set()
         hb_thread.join(timeout=2.0)
 
 
@@ -787,7 +828,9 @@ def _run_batch_job(
     job_ids: dict[str, str] = {}
     for cfg in enabled:
         source_name: str = cfg["source_name"]
-        jid = jobs.create(source_name, batch_id=batch_id)
+        # Queued sources stay 'pending' (no lease) until their turn: a
+        # source that waits >90s behind a slow one must not be swept.
+        jid = jobs.create(source_name, batch_id=batch_id, status="pending")
         jobs.update_progress(jid, current_feed="(排队中)")
         job_ids[source_name] = jid
 
@@ -812,6 +855,16 @@ def _run_batch_job(
             jobs.mark_failed(job_id, "No fetcher registered")
             sources_failed += 1
             continue
+
+        handle = jobs.adopt(job_id)
+        if handle is None:
+            logger.warning(
+                "[%s] batch job %s is no longer pending — skipping",
+                source_name, job_id[:8],
+            )
+            sources_failed += 1
+            continue
+        hb_stop, hb_thread = _start_heartbeat(handle, source_name, job_id)
 
         try:
             started = time.monotonic()
@@ -848,7 +901,7 @@ def _run_batch_job(
             result = fetcher.run()
 
             if time.monotonic() > deadline:
-                jobs.mark_timeout(job_id)
+                jobs.mark_timeout(job_id, handle=handle)
                 sources_failed += 1
                 continue
 
@@ -857,10 +910,10 @@ def _run_batch_job(
                     "source": source_name,
                     "status": "skipped",
                     "message": "Source not due for fetching",
-                })
+                }, handle=handle)
                 continue
 
-            jobs.mark_done(job_id, result)
+            jobs.mark_done(job_id, result, handle=handle)
 
             # Calculate deduped
             dropped_total = (
@@ -902,12 +955,15 @@ def _run_batch_job(
 
         except TimeoutError as exc:
             logger.warning("[%s] batch job timed out: %s", source_name, exc)
-            jobs.mark_timeout(job_id, str(exc))
+            jobs.mark_timeout(job_id, str(exc), handle=handle)
             sources_failed += 1
         except Exception as exc:
             logger.exception("[%s] batch job failed", source_name)
-            jobs.mark_failed(job_id, f"{type(exc).__name__}: {exc}")
+            jobs.mark_failed(job_id, f"{type(exc).__name__}: {exc}", handle=handle)
             sources_failed += 1
+        finally:
+            hb_stop.set()
+            hb_thread.join(timeout=2.0)
 
     # Update cron_runs with final totals
     finished_at = datetime.now(CST).isoformat()

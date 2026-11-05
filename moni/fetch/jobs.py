@@ -60,12 +60,17 @@ class FetchJobStore:
         source: str,
         total_feeds: int = 0,
         batch_id: str | None = None,
+        status: str = "running",
     ) -> str:
         """Insert a new job in running state. Returns the job id.
 
         If ``batch_id`` is provided, this job belongs to a batch (used by
         "全部抓取"). The frontend can poll ``get_batch(batch_id)`` to get
         aggregate progress across all jobs in the batch.
+
+        Pass ``status="pending"`` for queued batch entries: pending rows carry
+        no lease, so ``sweep_expired`` (which only touches ``running``) can
+        never reap a source that simply hasn't started yet.
         """
         job_id = str(uuid.uuid4())
         conn = get_db()
@@ -74,20 +79,59 @@ class FetchJobStore:
         # gets a chance to start heartbeating. Also write lease_owner so
         # the worker thread can adopt the lease via fence-bump without
         # having to re-acquire (which would race with sweep).
-        job_owner = uuid.uuid4().hex
+        job_owner = uuid.uuid4().hex if status == "running" else None
         conn.execute(
             """
             INSERT INTO fetch_jobs (
                 id, source, status, total_feeds, done_feeds,
                 articles_so_far, started_at, batch_id,
                 lease_owner, lease_heartbeat_at
-            ) VALUES (?, ?, 'running', ?, 0, 0, ?, ?, ?,
-                      strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            ) VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?,
+                      CASE WHEN ? = 'running'
+                           THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') END)
             """,
-            (job_id, source, total_feeds, _now_iso(), batch_id, job_owner),
+            (
+                job_id,
+                source,
+                status,
+                total_feeds,
+                _now_iso(),
+                batch_id,
+                job_owner,
+                status,
+            ),
         )
         conn.commit()
         return job_id
+
+    def adopt(self, job_id: str) -> leases.LeaseHandle | None:
+        """Start a queued (``pending``) job and return its lease handle.
+
+        Batch fetches pre-create every source as pending; this flips one row
+        to running, mints an owner and bumps the fence so the caller can
+        heartbeat it and write a fenced terminal state.
+
+        Returns ``None`` if the row is no longer pending (cancelled or reaped).
+        """
+        owner = uuid.uuid4().hex
+        conn = get_db()
+        row = conn.execute(
+            """
+            UPDATE fetch_jobs
+            SET status = 'running',
+                lease_owner = ?,
+                lease_heartbeat_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                fence = fence + 1,
+                started_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE id = ? AND status = 'pending'
+            RETURNING fence
+            """,
+            (owner, job_id),
+        ).fetchone()
+        conn.commit()
+        if row is None:
+            return None
+        return leases.LeaseHandle(job_id=job_id, owner=owner, fence=int(row["fence"]))
 
     # ── progress updates (called from background thread) ───────────────────
 
@@ -232,8 +276,7 @@ class FetchJobStore:
                 status="stale",
                 finished_at=_now_iso(),
                 error=(
-                    "Aborted: daemon thread presumed dead (no heartbeat). "
-                    "Likely SQLite contention or process restart."
+                    "服务进程中断或重启，任务已中止（心跳未续约）。"
                 )[:2000],
                 current_feed=None,
             )

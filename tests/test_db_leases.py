@@ -239,6 +239,9 @@ def test_sweep_marks_zombie_as_stale():
     ).fetchone()
     assert row["status"] == "stale"
     assert row["lease_owner"] is None
+    assert "服务进程中断" in c.execute(
+        "SELECT error FROM fetch_jobs WHERE source='test_src'"
+    ).fetchone()["error"]
 
 
 def test_sweep_keeps_fresh_heartbeat_rows():
