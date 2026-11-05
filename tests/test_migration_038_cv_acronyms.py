@@ -57,7 +57,7 @@ def _keywords(conn) -> list[str]:
 
 
 def test_038_appends_the_two_conference_acronyms(db_with_ai_fintech):
-    assert _CURRENT_VERSION == 38
+    assert _CURRENT_VERSION == 39
     _run_sql_file(db_with_ai_fintech, MIGRATION_038)
     kws = _keywords(db_with_ai_fintech)
     assert kws[-2:] == ["CVPR", "ECCV"]
