@@ -679,6 +679,26 @@ class TestZombieSweep:
         # The global check must not be blocked by a queued row.
         assert store.has_running() is False
 
+    def test_get_batch_reaps_orphaned_rows(self, fresh_db):
+        """The batch endpoint must not report "running" for a dead queue."""
+        from datetime import datetime, timedelta, timezone
+
+        store = FetchJobStore()
+        queued = store.create("bestblogs", batch_id="b1", status="pending")
+        old_hb = (
+            datetime.now(timezone.utc) - timedelta(hours=3)
+        ).isoformat(timespec="microseconds").replace("+00:00", "Z")
+        get_db().execute(
+            "UPDATE fetch_jobs SET lease_heartbeat_at = ? WHERE id = ?",
+            (old_hb, queued),
+        )
+        get_db().commit()
+
+        batch = store.get_batch("b1")
+        assert batch is not None
+        assert batch["status"] != "running"
+        assert store.get_raw(queued)["status"] == "stale"
+
     def test_sweep_zombies_only_targets_running(self, fresh_db):
         from datetime import datetime, timedelta, timezone
         store = FetchJobStore()

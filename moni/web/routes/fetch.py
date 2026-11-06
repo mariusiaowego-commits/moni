@@ -275,9 +275,11 @@ def trigger_fetch_run(
         # If we can't find a live job for this source, treat it as not
         # running and fall through to start a new one.
         existing = jobs.list_recent(limit=1, status="running", source=resolved)
+        queued = False
         if not existing:
             # Queued in a batch — starting it again would double-run it.
             existing = jobs.list_recent(limit=1, status="pending", source=resolved)
+            queued = bool(existing)
         running_job_id = existing[0]["id"] if existing else None
         if not running_job_id:
             # Race: has_running said True but the row vanished (swept
@@ -287,8 +289,12 @@ def trigger_fetch_run(
             raise HTTPException(
                 status_code=409,
                 detail={
-                    "error": "fetch_in_progress",
-                    "message": f"Source {resolved!r} is already being fetched",
+                    "error": "fetch_queued" if queued else "fetch_in_progress",
+                    "message": (
+                        f"Source {resolved!r} is queued in a batch"
+                        if queued
+                        else f"Source {resolved!r} is already being fetched"
+                    ),
                     "running_job_id": running_job_id,
                 },
             )
@@ -808,9 +814,19 @@ def trigger_fetch_all() -> dict[str, Any]:
 
     batch_id = str(uuid.uuid4())
 
+    # Create the queued rows up front: a batch must always own rows, even if
+    # the worker dies before it reaches the first source.
+    store = FetchJobStore()
+    job_ids: dict[str, str] = {}
+    for cfg in enabled:
+        source_name: str = cfg["source_name"]
+        job_id = store.create(source_name, batch_id=batch_id, status="pending")
+        store.update_progress(job_id, current_feed="(排队中)")
+        job_ids[source_name] = job_id
+
     thread = threading.Thread(
         target=_run_batch_job,
-        args=(batch_id, enabled, date_from, triggered_at),
+        args=(batch_id, enabled, date_from, triggered_at, job_ids),
         daemon=True,
         name=f"fetch-batch-{batch_id[:8]}",
     )
@@ -829,6 +845,7 @@ def _run_batch_job(
     enabled: list[dict[str, Any]],
     date_from: str | None,
     triggered_at: str,
+    job_ids: dict[str, str],
 ) -> None:
     """Batch worker — keeps the queue alive and closes it if we die.
 
@@ -838,7 +855,7 @@ def _run_batch_job(
     """
     stop, thread = _start_batch_heartbeat(batch_id)
     try:
-        _run_batch_job_inner(batch_id, enabled, date_from, triggered_at)
+        _run_batch_job_inner(batch_id, enabled, date_from, triggered_at, job_ids)
     except Exception:
         logger.exception("[batch %s] batch worker failed", batch_id[:8])
     finally:
@@ -859,6 +876,7 @@ def _run_batch_job_inner(
     enabled: list[dict[str, Any]],
     date_from: str | None,
     triggered_at: str,
+    job_ids: dict[str, str],
 ) -> None:
     """Background worker for batch fetch — runs each source sequentially.
 
@@ -882,17 +900,6 @@ def _run_batch_job_inner(
 
     _ensure_sources_loaded()
 
-    # Pre-create all job rows so total_sources is correct from the first poll.
-    # Pending jobs get current_feed='(排队中)' to distinguish from the active one.
-    job_ids: dict[str, str] = {}
-    for cfg in enabled:
-        source_name: str = cfg["source_name"]
-        # Queued sources stay 'pending' (no lease) until their turn: a
-        # source that waits >90s behind a slow one must not be swept.
-        jid = jobs.create(source_name, batch_id=batch_id, status="pending")
-        jobs.update_progress(jid, current_feed="(排队中)")
-        job_ids[source_name] = jid
-
     # Create cron_runs row
     cron_run_rowid = history.log_run(
         "fetch_all_sources",
@@ -906,139 +913,143 @@ def _run_batch_job_inner(
     total_inserted = 0
     sources_failed = 0
 
-    for cfg in enabled:
-        source_name: str = cfg["source_name"]
-        job_id = job_ids[source_name]
-
-        if source_name not in _FETCHER_REGISTRY:
-            jobs.mark_failed(job_id, "No fetcher registered")
-            sources_failed += 1
-            continue
-
-        handle = jobs.adopt(job_id)
-        if handle is None:
-            logger.warning(
-                "[%s] batch job %s is no longer pending — skipping",
-                source_name, job_id[:8],
-            )
-            sources_failed += 1
-            continue
-        hb_stop, hb_thread = _start_heartbeat(handle, source_name, job_id)
-
-        try:
-            started = time.monotonic()
-            timeout_sec = _job_timeout(source_name)
-            deadline = started + timeout_sec
-
-            fetcher = _FETCHER_REGISTRY[source_name]()
-            if date_from:
-                fetcher.date_from = date_from
-
-            def _persist_progress(
-                *,
-                total_feeds: int | None = None,
-                done_feeds: int | None = None,
-                current_feed: str | None = None,
-                articles_so_far: int | None = None,
-            ) -> None:
-                try:
-                    jobs.update_progress(
-                        job_id,
-                        total_feeds=total_feeds,
-                        done_feeds=done_feeds,
-                        current_feed=current_feed,
-                        articles_so_far=articles_so_far,
-                    )
-                except Exception as exc:
-                    logger.debug("[%s] progress persist failed: %s", source_name, exc)
-                if time.monotonic() > deadline:
-                    raise TimeoutError(
-                        f"Fetch exceeded {timeout_sec}s timeout"
-                    )
-
-            fetcher.progress_callback = _persist_progress
-            result = fetcher.run()
-
-            if time.monotonic() > deadline:
-                jobs.mark_timeout(job_id, handle=handle)
-                sources_failed += 1
-                continue
-
-            if result is None:
-                jobs.mark_done(job_id, {
-                    "source": source_name,
-                    "status": "skipped",
-                    "message": "Source not due for fetching",
-                }, handle=handle)
-                continue
-
-            jobs.mark_done(job_id, result, handle=handle)
-
-            # Calculate deduped
-            dropped_total = (
-                result.get("dropped_blacklist", 0)
-                + result.get("dropped_whitelist", 0)
-                + result.get("dropped_tag_filter", 0)
-            )
-            deduped = max(
-                0,
-                result.get("parsed", 0) - result.get("inserted", 0) - dropped_total,
-            )
-            result["deduped"] = deduped
-
-            # Log to fetch_log
-            history.log_fetch(
-                cron_run_rowid=cron_run_rowid,
-                source=source_name,
-                fetched=result.get("fetched", 0),
-                parsed=result.get("parsed", 0),
-                inserted=result.get("inserted", 0),
-                parse_errors=result.get("parse_errors", 0),
-                cleaned=result.get("cleaned", 0),
-                filtered=result.get("filtered", 0),
-                dropped_blacklist=result.get("dropped_blacklist", 0),
-                dropped_whitelist=result.get("dropped_whitelist", 0),
-                dropped_global_blacklist=result.get("dropped_global_blacklist", 0),
-                dropped_global_whitelist=result.get("dropped_global_whitelist", 0),
-                dropped_tag_filter=result.get("dropped_tag_filter", 0),
-                filters_applied=result.get("filters_applied", 0),
-                global_filters_applied=result.get("global_filters_applied", 0),
-                tags_used=result.get("tags_used", 0),
-                deduped=deduped,
-                error=result.get("error"),
-            )
-
-            total_inserted += result.get("inserted", 0)
-            if result.get("error"):
-                sources_failed += 1
-
-        except TimeoutError as exc:
-            logger.warning("[%s] batch job timed out: %s", source_name, exc)
-            jobs.mark_timeout(job_id, str(exc), handle=handle)
-            sources_failed += 1
-        except Exception as exc:
-            logger.exception("[%s] batch job failed", source_name)
-            jobs.mark_failed(job_id, f"{type(exc).__name__}: {exc}", handle=handle)
-            sources_failed += 1
-        finally:
-            hb_stop.set()
-            hb_thread.join(timeout=2.0)
-
-    # Update cron_runs with final totals
-    finished_at = datetime.now(CST).isoformat()
     try:
-        conn = get_db()
-        conn.execute(
-            "UPDATE cron_runs SET finished_at=?, success=?, error=?, new_articles=?, sources_run=? WHERE id=?",
-            (
-                finished_at,
-                1 if sources_failed == 0 else 0,
-                None if sources_failed == 0 else f"{sources_failed} source(s) failed",
-                total_inserted,
-                len(enabled) - sources_failed,
-                cron_run_rowid,
-            ),
-        )
-        conn.commit()
-    except Exception:
-        pass
+        for cfg in enabled:
+            source_name: str = cfg["source_name"]
+            job_id = job_ids[source_name]
+
+            if source_name not in _FETCHER_REGISTRY:
+                jobs.mark_failed(job_id, "No fetcher registered")
+                sources_failed += 1
+                continue
+
+            handle = jobs.adopt(job_id)
+            if handle is None:
+                logger.warning(
+                    "[%s] batch job %s is no longer pending — skipping",
+                    source_name, job_id[:8],
+                )
+                sources_failed += 1
+                continue
+            hb_stop, hb_thread = _start_heartbeat(handle, source_name, job_id)
+
+            try:
+                started = time.monotonic()
+                timeout_sec = _job_timeout(source_name)
+                deadline = started + timeout_sec
+
+                fetcher = _FETCHER_REGISTRY[source_name]()
+                if date_from:
+                    fetcher.date_from = date_from
+
+                def _persist_progress(
+                    *,
+                    total_feeds: int | None = None,
+                    done_feeds: int | None = None,
+                    current_feed: str | None = None,
+                    articles_so_far: int | None = None,
+                ) -> None:
+                    try:
+                        jobs.update_progress(
+                            job_id,
+                            total_feeds=total_feeds,
+                            done_feeds=done_feeds,
+                            current_feed=current_feed,
+                            articles_so_far=articles_so_far,
+                        )
+                    except Exception as exc:
+                        logger.debug("[%s] progress persist failed: %s", source_name, exc)
+                    if time.monotonic() > deadline:
+                        raise TimeoutError(
+                            f"Fetch exceeded {timeout_sec}s timeout"
+                        )
+
+                fetcher.progress_callback = _persist_progress
+                result = fetcher.run()
+
+                if time.monotonic() > deadline:
+                    jobs.mark_timeout(job_id, handle=handle)
+                    sources_failed += 1
+                    continue
+
+                if result is None:
+                    jobs.mark_done(job_id, {
+                        "source": source_name,
+                        "status": "skipped",
+                        "message": "Source not due for fetching",
+                    }, handle=handle)
+                    continue
+
+                jobs.mark_done(job_id, result, handle=handle)
+
+                # Calculate deduped
+                dropped_total = (
+                    result.get("dropped_blacklist", 0)
+                    + result.get("dropped_whitelist", 0)
+                    + result.get("dropped_tag_filter", 0)
+                )
+                deduped = max(
+                    0,
+                    result.get("parsed", 0) - result.get("inserted", 0) - dropped_total,
+                )
+                result["deduped"] = deduped
+
+                # Log to fetch_log
+                history.log_fetch(
+                    cron_run_rowid=cron_run_rowid,
+                    source=source_name,
+                    fetched=result.get("fetched", 0),
+                    parsed=result.get("parsed", 0),
+                    inserted=result.get("inserted", 0),
+                    parse_errors=result.get("parse_errors", 0),
+                    cleaned=result.get("cleaned", 0),
+                    filtered=result.get("filtered", 0),
+                    dropped_blacklist=result.get("dropped_blacklist", 0),
+                    dropped_whitelist=result.get("dropped_whitelist", 0),
+                    dropped_global_blacklist=result.get("dropped_global_blacklist", 0),
+                    dropped_global_whitelist=result.get("dropped_global_whitelist", 0),
+                    dropped_tag_filter=result.get("dropped_tag_filter", 0),
+                    filters_applied=result.get("filters_applied", 0),
+                    global_filters_applied=result.get("global_filters_applied", 0),
+                    tags_used=result.get("tags_used", 0),
+                    deduped=deduped,
+                    error=result.get("error"),
+                )
+
+                total_inserted += result.get("inserted", 0)
+                if result.get("error"):
+                    sources_failed += 1
+
+            except TimeoutError as exc:
+                logger.warning("[%s] batch job timed out: %s", source_name, exc)
+                jobs.mark_timeout(job_id, str(exc), handle=handle)
+                sources_failed += 1
+            except Exception as exc:
+                logger.exception("[%s] batch job failed", source_name)
+                jobs.mark_failed(job_id, f"{type(exc).__name__}: {exc}", handle=handle)
+                sources_failed += 1
+            finally:
+                hb_stop.set()
+                hb_thread.join(timeout=2.0)
+
+    finally:
+        # Always close the cron_runs row — an aborted batch must not
+        # stay recorded as a success.
+        # Update cron_runs with final totals
+        finished_at = datetime.now(CST).isoformat()
+        try:
+            conn = get_db()
+            conn.execute(
+                "UPDATE cron_runs SET finished_at=?, success=?, error=?, new_articles=?, sources_run=? WHERE id=?",
+                (
+                    finished_at,
+                    1 if sources_failed == 0 else 0,
+                    None if sources_failed == 0 else f"{sources_failed} source(s) failed",
+                    total_inserted,
+                    len(enabled) - sources_failed,
+                    cron_run_rowid,
+                ),
+            )
+            conn.commit()
+        except Exception:
+            pass

@@ -69,8 +69,8 @@ class FetchJobStore:
         aggregate progress across all jobs in the batch.
 
         Pass ``status="pending"`` for queued batch entries: pending rows carry
-        no lease, so ``sweep_expired`` (which only touches ``running``) can
-        never reap a source that simply hasn't started yet.
+        no owner but do carry a heartbeat that the batch worker refreshes, so
+        a queue whose worker died is reaped instead of blocking the batch.
         """
         job_id = str(uuid.uuid4())
         conn = get_db()
@@ -434,6 +434,9 @@ class FetchJobStore:
         - results: list of per-source result dicts (for done jobs)
         - errors: list of {source, error} for failed jobs
         """
+        # Same as get()/list_recent(): reap dead rows first, otherwise an
+        # orphaned batch (worker killed) would report "running" forever.
+        self.sweep_zombies()
         rows = get_db().execute(
             "SELECT * FROM fetch_jobs WHERE batch_id = ? ORDER BY started_at ASC",
             (batch_id,),

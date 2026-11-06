@@ -297,6 +297,33 @@ def test_sweep_keeps_pending_rows_without_heartbeat():
     assert row["status"] == "pending"
 
 
+def test_sweep_never_touches_llm_pending_rows():
+    """The queued-row branch is fetch-specific; llm_jobs keeps its semantics."""
+    from moni.db import leases
+
+    c = get_db()
+    c.execute(
+        "INSERT INTO articles (id, title, url, source, fetched_at) "
+        "VALUES ('llm-art-1', 't', 'https://example.com/llm-1', 'llm_test_src', "
+        "'2026-09-10T00:00:00+00:00')"
+    )
+    jid = str(uuid.uuid4())
+    c.execute(
+        "INSERT INTO llm_jobs (id, task_type, article_id, status, created_at, "
+        "lease_owner, lease_heartbeat_at) "
+        "VALUES (?, 'summary', 'llm-art-1', 'pending', '2026-09-10T00:00:00+00:00', "
+        "'owner', '2020-01-01T00:00:00.000000Z')",
+        (jid,),
+    )
+    c.commit()
+
+    assert leases.sweep_expired("llm_jobs", grace_sec=90) == 0
+    row = c.execute(
+        "SELECT status FROM llm_jobs WHERE id = ?", (jid,)
+    ).fetchone()
+    assert row["status"] == "pending"
+
+
 def test_sweep_works_on_llm_jobs_too():
     from moni.db import leases
 
