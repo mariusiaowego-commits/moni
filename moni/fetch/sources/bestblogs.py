@@ -20,6 +20,7 @@ import json
 import logging
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
@@ -111,6 +112,72 @@ _DEFAULTS = {
     "flush_every_feeds": 10,
 }
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_OVERRIDES_PATH = _PROJECT_ROOT / "config" / "feed_overrides.json"
+
+
+def _load_feed_overrides(source_name: str, path: Path | None = None) -> dict[str, list[dict]]:
+    """Per-source feed 取舍（exclude / extra），见 ``config/feed_overrides.json``.
+
+    文件缺失或损坏时按「无覆盖」处理 —— 抓取不能因为一个可选配置文件而失败。
+    """
+    path = path or _OVERRIDES_PATH
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        logger.warning("[%s] %s not found — no feed overrides", source_name, path)
+        return {"exclude_feeds": [], "extra_feeds": []}
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("[%s] ignoring bad %s: %s", source_name, path, exc)
+        return {"exclude_feeds": [], "extra_feeds": []}
+
+    block = data.get(source_name) if isinstance(data, dict) else None
+    if not isinstance(block, dict):
+        return {"exclude_feeds": [], "extra_feeds": []}
+
+    def _entries(key: str) -> list[dict]:
+        raw = block.get(key)
+        if not isinstance(raw, list):
+            return []
+        return [
+            e for e in raw
+            if isinstance(e, dict) and isinstance(e.get("url"), str) and e["url"]
+        ]
+
+    return {"exclude_feeds": _entries("exclude_feeds"), "extra_feeds": _entries("extra_feeds")}
+
+
+def _apply_feed_overrides(
+    feeds: list[tuple[str, str]],
+    overrides: dict[str, list[dict]],
+    log_name: str = "bestblogs",
+) -> list[tuple[str, str]]:
+    """先放 extra（保证在 max_feeds 截断前跑到），再按 URL 排除 exclude。"""
+    exclude = {e["url"]: e.get("name") or e["url"] for e in overrides["exclude_feeds"]}
+    present = {url for _, url in feeds}
+    matched = [name for url, name in exclude.items() if url in present]
+    missing = [name for url, name in exclude.items() if url not in present]
+    if missing:
+        logger.warning(
+            "[%s] %d excluded feed(s) not in OPML (已失效的删除项): %s",
+            log_name, len(missing), ", ".join(missing[:5]),
+        )
+
+    merged: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    extra = [(e.get("name") or e["url"], e["url"]) for e in overrides["extra_feeds"]]
+    for title, url in extra + feeds:
+        if url in seen or url in exclude:
+            continue
+        seen.add(url)
+        merged.append((title, url))
+
+    logger.info(
+        "[%s] feed overrides: +%d extra, -%d/%d excluded matched, %d feeds total",
+        log_name, len(extra), len(matched), len(exclude), len(merged),
+    )
+    return merged
+
 
 @register_fetcher
 class FetcherBestBlogs(BaseFetcher):
@@ -140,6 +207,13 @@ class FetcherBestBlogs(BaseFetcher):
             return []
 
         logger.info("[bestblogs] merged %d OPML(s) → %d unique feeds", len(opml_urls), len(feeds))
+
+        # dad 圈定的 feed 取舍（config/feed_overrides.json），按 source_name 分块。
+        # bestblog-yt / bestblog-podcast 继承本类但读各自的块（通常为空）；
+        # bestblog-x 有自己的 fetch()，不读这个配置。
+        overrides = _load_feed_overrides(self.source_name)
+        if overrides["exclude_feeds"] or overrides["extra_feeds"]:
+            feeds = _apply_feed_overrides(feeds, overrides, self.source_name)
 
         max_feeds = config["max_feeds"]
         if len(feeds) > max_feeds:

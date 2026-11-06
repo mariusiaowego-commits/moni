@@ -263,6 +263,24 @@ topnav 右侧显示服务状态：
 - **错误文案说人话**：不再显示 `lease heartbeat expired (grace=90s)` 这种
   内部术语，统一显示「服务进程中断或重启，任务已中止」这类可读提示。
 
+### 5.1.2 信源取舍（v1.0.69 新增）
+
+BestBlogs 聚合不再只能靠 `max_feeds` 截断来"取舍"，可以在
+`config/feed_overrides.json` 里按源写：
+
+```json
+{"bestblogs": {"exclude_feeds": [{"name": "某号", "url": "https://…/feed/x.xml"}],
+               "extra_feeds":   [{"name": "某播客", "url": "http://rsshub…/podcast/y"}]}}
+```
+
+- `exclude_feeds` 按 **feed URL 精确匹配**删除；配置了但 OPML 里已经没有的项会在日志里点名（`已失效的删除项`），不会悄悄失效。
+- `extra_feeds` 会**插到最前面**，保证在 `max_feeds` 截断前一定被跑到。
+- 配置按 **source 名分块**：`bestblogs` 的块只作用于 `bestblogs`；`bestblog-yt` / `bestblog-podcast`
+  继承同一套抓取代码，但读的是各自同名块（现在为空，想给播客做取舍就在这里加块）；
+  `bestblog-x` 走独立抓取逻辑，不读这个文件。
+- **它不改变单轮覆盖率**：每轮真正能抓到多少号，由 `max_articles_total`（默认 500 篇）决定，
+  实际只覆盖约 100 个 feed。`exclude` 只保证被删的号不再被抓；想让更后面的号也被抓到，得调这个上限。
+
 ### 5.2 Tag 过滤丢弃明细 (v1.0.6.4 新增)
 
 抓取结果下方有「Tag 过滤丢弃明细 (N 条)」折叠面板：
