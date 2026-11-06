@@ -818,19 +818,28 @@ def trigger_fetch_all() -> dict[str, Any]:
     # the worker dies before it reaches the first source.
     store = FetchJobStore()
     job_ids: dict[str, str] = {}
-    for cfg in enabled:
-        source_name: str = cfg["source_name"]
-        job_id = store.create(source_name, batch_id=batch_id, status="pending")
-        store.update_progress(job_id, current_feed="(排队中)")
-        job_ids[source_name] = job_id
+    try:
+        for cfg in enabled:
+            source_name: str = cfg["source_name"]
+            job_id = store.create(source_name, batch_id=batch_id, status="pending")
+            store.update_progress(job_id, current_feed="(排队中)")
+            job_ids[source_name] = job_id
 
-    thread = threading.Thread(
-        target=_run_batch_job,
-        args=(batch_id, enabled, date_from, triggered_at, job_ids),
-        daemon=True,
-        name=f"fetch-batch-{batch_id[:8]}",
-    )
-    thread.start()
+        thread = threading.Thread(
+            target=_run_batch_job,
+            args=(batch_id, enabled, date_from, triggered_at, job_ids),
+            daemon=True,
+            name=f"fetch-batch-{batch_id[:8]}",
+        )
+        thread.start()
+    except Exception as exc:
+        # No worker will pick these rows up — close the queue right away.
+        store.fail_pending(batch_id, f"批量任务启动失败：{exc}")
+        logger.exception("[batch %s] could not start the batch", batch_id[:8])
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "batch_start_failed", "message": str(exc)},
+        )
 
     return {
         "batch_id": batch_id,
@@ -880,9 +889,9 @@ def _run_batch_job_inner(
 ) -> None:
     """Background worker for batch fetch — runs each source sequentially.
 
-    Creates a fetch_jobs row per source (sharing ``batch_id``), runs
-    the fetcher with progress tracking, and logs to cron_runs +
-    fetch_log.  Each source gets its own 10-min timeout.
+    The queued ``fetch_jobs`` rows were created by the route; this worker
+    adopts them one by one, runs the fetcher with progress tracking, and
+    logs to cron_runs + fetch_log.  Each source gets its own timeout.
 
     Catches all exceptions per-source so one failure doesn't abort
     the entire batch.
@@ -912,6 +921,8 @@ def _run_batch_job_inner(
 
     total_inserted = 0
     sources_failed = 0
+    attempted = 0
+    aborted = False
 
     try:
         for cfg in enabled:
@@ -931,7 +942,12 @@ def _run_batch_job_inner(
                 )
                 sources_failed += 1
                 continue
-            hb_stop, hb_thread = _start_heartbeat(handle, source_name, job_id)
+            attempted += 1
+            try:
+                hb_stop, hb_thread = _start_heartbeat(handle, source_name, job_id)
+            except Exception as exc:
+                jobs.mark_failed(job_id, f"心跳线程启动失败：{exc}", handle=handle)
+                raise
 
             try:
                 started = time.monotonic()
@@ -1032,21 +1048,33 @@ def _run_batch_job_inner(
                 hb_stop.set()
                 hb_thread.join(timeout=2.0)
 
+    except Exception:
+        # The batch died mid-way: report it as aborted, not as a success.
+        aborted = True
+        raise
     finally:
         # Always close the cron_runs row — an aborted batch must not
         # stay recorded as a success.
         # Update cron_runs with final totals
         finished_at = datetime.now(CST).isoformat()
+        success = 1 if (sources_failed == 0 and not aborted) else 0
+        if aborted:
+            error = f"批次中断（已执行 {attempted}/{len(enabled)} 个信源）"
+        elif sources_failed:
+            error = f"{sources_failed} source(s) failed"
+        else:
+            error = None
+        sources_run = attempted if aborted else len(enabled) - sources_failed
         try:
             conn = get_db()
             conn.execute(
                 "UPDATE cron_runs SET finished_at=?, success=?, error=?, new_articles=?, sources_run=? WHERE id=?",
                 (
                     finished_at,
-                    1 if sources_failed == 0 else 0,
-                    None if sources_failed == 0 else f"{sources_failed} source(s) failed",
+                    success,
+                    error,
                     total_inserted,
-                    len(enabled) - sources_failed,
+                    sources_run,
                     cron_run_rowid,
                 ),
             )

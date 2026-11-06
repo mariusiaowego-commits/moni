@@ -4,7 +4,19 @@
 
 ---
 
-## 当前状态: **v1.0.66 — xbot_feed 源（X-bot 精选桥接）** (2026-11-03 · **IN REVIEW**)
+## 当前状态: **v1.0.67 — 抓取超时修复（心跳容错 / 分批落盘 / 排队可见）** (2026-11-06 · **IN REVIEW**)
+
+**分支**: `fix/bugfix` · **PR**: #173 · **schema**: 38（无新迁移）· **测试**: 1475 passed / 2 skipped
+
+### v1.0.67 交付要点
+
+- **心跳容错**：租约心跳线程单次 SQLite 异常不再永久退出（重试 + 停止信号）。
+- **批量 pending 队列**：`/api/fetch/all/run` 先建全部 pending 行再起 worker，前端可见「排队中」；批次中断时未执行行落 `failed`，不再永久 `running`。
+- **BestBlogs 分批落盘**：每 10 个 feed flush 一次，进程被杀不再丢掉整轮（原 475 篇全在内存）。
+- **文案中文化**：`lease heartbeat expired` 等租约术语改为中文可读提示。
+- **cron_runs 真实性**：批次进程内异常不再记 `success=1`；SIGTERM 场景仍由 sweep 兜底。
+
+## 历史状态: **v1.0.66 — xbot_feed 源（X-bot 精选桥接）** (2026-11-03 · **SHIPPED**)
 
 **分支**: `feat/xbot-feed-source` · **schema**: 38（无新迁移）· **测试**: 见 PR 描述
 

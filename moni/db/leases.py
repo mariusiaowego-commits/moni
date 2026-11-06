@@ -227,7 +227,6 @@ def sweep_expired(
     grace_sql = f"-{grace_sec} seconds"
     params: tuple[Any, ...] = (grace_sql,)
     pending_clause = ""
-    clear_feed = ""
     if table == "fetch_jobs":
         pending_clause = """
               OR (
@@ -236,7 +235,6 @@ def sweep_expired(
                     AND lease_heartbeat_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)
                   )
         """
-        clear_feed = "current_feed = NULL,"
         params = (grace_sql, grace_sql)
     cur = conn.execute(
         f"""
@@ -244,7 +242,6 @@ def sweep_expired(
         SET status = 'stale',
             lease_heartbeat_at = NULL,
             lease_owner = NULL,
-            {clear_feed}
             finished_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
             error = COALESCE(
                 error,
