@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from unittest.mock import patch
 
 import httpx
@@ -9,7 +11,9 @@ import pytest
 
 from moni.fetch.sources.bestblogs import (
     FetcherBestBlogs,
+    _apply_feed_overrides,
     _clean_description,
+    _load_feed_overrides,
     _in_date_range,
 )
 
@@ -299,6 +303,11 @@ class TestChunkedFlush:
     """BestBlogs persists every N feeds instead of holding the whole run."""
 
     def _fetcher(self, monkeypatch, *, flush_every=2, max_total=100, date_from=None):
+        import moni.fetch.sources.bestblogs as bestblogs
+
+        monkeypatch.setattr(
+            bestblogs, "_OVERRIDES_PATH", Path("/nonexistent/feed_overrides.json")
+        )
         f = FetcherBestBlogs()
         f.date_from = date_from
         monkeypatch.setattr(f, "_resolve_urls", lambda: ["http://opml"])
@@ -363,3 +372,89 @@ class TestChunkedFlush:
 
         f.fetch()
         assert chunks == []
+
+
+# ── feed overrides (v1.0.68) ─────────────────────────────────────────────
+
+
+class TestFeedOverrides:
+    """dad 圈定的 feed 取舍：extra 置顶、exclude 按 URL 精确命中。"""
+
+    def _write(self, tmp_path, payload):
+        path = tmp_path / "feed_overrides.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        return path
+
+    def test_missing_file_means_no_overrides(self, tmp_path):
+        got = _load_feed_overrides("bestblogs", tmp_path / "nope.json")
+        assert got == {"exclude_feeds": [], "extra_feeds": []}
+
+    def test_broken_json_is_ignored(self, tmp_path):
+        path = tmp_path / "broken.json"
+        path.write_text("{not json", encoding="utf-8")
+        assert _load_feed_overrides("bestblogs", path)["exclude_feeds"] == []
+
+    def test_reads_only_the_named_source_block(self, tmp_path):
+        path = self._write(tmp_path, {
+            "bestblogs": {"exclude_feeds": [{"name": "a", "url": "http://a"}]},
+            "other": {"exclude_feeds": [{"name": "b", "url": "http://b"}]},
+        })
+        assert [e["url"] for e in _load_feed_overrides("bestblogs", path)["exclude_feeds"]] == ["http://a"]
+        assert _load_feed_overrides("bestblog-yt", path) == {
+            "exclude_feeds": [], "extra_feeds": []
+        }
+
+    def test_extra_feeds_go_first_and_dedupe(self):
+        feeds = [("A", "http://a"), ("B", "http://b")]
+        overrides = {
+            "exclude_feeds": [],
+            "extra_feeds": [{"name": "B extra", "url": "http://b"}, {"name": "C", "url": "http://c"}],
+        }
+        assert _apply_feed_overrides(feeds, overrides) == [
+            ("B extra", "http://b"), ("C", "http://c"), ("A", "http://a"),
+        ]
+
+    def test_excluded_urls_are_dropped(self):
+        feeds = [("A", "http://a"), ("B", "http://b")]
+        overrides = {"exclude_feeds": [{"name": "B", "url": "http://b"}], "extra_feeds": []}
+        assert _apply_feed_overrides(feeds, overrides) == [("A", "http://a")]
+
+    def test_stale_exclusion_does_not_crash(self):
+        feeds = [("A", "http://a")]
+        overrides = {"exclude_feeds": [{"name": "Gone", "url": "http://gone"}], "extra_feeds": []}
+        assert _apply_feed_overrides(feeds, overrides) == [("A", "http://a")]
+
+    def test_fetch_applies_overrides_before_max_feeds(self, monkeypatch, tmp_path):
+        import moni.fetch.sources.bestblogs as bestblogs
+
+        path = self._write(tmp_path, {
+            "bestblogs": {
+                "exclude_feeds": [{"name": "B", "url": "http://feed/1"}],
+                "extra_feeds": [{"name": "Podcast", "url": "http://feed/9"}],
+            }
+        })
+        monkeypatch.setattr(bestblogs, "_OVERRIDES_PATH", path)
+
+        f = FetcherBestBlogs()
+        monkeypatch.setattr(f, "_resolve_urls", lambda: ["http://opml"])
+        monkeypatch.setattr(f, "_load_config", lambda: {
+            "max_feeds": 3,
+            "max_articles_per_feed": 1,
+            "max_articles_total": 100,
+            "request_delay": 0,
+            "flush_every_feeds": 10,
+        })
+        monkeypatch.setattr(
+            f, "_fetch_opml",
+            lambda url: [(f"feed{i}", f"http://feed/{i}") for i in range(5)],
+        )
+        fetched: list[tuple[str, str]] = []
+        monkeypatch.setattr(
+            f, "_fetch_feed",
+            lambda url, title: fetched.append((title, url)) or [],
+        )
+        monkeypatch.setattr(f, "ingest_chunk", lambda articles: None)
+
+        f.fetch()
+        # max_feeds=3 → extra 置顶，feed1 被排除，剩下 feed0 / feed2 补位
+        assert fetched == [("Podcast", "http://feed/9"), ("feed0", "http://feed/0"), ("feed2", "http://feed/2")]

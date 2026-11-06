@@ -259,6 +259,20 @@ topnav 右侧显示服务状态：
 - **错误文案说人话**：不再显示 `lease heartbeat expired (grace=90s)` 这种
   内部术语，统一显示「服务进程中断或重启，任务已中止」这类可读提示。
 
+### 5.1.2 信源取舍（v1.0.68 新增）
+
+BestBlogs 聚合不再只能靠 `max_feeds` 截断来"取舍"，可以在
+`config/feed_overrides.json` 里按源写：
+
+```json
+{"bestblogs": {"exclude_feeds": [{"name": "某号", "url": "https://…/feed/x.xml"}],
+               "extra_feeds":   [{"name": "某播客", "url": "http://rsshub…/podcast/y"}]}}
+```
+
+- `exclude_feeds` 按 **feed URL 精确匹配**删除；配置了但 OPML 里已经没有的项会在日志里点名（`已失效的删除项`），不会悄悄失效。
+- `extra_feeds` 会**插到最前面**，保证在 `max_feeds` 截断前一定被跑到。
+- 只对 `bestblogs` 生效；`bestblog-yt` / `bestblog-x` 复用同一套抓取代码，不套用公众号的删除项。
+
 ### 5.2 Tag 过滤丢弃明细 (v1.0.6.4 新增)
 
 抓取结果下方有「Tag 过滤丢弃明细 (N 条)」折叠面板：

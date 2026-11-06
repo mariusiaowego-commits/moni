@@ -1,0 +1,141 @@
+{
+  "_note": "BestBlogs 公众号聚合的信源取舍（2026-11-06 dad 圈定）：exclude 按 feed URL 精确匹配；extra 会插到最前面，保证在 max_feeds 截断前一定被跑到。",
+  "bestblogs": {
+    "exclude_feeds": [
+      {
+        "name": "刘小排r",
+        "url": "https://wechat2rss.bestblogs.dev/feed/484d4199ae6c0b72ea01e7e0597a1f74933dfb62.xml"
+      },
+      {
+        "name": "言午",
+        "url": "https://wechat2rss.bestblogs.dev/feed/138de227ebfbee6ea26564564f7bcd6c0c27af60.xml"
+      },
+      {
+        "name": "公安部网安局",
+        "url": "https://wechat2rss.bestblogs.dev/feed/10920f6c84277afcd319a28689d91892c837189c.xml"
+      },
+      {
+        "name": "腾讯NBA",
+        "url": "https://wechat2rss.bestblogs.dev/feed/b8cdac6015dab300f2468038221dfd297dceacc1.xml"
+      },
+      {
+        "name": "苏群",
+        "url": "https://wechat2rss.bestblogs.dev/feed/297ed052ab6f3726d9933df0961f025beb36542c.xml"
+      },
+      {
+        "name": "篮球先锋报",
+        "url": "https://wechat2rss.bestblogs.dev/feed/f076b25e8c5358880e9f7c8ceec58992feb5562f.xml"
+      },
+      {
+        "name": "杨毅侃球",
+        "url": "https://wechat2rss.bestblogs.dev/feed/265c3ebcfe26f9455a4f650a806483c9950a3958.xml"
+      },
+      {
+        "name": "懂球娘娘",
+        "url": "https://wechat2rss.bestblogs.dev/feed/67246a8ef8bfcc82ae693fbb5ebd5567f6ae139e.xml"
+      },
+      {
+        "name": "足球报",
+        "url": "https://wechat2rss.bestblogs.dev/feed/6f55a87674766367be332b6d463021613c2b8630.xml"
+      },
+      {
+        "name": "体坛周报",
+        "url": "https://wechat2rss.bestblogs.dev/feed/43e3b2bdf6d571e6b0cb02441d4046509ce61a38.xml"
+      },
+      {
+        "name": "澎湃运动家",
+        "url": "https://wechat2rss.bestblogs.dev/feed/c27cf2dba8368d4cf9f93d9d85ee63fafc69fa0e.xml"
+      },
+      {
+        "name": "五星体育",
+        "url": "https://wechat2rss.bestblogs.dev/feed/560bc0b98b3535e6e74ce318eb215a7a5301b1db.xml"
+      },
+      {
+        "name": "天下足球",
+        "url": "https://wechat2rss.bestblogs.dev/feed/8b16711ae36ee21d44e7c2c12329ed56ffe64ae2.xml"
+      },
+      {
+        "name": "央视网体育",
+        "url": "https://wechat2rss.bestblogs.dev/feed/adf8efe8a3e3ba537ad768152f8458112486131e.xml"
+      },
+      {
+        "name": "网球之家",
+        "url": "https://wechat2rss.bestblogs.dev/feed/64a019a1e45694a099bfb865ef40ffe944f47cb4.xml"
+      },
+      {
+        "name": "转转技术",
+        "url": "https://wechat2rss.bestblogs.dev/feed/321ca7771cad36a3875e232d2a7bec9049dd2ed3.xml"
+      },
+      {
+        "name": "陈鲁豫的电影沙发",
+        "url": "https://wechat2rss.bestblogs.dev/feed/fee950422254d8f05a80a91d254017b0c2821ddd.xml"
+      },
+      {
+        "name": "饭统戴老板",
+        "url": "https://wechat2rss.bestblogs.dev/feed/5f4c620560bd63023df9fb7d330aeee524e41676.xml"
+      },
+      {
+        "name": "六神磊磊读金庸",
+        "url": "https://wechat2rss.bestblogs.dev/feed/6bb185f6cc614c9ba70fa56b83bb785969665324.xml"
+      },
+      {
+        "name": "读者",
+        "url": "https://wechat2rss.bestblogs.dev/feed/b16a256d8b865ffcae1bd0dda1abc584417dcbb3.xml"
+      },
+      {
+        "name": "国家人文历史",
+        "url": "https://wechat2rss.bestblogs.dev/feed/be3f8c28433331ae342e0c3dd77da3a4b29a1f0a.xml"
+      },
+      {
+        "name": "南方人物周刊",
+        "url": "https://wechat2rss.bestblogs.dev/feed/aad290f27f2806789b2831faacee8b1d05efe1fd.xml"
+      },
+      {
+        "name": "独立鱼电影",
+        "url": "https://wechat2rss.bestblogs.dev/feed/826179f766e2376c59c01184bca683a42d0e30f9.xml"
+      },
+      {
+        "name": "得到",
+        "url": "https://wechat2rss.bestblogs.dev/feed/4284c317590bdeedcddf0cf9fccb4b1fc377c97b.xml"
+      },
+      {
+        "name": "帆书樊登讲书",
+        "url": "https://wechat2rss.bestblogs.dev/feed/eac9a519fee8d8e7c998286758a337c6daaccbae.xml"
+      },
+      {
+        "name": "企鹅吃喝指南",
+        "url": "https://wechat2rss.bestblogs.dev/feed/00271ca16aecf74e8bdf412d761aa9761373e85e.xml"
+      },
+      {
+        "name": "Wallpaper中文版",
+        "url": "https://wechat2rss.bestblogs.dev/feed/3865e1eb71366ebddfc6d292da83fde9162e7b01.xml"
+      },
+      {
+        "name": "工业设计",
+        "url": "https://wechat2rss.bestblogs.dev/feed/8d9a13f8abd8e51811fbc1df3c7b0fed7b4b2b68.xml"
+      }
+    ],
+    "extra_feeds": [
+      {
+        "name": "牛油果烤面包",
+        "url": "http://rsshub.bestblogs.dev/xiaoyuzhou/podcast/5e7c8b2b418a84a046e3ecbc"
+      },
+      {
+        "name": "半拿铁 / 商业沉浮录",
+        "url": "http://rsshub.bestblogs.dev/xiaoyuzhou/podcast/62382c1103bea1ebfffa1c00"
+      },
+      {
+        "name": "自习室 STUDY ROOM",
+        "url": "http://rsshub.bestblogs.dev/xiaoyuzhou/podcast/65a5fb7540d4ef949c0140ac"
+      },
+      {
+        "name": "天真不天真",
+        "url": "http://rsshub.bestblogs.dev/xiaoyuzhou/podcast/65cef9e3cace72dff8d98de3"
+      },
+      {
+        "name": "罗永浩的十字路口",
+        "url": "https://rsshub.bestblogs.dev/xiaoyuzhou/podcast/68981df29e7bcd326eb91d88"
+      }
+    ]
+  }
+}
