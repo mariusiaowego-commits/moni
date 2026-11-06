@@ -2,7 +2,7 @@
 
 - **日期**: 2026-11-05（实施）/ 2026-11-06（rebase 后重测）
 - **代码**: `feat/sprint-30-xbot-feed-migration`（实施 @ `507c2b2`，基线 `e53956c`）
-  → rebase 后 @ `2ce8965` 之上（基线 `origin/main`）
+  → rebase 后 @ `9e8f73c` 之上（基线 `2ce8965` = `origin/main`）
 - **命令**（CI 同款）: `.venv/bin/python -m pytest tests/ -q -p no:cacheprovider`
 - **Python**: 3.12.15（`.venv`）
 

@@ -2,7 +2,7 @@
   "sprint": "sprint-30",
   "source": "xbot_feed",
   "source_id": "src-xbot-feed",
-  "code": "feat/sprint-30-xbot-feed-migration @ 507c2b2",
+  "code": "feat/sprint-30-xbot-feed-migration @ 9e8f73c (baseline 2ce8965 = origin/main; measured on pre-rebase 507c2b2, re-verified by replaying the three feed files against current HEAD)",
   "measured_at": "2026-11-05",
   "feed_files": [
     "2026-11-03.json",

@@ -1,7 +1,9 @@
 # sprint-30 / v1.0.68 — 真实库副本上的 migration 039 实测
 
 - **日期**: 2026-11-05
-- **代码**: `feat/sprint-30-xbot-feed-migration` @ `507c2b2`（基线 `e53956c`）
+- **代码**: `feat/sprint-30-xbot-feed-migration` @ `9e8f73c`（基线 `2ce8965` = origin/main）
+  —— 实测当天跑的是 rebase 前的 `507c2b2`（基线 `e53956c`）；migration 039 的
+  SQL 在 rebase 前后**逐字节相同**（只改了头注释里的版本号）
 - **被测迁移**: `moni/db/migrations/039_xbot_feed_source.sql`
 - **被测数据库**: 真实库的**副本**（`/workspace/moni-plan/sprint30/realdb/news.db`，105,996,288 字节）
 - **命令**: `MONI_DB_PATH=<副本> python -m moni.db.migrate`（migrate-only，**不跑 seed**）

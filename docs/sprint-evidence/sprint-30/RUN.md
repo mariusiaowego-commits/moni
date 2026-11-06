@@ -1,7 +1,11 @@
-# sprint-30 / v1.0.66 — xbot_feed 真实运行记录（RUN.md）
+# sprint-30 / v1.0.68 — xbot_feed 真实运行记录（RUN.md）
 
 - **日期**: 2026-11-05
-- **代码**: `feat/sprint-30-xbot-feed-migration` @ `507c2b2`（基线 `e53956c`）
+- **代码**: `feat/sprint-30-xbot-feed-migration` @ `9e8f73c`（基线 `2ce8965` = origin/main）
+  —— 实测当天跑的是 rebase 前的 `507c2b2`（基线 `e53956c`）；本分支 rebase 到
+  origin/main 后已用**当前 HEAD 的代码**重放三天 feed 复算，§2.1 的
+  579 / 7 / 302 / 270 与逐文件 tag 分布**逐项吻合**（#173 改的是共享抓取管道，
+  不影响 xbot_feed 的构造与闸门结果）
 - **上游**: `mariusiaowego-commits/xbot-feed`（私有仓库），导出 `feed/YYYY-MM-DD.json`
 - **涉及文件**: `2026-11-03.json`、`2026-11-04.json`、`2026-11-05.json`（各 1 份）
 
