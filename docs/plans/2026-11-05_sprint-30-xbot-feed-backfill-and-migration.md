@@ -331,7 +331,7 @@ PLAN 阶段在一次性库里实测（seed 前改、seed 后读）：
 
 | 字段 | seed 前（用户改过） | seed 后 | 结论 |
 |---|---|---|---|
-| `sources.is_active` | 0 | **0** | ✅ 保留（`seed_config.py:489` 只在 INSERT 时用 `is_active`，`ON CONFLICT` 子句**不含** `is_active`） |
+| `sources.is_active` | 0 | **0** | ✅ 保留（`seed_config.py:492` 只在 INSERT 时用 `is_active`，`ON CONFLICT` 子句**不含** `is_active`） |
 | `sources.display_name` | `MY-XBOT` | `X-bot 精选` | ❌ **被重置** |
 | `sources.fetch_interval_min` | 15 | 60 | ❌ **被重置** |
 | `sources.notes` | 我的备注 | seed 默认文案 | ❌ **被重置** |
@@ -375,7 +375,7 @@ ON CONFLICT(name) DO UPDATE SET
 （所以用户停用的 tag 会被重新启用）。
 
 `source_tags` 的语义是 `INSERT ... ON CONFLICT(source_id, tag_name) DO NOTHING`
-（`seed_config.py:518-522`）—— **只增不删**，所以用户在 `/config` 里取消的
+（`seed_config.py:521-523`）—— **只增不删**，所以用户在 `/config` 里取消的
 tag 勾选会被补回来。这跟 `USER_GUIDE.md:1357-1359` 已经写的一致。
 
 > **S-4 补一句**：上表"3 个 → 4 个"里的 4 个，指的是 **seed 的
@@ -508,10 +508,10 @@ INSERT OR IGNORE INTO source_tags (...) VALUES ('src-missing','wechat',...)  →
 | `source_type` | `json` | `seed_config.py:308` |
 | `url` | `https://github.com/mariusiaowego-commits/xbot-feed.git` | `seed_config.py:309` |
 | `fetch_interval_min` | `60` | `seed_config.py:310` |
-| `is_active` | `1`（**只在 INSERT 时**，见 §5.5） | `seed_config.py:489` 缺省 1 |
+| `is_active` | `1`（**只在 INSERT 时**，见 §5.5） | `seed_config.py:492` 缺省 1 |
 | `notes` | 见 §5.4.1 的文案（与 `seed_config.py:314` 逐字一致） | `seed_config.py:314` |
 | `fetch_config` | `DEFAULT_FETCH_CONFIG` 的 JSON（`ensure_ascii=False`） | `moni/fetch/sources/xbot_feed.py:170-191` |
-| `source_tags` | `wechat` / `miniprogram` / `general-tech` / `ai-fintech` | `seed_config.py:385-388` |
+| `source_tags` | `wechat` / `miniprogram` / `general-tech` / `ai-fintech` | `seed_config.py:388-391` |
 
 **`fetch_config` 的 JSON 原文**（实测 `json.dumps(DEFAULT_FETCH_CONFIG, ensure_ascii=False)` 的输出，
 378 字符）：
@@ -521,7 +521,7 @@ INSERT OR IGNORE INTO source_tags (...) VALUES ('src-missing','wechat',...)  →
 ```
 
 > **单值来源**：`DEFAULT_FETCH_CONFIG` 是审计 B5 定的唯一来源（`xbot_feed.py:170`），
-> `seed_config.py:312-315` 和 `config_sources.py:109` 都引用它。
+> `seed_config.py:315-318` 和 `config_sources.py:109` 都引用它。
 > **migration 的 SQL 是静态文本**，没法 import Python 常量 —— 这是**第四份拷贝**
 > （fetcher / seed / web / migration SQL），所以必须有一条测试把它钉住
 > （§6.1 的 `test_039_fetch_config_matches_default`），
