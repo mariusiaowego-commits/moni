@@ -87,8 +87,7 @@ class FetchJobStore:
                 articles_so_far, started_at, batch_id,
                 lease_owner, lease_heartbeat_at
             ) VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?,
-                      CASE WHEN ? = 'running'
-                           THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') END)
+                      strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             """,
             (
                 job_id,
@@ -98,11 +97,44 @@ class FetchJobStore:
                 _now_iso(),
                 batch_id,
                 job_owner,
-                status,
             ),
         )
         conn.commit()
         return job_id
+
+    def refresh_pending(self, batch_id: str) -> int:
+        """Keep the heartbeat of queued rows alive while the batch runs.
+
+        Returns the number of rows refreshed.
+        """
+        conn = get_db()
+        cur = conn.execute(
+            """
+            UPDATE fetch_jobs
+            SET lease_heartbeat_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE batch_id = ? AND status = 'pending'
+            """,
+            (batch_id,),
+        )
+        conn.commit()
+        return cur.rowcount
+
+    def fail_pending(self, batch_id: str, error: str) -> int:
+        """Mark still-queued rows as failed (batch worker died)."""
+        conn = get_db()
+        cur = conn.execute(
+            """
+            UPDATE fetch_jobs
+            SET status = 'failed',
+                finished_at = ?,
+                error = ?,
+                current_feed = NULL
+            WHERE batch_id = ? AND status = 'pending'
+            """,
+            (_now_iso(), error[:2000], batch_id),
+        )
+        conn.commit()
+        return cur.rowcount
 
     def adopt(self, job_id: str) -> leases.LeaseHandle | None:
         """Start a queued (``pending``) job and return its lease handle.
@@ -287,8 +319,7 @@ class FetchJobStore:
             extra_fields={
                 "finished_at": _now_iso(),
                 "error": (
-                    "Aborted: daemon thread presumed dead (no heartbeat). "
-                    "Likely SQLite contention or process restart."
+                    "服务进程中断或重启，任务已中止（心跳未续约）。"
                 )[:2000],
                 "current_feed": None,
             },
@@ -489,8 +520,11 @@ class FetchJobStore:
         """
         self.sweep_zombies()
         if source:
+            # A source queued in a batch is not running yet, but starting it
+            # again would run the same source twice.
             row = get_db().execute(
-                "SELECT 1 FROM fetch_jobs WHERE status = 'running' AND source = ? LIMIT 1",
+                "SELECT 1 FROM fetch_jobs "
+                "WHERE status IN ('running', 'pending') AND source = ? LIMIT 1",
                 (source,),
             ).fetchone()
         else:

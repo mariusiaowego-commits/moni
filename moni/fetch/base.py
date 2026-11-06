@@ -155,6 +155,7 @@ class BaseFetcher(ABC):
         source = self.source_name
         logger.info("[%s] starting fetch", source)
         self._dry_run = dry_run
+        self._chunk_stats = {}
 
         raw_articles: list[dict[str, Any]] = []
         try:

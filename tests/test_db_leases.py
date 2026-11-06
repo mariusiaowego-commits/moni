@@ -265,6 +265,38 @@ def test_sweep_keeps_fresh_heartbeat_rows():
     assert row["status"] == "running"
 
 
+def test_sweep_reaps_pending_rows_with_expired_heartbeat():
+    """Queued batch rows carry a heartbeat; an orphaned queue must be reaped."""
+    from moni.db import leases
+
+    jid = _insert_fetch(status="pending")
+    c = get_db()
+    c.execute(
+        "UPDATE fetch_jobs SET lease_owner = 'batch_worker', "
+        "lease_heartbeat_at = '2020-01-01T00:00:00.000000Z' WHERE id = ?",
+        (jid,),
+    )
+    c.commit()
+
+    assert leases.sweep_expired("fetch_jobs", grace_sec=90) == 1
+    row = c.execute(
+        "SELECT status FROM fetch_jobs WHERE id = ?", (jid,)
+    ).fetchone()
+    assert row["status"] == "stale"
+
+
+def test_sweep_keeps_pending_rows_without_heartbeat():
+    """Pending rows with no heartbeat are still claimable — never reaped."""
+    from moni.db import leases
+
+    jid = _insert_fetch(status="pending")
+    assert leases.sweep_expired("fetch_jobs", grace_sec=90) == 0
+    row = get_db().execute(
+        "SELECT status FROM fetch_jobs WHERE id = ?", (jid,)
+    ).fetchone()
+    assert row["status"] == "pending"
+
+
 def test_sweep_works_on_llm_jobs_too():
     from moni.db import leases
 

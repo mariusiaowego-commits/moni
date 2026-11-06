@@ -625,6 +625,60 @@ class TestZombieSweep:
         assert store.get_raw(running)["status"] == "stale"
         assert store.get_raw(queued)["status"] == "pending"
 
+    def test_orphaned_queued_row_is_swept(self, fresh_db):
+        """Batch worker died → queued rows must not stay pending forever."""
+        from datetime import datetime, timedelta, timezone
+
+        store = FetchJobStore()
+        queued = store.create("bestblogs", batch_id="b1", status="pending")
+        old_hb = (
+            datetime.now(timezone.utc) - timedelta(hours=3)
+        ).isoformat(timespec="microseconds").replace("+00:00", "Z")
+        get_db().execute(
+            "UPDATE fetch_jobs SET lease_heartbeat_at = ? WHERE id = ?",
+            (old_hb, queued),
+        )
+        get_db().commit()
+
+        assert store.sweep_zombies() == 1
+        assert store.get_raw(queued)["status"] == "stale"
+
+    def test_refresh_pending_keeps_the_queue_alive(self, fresh_db):
+        from datetime import datetime, timedelta, timezone
+
+        store = FetchJobStore()
+        queued = store.create("bestblogs", batch_id="b1", status="pending")
+        old_hb = (
+            datetime.now(timezone.utc) - timedelta(hours=3)
+        ).isoformat(timespec="microseconds").replace("+00:00", "Z")
+        get_db().execute(
+            "UPDATE fetch_jobs SET lease_heartbeat_at = ? WHERE id = ?",
+            (old_hb, queued),
+        )
+        get_db().commit()
+
+        assert store.refresh_pending("b1") == 1
+        assert store.sweep_zombies() == 0
+        assert store.get_raw(queued)["status"] == "pending"
+
+    def test_fail_pending_closes_the_queue(self, fresh_db):
+        store = FetchJobStore()
+        queued = store.create("bestblogs", batch_id="b1", status="pending")
+
+        assert store.fail_pending("b1", "批量任务中断") == 1
+        row = store.get_raw(queued)
+        assert row["status"] == "failed"
+        assert "批量任务中断" in row["error"]
+
+    def test_queued_source_blocks_a_second_run(self, fresh_db):
+        store = FetchJobStore()
+        store.create("bestblogs", batch_id="b1", status="pending")
+
+        assert store.has_running("bestblogs") is True
+        assert store.has_running("36kr_rss") is False
+        # The global check must not be blocked by a queued row.
+        assert store.has_running() is False
+
     def test_sweep_zombies_only_targets_running(self, fresh_db):
         from datetime import datetime, timedelta, timezone
         store = FetchJobStore()

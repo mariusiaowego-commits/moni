@@ -112,6 +112,33 @@ def _start_heartbeat(
     thread.start()
     return stop, thread
 
+
+def _start_batch_heartbeat(batch_id: str) -> tuple[threading.Event, threading.Thread]:
+    """Keep queued rows of a batch alive while it runs.
+
+    If this thread dies (process restart), the queued rows stop being
+    refreshed and ``sweep_expired`` reaps them instead of leaving the batch
+    stuck in "running" forever.
+    """
+    stop = threading.Event()
+
+    def _tick() -> None:
+        while not stop.wait(_HEARTBEAT_INTERVAL_SEC):
+            try:
+                FetchJobStore().refresh_pending(batch_id)
+            except Exception as exc:  # noqa: BLE001 — keep the queue alive
+                logger.warning(
+                    "[batch %s] pending refresh failed: %s", batch_id[:8], exc
+                )
+
+    thread = threading.Thread(
+        target=_tick,
+        name=f"batch-hb-{batch_id[:8]}",
+        daemon=True,
+    )
+    thread.start()
+    return stop, thread
+
 # Path to sources config — same resolution as moni.fetch.scheduler
 _CONFIG_PATH = Path(__file__).parent.parent.parent.parent / "config" / "sources.yaml"
 
@@ -248,6 +275,9 @@ def trigger_fetch_run(
         # If we can't find a live job for this source, treat it as not
         # running and fall through to start a new one.
         existing = jobs.list_recent(limit=1, status="running", source=resolved)
+        if not existing:
+            # Queued in a batch — starting it again would double-run it.
+            existing = jobs.list_recent(limit=1, status="pending", source=resolved)
         running_job_id = existing[0]["id"] if existing else None
         if not running_job_id:
             # Race: has_running said True but the row vanished (swept
@@ -397,15 +427,14 @@ def _run_fetch_job(
         new_fence = fence_row["fence"]
         handle = leases.LeaseHandle(job_id=job_id, owner=owner, fence=new_fence)
         if not owner:
-            # If create() somehow didn't mint an owner (older schema path),
-            # use a fresh one and adopt it.
-            handle = leases.acquire("fetch_jobs", grace_sec=90)
-            if handle is None:
-                logger.warning(
-                    "[%s] job %s could not be leased (already swept)",
-                    source_name, job_id[:8],
-                )
-                return
+            # create() always mints an owner; a missing one means the row was
+            # tampered with. Acquiring an arbitrary pending row here would
+            # steal another source's queued job.
+            logger.error(
+                "[%s] job %s has no lease owner — giving up",
+                source_name, job_id[:8],
+            )
+            return
     except sqlite3.Error as exc:
         logger.warning(
             "[%s] DB error initializing lease for job %s: %s",
@@ -796,6 +825,36 @@ def trigger_fetch_all() -> dict[str, Any]:
 
 
 def _run_batch_job(
+    batch_id: str,
+    enabled: list[dict[str, Any]],
+    date_from: str | None,
+    triggered_at: str,
+) -> None:
+    """Batch worker — keeps the queue alive and closes it if we die.
+
+    The inner worker runs one source after another; this wrapper refreshes
+    the heartbeat of the queued rows and, on any failure, marks the ones we
+    never reached as failed instead of leaving the batch "running" forever.
+    """
+    stop, thread = _start_batch_heartbeat(batch_id)
+    try:
+        _run_batch_job_inner(batch_id, enabled, date_from, triggered_at)
+    except Exception:
+        logger.exception("[batch %s] batch worker failed", batch_id[:8])
+    finally:
+        stop.set()
+        thread.join(timeout=2.0)
+        try:
+            FetchJobStore().fail_pending(
+                batch_id, "批量任务中断（服务重启或内部错误），未执行的信源已中止"
+            )
+        except Exception as exc:
+            logger.warning(
+                "[batch %s] could not close queued rows: %s", batch_id[:8], exc
+            )
+
+
+def _run_batch_job_inner(
     batch_id: str,
     enabled: list[dict[str, Any]],
     date_from: str | None,

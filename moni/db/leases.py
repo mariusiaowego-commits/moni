@@ -232,13 +232,22 @@ def sweep_expired(
                 error,
                 '服务进程中断或重启，任务已中止（心跳 {grace_sec}s 未续约）'
             )
-        WHERE status = 'running'
-          AND (
-            lease_heartbeat_at IS NULL
-            OR lease_heartbeat_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)
-          )
+        WHERE (
+                status = 'running'
+                AND (
+                    lease_heartbeat_at IS NULL
+                    OR lease_heartbeat_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)
+                )
+              )
+           OR (
+                -- Queued batch rows carry a heartbeat maintained by the batch
+                -- worker; when that worker dies the queue is orphaned.
+                status = 'pending'
+                AND lease_heartbeat_at IS NOT NULL
+                AND lease_heartbeat_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)
+              )
         """,
-        (grace_sql,),
+        (grace_sql, grace_sql),
     )
     conn.commit()
     swept = cur.rowcount
