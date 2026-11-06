@@ -271,7 +271,9 @@ BestBlogs 聚合不再只能靠 `max_feeds` 截断来"取舍"，可以在
 
 - `exclude_feeds` 按 **feed URL 精确匹配**删除；配置了但 OPML 里已经没有的项会在日志里点名（`已失效的删除项`），不会悄悄失效。
 - `extra_feeds` 会**插到最前面**，保证在 `max_feeds` 截断前一定被跑到。
-- 只对 `bestblogs` 生效；`bestblog-yt` / `bestblog-x` 复用同一套抓取代码，不套用公众号的删除项。
+- 配置按 **source 名分块**：`bestblogs` 的块只作用于 `bestblogs`；`bestblog-x` 走独立抓取逻辑，不读这个文件。
+- **它不改变单轮覆盖率**：每轮真正能抓到多少号，由 `max_articles_total`（默认 500 篇）决定，
+  实际只覆盖约 100 个 feed。`exclude` 只保证被删的号不再被抓；想让更后面的号也被抓到，得调这个上限。
 
 ### 5.2 Tag 过滤丢弃明细 (v1.0.6.4 新增)
 

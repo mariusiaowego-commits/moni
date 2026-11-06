@@ -458,3 +458,46 @@ class TestFeedOverrides:
         f.fetch()
         # max_feeds=3 → extra 置顶，feed1 被排除，剩下 feed0 / feed2 补位
         assert fetched == [("Podcast", "http://feed/9"), ("feed0", "http://feed/0"), ("feed2", "http://feed/2")]
+
+    def test_non_list_block_values_are_ignored(self, tmp_path):
+        path = self._write(tmp_path, {"bestblogs": {"exclude_feeds": 5, "extra_feeds": True}})
+        assert _load_feed_overrides("bestblogs", path) == {
+            "exclude_feeds": [], "extra_feeds": []
+        }
+
+    def test_non_string_urls_are_dropped(self, tmp_path):
+        path = self._write(tmp_path, {"bestblogs": {"exclude_feeds": [{"name": "x", "url": 123}]}})
+        assert _load_feed_overrides("bestblogs", path)["exclude_feeds"] == []
+
+    def test_other_sources_do_not_apply_bestblogs_block(self, monkeypatch, tmp_path):
+        import moni.fetch.sources.bestblogs as bestblogs
+
+        path = self._write(tmp_path, {
+            "bestblogs": {"exclude_feeds": [{"name": "A", "url": "http://feed/0"}], "extra_feeds": []}
+        })
+        monkeypatch.setattr(bestblogs, "_OVERRIDES_PATH", path)
+
+        from moni.fetch.sources.bestblogs import FetcherBestBlogYt
+
+        f = FetcherBestBlogYt()
+        monkeypatch.setattr(f, "_resolve_urls", lambda: ["http://opml"])
+        monkeypatch.setattr(f, "_load_config", lambda: {
+            "max_feeds": 3,
+            "max_articles_per_feed": 1,
+            "max_articles_total": 100,
+            "request_delay": 0,
+            "flush_every_feeds": 10,
+        })
+        monkeypatch.setattr(
+            f, "_fetch_opml",
+            lambda url: [(f"feed{i}", f"http://feed/{i}") for i in range(3)],
+        )
+        fetched: list[str] = []
+        monkeypatch.setattr(
+            f, "_fetch_feed",
+            lambda url, title: fetched.append(url) or [],
+        )
+        monkeypatch.setattr(f, "ingest_chunk", lambda articles: None)
+
+        f.fetch()
+        assert fetched == ["http://feed/0", "http://feed/1", "http://feed/2"]

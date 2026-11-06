@@ -125,6 +125,7 @@ def _load_feed_overrides(source_name: str, path: Path | None = None) -> dict[str
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
+        logger.warning("[%s] %s not found — no feed overrides", source_name, path)
         return {"exclude_feeds": [], "extra_feeds": []}
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning("[%s] ignoring bad %s: %s", source_name, path, exc)
@@ -133,10 +134,17 @@ def _load_feed_overrides(source_name: str, path: Path | None = None) -> dict[str
     block = data.get(source_name) if isinstance(data, dict) else None
     if not isinstance(block, dict):
         return {"exclude_feeds": [], "extra_feeds": []}
-    return {
-        key: [e for e in block.get(key) or [] if isinstance(e, dict) and e.get("url")]
-        for key in ("exclude_feeds", "extra_feeds")
-    }
+
+    def _entries(key: str) -> list[dict]:
+        raw = block.get(key)
+        if not isinstance(raw, list):
+            return []
+        return [
+            e for e in raw
+            if isinstance(e, dict) and isinstance(e.get("url"), str) and e["url"]
+        ]
+
+    return {"exclude_feeds": _entries("exclude_feeds"), "extra_feeds": _entries("extra_feeds")}
 
 
 def _apply_feed_overrides(
@@ -200,8 +208,9 @@ class FetcherBestBlogs(BaseFetcher):
 
         logger.info("[bestblogs] merged %d OPML(s) → %d unique feeds", len(opml_urls), len(feeds))
 
-        # dad 圈定的 feed 取舍（config/feed_overrides.json），按 source_name 分块 ——
-        # bestblog-yt / bestblog-x 复用本类，不能套用公众号的删除项。
+        # dad 圈定的 feed 取舍（config/feed_overrides.json），按 source_name 分块。
+        # bestblog-yt / bestblog-podcast 继承本类但读各自的块（通常为空）；
+        # bestblog-x 有自己的 fetch()，不读这个配置。
         overrides = _load_feed_overrides(self.source_name)
         if overrides["exclude_feeds"] or overrides["extra_feeds"]:
             feeds = _apply_feed_overrides(feeds, overrides, self.source_name)
