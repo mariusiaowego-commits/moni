@@ -263,7 +263,7 @@ topnav 右侧显示服务状态：
 - **错误文案说人话**：不再显示 `lease heartbeat expired (grace=90s)` 这种
   内部术语，统一显示「服务进程中断或重启，任务已中止」这类可读提示。
 
-### 5.1.2 信源取舍（v1.0.68 新增）
+### 5.1.2 信源取舍（v1.0.69 新增）
 
 BestBlogs 聚合不再只能靠 `max_feeds` 截断来"取舍"，可以在
 `config/feed_overrides.json` 里按源写：
