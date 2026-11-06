@@ -158,7 +158,7 @@ Summary: 0 new article(s) inserted from 1 source(s), 0 skipped, 309 total fetche
 
 | 项 | 结果 |
 |---|---|
-| 全量 pytest | **1489 passed / 2 skipped**（基线 1456 + 33） |
+| 全量 pytest | **1508 passed / 2 skipped**（基线 1475 + 33；rebase 前是 1489 = 1456 + 33） |
 | 日志 | `docs/sprint-evidence/sprint-30/pytest-full.txt` |
 | 真实库副本上的 039 迁移实测 | `docs/sprint-evidence/sprint-30/realdb-migrate.md` |
 

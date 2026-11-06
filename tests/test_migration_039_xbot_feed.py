@@ -668,7 +668,7 @@ def test_039_db_init_does_clobber_user_edits(tmp_path):
 
 # ── 13. upgrading a v38 database that predates the xbot_feed source ────
 #
-# v1.0.67 (IMPL-AUDIT S-5): this section used to build the "old" database
+# v1.0.68 (IMPL-AUDIT S-5): this section used to build the "old" database
 # with `git worktree add 015a2c5` and silently `pytest.skip()` when that
 # failed.  CI checks out with the default `fetch-depth: 1`, so the commit
 # is not in the clone and the whole test **skipped** on CI -- the single

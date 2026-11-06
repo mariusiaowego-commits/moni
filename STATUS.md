@@ -6,7 +6,7 @@
 
 ## 当前状态: **v1.0.68 — xbot_feed 回填与迁移 039** (2026-11-06 · **IN REVIEW**)
 
-**分支**: `feat/sprint-30-xbot-feed-migration` · **schema**: 39（migration 039）· **测试**: 1489 passed / 2 skipped
+**分支**: `feat/sprint-30-xbot-feed-migration` · **schema**: 39（migration 039）· **测试**: 1508 passed / 2 skipped
 
 ### v1.0.68 交付要点
 

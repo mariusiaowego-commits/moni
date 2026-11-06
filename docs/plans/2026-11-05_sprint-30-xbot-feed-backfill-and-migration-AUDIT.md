@@ -102,7 +102,7 @@
 已由编排者于 2026-11-03 修（`rc=$?`）。**本仓库不涉及** —— `loop.sh`
 在 moni 之外。
 
-### v1.0.67 补的一条（sprint-30 新发现）
+### v1.0.68 补的一条（sprint-30 新发现）
 
 **v1.0.66 没有 migration** —— 新源只进了 `seed_config.py` + `config/sources.yaml`，
 没进任何存量数据库。后果（实测见 plan §1.0）：
@@ -111,7 +111,7 @@
 - `_is_source_bypassed()` **只读 DB** → 源行缺失时它静默返回 `False` →
   全局/源级黑白名单闸门重新生效 → **精选内容被黑名单误杀，且抓取不报错**。
 
-已由 **migration 039**（sprint-30 / v1.0.67）修掉，见
+已由 **migration 039**（sprint-30 / v1.0.68）修掉，见
 `docs/plans/2026-11-05_sprint-30-xbot-feed-backfill-and-migration.md`。
 
 ---

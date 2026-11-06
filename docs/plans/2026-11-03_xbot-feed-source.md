@@ -15,7 +15,7 @@ tags: [sprint, project-moni, fetcher, xbot-feed]
 > **审计与真实运行**：见 `docs/plans/2026-11-05_sprint-30-xbot-feed-backfill-and-migration-AUDIT.md`
 > （PR #172 独立审计回填）与 `docs/sprint-evidence/sprint-30/RUN.md`（真实运行数字）。
 >
-> **迁移补齐（v1.0.67 / sprint-30）**：本方案落地时**没有 migration** ——
+> **迁移补齐（v1.0.68 / sprint-30）**：本方案落地时**没有 migration** ——
 > 新源只进了 `seed_config.py` + `config/sources.yaml`，没进任何存量数据库。
 > migration 039 补上了这一步，见
 > `docs/plans/2026-11-05_sprint-30-xbot-feed-backfill-and-migration.md`。

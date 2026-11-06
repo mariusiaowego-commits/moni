@@ -308,7 +308,7 @@ _DEFAULT_SOURCES = [
         "source_type": "json",
         "url": "https://github.com/mariusiaowego-commits/xbot-feed.git",
         "fetch_interval_min": 60,
-        # v1.0.67 (sprint-30): 文案去掉字面量里的 ";" 和 "/*" ——
+        # v1.0.68 (sprint-30): 文案去掉字面量里的 ";" 和 "/*" ——
         # migration 039 的 SQL 字面量有同一条硬约束 (migrate.py 的兜底路径
         # 是 naive split(";"))，两处必须逐字相同 (测试用例 11 钉死)。
         "notes": "X-bot 精选 feed (私有仓库 xbot-feed 的 feed 目录下的 json 文件)。moni 只做导入，私有仓库访问权来自机器已有的 git 凭据。",

@@ -12,7 +12,7 @@
 # 1. 装包 (editable install, 必须用 3.12 pip)
 pip install -e .
 
-# 2. 初始化数据库 (首次安装时; 已装过的库升级见下面「升级到 v1.0.67 及以后」)
+# 2. 初始化数据库 (首次安装时; 已装过的库升级见下面「升级到 v1.0.68 及以后」)
 /usr/local/bin/python3 -m moni db init
 # ⚠️ 必须用绝对路径 python3.12, 系统默认 python3 (3.14) 缺 yaml 依赖
 
@@ -58,7 +58,7 @@ set -a && source .env && set +a                    # ⚠️ 必须先加载 env
 /usr/local/bin/python3 -m pytest tests/ -q          # 425 passed, 2 skipped
 ```
 
-## 升级到 v1.0.67 及以后
+## 升级到 v1.0.68 及以后
 
 新抓取源由 **migration 落库**，不再需要跑 `moni db seed-config`。升级只要跑迁移：
 

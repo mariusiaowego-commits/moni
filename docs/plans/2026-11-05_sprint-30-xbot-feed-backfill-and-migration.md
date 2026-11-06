@@ -1,9 +1,9 @@
 LHMONI-XBOT-PLAN-1
 
-# sprint-30 TECH-SPEC: xbot_feed 回填与迁移 039 (v1.0.67)
+# sprint-30 TECH-SPEC: xbot_feed 回填与迁移 039 (v1.0.68)
 
 - **Sprint ID**: 26110501
-- **目标版本**: v1.0.67
+- **目标版本**: v1.0.68
 - **阶段**: sprint-30
 - **日期**: 2026-11-05
 - **目标仓库**: `mariusiaowego-commits/moni`
@@ -131,7 +131,7 @@ DB**（`moni/fetch/filters.py:36-58`）。源行不存在 → DB 查不到 → �
 | `tests/test_llm_usage_counters.py` | `== 38` → `== 39`（L123） | 同上 |
 | `README.md` | 升级说明：不再需要 seed-config（§7.1） | — |
 | `USER_GUIDE.md` | 升级说明 + seed-config 重置字段的警告（§7.2） | — |
-| `STATUS.md` | v1.0.67 状态节；v1.0.66 的 `IN REVIEW` 改成 `SHIPPED`；schema 38 → 39 | — |
+| `STATUS.md` | v1.0.68 状态节；v1.0.66 的 `IN REVIEW` 改成 `SHIPPED`；schema 38 → 39 | — |
 | `docs/sprint-evidence/README.md` | 内容表加 `sprint-30/` 一行 | 归档索引 |
 
 > **版本号写死的地方：5 个文件、6 处断言**（`grep -rn "== 38" tests/` 实测）：
@@ -386,7 +386,7 @@ tag 勾选会被补回来。这跟 `USER_GUIDE.md:1348-1351` 已经写的一致�
 
 ### 4.3 结论
 
-> **v1.0.67 起，升级不再需要跑 `moni db seed-config`** —— 新源由 migration 039 落库，
+> **v1.0.68 起，升级不再需要跑 `moni db seed-config`** —— 新源由 migration 039 落库，
 > migration 只做 `INSERT OR IGNORE`，**不覆盖任何已有行**。
 > 反过来，**如果用户已经跑过 seed-config 且改过 xbot_feed 的字段，
 > 跑一次 seed-config 就把这些改动抹掉了** —— 这一点要写进 README / USER_GUIDE。
@@ -530,7 +530,7 @@ INSERT OR IGNORE INTO source_tags (...) VALUES ('src-missing','wechat',...)  →
 ### 5.4 SQL 草案
 
 ```sql
--- 039_xbot_feed_source.sql - v1.0.67 (sprint-30)
+-- 039_xbot_feed_source.sql - v1.0.68 (sprint-30)
 --
 -- v1.0.66 (PR #172) 加了 xbot_feed 源，但只进了 seed_config.py 和
 -- config/sources.yaml —— 没有 migration。后果：
@@ -969,6 +969,18 @@ uv venv --python 3.12 .venv && uv sync --extra dev
 > **1456 + 33 = 1489**，与实测一致。
 > 完整日志见 `docs/sprint-evidence/sprint-30/pytest-full.txt`。
 
+**rebase 后重测**（2026-11-06，本分支 rebase 到 `origin/main` @ `2ce8965`
+—— PR #173 心跳/批量队列 + PR #174 文档收尾都已在 main 上）：
+
+```
+1508 passed, 2 skipped, 3 warnings in 108.58s (0:01:48)
+```
+
+> **基线跟着变**：rebase 前的基线是 `e53956c` 的 **1456**；rebase 后的基线是
+> `origin/main` @ `2ce8965` 的 **1475**（#173 新增了 19 条测试）。
+> **1475 + 33 = 1508**，与实测一致 —— 本 sprint 新增的仍是 **33 条**，
+> 一条不多一条不少。基线数字变了，但"本 sprint 加了几条"这个事实没变。
+
 ### 6.4 数据隔离要求
 
 `tests/conftest.py` 的 session 级 autouse fixture `_isolate_data_dir`（`:70-93`）
@@ -998,7 +1010,7 @@ uv venv --python 3.12 .venv && uv sync --extra dev
 **在 `README.md` 的「关键命令」后面加一小节**：
 
 ```markdown
-## 升级到 v1.0.67 及以后
+## 升级到 v1.0.68 及以后
 
 新抓取源由 **migration 落库**，不再需要跑 `moni db seed-config`。升级只要跑迁移：
 
@@ -1027,7 +1039,7 @@ uv venv --python 3.12 .venv && uv sync --extra dev
 （L169），只在表格下方补一句：
 
 ```markdown
-> **v1.0.67 起**：新源由数据库迁移自动落库，**升级不需要跑 `moni db seed-config`**。
+> **v1.0.68 起**：新源由数据库迁移自动落库，**升级不需要跑 `moni db seed-config`**。
 > 升级命令是 `python3 -m moni.db.migrate`（只跑迁移）。
 > ⚠️ **不要用 `moni db init` 升级** —— 它 = migrate + seed，会把你改过的源字段重置。
 ```
@@ -1048,14 +1060,14 @@ display_name / url / 抓取间隔 / notes / fetch_config，并把你取消掉的
 
 ### 7.3 STATUS.md
 
-**新增 v1.0.67 状态节**（放在文件顶部 `## 当前状态` 下面，把 v1.0.66 变成历史状态）：
+**新增 v1.0.68 状态节**（放在文件顶部 `## 当前状态` 下面，把 v1.0.66 变成历史状态）：
 
 ```markdown
-## 当前状态: **v1.0.67 — xbot_feed 回填与迁移 039** (2026-11-05 · **IN REVIEW**)
+## 当前状态: **v1.0.68 — xbot_feed 回填与迁移 039** (2026-11-05 · **IN REVIEW**)
 
 **分支**: 待开 · **schema**: 39（migration 039）· **测试**: 1456 → 见下
 
-### v1.0.67 交付要点
+### v1.0.68 交付要点
 
 | 项 | 决定 | 理由 |
 |---|---|---|
@@ -1127,7 +1139,7 @@ Contents 表加**三行**（sprint-30 一行 + **S-6 修法：顺手补上漏掉
 
 | # | 问题 | 我的建议 | 影响 |
 |---|---|---|---|
-| **Q-O-1** | v1.0.67 的版本号 / tag 节奏？本 sprint 只做文档 + migration，是否单独发版？ | 单独发 **v1.0.67**（有 schema 变更，tag 必须跟 schema 对齐） | 决定 STATUS / README 的版本文案 |
+| **Q-O-1** | v1.0.68 的版本号 / tag 节奏？本 sprint 只做文档 + migration，是否单独发版？ | 单独发 **v1.0.68**（有 schema 变更，tag 必须跟 schema 对齐） | 决定 STATUS / README 的版本文案 |
 | **Q-O-2** | **用户主动删掉 `xbot_feed` 源后，migration 要不要恢复它？** | **恢复**（§5.5(a)）。`db init` 每次都跑 `seed()`，seed 会加回来；migration 不加就出现"重启一次又出现"的不一致。停用请用 `is_active=0` | 决定 039 的 INSERT 条件 |
 | **Q-O-3** | **用户在 `/config` 取消的 tag 绑定，migration 要不要补回？** | **补回**（与 `seed()` 一致，"绑定只增不删"）。要改成"只增不删也不补"，得连 `seed()` 一起改 —— 那是另一个决定 | 决定 039 的 `source_tags` 插入语义 |
 | **Q-O-4** | 4 个 tag 绑定缺失时（理论上不可能），要不要 migration 自己补建 tag？ | **不补**。新建关键词为空的 tag 会让闸门透传（037 的教训）；缺失时 `seed()` 会补 | 决定 039 是否要 INSERT tag_definitions |
@@ -1196,6 +1208,7 @@ Contents 表加**三行**（sprint-30 一行 + **S-6 修法：顺手补上漏掉
       `python3 -m moni.db.migrate`，且明确写了"`moni db init` = migrate + seed，
       升级不要跑它"** —— 全文 grep 不到"用 `moni db init` 升级"的表述（§4.3.1）
 - [x] 全量 pytest 通过，**实际条数写进 STATUS**（基线 1456 passed / 2 skipped）→ **1489 passed / 2 skipped**
+      （rebase 到 `origin/main` @ `2ce8965` 后基线变 1475 → **1508 passed / 2 skipped**）
 - [ ] 独立审计 APPROVE  ← **待办**（本 sprint 的实施方不做自审）
 
 ---
@@ -1326,7 +1339,8 @@ seed_config`（`moni/cli/main.py:45-50`），**必然跑 seed** → seed 的 `ON
 2. **Q-O-9 成了 Q-O-10**（原 Q-O-9「`db init` 要不要改成不跑 seed」挪到 Q-O-10）。
 3. **§6.1 从 21 条用例增到 26 条**（IMPL-AUDIT S-5 之后是 27 行），
    落地文件是 **33 个 test 函数**
-   （1456 + 33 = **1489 passed / 2 skipped**，与实测一致）。
+   （1456 + 33 = **1489 passed / 2 skipped**，与实测一致；
+   rebase 后基线 1475 + 33 = **1508 passed / 2 skipped**）。
 4. **§8 风险表新增 R14..R17**（S-1..S-4 各自的缓解措施）。
 5. **§11 验收标准新增 4 条**（守卫不谎报 / 同名源不炸 / 别的源不动 / 旧代码建的库能升级）。
 

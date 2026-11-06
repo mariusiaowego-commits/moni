@@ -1,4 +1,4 @@
--- 039_xbot_feed_source.sql - v1.0.67 (sprint-30)
+-- 039_xbot_feed_source.sql - v1.0.68 (sprint-30)
 --
 -- v1.0.66 (PR #172) added the xbot_feed source, but only to
 -- seed_config.py and config/sources.yaml -- there was no migration.

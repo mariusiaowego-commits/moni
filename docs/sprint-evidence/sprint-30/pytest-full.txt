@@ -1,7 +1,8 @@
 # sprint-30 全量测试日志（pytest-full.txt）
 
-- **日期**: 2026-11-05
-- **代码**: `feat/sprint-30-xbot-feed-migration` @ `507c2b2`（基线 `e53956c`）
+- **日期**: 2026-11-05（实施）/ 2026-11-06（rebase 后重测）
+- **代码**: `feat/sprint-30-xbot-feed-migration`（实施 @ `507c2b2`，基线 `e53956c`）
+  → rebase 后 @ `2ce8965` 之上（基线 `origin/main`）
 - **命令**（CI 同款）: `.venv/bin/python -m pytest tests/ -q -p no:cacheprovider`
 - **Python**: 3.12.15（`.venv`）
 
@@ -12,11 +13,22 @@
 1489 passed, 2 skipped, 3 warnings in 111.89s (0:01:51)
 ```
 
+**rebase 后重测**（2026-11-06，本分支 rebase 到 `origin/main` @ `2ce8965`
+—— PR #173 心跳/批量队列 + PR #174 文档收尾都已在 main 上）：
+
+```
+=============================== warnings summary ===============================
+1508 passed, 2 skipped, 3 warnings in 115.09s (0:01:55)
+```
+
 ## 结论
 
-- **1489 passed / 2 skipped** —— 无失败、无错误、无跳过新增。
-- 基线（`e53956c`）: **1456 passed / 2 skipped** → 本次新增 **33 个 test 函数**
+- **1508 passed / 2 skipped** —— 无失败、无错误、无跳过新增。
+- 基线（`origin/main` @ `2ce8965`）: **1475 passed / 2 skipped** → 本次新增 **33 个 test 函数**
   （migration 039 的回归测试；plan §6.1 的 27 行表格展开后是 33 个函数，理由见 plan §14.3）。
+- **1475 + 33 = 1508** —— 与实测一致。
+- rebase 前的旧记录（基线 `e53956c` = 1456，**1456 + 33 = 1489**）同样一致；
+  基线数字变了是因为 #173 在 main 上新增了 19 条测试，**本 sprint 新增的仍是 33 条**。
 - 定向测试: `tests/test_migration_039_xbot_feed.py` 33 条全绿。
 
 > 只保留 pytest 的汇总行（counts only）。完整日志不入库 —— 里面有测试名，无个人数据。

@@ -1,6 +1,6 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。**v1.0.67** (2026-11-06 SHIPPED)。schema v38。`pytest tests/` → **1475 passed / 2 skipped**。
+> 同业信源自动抓取与本地新闻库。**v1.0.68** (2026-11-06 IN REVIEW)。schema v39。`pytest tests/` → **1508 passed / 2 skipped**。
 
 > v1.0.42 起的核心能力 (2026-09-10):
 > - **后台任务租约** — fetch_jobs / llm_jobs 任务运行期间每 30s 写入心跳, 心跳超期 sweep 标记为 stale (取代 v1.0.35.17 墙钟判死, 解决 bestblogs 187 篇跑完后被误杀 600s timeout 问题)
@@ -168,7 +168,7 @@ topnav 右侧显示服务状态：
 | follow_builders (默认关) | feed-x.json | follow-builders 精选 X (试验源) | 360 min |
 | xbot_feed | 私有仓库 xbot-feed 的 feed/*.json | X-bot 精选 (微信话题 + 推特圈, 本地 git clone) | 60 min |
 
-> **v1.0.67 起**: 新源由数据库迁移自动落库, **升级不需要跑 `moni db seed-config`**。
+> **v1.0.68 起**: 新源由数据库迁移自动落库, **升级不需要跑 `moni db seed-config`**。
 > 升级命令是 `python3 -m moni.db.migrate` (只跑迁移)。
 > ⚠️ **不要用 `moni db init` 升级** —— 它 = migrate + seed, 会把你改过的源字段重置。
 

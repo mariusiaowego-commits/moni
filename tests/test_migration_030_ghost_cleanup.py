@@ -112,7 +112,7 @@ class TestMigration030GhostCleanup:
     def test_migration_version_bumped(self):
         """schema_version constant must match the latest migration."""
         assert _CURRENT_VERSION == 39, (
-            f"_CURRENT_VERSION must be 39 for v1.0.67, got {_CURRENT_VERSION}"
+            f"_CURRENT_VERSION must be 39 for v1.0.68, got {_CURRENT_VERSION}"
         )
 
     def test_migration_file_loads(self):

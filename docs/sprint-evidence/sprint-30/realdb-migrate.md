@@ -1,4 +1,4 @@
-# sprint-30 / v1.0.67 — 真实库副本上的 migration 039 实测
+# sprint-30 / v1.0.68 — 真实库副本上的 migration 039 实测
 
 - **日期**: 2026-11-05
 - **代码**: `feat/sprint-30-xbot-feed-migration` @ `507c2b2`（基线 `e53956c`）
@@ -203,5 +203,5 @@ sqlite3 /tmp/news-copy.db \
   （xbot_feed 落地**之前**的代码）建一个真库再升级。CI 已改 `fetch-depth: 0`，
   这条在 CI 上也真跑。
 
-- 全量：`1489 passed / 2 skipped`（基线 1456 + 33）
+- 全量：`1508 passed / 2 skipped`（基线 1475 + 33；rebase 前是 1489 = 1456 + 33）
 - 日志：`docs/sprint-evidence/sprint-30/pytest-full.txt`
