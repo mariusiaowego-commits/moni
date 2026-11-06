@@ -1,6 +1,6 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。**v1.0.67** (2026-11-06 SHIPPED)。schema v38。`pytest tests/` → **1475 passed / 2 skipped**。
+> 同业信源自动抓取与本地新闻库。**v1.0.68** (2026-11-06 IN REVIEW)。schema v39。`pytest tests/` → **1508 passed / 2 skipped**。
 
 > v1.0.42 起的核心能力 (2026-09-10):
 > - **后台任务租约** — fetch_jobs / llm_jobs 任务运行期间每 30s 写入心跳, 心跳超期 sweep 标记为 stale (取代 v1.0.35.17 墙钟判死, 解决 bestblogs 187 篇跑完后被误杀 600s timeout 问题)
@@ -36,7 +36,7 @@ cd /Users/mt16/dev/moni
 # 1. 装包 (首次)
 pip install -e .
 
-# 2. 初始化 DB (首次, 或 schema 升级后)
+# 2. 初始化 DB (首次装库用这个; 已装过的库升级见 §9「升级 / 迁移」)
 python3 -m moni db init
 
 # 3. 启动 web 服务
@@ -151,7 +151,7 @@ topnav 右侧显示服务状态：
 
 ### 3.1 抓取源 tab
 
-10 个默认源 (DB 主用, YAML 备用):
+12 个默认源 (DB 主用, YAML 备用):
 
 | name | URL | 抓什么 | 抓取间隔 |
 |---|---|---|---|
@@ -167,6 +167,10 @@ topnav 右侧显示服务状态：
 | bestblog-x | 本地 OPML | BestBlogs X/Twitter (160 feeds) | 5 min |
 | follow_builders (默认关) | feed-x.json | follow-builders 精选 X (试验源) | 360 min |
 | xbot_feed | 私有仓库 xbot-feed 的 feed/*.json | X-bot 精选 (微信话题 + 推特圈, 本地 git clone) | 60 min |
+
+> **v1.0.68 起**: 新源由数据库迁移自动落库, **升级不需要跑 `moni db seed-config`**。
+> 升级命令是 `python3 -m moni.db.migrate` (只跑迁移)。
+> ⚠️ **不要用 `moni db init` 升级** —— 它 = migrate + seed, 会把你改过的源字段重置。
 
 > **xbot_feed 说明**: 上游是私有仓库 `mariusiaowego-commits/xbot-feed`, moni 在数据目录下
 > `git clone` / `git pull --ff-only` 后读 `feed/*.json`。**moni 不存任何 key** —— 私有仓库的
@@ -1059,13 +1063,24 @@ python3 -m moni db export json > backup-$(date +%F).json
 
 ## 9. 升级 / 迁移
 
-每次 schema 改, 跑:
+每次 schema 改, 跑 **migrate-only**:
 ```bash
-python3 -m moni db init
-# 自动跑 pending migrations + 重新 seed
+python3 -m moni.db.migrate
+# 只跑 pending migrations, 不 seed, 不碰你在 /config 改过的任何东西
 ```
 
 迁移文件: `moni/db/migrations/*.sql` (按编号顺序)
+
+> ⚠️ **不要用 `python3 -m moni db init` 做升级。**
+> `db init` = **migrate + seed_llm + seed_config** (`moni/cli/main.py:45-50`),
+> 其中 `seed_config` 会把你改过的源字段重置成出厂默认
+> (display_name / url / 抓取间隔 / notes / fetch_config),
+> 把你取消掉的 tag 绑定补回来, 还会把你停用过的业务 tag 重新启用。
+> `db init` 适合**首次装库** (建全新 schema + seed 出厂配置),
+> **升级一律用 `python3 -m moni.db.migrate`**。
+
+> **新库 / 首次安装**用 `python3 -m moni db init` —— 那时候还没有"你改过的字段",
+> seed 出来的就是出厂值, 正是想要的结果。
 
 ---
 
@@ -1184,7 +1199,13 @@ Web UI **配置管理 → 抓取源 → xwatch → fetch_config**：
 }
 ```
 
-⚠️ `moni db seed-config` 会重置 `fetch_config` 为 seed 默认。
+⚠️ `moni db seed-config` 会把**你在 /config 改过的源字段重置成 seed 默认**:
+display_name / url / 抓取间隔 / notes / fetch_config, 并把你取消掉的 tag 绑定补回来。
+**业务 tag 自己的字段也会被重置**: 显示名 / 描述 / 颜色, 以及 **停用状态**
+(你停用过的 tag 会被重新启用 = 抓取闸门重新打开)。
+不受影响的只有两样: 源被**停用**的状态 (is_active), 以及 tag 的**关键词** (keywords)。
+升级到新版本时**不需要**跑它 —— 新源由 migration 自动落库, 升级用
+`python3 -m moni.db.migrate` (⚠️ `moni db init` = migrate + seed, 会重置这些字段, 不要用来升级)。
 
 ---
 

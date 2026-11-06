@@ -4,7 +4,42 @@
 
 ---
 
-## 当前状态: **v1.0.67 — 抓取超时修复（心跳容错 / 分批落盘 / 排队可见）** (2026-11-06 · **SHIPPED**)
+## 当前状态: **v1.0.68 — xbot_feed 回填与迁移 039** (2026-11-06 · **IN REVIEW**)
+
+**分支**: `feat/sprint-30-xbot-feed-migration` · **schema**: 39（migration 039）· **测试**: 1508 passed / 2 skipped
+
+### v1.0.68 交付要点
+
+v1.0.66 加了 `xbot_feed` 源，但**只进了 `seed_config.py` + `config/sources.yaml`** ——
+没进任何存量数据库。存量库升级后要么看不到这个源，要么它被全局黑名单**静默误杀**
+（`_is_source_bypassed()` 只读 DB，源行缺失时它返回 False；抓取不报错，只是少文章）。
+本版用 **migration 039** 把升级从 seed-config 解耦。
+
+| 项 | 决定 | 理由 |
+|---|---|---|
+| 新源落库 | **migration 039 幂等插入** `src-xbot-feed` + 4 个 tag 绑定 | 升级不再依赖 seed-config |
+| 覆盖策略 | 只 INSERT，**不 UPDATE 任何已有行** | 用户改过的字段（含停用状态）一个字都不动 |
+| 关键词 | 不碰 `tag_definitions.keywords` | 用户的关键词是用户的数据 |
+| **升级命令** | **`python3 -m moni.db.migrate`**（migrate-only） | `moni db init` = migrate + seed，会重置用户改过的字段（plan §4.3.1） |
+| 用户删掉的源 | **恢复**（Mttt Q-O-2，2026-11-05） | `db init` 每次都跑 seed()，seed 会加回来；停用请用 `is_active=0` |
+| 同名源冲突 | 当成"已满足"，不报错 | 用户用自己的 id 重建了同名源时，裸 INSERT 会让整个迁移失败 |
+| 文档 | PR #172 审计回填 + 真实运行证据进 `docs/` | 审计报告原本只在工作区 |
+
+**真实库副本实测**（3 个场景，见 `docs/sprint-evidence/sprint-30/realdb-migrate.md`）：
+源原样 → 0 变动；源被删 → 恢复 + 4 条绑定；用户改过 → `is_active=0` /
+`display_name` / 间隔 / notes **逐字段保留**，只有取消的那条 tag 勾选被补回
+（"绑定只增不删"，与 seed 一致）。第二次跑 **no-op**。
+
+### 已知遗留
+
+- `fetch_config` 的默认值现在有**四处**副本（fetcher / seed / web / migration SQL），
+  测试 `test_039_fetch_config_matches_default` 是唯一的护栏
+- N-7: `moni/fetch/sources/follow_builders.py:152` 的 `url LIKE '%status/{id}%'` 前缀误命中（同 B2），不在本 sprint
+- `moni db init` 仍然是 migrate + seed（行为未改）—— 升级一律用 `python3 -m moni.db.migrate`（plan Q-O-10）
+
+---
+
+## 历史状态: **v1.0.67 — 抓取超时修复（心跳容错 / 分批落盘 / 排队可见）** (2026-11-06 · **SHIPPED**)
 
 **主分支**: main @ `0dda941` · **Tag**: `v1.0.67` · **PR**: #173（已 squash 合并）
 · **schema**: 38（无新迁移）· **测试**: 1475 passed / 2 skipped
@@ -18,9 +53,13 @@
 - **文案中文化**：`lease heartbeat expired` 等租约术语改为中文可读提示。
 - **cron_runs 真实性**：批次进程内异常不再记 `success=1`；SIGTERM 场景仍由 sweep 兜底。
 
+---
+
 ## 历史状态: **v1.0.66 — xbot_feed 源（X-bot 精选桥接）** (2026-11-03 · **SHIPPED**)
 
-**分支**: `feat/xbot-feed-source` · **schema**: 38（无新迁移）· **测试**: 见 PR 描述
+**主分支**: main @ `e53956c` · **PR**: #172（squash merge）· **schema**: 38（无新迁移）
+**测试**: 1456 passed / 2 skipped · **审计**: 9 blocking + 6 should-fix 全修完，nit 不阻塞
+（审计回填见 `docs/plans/2026-11-05_sprint-30-xbot-feed-backfill-and-migration-AUDIT.md`）
 
 ### v1.0.66 交付要点
 

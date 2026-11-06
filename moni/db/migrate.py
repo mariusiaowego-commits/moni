@@ -18,7 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 38  # v1.0.65: ai-fintech += CVPR/ECCV (038)
+_CURRENT_VERSION = 39  # v1.0.68: xbot_feed source (039)
 
 
 def _rollback_if_needed(conn: sqlite3.Connection) -> None:

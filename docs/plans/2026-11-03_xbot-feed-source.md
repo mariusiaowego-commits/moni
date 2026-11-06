@@ -4,13 +4,21 @@ type: sprint
 version: v1.0.66
 start_date: 2026-11-03
 end_date: 2026-11-03
-status: 已实现（PR #172，未合并）
+status: 已实现（PR #172 已合并 e53956c，v1.0.66）
 priority: 中
 summary: 新增 xbot_feed 源 —— 把 X-bot 每天挑好的内容（微信话题 + 推特圈）经私有 git 仓库导入 moni
 tags: [sprint, project-moni, fetcher, xbot-feed]
 ---
 
 # xbot_feed 源（X-bot 精选桥接）
+
+> **审计与真实运行**：见 `docs/plans/2026-11-05_sprint-30-xbot-feed-backfill-and-migration-AUDIT.md`
+> （PR #172 独立审计回填）与 `docs/sprint-evidence/sprint-30/RUN.md`（真实运行数字）。
+>
+> **迁移补齐（v1.0.68 / sprint-30）**：本方案落地时**没有 migration** ——
+> 新源只进了 `seed_config.py` + `config/sources.yaml`，没进任何存量数据库。
+> migration 039 补上了这一步，见
+> `docs/plans/2026-11-05_sprint-30-xbot-feed-backfill-and-migration.md`。
 
 > **上游方案**：`/workspace/moni-plan/moni-wechat-source-plan.md`（原名 `x_wechat`，
 > 最终改名 `xbot_feed`，见该文档开头的「最终决定」）
