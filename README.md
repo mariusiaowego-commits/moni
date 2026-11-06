@@ -73,7 +73,7 @@ set -a && source .env && set +a                    # ⚠️ 必须先加载 env
 > 并把你取消掉的 tag 绑定补回来，还会把你停用过的**业务 tag 重新启用**。
 > 迁移只 INSERT，不覆盖任何东西。
 > tag 的**关键词**不受影响（seed 也不动 keywords 列）。
-> （"绑定只增不删"这条规则写在 `USER_GUIDE.md:1348-1351`。）
+> （"绑定只增不删"这条规则写在 `USER_GUIDE.md:1357-1359`。）
 
 > ⚠️ **为什么是 `python3 -m moni.db.migrate` 而不是 `moni db init`**：
 > `migrate.py:124-133` 有现成的 migrate-only 入口（实跑确认：**全量重跑**基表

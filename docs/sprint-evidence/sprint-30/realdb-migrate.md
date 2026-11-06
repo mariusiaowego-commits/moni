@@ -122,7 +122,7 @@ DELETE FROM source_tags WHERE source_id = 'src-xbot-feed'
 **结论**：用户的**每一个编辑字段都逐字保留**，包括**停用状态**。
 唯一的变化是**用户在 `/config` 取消的那条 tag 勾选被补回** ——
 这是**刻意**的，语义与 `seed()` 一致（"绑定只增不删"），
-`USER_GUIDE.md:1348-1351` 已经写明这条规则。
+`USER_GUIDE.md:1357-1359` 已经写明这条规则。
 
 > 如果 Mttt 认为"取消的勾选不该被补回"，那 `seed()` 也得一起改 ——
 > 那是另一个决定（plan Q-O-3）。

@@ -39,10 +39,10 @@
 --   foreign key violation -- it raises FOREIGN KEY constraint failed.
 --   Selecting from sources JOIN tag_definitions therefore produces rows
 --   only when both ends exist, so no dangling link can be created.
---   This mirrors migration 037 (037_cn_indie_existing_tags.sql:25-26).
+--   This mirrors migration 037 (037_cn_indie_existing_tags.sql:25-28).
 --
 -- Why the source insert checks sources.name:
---   sources.name is UNIQUE (004_sources_and_tags.sql:15). The user may
+--   sources.name is UNIQUE (004_sources_and_tags.sql:16). The user may
 --   have deleted the seeded row and created their own source under
 --   their own id with name = 'xbot_feed' (the "new source" form in
 --   /config lets the user pick the id). Inserting the migration row

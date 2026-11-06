@@ -159,7 +159,7 @@ DB**（`moni/fetch/filters.py:36-58`）。源行不存在 → DB 查不到 → �
 
 > **`moni/db/seed_config.py` 只动一处**：`notes` 文案里的 `;`（§5.4.1）。
 > seed 的**逻辑**一个字不改（它仍是新库的来源）。
-> ⚠️ `seed_config.py:311` 的 notes 与 039 的 notes 必须**逐字相同**（用例 11 会断言），
+> ⚠️ `seed_config.py:314` 的 notes 与 039 的 notes 必须**逐字相同**（用例 11 会断言），
 > 所以这两处要**一起改**，不能只改 migration。
 
 ---
@@ -376,7 +376,7 @@ ON CONFLICT(name) DO UPDATE SET
 
 `source_tags` 的语义是 `INSERT ... ON CONFLICT(source_id, tag_name) DO NOTHING`
 （`seed_config.py:518-522`）—— **只增不删**，所以用户在 `/config` 里取消的
-tag 勾选会被补回来。这跟 `USER_GUIDE.md:1348-1351` 已经写的一致。
+tag 勾选会被补回来。这跟 `USER_GUIDE.md:1357-1359` 已经写的一致。
 
 > **S-4 补一句**：上表"3 个 → 4 个"里的 4 个，指的是 **seed 的
 > `_DEFAULT_SOURCE_TAGS` 全集**（14 个源、34 条绑定），**不是** xbot_feed
@@ -387,7 +387,8 @@ tag 勾选会被补回来。这跟 `USER_GUIDE.md:1348-1351` 已经写的一致�
 ### 4.3 结论
 
 > **v1.0.68 起，升级不再需要跑 `moni db seed-config`** —— 新源由 migration 039 落库，
-> migration 只做 `INSERT OR IGNORE`，**不覆盖任何已有行**。
+> migration 的源行用 `INSERT ... WHERE NOT EXISTS`（`id` 或 `name` 已存在就整行跳过），
+> 绑定 / 日志用 `INSERT OR IGNORE`，**不覆盖任何已有行**。
 > 反过来，**如果用户已经跑过 seed-config 且改过 xbot_feed 的字段，
 > 跑一次 seed-config 就把这些改动抹掉了** —— 这一点要写进 README / USER_GUIDE。
 
@@ -508,7 +509,7 @@ INSERT OR IGNORE INTO source_tags (...) VALUES ('src-missing','wechat',...)  →
 | `url` | `https://github.com/mariusiaowego-commits/xbot-feed.git` | `seed_config.py:309` |
 | `fetch_interval_min` | `60` | `seed_config.py:310` |
 | `is_active` | `1`（**只在 INSERT 时**，见 §5.5） | `seed_config.py:489` 缺省 1 |
-| `notes` | 见 §5.4.1 的文案（与 `seed_config.py:311` 逐字一致） | `seed_config.py:311` |
+| `notes` | 见 §5.4.1 的文案（与 `seed_config.py:314` 逐字一致） | `seed_config.py:314` |
 | `fetch_config` | `DEFAULT_FETCH_CONFIG` 的 JSON（`ensure_ascii=False`） | `moni/fetch/sources/xbot_feed.py:170-191` |
 | `source_tags` | `wechat` / `miniprogram` / `general-tech` / `ai-fintech` | `seed_config.py:385-388` |
 
@@ -555,7 +556,7 @@ INSERT OR IGNORE INTO source_tags (...) VALUES ('src-missing','wechat',...)  →
 --     外键违例，见下）。
 --
 -- 为什么 sources 用 INSERT ... SELECT ... WHERE NOT EXISTS:
---   sources.name 是 UNIQUE（004_sources_and_tags.sql:15）。用户可能删掉
+--   sources.name 是 UNIQUE（004_sources_and_tags.sql:16）。用户可能删掉
 --   seed 建的行、用**自己的 id** 在 /config 重建了同名源（"新建 source"
 --   表单允许用户填 id）→ name='xbot_feed' 已被占用。此时裸 INSERT 抛
 --   UNIQUE 违例 → 整个迁移失败 → schema_version 卡在 38 → 所有
@@ -583,7 +584,7 @@ INSERT OR IGNORE INTO source_tags (...) VALUES ('src-missing','wechat',...)  →
 BEGIN IMMEDIATE;
 
 -- S-3: INSERT ... SELECT ... WHERE NOT EXISTS，而不是 INSERT OR IGNORE。
---   sources.name 是 UNIQUE（004_sources_and_tags.sql:15）。用户可能删掉
+--   sources.name 是 UNIQUE（004_sources_and_tags.sql:16）。用户可能删掉
 --   seed 建的行、用**自己的 id** 在 /config 重建了同名源（"新建 source"
 --   表单允许用户填 id）→ name='xbot_feed' 已被占用。此时裸 INSERT 会
 --   抛 UNIQUE 违例 → 整个迁移失败 → schema_version 卡在 38 → 所有
@@ -610,7 +611,7 @@ WHERE NOT EXISTS (
     WHERE id = 'src-xbot-feed' OR name = 'xbot_feed'
 );
 
--- S-2: JOIN sources —— 与 037（037_cn_indie_existing_tags.sql:25-26）同构。
+-- S-2: JOIN sources —— 与 037（037_cn_indie_existing_tags.sql:25-28）同构。
 --   只在源真的存在时才建绑定，**预防**悬空链接（而不是事后检测）。
 --   目标 tag 不在库里就不建链接（tag_definitions 那侧没有行 → 不产生行）。
 INSERT OR IGNORE INTO source_tags (source_id, tag_name, created_at)
@@ -708,7 +709,7 @@ for stmt in sql.split(";"):      # ② 兜底：naive split
 
    （`feed/*.json` → `feed 目录下的 json 文件`：顺手把 `/*` 也避开了。）
 
-2. **`moni/db/seed_config.py:311` 的同一个字符串要一起改** —— 用例 11
+2. **`moni/db/seed_config.py:314` 的同一个字符串要一起改** —— 用例 11
    （`test_039_matches_seed_config_values`）断言两处 notes 逐字相同，
    只改一处会让用例 11 变红。改的是文案，不是 seed 的逻辑。
 
@@ -723,7 +724,7 @@ for stmt in sql.split(";"):      # ② 兜底：naive split
 **决定：恢复（重新插入）。** 理由：
 
 - "删掉源"在 moni 里的正常路径是**停用**（`is_active=0`），不是删行。
-  `USER_GUIDE.md:186` 明确写："**停用源**：不删, is_active 设为 false 即可"。
+  `USER_GUIDE.md:190` 明确写："**停用源**：不删, is_active 设为 false 即可"。
   删行的入口是 `/config` 的删除按钮（`config_sources.py:306-314`），会 CASCADE
   掉 `source_tags`。
 - **恢复 = 回到 moni 的出厂源目录**。moni 每次 `db init` 都会跑 `seed()`，
@@ -761,13 +762,14 @@ moni 现有机制里没有 tombstone 概念。
   （迁移在 seed 之前跑）。这是 037 同样的取舍（037 也是数生效绑定），
   接受它。
 - **另一个后果**：fresh DB 上 `migrate()` → `seed()` 之后，039 的
-  `INSERT OR IGNORE` 对源行是 no-op（seed 已经插了），对 4 个绑定也是 no-op。
+  `INSERT ... WHERE NOT EXISTS` 对源行是 no-op（seed 已经插了），
+  4 个绑定的 `INSERT OR IGNORE` 也是 no-op。
   **零冲突，幂等。**
 
 #### (c) `is_active` 怎么处理
 
 - **只在 INSERT 时给 1**。已有行**一个字段都不碰** —— 用户停用了就还是停用。
-- 这是 §5.2 里"INSERT OR IGNORE 而不是 ON CONFLICT DO UPDATE"的直接后果。
+- 这是 §5.2 里"`INSERT ... WHERE NOT EXISTS` 而不是 `ON CONFLICT DO UPDATE`"的直接后果。
 - **不要**写成 `ON CONFLICT(id) DO UPDATE SET is_active=1`（那会重新启用用户停用的源），
   也**不要**写成 `DO UPDATE SET is_active=sources.is_active`（那看着安全但没意义）。
 
@@ -797,7 +799,7 @@ moni 现有机制里没有 tombstone 概念。
 - 6 处写死 38 的断言（5 个文件）+ 1 处报错文案要同步（§2.2）。
 - `migrate()` 在 `applied >= _CURRENT_VERSION` 时早退（`migrate.py:88-90`），
   所以**回滚代码不会降级 schema** —— 039 是纯 INSERT，残留的源行无害
-  （跟 v1.0.65 的回滚结论一致，`STATUS.md:104-105`）。
+  （跟 v1.0.65 的回滚结论一致，`STATUS.md:157-158`）。
 
 ### 5.6 幂等与不覆盖的实测（PLAN 阶段已在真实 schema 上跑过）
 
@@ -815,7 +817,7 @@ moni 现有机制里没有 tombstone 概念。
 | **H. migrate-only（`python3 -m moni.db.migrate`）** | 用户改过的字段**逐字段不变**，别的源的编辑也不变（B-1） |
 
 > **C 场景的"绑定被补回"是刻意的**，跟 `seed()` 的语义一致
-> （`USER_GUIDE.md:1348-1351` 已经写明"seed-config 会把默认绑定列表里缺的条目补回来"）。
+> （`USER_GUIDE.md:1357-1359` 已经写明"seed-config 会把默认绑定列表里缺的条目补回来"）。
 > 迁移跟 seed 对齐，用户只需要知道一条规则：**绑定只增不删**。
 > 如果 Mttt 认为"取消的勾选不该被补回"，那 seed 也得改，**那是另一个决定**（Q-O-3）。
 
@@ -1044,7 +1046,7 @@ uv venv --python 3.12 .venv && uv sync --extra dev
 > ⚠️ **不要用 `moni db init` 升级** —— 它 = migrate + seed，会把你改过的源字段重置。
 ```
 
-**改 `USER_GUIDE.md:1160`**（`⚠️ moni db seed-config 会重置 fetch_config 为 seed 默认。`）——
+**改 `USER_GUIDE.md:1184`**（`⚠️ moni db seed-config 会重置 fetch_config 为 seed 默认。`）——
 把范围写清楚（现在只提 fetch_config，实际 display_name / url / 间隔 / notes 也会被重置，
 **而且业务 tag 自己的 display_name / description / color / is_active 也会被重置** —— S-4）：
 
@@ -1072,7 +1074,7 @@ display_name / url / 抓取间隔 / notes / fetch_config，并把你取消掉的
 | 项 | 决定 | 理由 |
 |---|---|---|
 | 新源落库 | **migration 039 幂等插入** `src-xbot-feed` + 4 个 tag 绑定 | 升级不再依赖 seed-config |
-| 覆盖策略 | 只 `INSERT OR IGNORE`，**不 UPDATE 任何已有行** | 用户改过的字段（含停用状态）一个字都不动 |
+| 覆盖策略 | 只 `INSERT ... WHERE NOT EXISTS`（源行）/ `INSERT OR IGNORE`（绑定 / 日志），**不 UPDATE 任何已有行** | 用户改过的字段（含停用状态）一个字都不动 |
 | 关键词 | 不碰 `tag_definitions.keywords` | 用户的关键词是用户的数据 |
 | **升级命令** | **`python3 -m moni.db.migrate`**（migrate-only） | `moni db init` = migrate + seed，会重置用户改过的字段（§4.3.1） |
 | 文档 | PR #172 审计回填 + 真实运行证据进 `docs/` | 审计报告原本只在工作区 |
@@ -1116,18 +1118,18 @@ Contents 表加**三行**（sprint-30 一行 + **S-6 修法：顺手补上漏掉
 | # | 风险 | 影响 | 缓解 |
 |---|---|---|---|
 | R1 | **migration SQL 是 `DEFAULT_FETCH_CONFIG` 的第四份拷贝** | 改了 Python 常量忘了改 SQL → DB 默认值漂移，用户在 `/config` 看到的默认值跟实际生效的不一致（正是审计 B5 修的那个坑） | 用例 12 `test_039_fetch_config_matches_default` 钉死；`test_fetch_config_has_single_source`（`test_xbot_feed_fetch.py:801`）继续覆盖前三处 |
-| R2 | **用户主动删掉的源被迁移加回来** | 用户觉得"我明明删了它怎么又出现了" | §5.5(a) 的决定 + **Q-O-2 拍板**；停用是推荐做法（`USER_GUIDE.md:186`） |
-| R3 | **取消的 tag 绑定被补回** | 用户在 `/config` 取消的勾选回来了 | 与 `seed()` 语义一致（`USER_GUIDE.md:1348-1351` 已写明）；**Q-O-3** |
+| R2 | **用户主动删掉的源被迁移加回来** | 用户觉得"我明明删了它怎么又出现了" | §5.5(a) 的决定 + **Q-O-2 拍板**；停用是推荐做法（`USER_GUIDE.md:190`） |
+| R3 | **取消的 tag 绑定被补回** | 用户在 `/config` 取消的勾选回来了 | 与 `seed()` 语义一致（`USER_GUIDE.md:1357-1359` 已写明）；**Q-O-3** |
 | R4 | **版本号写死漏改** | 6 处 `== 38` 漏一处 → 全量测试红 | §2.2 列全了（5 个文件、6 处断言 + 1 处报错文案）；`grep -rn "== 38" tests/` 必须只剩 039 测试里那处刻意的 `old_version == 38`；**AGENTS.md 铁律 2** |
 | R5 | **fresh DB 上 039 先于 seed 跑，4 个绑定一条都建不上** | 看起来"迁移没生效" | 实测确认：随后 `seed()` 会补上（`ON CONFLICT DO NOTHING`）；用例 15 覆盖 `migrate()` 路径；039 注释写明 |
 | R6 | **`source_tags` 的 FK 违例会炸整个迁移** | `INSERT OR IGNORE` **不吞**外键违例（实测） | 用 `INSERT ... SELECT FROM tag_definitions`，目标不存在就不产生行；用例 9/10 覆盖 |
-| R7 | **生产库跑迁移时代码还没合**（或反过来） | 前置 039 的老代码看到多出来的源行 → 无害（只是多一行）；老代码 `migrate()` 早退（`applied >= _CURRENT_VERSION`） | v1.0.65 已验证过这个顺序安全（`STATUS.md:104-105`）；039 是纯 INSERT，残留无害 |
+| R7 | **生产库跑迁移时代码还没合**（或反过来） | 前置 039 的老代码看到多出来的源行 → 无害（只是多一行）；老代码 `migrate()` 早退（`applied >= _CURRENT_VERSION`） | v1.0.65 已验证过这个顺序安全（`STATUS.md:157-158`）；039 是纯 INSERT，残留无害 |
 | R8 | **Mac 上真实数字不是 71** | 有人拿 71 当基线 | evidence 文件里写明"测试关键词下的数字"；`USER_GUIDE.md` 不写具体条数 |
 | R9 | **审计报告初版说过"已修"但当时一行没改** | 回填进仓库的 AUDIT.md 如果照抄那句话，就是把不实信息固化 | §3.3 明确要求只写**实际 commit hash**；每条都标 commit |
 | R10 | `docs/plans/2026-11-03_xbot-feed-source.md` 带 Obsidian frontmatter | 改名会断 vault 链接 | §3.2 决定：不改名，只加指针 |
 | R11 | **源行缺失时 `bypass_keyword_filters` 静默失效** | 存量库升级后（没跑 seed-config）全局黑名单会误杀精选内容，**抓取不报错**，只是少文章 —— 排查成本高 | 039 把源行补上；§1.0 给了实测症状；用例 16/17 覆盖这条路径 |
 | **R12** | **升级指令写成 `moni db init` → 隐式跑 seed → 用户改动被重置** | sprint 的核心卖点（"升级不再依赖 seed-config"）**当场反转** —— 用户按文档升级，改动照样被抹 | §4.3.1 定死 migrate-only（`python3 -m moni.db.migrate`，实跑确认不 seed）；§7.1 / §7.2 / §11 三处统一；用例 20/21 钉住 |
-| **R13** | **039 的 SQL 字面量含 `;` → runner 兜底路径 `split(';')` 劈开字面量 → 迁移炸** | `schema_version` 卡在 38，**所有 `moni db *` 子命令持续失败**（`main.py:778-779` 每个 db 子命令都先 `migrate()`），升级路径完全堵死 | §5.4.1 定死"字面量不含 `;` / `--`"；039 的 notes 文案已改（`seed_config.py:311` 同步改）；用例 18（扫字面量）+ 用例 19（强制兜底路径） |
+| **R13** | **039 的 SQL 字面量含 `;` → runner 兜底路径 `split(';')` 劈开字面量 → 迁移炸** | `schema_version` 卡在 38，**所有 `moni db *` 子命令持续失败**（`main.py:778-779` 每个 db 子命令都先 `migrate()`），升级路径完全堵死 | §5.4.1 定死"字面量不含 `;` / `--`"；039 的 notes 文案已改（`seed_config.py:314` 同步改）；用例 18（扫字面量）+ 用例 19（强制兜底路径） |
 | **R14** | **守卫只检查"源行存在" → 谎报成功**（S-1） | 未 seed 的库跑完 039：源在、绑定 0 条，日志却记了 039。读者以为 tag 闸门已生效，实际是透传 | 守卫改成数 `is_active=1` 的生效绑定（对齐 037）；用例 24 钉死 |
 | **R15** | **`source_tags` 不 JOIN `sources` → 悬空绑定**（S-2） | 源行没建成但绑定建成了 → 绑定指向不存在的源 | 改成 `FROM sources s JOIN tag_definitions t`（037 同构）；用例 10 + 23 覆盖 |
 | **R16** | **`sources.name` UNIQUE 冲突 → 整个迁移失败**（S-3） | 用户用自己的 id 重建了同名源 → 迁移中止 → `schema_version` 卡在 38 → 整个 `moni db *` 命令面堵死 | `INSERT ... SELECT ... WHERE NOT EXISTS (id = ... OR name = ...)`；用例 23 钉死 |
@@ -1158,7 +1160,7 @@ Contents 表加**三行**（sprint-30 一行 + **S-6 修法：顺手补上漏掉
    （用例 2/3/15/16/17/18/19/20/21 会红，版本号用例 1 会红）。
 2. 写 `moni/db/migrations/039_xbot_feed_source.sql`（§5.4 草案）——
    **字面量里不许有 `;` / `--`**（§5.4.1）。
-3. 改 `moni/db/seed_config.py:311` 的 notes 文案（与 039 逐字一致，§5.4.1）。
+3. 改 `moni/db/seed_config.py:314` 的 notes 文案（与 039 逐字一致，§5.4.1）。
 4. 改 `moni/db/migrate.py:21` → `_CURRENT_VERSION = 39`。
 5. 改 6 处 `== 38` → `== 39` + 1 处报错文案（§2.2）；改完后 `grep -rn "== 38" tests/`
    应只剩 039 测试里那处刻意的 `assert old_version == 38`。
@@ -1286,7 +1288,7 @@ seed_config`（`moni/cli/main.py:45-50`），**必然跑 seed** → seed 的 `ON
 | §6.2 现有测试 | 补一句：`seed_config.py` 的 notes 文案一改，要 `grep -rn "只做导入" tests/ moni/` 自查 |
 | §6.3 基线数字 | 用例数 17 → **21**，1473 → **1477**（1456 + 21） |
 | §8 风险 | **新增 R13**（`;` 字面量 → 升级路径堵死） |
-| §10 实施顺序 | 新增第 3 步：改 `seed_config.py:311` 的 notes（与 039 一致） |
+| §10 实施顺序 | 新增第 3 步：改 `seed_config.py:314` 的 notes（与 039 一致） |
 | §11 验收标准 | 新增两条：字面量不含 `;` / `--`（用例 18）；强制兜底路径不抛异常（用例 19）；两处 notes 逐字相同（用例 11） |
 | §12 不做的事 | 明确 seed 只改 notes 一个字符串 |
 
@@ -1318,7 +1320,7 @@ seed_config`（`moni/cli/main.py:45-50`），**必然跑 seed** → seed 的 `ON
 | # | 问题 | 改法 | 落在哪 |
 |---|---|---|---|
 | **S-1** | `schema_cleanup_log` 守卫只检查"源行存在"，与注释**自相矛盾**（注释说"不会谎称成功"，实测它就是谎称），且违反 AGENTS.md §1.4「守卫要数 `is_active = 1` 的生效绑定」 | 守卫改成与 037 同构：数 `source_tags JOIN tag_definitions ON is_active=1` 的**生效绑定数 ≥ 4**；SQL 注释同步改成与行为一致 | §5.4 SQL 块、§5.5(b)、§5.5(d)、用例 24 |
-| **S-2** | `source_tags` 的插入**不 JOIN `sources`** → 源行没建成时会留下**悬空绑定**（事后检测 ≠ 预防） | 改成 `FROM sources s JOIN tag_definitions t`（与 `037:25-26` 完全对齐） | §5.4 SQL 块、§5.5(d) |
+| **S-2** | `source_tags` 的插入**不 JOIN `sources`** → 源行没建成时会留下**悬空绑定**（事后检测 ≠ 预防） | 改成 `FROM sources s JOIN tag_definitions t`（与 `037:25-28` 完全对齐） | §5.4 SQL 块、§5.5(d) |
 | **S-3** | `sources.name` 的 UNIQUE 冲突被 `INSERT OR IGNORE` **静默吞掉** → 源行没建成、迁移却"成功"；裸 INSERT 则整个迁移失败 → schema 卡在 38 | 改成 `INSERT ... SELECT ... WHERE NOT EXISTS (id = 'src-xbot-feed' OR name = 'xbot_feed')`：用户已占用名字 → **当成已满足**，不插入、不报错 | §5.4 SQL 块、§5.5、**新增 Q-O-9**、用例 23 |
 | **S-4** | §4.2 只列了 `sources` 表的字段，漏了 seed **还会重置 tag 的 `display_name` / `description` / `color` / `is_active`** —— 用户停用的 tag 被重新启用 = 闸门重新打开 | §4.2 实测表补 4 行（含实测 before/after）；§7.2 的 USER_GUIDE 文案同步扩写 | §4.2、§7.2 |
 | **S-5** | N-7 的行号引用不准（`:149` 应为 `:152`）；§3.3 大纲里行内混排 `**` 加粗破相 | 行号统一改成 `follow_builders.py:152`；`--` 破相的加粗改成普通文字 | §3.3、§7.3 |
