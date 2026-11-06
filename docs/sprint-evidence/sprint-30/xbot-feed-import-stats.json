@@ -53,20 +53,20 @@
       "blacklisted_by_topic": {
         "wechat": 1
       },
-      "no_keyword_hit": 72,
+      "no_keyword_hit": 74,
       "no_keyword_hit_by_topic": {
-        "wechat": 21,
-        "xcircle": 51
+        "wechat": 22,
+        "xcircle": 52
       },
-      "inserted": 115,
+      "inserted": 113,
       "inserted_by_topic": {
-        "wechat": 61,
-        "xcircle": 54
+        "wechat": 60,
+        "xcircle": 53
       },
       "tag_distribution": {
-        "wechat": 46,
+        "wechat": 45,
         "miniprogram": 45,
-        "general-tech": 54,
+        "general-tech": 53,
         "ai-fintech": 1
       },
       "zero_tag_articles": 0,
@@ -96,7 +96,7 @@
         "wechat": 16,
         "miniprogram": 5,
         "general-tech": 68,
-        "ai-fintech": 2
+        "ai-fintech": 1
       },
       "zero_tag_articles": 0,
       "cross_topic_mislabel": 0
@@ -105,8 +105,8 @@
   "replay_totals": {
     "exported": 579,
     "blacklisted": 7,
-    "no_keyword_hit": 300,
-    "inserted": 272,
+    "no_keyword_hit": 302,
+    "inserted": 270,
     "zero_tag_articles": 0,
     "cross_topic_mislabel": 0
   },
@@ -132,8 +132,8 @@
     "rerun_inserted": 0
   },
   "live_vs_replay_delta": {
-    "inserted": -2,
-    "why": "重放逐文件独立计数，跨文件重复的 tweet id 各算一次；实跑走 fetcher 的全局去重（tweet id + 跨源软去重）。实跑的 270 才是真实入库数。"
+    "inserted": 0,
+    "why": "重放按 fetcher 的真实构造逐文件统计，跨文件重复 tweet id 实测为 0，三天相加 270 == 实跑 270，逐条吻合。"
   },
   "test_keywords": {
     "wechat": [
@@ -164,7 +164,7 @@
       "金融"
     ]
   },
-  "replay_method": "moni.fetch.keyword_match.keyword_matches (title+content) + moni.fetch.sources.xbot_feed._truncate_title; title = _truncate_title(text, handle), content = text + '\\n\\n[metrics]'",
+  "replay_method": "moni.fetch.keyword_match.keyword_matches (title+content) + moni.fetch.sources.xbot_feed._truncate_title + moni.fetch.sources.xbot_feed.FetcherXbotFeed._metrics_summary; title = _truncate_title(text, handle), meta = FetcherXbotFeed._metrics_summary(raw['metrics']) (reads the like/retweet/impression keys), content = f'{text}\\n\\n[{meta}]' if meta else text",
   "environment": {
     "moni_data_dir": "/tmp/xbot-evidence/data",
     "upstream": "local bare git repo (stand-in for the private repo; the fetcher's repo_url validation only accepts https://github.com/<owner>/<repo>, so the clone is pre-seeded and _sync_clone() only runs git pull --ff-only against the local origin)",

@@ -120,7 +120,7 @@ DELETE FROM source_tags WHERE source_id = 'src-xbot-feed'
 **结论**：用户的**每一个编辑字段都逐字保留**，包括**停用状态**。
 唯一的变化是**用户在 `/config` 取消的那条 tag 勾选被补回** ——
 这是**刻意**的，语义与 `seed()` 一致（"绑定只增不删"），
-`USER_GUIDE.md:1327-1329` 已经写明这条规则。
+`USER_GUIDE.md:1348-1351` 已经写明这条规则。
 
 > 如果 Mttt 认为"取消的勾选不该被补回"，那 `seed()` 也得一起改 ——
 > 那是另一个决定（plan Q-O-3）。
@@ -190,9 +190,18 @@ sqlite3 /tmp/news-copy.db \
 
 ## 7. 相关测试
 
-同一套性质由 `tests/test_migration_039_xbot_feed.py` 钉死（30 条），
-其中 `test_039_upgrades_a_db_built_by_old_code` 用 `015a2c5`（xbot_feed
-落地**之前**的代码）建一个真库再升级 —— 覆盖"存量库升级"的完整链路。
+同一套性质由 `tests/test_migration_039_xbot_feed.py` 钉死（33 条），
+其中"存量库升级"这条链路由 4 条用例覆盖：
 
-- 全量：`1486 passed / 2 skipped`（基线 1456 + 30）
+- `test_039_upgrades_a_v38_db_without_seed` /
+  `test_039_upgrades_a_v38_db_that_has_the_business_tags` ——
+  **手写**一个最小 v38 库（`schema_version=38`、`sources` 无 `src-xbot-feed`）
+  再用当前代码升级。**不依赖 git 历史**，浅克隆 / 导出副本 / 无 git 的环境都跑。
+- `test_039_upgrade_path_needs_no_git` —— **PATH 里没有 git**、
+  cwd 不是 git 仓库，升级仍然成功。
+- `test_039_upgrades_a_db_built_by_old_code` —— 加强层：用 `015a2c5`
+  （xbot_feed 落地**之前**的代码）建一个真库再升级。CI 已改 `fetch-depth: 0`，
+  这条在 CI 上也真跑。
+
+- 全量：`1489 passed / 2 skipped`（基线 1456 + 33）
 - 日志：`docs/sprint-evidence/sprint-30/pytest-full.txt`

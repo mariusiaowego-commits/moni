@@ -29,6 +29,19 @@
 
 ## 2. Blocking（9 条）
 
+> **⚠️ 关于下面表格里的 commit hash（不可独立核验）**
+>
+> PR #172 是 **squash merge**（`e53956c`），下面 §2 / §3 两张表里的 6 个短 hash
+> （`59553f2` / `75983af` / `329814d` / `9b520f9` / `c171dfe` / `a857ea7`）
+> 来自**合并前** `feat/xbot-feed-source` 分支上的原始 commit ——
+> **它们不在 main 的历史里**，仓库里的读者无法独立核验
+> （`git cat-file -t 59553f2` → `fatal: Not a valid object name`；
+> `git rev-parse --is-shallow-repository` → `false`，不是浅克隆，是真的没有）。
+>
+> **这些 hash 不改** —— 回填是忠实的，改了才是造假。能核验的是**合并后的最终状态**：
+> 见本文件 §6 的真实运行记录，以及 `docs/sprint-evidence/sprint-30/`。
+> 原始审计报告在 `/workspace/moni-plan/pr172-audit.md`（工作区，不在仓库里）。
+
 | # | 问题 | 修法 | Commit |
 |---|---|---|---|
 | **B1** | **tag 闸门被 bypass 完全架空**：PR 用 `bypass_keyword_filters: true` + 在 `dedupe_insert()` 里按 topic **硬打** tag。`tag_filter.py:183-202` 的 bypass 分支直接 `return articles`，**tag 关键词闸门一行都不跑** → 用户在 `/config` 改关键词对本源零效果；而且 PR 自己覆写 `dedupe_insert()` 把 bypass 合成命中换成硬打，等于把「关键词驱动」换成「topic 驱动」 | tag 闸门改到 fetcher 内：按 topic 的**候选 tag** → 读该 tag **当前**关键词 → 只挂**真实命中**的 tag；**零命中不入库**；被挡条目**不写 state** | `59553f2` |

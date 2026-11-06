@@ -57,9 +57,9 @@ python -m moni fetch --source xbot_feed
 | 文件 | 导出 | topic 分布 | 黑名单 | 关键词未命中 | **入库** | tag 分布 | 零 tag | 跨 topic 误打 |
 |---|---:|---|---:|---|---:|---|---:|---:|
 | `2026-11-03.json` | 203 | wechat 46 / xcircle 157 | 6（wechat 6） | 126（wechat 9 / xcircle 117） | **71**（wechat 31 / xcircle 40） | wechat 28 / miniprogram 21 / general-tech 37 / ai-fintech 7 | **0** | **0** |
-| `2026-11-04.json` | 188 | wechat 83 / xcircle 105 | 1（wechat 1） | 72（wechat 21 / xcircle 51） | **115**（wechat 61 / xcircle 54） | wechat 46 / miniprogram 45 / general-tech 54 / ai-fintech 1 | **0** | **0** |
-| `2026-11-05.json` | 188 | wechat 20 / xcircle 168 | 0 | 102（wechat 3 / xcircle 99） | **86**（wechat 17 / xcircle 69） | general-tech 68 / wechat 16 / miniprogram 5 / ai-fintech 2 | **0** | **0** |
-| **三天合计** | **579** | — | **7** | **300** | **272** | — | **0** | **0** |
+| `2026-11-04.json` | 188 | wechat 83 / xcircle 105 | 1（wechat 1） | 74（wechat 22 / xcircle 52） | **113**（wechat 60 / xcircle 53） | wechat 45 / miniprogram 45 / general-tech 53 / ai-fintech 1 | **0** | **0** |
+| `2026-11-05.json` | 188 | wechat 20 / xcircle 168 | 0 | 102（wechat 3 / xcircle 99） | **86**（wechat 17 / xcircle 69） | general-tech 68 / wechat 16 / miniprogram 5 / ai-fintech 1 | **0** | **0** |
+| **三天合计** | **579** | — | **7** | **302** | **270** | — | **0** | **0** |
 
 > **2026-11-03 那一行与 plan §1.2 的表逐项吻合**（203 / 46+157 / 6 / 126 / 71 /
 > 93 tag 计数 / 0 零 tag / 0 跨 topic）—— 独立复算，数字可复现。
@@ -88,11 +88,18 @@ Summary: 270 new article(s) inserted from 1 source(s), 0 skipped, 579 total fetc
 | `article_keyword_hits` 分布 | 与 `article_tags` **完全一致**（89/158/71/9） |
 | **rerun 入库** | **0** |
 
-> **为什么实跑 270 而重放是 272？**
-> 重放是逐文件独立统计，**跨文件的重复 tweet id 各算一次**；
-> 实跑走的是 fetcher 的**全局去重**（tweet id 去重 + 与
-> `bestblog-x` / `xwatch` 的跨源软去重），所以少了 2 条重复。
-> **实跑的 270 才是真实入库数。**
+> **重放 270 == 实跑 270，逐条吻合。**
+>
+> 重放按 fetcher 的**真实**构造逐文件统计（`content` 带 metrics 尾巴），
+> 与端到端实跑（真 fetcher、真入库）的 270 **完全对上**，
+> 跨文件重复 tweet id 实测为 **0**（三天两两求交都是 0）。
+>
+> > **历史说明**：本文件此前记的是「重放 272 / 实跑 270」，并把差额解释成
+> > 「跨文件重复 + 全局去重」。那条解释是**错的** —— 重放脚本当时用错了
+> > metric key 名（`likes`/`retweets`/`views`），导致 `meta` 恒为 `None`、
+> > `content` 退化成**纯正文**（少了 metrics 尾巴）。正文短了，
+> > 短 CJK 词的「正文重复次数」门槛就判得不一样，2 条短文因此多算成命中。
+> > 按真实构造重算后是 **270 == 270**，那条需要额外解释的尾巴直接消失。
 
 ### 2.3 rerun = 0（为什么）
 
@@ -151,7 +158,7 @@ Summary: 0 new article(s) inserted from 1 source(s), 0 skipped, 309 total fetche
 
 | 项 | 结果 |
 |---|---|
-| 全量 pytest | **1486 passed / 2 skipped**（基线 1456 + 30） |
+| 全量 pytest | **1489 passed / 2 skipped**（基线 1456 + 33） |
 | 日志 | `docs/sprint-evidence/sprint-30/pytest-full.txt` |
 | 真实库副本上的 039 迁移实测 | `docs/sprint-evidence/sprint-30/realdb-migrate.md` |
 
@@ -163,8 +170,12 @@ Summary: 0 new article(s) inserted from 1 source(s), 0 skipped, 309 total fetche
 # 逐条重放（只读，不入库）
 from moni.fetch.keyword_match import keyword_matches          # 唯一匹配引擎
 from moni.fetch.sources.xbot_feed import _truncate_title      # title 走这里
-#   title  = _truncate_title(text, handle)
-#   content = text + "\n\n[metrics]"
+from moni.fetch.sources.xbot_feed import FetcherXbotFeed      # metrics 摘要走这里
+#   meta    = FetcherXbotFeed._metrics_summary(raw["metrics"])
+#             # 读 like / retweet / impression 三个 key（reply/quote/bookmark
+#             #   不进摘要）；任一为 0 就不进摘要
+#   title   = _truncate_title(text, handle)
+#   content = f"{text}\n\n[{meta}]" if meta else text
 #   for tag in topic 的候选 tag:
 #       for kw in 该 tag 当前关键词:
 #           if keyword_matches(kw, title=title, body=content, field="title+content"):
@@ -174,3 +185,11 @@ from moni.fetch.sources.xbot_feed import _truncate_title      # title 走这里
 **必须走 `_truncate_title`**（截断到 80 字符首行）——
 直接拿 `text` 当 title 匹配，`ai-fintech` 会得到 **9** 而不是 **7**。
 这个坑 plan §1.2 的注释里已经记过一次。
+
+**必须带上 metrics 尾巴**（`content = f"{text}\n\n[{meta}]" if meta else text`）——
+少了它，正文会短一截，短 CJK 词的「正文重复次数」门槛
+（`SHORT_CJK_MIN_BODY_REPEATS = 2` / `SHORT_CJK_SHORT_BODY_CHARS = 200`）
+就判得不一样：11-04 有 2 条短文会因此多算成命中（`inserted` 115 vs **113**）。
+**摘要里的 metric key 是 `like` / `retweet` / `impression`**，
+不是 `likes` / `retweets` / `views` —— 写错 key 会让 `meta` 恒为 `None`，
+`content` 退化成纯正文，重放结果就会偏。

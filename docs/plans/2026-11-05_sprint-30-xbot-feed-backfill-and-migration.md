@@ -376,7 +376,7 @@ ON CONFLICT(name) DO UPDATE SET
 
 `source_tags` 的语义是 `INSERT ... ON CONFLICT(source_id, tag_name) DO NOTHING`
 （`seed_config.py:518-522`）—— **只增不删**，所以用户在 `/config` 里取消的
-tag 勾选会被补回来。这跟 `USER_GUIDE.md:1327-1329` 已经写的一致。
+tag 勾选会被补回来。这跟 `USER_GUIDE.md:1348-1351` 已经写的一致。
 
 > **S-4 补一句**：上表"3 个 → 4 个"里的 4 个，指的是 **seed 的
 > `_DEFAULT_SOURCE_TAGS` 全集**（14 个源、34 条绑定），**不是** xbot_feed
@@ -447,7 +447,7 @@ Migration complete. schema_version = 38
 sources=1  tag_definitions=0  source_tags=0
 ```
 
-→ 只建 schema + 跑迁移，**不 seed 任何 sources / tag_definitions**，
+→ **全量重跑**基表 `schema.sql`（幂等）+ 跑迁移，**不 seed 任何 sources / tag_definitions**，
 用户数据一个字都不动。（`sources=1` 来自 migration 012 的 `src-bestblogs`，
 不是 seed。）
 
@@ -815,7 +815,7 @@ moni 现有机制里没有 tombstone 概念。
 | **H. migrate-only（`python3 -m moni.db.migrate`）** | 用户改过的字段**逐字段不变**，别的源的编辑也不变（B-1） |
 
 > **C 场景的"绑定被补回"是刻意的**，跟 `seed()` 的语义一致
-> （`USER_GUIDE.md:1327-1329` 已经写明"seed-config 会把默认绑定列表里缺的条目补回来"）。
+> （`USER_GUIDE.md:1348-1351` 已经写明"seed-config 会把默认绑定列表里缺的条目补回来"）。
 > 迁移跟 seed 对齐，用户只需要知道一条规则：**绑定只增不删**。
 > 如果 Mttt 认为"取消的勾选不该被补回"，那 seed 也得改，**那是另一个决定**（Q-O-3）。
 
@@ -850,26 +850,53 @@ moni 现有机制里没有 tombstone 概念。
 | 19 | `test_039_survives_runner_fallback` | 强制 `_run_sql_file` 走**兜底路径**（用代理对象让 `executescript` 抛错）→ 迁移**不抛异常**，源在、4 条绑定在 | **B-2 护栏**（§5.4.1） |
 | 20 | `test_039_migrate_only_path_preserves_user_edits` | 走 `python -m moni.db.migrate` 等价的 migrate-only 路径 → 用户改过的 `display_name`/`fetch_interval_min`/`notes`/`fetch_config` **逐字段不变** | **B-1 护栏**（§4.3.1） |
 | 21 | `test_039_db_init_does_clobber_user_edits` | 走**真实 CLI 路径** `cmd_init()` → 断言用户改过的字段**被重置**（把"db init = migrate + seed"这个事实钉死，防止有人误以为它安全） | **B-1 护栏**（§4.3.1） |
-| 22 | `test_039_upgrades_a_db_built_by_old_code` | 用 `git worktree` 拉 `015a2c5`（xbot_feed 落地**之前**的代码）建一个库（schema 38、无本源）→ 用当前代码跑 `python3 -m moni.db.migrate` → schema 39、源在、`is_active=1`、不抛异常；**再跑一次是 no-op** | **真实升级路径**（§6.4.1） |
+| 22 | `test_039_upgrades_a_v38_db_without_seed` / `..._v38_db_that_has_the_business_tags` / `..._upgrade_path_needs_no_git` | **手写**一个最小 v38 库（`schema_version=38`、`sources` 无 `src-xbot-feed`、tag 可有可无）→ 用当前代码跑 `python3 -m moni.db.migrate` → schema 39、源在、`is_active=1`、不抛异常；**再跑一次是 no-op**；再加一条"PATH 里没有 git、cwd 不是 git 仓库"也必须升级成功 | **真实升级路径**，**不依赖 git 历史**（§6.4.1） |
+| 22b | `test_039_upgrades_a_db_built_by_old_code` | 用 `git worktree` 拉 `015a2c5`（xbot_feed 落地**之前**的代码）建一个库 → 当前代码升级 → schema 39、源在；**再跑一次是 no-op** | **真实升级路径**（§6.4.1），需要该 commit 在本地克隆里（CI 已改 `fetch-depth: 0`） |
 | 23 | `test_039_tolerates_user_owned_same_name_source` | 用户已用 `name='xbot_feed'` 占用（自己的 id）→ 迁移**不抛异常**、不产生悬空绑定、守卫不谎报成功 | **S-3 护栏** |
 | 24 | `test_039_guard_requires_effective_bindings` | 4 个 tag 全停用 → `schema_cleanup_log` **不**记录 039（对齐 037 的 `is_active=1` 生效绑定计数） | **S-1 护栏** |
 | 25 | `test_039_migrate_only_does_not_run_seed` | 走 `python3 -m moni.db.migrate` → **别的源**的编辑字段**逐字段不变**（证明没有 seed） | **B-1 护栏** |
 | 26 | `test_039_does_not_touch_other_sources` | 迁移前后**除本源以外**的所有 `sources` 行逐字段相同 | 隔离性护栏 |
 
-> **用例 22 是"真实升级"的端到端护栏**：它不伪造 v38 状态，而是**用 `015a2c5`
-> 的真代码建一个真库**（那时 `seed_config.py` 里根本没有 xbot_feed 这个源），
-> 再用当前代码迁移。这条测试覆盖了"存量库升级"这件事的完整链路。
-> ⚠️ 它需要 `git worktree`（仓库里有 `.git`）—— 在没有 `.git` 的导出副本里
-> 会 `pytest.skip`，不是失败。
+> **用例 22 是"真实升级"的端到端护栏**，分两层：
+>
+> - **22（主路径，不依赖 git）**：**手写**一个最小 v38 库（`schema_version=38`、
+>   `sources` 里没有 `src-xbot-feed`、`tag_definitions` 可有可无）→ 用当前代码
+>   跑 `python3 -m moni.db.migrate` → schema 39、源在、`is_active=1` → 再跑一次
+>   是 no-op。这层**永远不 skip**：浅克隆、导出副本、没有 git 的环境都能跑。
+> - **22b（加强层，需要 git 历史）**：用 `015a2c5` 的**真代码**建一个真库
+>   （那时 `seed_config.py` 里根本没有 xbot_feed 这个源），再用当前代码迁移。
+>   这是最接近"真实存量库"的形态，但需要该 commit 在本地克隆里。
+>
+> **⚠️ IMPL-AUDIT S-5（2026-11-06 修正）**：最初的实现只有 22b，而且
+> `git worktree add` 失败时**静默 `pytest.skip`** —— CI 的 checkout 用默认
+> `fetch-depth: 1`（浅克隆），`015a2c5` 不在克隆里，于是这条护栏**在 CI 上
+> 永远是 skip，覆盖率为 0**。现在改成"22 为主路径（永不 skip）+ 22b 为加强层"，
+> 并给 CI 的 checkout 加 `fetch-depth: 0` 让 22b 也在 CI 上真跑。
 
-### 6.1.1 关于用例 22 的实现说明
+### 6.1.1 关于用例 22 / 22b 的实现说明
+
+**22（主路径，手写 v38 库）**
+
+- 建库：`_build_v38_db()` 手写最小 v38 schema —— `schema_version` 钉在 **38**、
+  `sources`（**没有** `src-xbot-feed`，另放一个别的源用来验"其它源不动"）、
+  `source_tags`、`tag_definitions`（4 个业务 tag，可选）、`schema_cleanup_log`。
+  列定义照 v38 的真实形状（012 加了 `sources.fetch_config`，006 加了
+  `tag_definitions.keywords`，007 加了 `tag_definitions.display_name`），
+  用 `015a2c5` 的真代码建出来的库核对过。
+- 升级：用当前代码跑 `python3 -m moni.db.migrate` → schema 39、源在。
+- 幂等：再跑一次 → stdout 含 `nothing to migrate`，源仍然只有 1 行。
+- 另有一条 `test_039_upgrade_path_needs_no_git`：**PATH 里没有 git**、
+  **cwd 不是 git 仓库**，升级仍然必须成功。
+
+**22b（加强层，旧代码建库）**
 
 - 建库：`git worktree add --detach <tmp> 015a2c5` → 用 `<tmp>` 的代码跑
   `python3 -m moni.db.migrate`（`PYTHONPATH=<tmp>`，确保 import 的是旧代码）。
   实测旧代码的 `_CURRENT_VERSION` 是 **38**，且 `sources` 里**没有** `src-xbot-feed`。
-- 升级：用当前代码跑 `python3 -m moni.db.migrate` → schema 39、源在。
-- 幂等：再跑一次 → stdout 含 `nothing to migrate`，源仍然只有 1 行。
+- 升级 / 幂等：同上。
 - 收尾：`git worktree remove --force <tmp>`（**必须**收，否则仓库里留垃圾）。
+- 该 commit 不在克隆里时**显式 skip 并写明原因**（不静默）；worktree 建不起来
+  时是 **`pytest.fail`**，不是 skip。
 
 > **用例 16 是这个迁移存在的理由**（存量库不跑 seed-config 的真实路径），必须写。
 > **用例 17 钉住 §1.0 那个静默失效**（源行缺失 → bypass 变 False → 黑名单误杀）。
@@ -930,14 +957,16 @@ uv venv --python 3.12 .venv && uv sync --extra dev
 **实施实测**（2026-11-05，本分支 `feat/sprint-30-xbot-feed-migration`）：
 
 ```
-1486 passed, 2 skipped, 3 warnings in 108.36s (0:01:48)
+1489 passed, 2 skipped, 3 warnings in 111.89s (0:01:51)
 ```
 
-> 上面的 "1456 + 26 = 1482" 是按**表格行数**算的；**落地文件里是 30 个
-> test 函数**（`grep -c "^def test_" tests/test_migration_039_xbot_feed.py` → 30）。
-> 差额 4 来自"一个场景需要两种不同 fixture"的情况 —— 例如"在 unseeded 库上建源"
+> 上面的 "1456 + 26 = 1482" 是按**表格行数**算的；**落地文件里是 33 个
+> test 函数**（`grep -c "^def test_" tests/test_migration_039_xbot_feed.py` → 33）。
+> 差额来自"一个场景需要两种不同 fixture"的情况 —— 例如"在 unseeded 库上建源"
 > 和"在 seeded 库上建源"是两条独立的 test，"删掉源后恢复"在 seeded / unseeded
-> 两种库上也是两条。**1456 + 30 = 1486**，与实测一致。
+> 两种库上也是两条；另外 **IMPL-AUDIT S-5** 把"旧代码建的库能升级"拆成了
+> 3 条（手写 v38 库 ×2 + 无 git 依赖 ×1），旧的 git 版本保留为加强层。
+> **1456 + 33 = 1489**，与实测一致。
 > 完整日志见 `docs/sprint-evidence/sprint-30/pytest-full.txt`。
 
 ### 6.4 数据隔离要求
@@ -986,8 +1015,9 @@ uv venv --python 3.12 .venv && uv sync --extra dev
 ```
 
 > ⚠️ **为什么是 `python3 -m moni.db.migrate` 而不是 `moni db init`**：
-> `migrate.py:124-133` 有现成的 migrate-only 入口（实跑确认：只建 schema + 跑迁移，
-> **不 seed 任何 sources / tag_definitions**）；`db init` 会额外跑
+> `migrate.py:124-133` 有现成的 migrate-only 入口（实跑确认：**全量重跑**基表
+> `schema.sql`（幂等）+ 跑 pending migrations，**不 seed 任何
+> sources / tag_definitions**）；`db init` 会额外跑
 > `seed_llm` + `seed_config`，后者正好会抹掉用户在 `/config` 改过的东西（§4.2 实测）。
 > 改 `db init` 本身的行为属于本 sprint 范围外，见 Q-O-10。
 
@@ -1075,7 +1105,7 @@ Contents 表加**三行**（sprint-30 一行 + **S-6 修法：顺手补上漏掉
 |---|---|---|---|
 | R1 | **migration SQL 是 `DEFAULT_FETCH_CONFIG` 的第四份拷贝** | 改了 Python 常量忘了改 SQL → DB 默认值漂移，用户在 `/config` 看到的默认值跟实际生效的不一致（正是审计 B5 修的那个坑） | 用例 12 `test_039_fetch_config_matches_default` 钉死；`test_fetch_config_has_single_source`（`test_xbot_feed_fetch.py:801`）继续覆盖前三处 |
 | R2 | **用户主动删掉的源被迁移加回来** | 用户觉得"我明明删了它怎么又出现了" | §5.5(a) 的决定 + **Q-O-2 拍板**；停用是推荐做法（`USER_GUIDE.md:186`） |
-| R3 | **取消的 tag 绑定被补回** | 用户在 `/config` 取消的勾选回来了 | 与 `seed()` 语义一致（`USER_GUIDE.md:1327-1329` 已写明）；**Q-O-3** |
+| R3 | **取消的 tag 绑定被补回** | 用户在 `/config` 取消的勾选回来了 | 与 `seed()` 语义一致（`USER_GUIDE.md:1348-1351` 已写明）；**Q-O-3** |
 | R4 | **版本号写死漏改** | 6 处 `== 38` 漏一处 → 全量测试红 | §2.2 列全了（5 个文件、6 处断言 + 1 处报错文案）；`grep -rn "== 38" tests/` 必须只剩 039 测试里那处刻意的 `old_version == 38`；**AGENTS.md 铁律 2** |
 | R5 | **fresh DB 上 039 先于 seed 跑，4 个绑定一条都建不上** | 看起来"迁移没生效" | 实测确认：随后 `seed()` 会补上（`ON CONFLICT DO NOTHING`）；用例 15 覆盖 `migrate()` 路径；039 注释写明 |
 | R6 | **`source_tags` 的 FK 违例会炸整个迁移** | `INSERT OR IGNORE` **不吞**外键违例（实测） | 用 `INSERT ... SELECT FROM tag_definitions`，目标不存在就不产生行；用例 9/10 覆盖 |
@@ -1148,7 +1178,9 @@ Contents 表加**三行**（sprint-30 一行 + **S-6 修法：顺手补上漏掉
 - [x] **4 个 tag 全停用时 `schema_cleanup_log` 不记录 039**（S-1 守卫，用例 24）
 - [x] **用户用自己的 id 占用 `name='xbot_feed'` 时迁移不抛异常、不建悬空绑定**（S-3，用例 23）
 - [x] **迁移前后除本源以外的所有 `sources` 行逐字段不变**（用例 26）
-- [x] **用 `015a2c5` 的旧代码建的库（schema 38、无本源）能被当前代码升级到 39**（用例 22）
+- [x] **手写的最小 v38 库（schema 38、无本源）能被当前代码升级到 39**，且**不依赖 git 历史**
+      （用例 22 —— 浅克隆 / 导出副本 / 无 git 的环境都跑，IMPL-AUDIT S-5）
+- [x] **用 `015a2c5` 的旧代码建的库（schema 38、无本源）能被当前代码升级到 39**（用例 22b，加强层）
 - [x] 迁移写入的 `fetch_config` == `DEFAULT_FETCH_CONFIG`（测试钉死）
 - [x] `grep -rn "== 38" tests/` **只命中 `tests/test_migration_039_xbot_feed.py` 里的
       `assert old_version == 38`**（那是"旧代码建的库是 schema 38"的刻意断言）；
@@ -1163,7 +1195,7 @@ Contents 表加**三行**（sprint-30 一行 + **S-6 修法：顺手补上漏掉
 - [x] **升级指令三处（README / USER_GUIDE / STATUS）一律是
       `python3 -m moni.db.migrate`，且明确写了"`moni db init` = migrate + seed，
       升级不要跑它"** —— 全文 grep 不到"用 `moni db init` 升级"的表述（§4.3.1）
-- [x] 全量 pytest 通过，**实际条数写进 STATUS**（基线 1456 passed / 2 skipped）→ **1486 passed / 2 skipped**
+- [x] 全量 pytest 通过，**实际条数写进 STATUS**（基线 1456 passed / 2 skipped）→ **1489 passed / 2 skipped**
 - [ ] 独立审计 APPROVE  ← **待办**（本 sprint 的实施方不做自审）
 
 ---
@@ -1201,8 +1233,8 @@ seed_config`（`moni/cli/main.py:45-50`），**必然跑 seed** → seed 的 `ON
 把取消掉的 tag 绑定补回。这让本 sprint 的核心卖点（"升级不再依赖 seed-config"）当场反转。
 
 **改法**：升级指令统一改成 **migrate-only** —— `python3 -m moni.db.migrate`
-（`migrate.py:124-133` 的现成入口，实跑确认只建 schema + 跑迁移、不 seed 任何
-sources / tag_definitions）。**不改 `db init` 本身的行为**（范围外，列为 Q-O-10）。
+（`migrate.py:124-133` 的现成入口，实跑确认**全量重跑**基表 `schema.sql`（幂等）
++ 跑 pending migrations、不 seed 任何 sources / tag_definitions）。**不改 `db init` 本身的行为**（范围外，列为 Q-O-10）。
 
 | 位置 | 改动 |
 |---|---|
@@ -1292,8 +1324,9 @@ sources / tag_definitions）。**不改 `db init` 本身的行为**（范围外�
    那时 `tag_definitions` 是空的 → 生效绑定 0 条（< 4）→ 守卫不记成功。
    这是 S-1 修法的**必然结果**，也是 037 同样的取舍。接受。
 2. **Q-O-9 成了 Q-O-10**（原 Q-O-9「`db init` 要不要改成不跑 seed」挪到 Q-O-10）。
-3. **§6.1 从 21 条用例增到 26 条**，落地文件是 **30 个 test 函数**
-   （1456 + 30 = **1486 passed / 2 skipped**，与实测一致）。
+3. **§6.1 从 21 条用例增到 26 条**（IMPL-AUDIT S-5 之后是 27 行），
+   落地文件是 **33 个 test 函数**
+   （1456 + 33 = **1489 passed / 2 skipped**，与实测一致）。
 4. **§8 风险表新增 R14..R17**（S-1..S-4 各自的缓解措施）。
 5. **§11 验收标准新增 4 条**（守卫不谎报 / 同名源不炸 / 别的源不动 / 旧代码建的库能升级）。
 

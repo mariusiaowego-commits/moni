@@ -666,16 +666,305 @@ def test_039_db_init_does_clobber_user_edits(tmp_path):
     close_db()
 
 
-# ── 13. upgrading a database built by the pre-xbot_feed code ──────────
+# ── 13. upgrading a v38 database that predates the xbot_feed source ────
+#
+# v1.0.67 (IMPL-AUDIT S-5): this section used to build the "old" database
+# with `git worktree add 015a2c5` and silently `pytest.skip()` when that
+# failed.  CI checks out with the default `fetch-depth: 1`, so the commit
+# is not in the clone and the whole test **skipped** on CI -- the single
+# most important guard of this migration had zero coverage there.
+#
+# The fix: build the v38 database **by hand** (a hand-written, minimal
+# v38 schema), so the upgrade path is validated in every environment --
+# shallow clone, tarball export, no git at all.  The git-based variant is
+# kept *below* as an extra layer; CI now uses `fetch-depth: 0` so it runs
+# there too.
+
+#: The schema version an "existing database" sits at before 039.
+V38_VERSION = 38
+
+#: The minimal v38 schema an existing database has.
+#:
+#: Hand-written on purpose: this is the *shape* a real v38 database has
+#: (verified against a database actually built by the pre-xbot_feed
+#: code), not a copy of today's schema.sql.  Only the tables migration
+#: 039 touches are needed:
+#:
+#:   * ``sources``         -- without ``src-xbot-feed``
+#:   * ``source_tags``     -- the link table
+#:   * ``tag_definitions`` -- the four business tags (optional; a
+#:     database that never ran seed-config has none)
+#:   * ``schema_version``  -- pinned at 38
+#:
+#: The column lists are the v38 ones (migration 012 added
+#: ``sources.fetch_config``, migration 006 added
+#: ``tag_definitions.keywords``, migration 007 added
+#: ``tag_definitions.display_name``).
+_V38_SCHEMA = """
+CREATE TABLE schema_version (
+    version INTEGER PRIMARY KEY,
+    applied_at TEXT NOT NULL
+);
+
+CREATE TABLE sources (
+    id                  TEXT PRIMARY KEY,
+    name                TEXT NOT NULL UNIQUE,
+    display_name        TEXT,
+    source_type         TEXT NOT NULL,
+    url                 TEXT NOT NULL,
+    fetch_interval_min  INTEGER NOT NULL DEFAULT 30,
+    is_active           INTEGER NOT NULL DEFAULT 1,
+    notes               TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    fetch_config        TEXT
+);
+
+CREATE TABLE source_tags (
+    source_id   TEXT NOT NULL,
+    tag_name    TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (source_id, tag_name),
+    FOREIGN KEY (source_id) REFERENCES sources(id)      ON DELETE CASCADE,
+    FOREIGN KEY (tag_name)  REFERENCES tag_definitions(name) ON DELETE CASCADE
+);
+
+CREATE TABLE tag_definitions (
+    name        TEXT PRIMARY KEY,
+    description TEXT,
+    color       TEXT,
+    created_at  TEXT NOT NULL,
+    is_active   INTEGER NOT NULL DEFAULT 1,
+    keywords    TEXT,
+    display_name TEXT
+);
+
+CREATE TABLE schema_cleanup_log (
+    migration   TEXT PRIMARY KEY,
+    applied_at  TEXT NOT NULL
+);
+"""
+
+#: The four business tags migration 039 binds the source to.
+_V38_TAGS = ("wechat", "miniprogram", "general-tech", "ai-fintech")
+
+#: A source that existed before the xbot_feed source was added.  It is
+#: here so the test can prove the migration leaves other sources alone.
+_OLD_SOURCE_ID = "src-36kr-rss"
+
+
+def _build_v38_db(
+    db_path: Path,
+    *,
+    with_tags: bool,
+    with_other_source: bool = True,
+) -> None:
+    """Write a minimal, hand-built v38 database to ``db_path``.
+
+    ``with_tags=False`` models the real "existing database" case: one
+    that never ran ``seed-config`` and therefore has no tag_definitions
+    rows at all.  ``with_tags=True`` models a database that has the
+    business tags but not the xbot_feed source.
+
+    The schema_version marker is pinned at 38, so ``migrate()`` sees a
+    database that is genuinely behind and applies the pending
+    migrations -- exactly like a real one.  No git, no network, no
+    external state.
+    """
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.executescript(_V38_SCHEMA)
+        conn.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+            (V38_VERSION, "2026-11-05 00:00:00"),
+        )
+        if with_other_source:
+            conn.execute(
+                "INSERT INTO sources (id, name, display_name, source_type, url, "
+                "fetch_interval_min, is_active, notes, created_at, updated_at) "
+                "VALUES (?, '36kr_rss', '36氪 RSS', 'rss', "
+                "'https://36kr.com/feed', 5, 1, 'old source', "
+                "'2026-06-05 00:00:00', '2026-06-05 00:00:00')",
+                (_OLD_SOURCE_ID,),
+            )
+        if with_tags:
+            for tag in _V38_TAGS:
+                conn.execute(
+                    "INSERT INTO tag_definitions (name, description, color, "
+                    "created_at, is_active) VALUES (?, ?, '#000000', "
+                    "'2026-06-05 00:00:00', 1)",
+                    (tag, f"tag {tag}"),
+                )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_039_upgrades_a_v38_db_without_seed(tmp_path):
+    """The genuine upgrade path, with **no git history required**.
+
+    A hand-built v38 database (schema_version = 38, sources without
+    ``src-xbot-feed``, no tag_definitions) is upgraded with the current
+    code: the source must land, nothing may crash, and the version must
+    become 39.  Running it again must be a no-op.
+
+    This test never touches git, so it runs identically in a shallow CI
+    clone, in a tarball export, and on a developer machine.
+    """
+    db_path = tmp_path / "v38-news.db"
+    _build_v38_db(db_path, with_tags=False)
+
+    # Preconditions -- the hand-built database really is a v38 one.
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    assert conn.execute(
+        "SELECT COALESCE(MAX(version), 0) FROM schema_version"
+    ).fetchone()[0] == V38_VERSION
+    assert conn.execute(
+        "SELECT COUNT(*) FROM sources WHERE id = ?", (SOURCE_ID,)
+    ).fetchone()[0] == 0
+    conn.close()
+
+    # Upgrade with the current code (migrate-only -- no seed).
+    upgrade = _run_module([], db_path, REPO_ROOT)
+    assert upgrade.returncode == 0, upgrade.stderr
+
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    new_version = conn.execute(
+        "SELECT COALESCE(MAX(version), 0) FROM schema_version"
+    ).fetchone()[0]
+    assert new_version == 39
+    row = conn.execute(
+        "SELECT id, name, display_name, is_active FROM sources WHERE id = ?",
+        (SOURCE_ID,),
+    ).fetchone()
+    assert row is not None
+    assert row["name"] == SOURCE_NAME
+    assert row["is_active"] == 1
+    # The old database had no seed, so there are no tag definitions
+    # and therefore no tag links -- but no crash either.
+    link_count = conn.execute(
+        "SELECT COUNT(*) FROM source_tags WHERE source_id = ?", (SOURCE_ID,)
+    ).fetchone()[0]
+    assert link_count == 0
+    conn.close()
+
+    # Running the upgrade again is a no-op.
+    again = _run_module([], db_path, REPO_ROOT)
+    assert again.returncode == 0, again.stderr
+    assert "nothing to migrate" in again.stdout
+    conn = sqlite3.connect(str(db_path))
+    final = conn.execute(
+        "SELECT COUNT(*) FROM sources WHERE id = ?", (SOURCE_ID,)
+    ).fetchone()[0]
+    conn.close()
+    assert final == 1
+
+
+def test_039_upgrades_a_v38_db_that_has_the_business_tags(tmp_path):
+    """Same upgrade, but the v38 database already has the four tags.
+
+    This is the shape of a real user database that ran seed-config at
+    some point but was created before the xbot_feed source existed: the
+    business tags are there, the source is not.  The migration must
+    land the source **and** its four bindings.
+    """
+    db_path = tmp_path / "v38-tags-news.db"
+    _build_v38_db(db_path, with_tags=True)
+
+    upgrade = _run_module([], db_path, REPO_ROOT)
+    assert upgrade.returncode == 0, upgrade.stderr
+
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    assert conn.execute(
+        "SELECT COALESCE(MAX(version), 0) FROM schema_version"
+    ).fetchone()[0] == 39
+    row = conn.execute(
+        "SELECT id, name, is_active FROM sources WHERE id = ?", (SOURCE_ID,)
+    ).fetchone()
+    assert row is not None
+    assert row["name"] == SOURCE_NAME
+    assert row["is_active"] == 1
+    links = [
+        r[0]
+        for r in conn.execute(
+            "SELECT tag_name FROM source_tags WHERE source_id = ? ORDER BY tag_name",
+            (SOURCE_ID,),
+        )
+    ]
+    assert set(links) == set(_V38_TAGS)
+    # The other source is untouched.
+    assert conn.execute(
+        "SELECT COUNT(*) FROM sources WHERE id = ?", (_OLD_SOURCE_ID,)
+    ).fetchone()[0] == 1
+    conn.close()
+
+
+def test_039_upgrade_path_needs_no_git(tmp_path):
+    """The upgrade path must not depend on git being available.
+
+    Regression guard for IMPL-AUDIT S-5: the old version of this file
+    built the "old" database with ``git worktree add 015a2c5`` and
+    silently skipped when that failed -- which is *always* the case in
+    a shallow CI clone (``fetch-depth: 1``).  The migration's most
+    important guard therefore had zero coverage on CI.
+
+    This test proves the upgrade works with **no git binary on PATH**
+    and from a working directory that is not a git repository.
+    """
+    db_path = tmp_path / "v38-news.db"
+    _build_v38_db(db_path, with_tags=True)
+
+    # An empty PATH -- there is no `git` (or anything else) to be found.
+    empty_bin = tmp_path / "empty-bin"
+    empty_bin.mkdir()
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "moni.db.migrate"],
+        capture_output=True,
+        text=True,
+        cwd=str(tmp_path),          # not a git repository
+        env={
+            **dict(__import__("os").environ),
+            "PATH": str(empty_bin),
+            "MONI_DB_PATH": str(db_path),
+            "PYTHONPATH": str(REPO_ROOT),
+        },
+    )
+    assert proc.returncode == 0, proc.stderr
+    conn = sqlite3.connect(str(db_path))
+    assert conn.execute(
+        "SELECT COUNT(*) FROM sources WHERE id = ?", (SOURCE_ID,)
+    ).fetchone()[0] == 1
+    conn.close()
 
 
 def test_039_upgrades_a_db_built_by_old_code(tmp_path):
-    """Build a database with the code from before the xbot_feed source.
+    """Extra layer: build the database with the *actual* pre-xbot_feed code.
 
-    The database is created by the code at ``OLD_COMMIT`` (which has no
-    xbot_feed source at all), then upgraded with the current code.
-    This is the genuine "existing database" upgrade path.
+    This is the strongest form of the guard -- the database is created
+    by the real code from before the xbot_feed source existed, then
+    upgraded with the current code.
+
+    It needs the old commit in the local clone.  CI now uses
+    ``fetch-depth: 0``, so it runs there; a shallow local clone skips
+    it with an explicit reason.  Either way the upgrade path itself is
+    covered by the hand-built variants above, which never skip.
     """
+    proc = subprocess.run(
+        ["git", "cat-file", "-e", f"{OLD_COMMIT}^{{commit}}"],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
+    if proc.returncode != 0:
+        pytest.skip(
+            f"{OLD_COMMIT} is not in this clone (shallow checkout?) -- "
+            "the hand-built v38 upgrade path above covers this case"
+        )
+
     worktree = tmp_path / "old"
     proc = subprocess.run(
         ["git", "worktree", "add", "--detach", str(worktree), OLD_COMMIT],
@@ -684,7 +973,9 @@ def test_039_upgrades_a_db_built_by_old_code(tmp_path):
         cwd=str(REPO_ROOT),
     )
     if proc.returncode != 0:
-        pytest.skip(f"cannot create worktree at {OLD_COMMIT}: {proc.stderr.strip()}")
+        pytest.fail(
+            f"cannot create worktree at {OLD_COMMIT}: {proc.stderr.strip()}"
+        )
 
     try:
         old_db = tmp_path / "old-news.db"
