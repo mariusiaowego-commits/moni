@@ -46,6 +46,12 @@ jobs:
           # 流水线只需要读代码, 不需要用 checkout 留下的 token 回头推
           # 东西。不落盘 = 少一个凭据泄露面。
           persist-credentials: false
+          # v1.0.68 (IMPL-AUDIT S-5): 默认的 fetch-depth: 1 是浅克隆,
+          # 历史里的 commit 查不到 —— tests/test_migration_039_xbot_feed.py
+          # 里那条"用 015a2c5 的旧代码建的库能升级到 39"的用例在浅克隆里
+          # 只能 skip (整条护栏在 CI 上覆盖率为 0)。仓库不大 (375 commit),
+          # 拉全历史让那条用例在 CI 上真的跑起来。
+          fetch-depth: 0
 
       - name: Set up Python 3.12
         uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0

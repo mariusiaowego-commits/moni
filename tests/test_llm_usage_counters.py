@@ -120,7 +120,7 @@ def test_migration_029_adds_usage_columns(fresh_db):
     assert "input_tokens" in cols
     assert "output_tokens" in cols
     assert "cost_usd" in cols
-    assert _CURRENT_VERSION == 38  # v1.0.65: 038 appends CVPR/ECCV to ai-fintech
+    assert _CURRENT_VERSION == 39  # v1.0.68: 039 adds the xbot_feed source
 
 
 # ── worker_llm.parse_usage_file ───────────────────────────────────────────

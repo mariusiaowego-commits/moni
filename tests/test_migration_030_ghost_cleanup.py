@@ -111,8 +111,8 @@ class TestMigration030GhostCleanup:
 
     def test_migration_version_bumped(self):
         """schema_version constant must match the latest migration."""
-        assert _CURRENT_VERSION == 38, (
-            f"_CURRENT_VERSION must be 38 for v1.0.65, got {_CURRENT_VERSION}"
+        assert _CURRENT_VERSION == 39, (
+            f"_CURRENT_VERSION must be 39 for v1.0.68, got {_CURRENT_VERSION}"
         )
 
     def test_migration_file_loads(self):
@@ -245,7 +245,7 @@ class TestMigration030GhostCleanup:
         row = conn.execute(
             "SELECT COALESCE(MAX(version), 0) FROM schema_version"
         ).fetchone()
-        assert row[0] == _CURRENT_VERSION == 38
+        assert row[0] == _CURRENT_VERSION == 39
 
     def test_fk_cascade_cleans_orphan_tags(self, tmp_db):
         """source_tags FK → sources.id CASCADE: ghost source delete cascades.
