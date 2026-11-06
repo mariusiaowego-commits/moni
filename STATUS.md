@@ -4,9 +4,32 @@
 
 ---
 
-## 当前状态: **v1.0.68 — xbot_feed 回填与迁移 039** (2026-11-06 · **IN REVIEW**)
+## 当前状态: **v1.0.69 — BestBlogs 信源取舍配置** (2026-11-06 · **SHIPPED**)
 
-**分支**: `feat/sprint-30-xbot-feed-migration` · **schema**: 39（migration 039）· **测试**: 1508 passed / 2 skipped
+**主分支**: main @ `0dbe7e2` · **Tag**: `v1.0.69` · **PR**: #176（已 squash 合并）
+· **schema**: 39（无新迁移）· **测试**: 1518 passed / 2 skipped
+· **服务**: 8900 已重启（PID 75502，`/health` → `{"status":"ok"}`）
+
+### v1.0.69 交付要点
+
+dad 对 BestBlogs 的 506 个 feed 做了首次取舍：**删 28、加 5**。此前没有"按 feed 取舍"的入口，
+只能用 `max_feeds=375` 从 OPML 头部硬截断，想加号就得改代码或直接改 DB 行。
+
+- **`config/feed_overrides.json`**（按 source 名分块）：`exclude_feeds` 按 feed URL 精确匹配删除；
+  `extra_feeds` **插到最前面**，保证在 `max_feeds` 截断前一定跑到（5 个播客原本排 502–506 位，永远轮不到）。
+- **`moni/fetch/sources/bestblogs.py`**：`_load_feed_overrides` 对缺文件 / 坏 JSON / 块值非 list /
+  url 非字符串一律降级为空（不让可选配置拖垮抓取）；`_apply_feed_overrides` 按 URL 去重与排除，
+  **配置了但 OPML 里已不存在的删除项会 warning 点名**，不静默失效。
+- 只作用于同名 source 块；`bestblog-x` 走独立 fetch，不读此文件。
+
+**已知边界**：每轮仍受 `max_articles_total=500` 限制（实际只覆盖 ~95 个 feed），
+28 条删除项位于合并序号 107–370，**不改变单轮覆盖率**；要让更后面的号跑到需调该上限。
+
+## 历史状态: **v1.0.68 — xbot_feed 回填与迁移 039** (2026-11-06 · **SHIPPED**)
+
+**主分支**: main @ `b1517ad` · **PR**: #175（已 squash 合并）· **schema**: 39（migration 039）
+
+**分支**: `feat/sprint-30-xbot-feed-migration` · **测试**: 1508 passed / 2 skipped
 
 ### v1.0.68 交付要点
 

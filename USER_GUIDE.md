@@ -1,6 +1,6 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。**v1.0.68** (2026-11-06 IN REVIEW)。schema v39。`pytest tests/` → **1508 passed / 2 skipped**。
+> 同业信源自动抓取与本地新闻库。**v1.0.69** (2026-11-06 SHIPPED)。schema v39。`pytest tests/` → **1518 passed / 2 skipped**。
 
 > v1.0.42 起的核心能力 (2026-09-10):
 > - **后台任务租约** — fetch_jobs / llm_jobs 任务运行期间每 30s 写入心跳, 心跳超期 sweep 标记为 stale (取代 v1.0.35.17 墙钟判死, 解决 bestblogs 187 篇跑完后被误杀 600s timeout 问题)
