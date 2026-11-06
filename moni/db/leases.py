@@ -214,6 +214,10 @@ def sweep_expired(
     阈值与 timeout 预算解耦(60s 心跳间隔配 180s grace,即便 bestblogs
     timeout_sec=1800 也不会被误判)。
 
+    ``fetch_jobs`` 额外回收「排队中且带心跳」的行:批量抓取里排队等待的源
+    由批次 worker 续约心跳,worker 一死(进程重启)队列就成了孤儿,必须回收,
+    否则批次永远停在 running。``llm_jobs`` 的 pending 行没有心跳,不受影响。
+
     Returns:
         被 sweep 的行数。
     """
@@ -221,6 +225,17 @@ def sweep_expired(
         raise ValueError(f"table {table!r} not in lease whitelist")
     conn = get_db()
     grace_sql = f"-{grace_sec} seconds"
+    params: tuple[Any, ...] = (grace_sql,)
+    pending_clause = ""
+    if table == "fetch_jobs":
+        pending_clause = """
+              OR (
+                    status = 'pending'
+                    AND lease_heartbeat_at IS NOT NULL
+                    AND lease_heartbeat_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)
+                  )
+        """
+        params = (grace_sql, grace_sql)
     cur = conn.execute(
         f"""
         UPDATE {table}
@@ -228,14 +243,20 @@ def sweep_expired(
             lease_heartbeat_at = NULL,
             lease_owner = NULL,
             finished_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-            error = COALESCE(error, 'lease heartbeat expired (grace={grace_sec}s)')
-        WHERE status = 'running'
-          AND (
-            lease_heartbeat_at IS NULL
-            OR lease_heartbeat_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)
-          )
+            error = COALESCE(
+                error,
+                '服务进程中断或重启，任务已中止（心跳 {grace_sec}s 未续约）'
+            )
+        WHERE (
+                status = 'running'
+                AND (
+                    lease_heartbeat_at IS NULL
+                    OR lease_heartbeat_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)
+                )
+              )
+        {pending_clause}
         """,
-        (grace_sql,),
+        params,
     )
     conn.commit()
     swept = cur.rowcount

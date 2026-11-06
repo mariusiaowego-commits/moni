@@ -108,6 +108,7 @@ _DEFAULTS = {
     "max_articles_per_feed": 5,
     "max_articles_total": 500,
     "request_delay": 0.5,
+    "flush_every_feeds": 10,
 }
 
 
@@ -159,27 +160,33 @@ class FetcherBestBlogs(BaseFetcher):
             except Exception:
                 pass
 
-        # 2. Fetch each feed, collect articles
-        all_articles: list[dict[str, Any]] = []
+        # 2. Fetch each feed, flush to the DB every ``flush_every_feeds``.
+        # A 375-feed sweep takes minutes; keeping everything in memory meant a
+        # process restart discarded every article fetched so far.
+        buffer: list[dict[str, Any]] = []
+        collected = 0
         delay = config["request_delay"]
         max_per_feed = config["max_articles_per_feed"]
         max_total = config["max_articles_total"]
+        flush_every = config["flush_every_feeds"]
 
         for i, (feed_title, feed_url) in enumerate(feeds):
-            if len(all_articles) >= max_total:
+            if collected >= max_total:
                 logger.info(
                     "[bestblogs] reached total cap %d, stopping at feed %d/%d",
                     max_total, i, len(feeds),
                 )
                 break
 
+            remaining = max_total - collected
             if i > 0 and delay > 0:
                 time.sleep(delay)
 
             items = self._fetch_feed(feed_url, feed_title)
             # Take latest N items per feed
-            items = items[:max_per_feed]
-            all_articles.extend(items)
+            items = items[: min(max_per_feed, remaining)]
+            buffer.extend(items)
+            collected += len(items)
 
             # v1.0.7.6: per-feed progress callback (current_feed + counters).
             if self.progress_callback is not None:
@@ -187,38 +194,47 @@ class FetcherBestBlogs(BaseFetcher):
                     self.progress_callback(
                         done_feeds=i + 1,
                         current_feed=feed_title,
-                        articles_so_far=len(all_articles),
+                        articles_so_far=collected,
                     )
                 except Exception:
                     pass
 
+            if flush_every > 0 and (i + 1) % flush_every == 0:
+                self._flush(buffer)
+                buffer = []
+
             if (i + 1) % 10 == 0:
                 logger.info(
                     "[bestblogs] fetched %d/%d feeds, %d articles so far",
-                    i + 1, len(feeds), len(all_articles),
+                    i + 1, len(feeds), collected,
                 )
 
-        # 3. Hard cap
-        if len(all_articles) > max_total:
-            all_articles = all_articles[:max_total]
+        self._flush(buffer)
 
-        # 4. Date-range filtering (v1.0.5.24)
+        logger.info(
+            "[bestblogs] done — %d feeds, %d articles fetched",
+            len(feeds), collected,
+        )
+        # Everything was persisted in chunks already.
+        return []
+
+    def _flush(self, buffer: list[dict[str, Any]]) -> None:
+        """Apply the date filter, then run the shared pipeline on one chunk."""
+        if not buffer:
+            return
+        articles = buffer
         if self.date_from or self.date_to:
-            before = len(all_articles)
-            all_articles = [
-                a for a in all_articles
+            before = len(articles)
+            articles = [
+                a for a in articles
                 if _in_date_range(a.get("published_at"), self.date_from, self.date_to)
             ]
             logger.info(
                 "[bestblogs] date filter: %d → %d articles (from=%s, to=%s)",
-                before, len(all_articles), self.date_from, self.date_to,
+                before, len(articles), self.date_from, self.date_to,
             )
-
-        logger.info(
-            "[bestblogs] done — %d feeds, %d articles",
-            len(feeds), len(all_articles),
-        )
-        return all_articles
+        if articles:
+            self.ingest_chunk(articles)
 
     def parse(self, raw: dict[str, Any]) -> dict[str, Any] | None:
         if not raw.get("url"):

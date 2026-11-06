@@ -60,12 +60,17 @@ class FetchJobStore:
         source: str,
         total_feeds: int = 0,
         batch_id: str | None = None,
+        status: str = "running",
     ) -> str:
         """Insert a new job in running state. Returns the job id.
 
         If ``batch_id`` is provided, this job belongs to a batch (used by
         "全部抓取"). The frontend can poll ``get_batch(batch_id)`` to get
         aggregate progress across all jobs in the batch.
+
+        Pass ``status="pending"`` for queued batch entries: pending rows carry
+        no owner but do carry a heartbeat that the batch worker refreshes, so
+        a queue whose worker died is reaped instead of blocking the batch.
         """
         job_id = str(uuid.uuid4())
         conn = get_db()
@@ -74,20 +79,91 @@ class FetchJobStore:
         # gets a chance to start heartbeating. Also write lease_owner so
         # the worker thread can adopt the lease via fence-bump without
         # having to re-acquire (which would race with sweep).
-        job_owner = uuid.uuid4().hex
+        job_owner = uuid.uuid4().hex if status == "running" else None
         conn.execute(
             """
             INSERT INTO fetch_jobs (
                 id, source, status, total_feeds, done_feeds,
                 articles_so_far, started_at, batch_id,
                 lease_owner, lease_heartbeat_at
-            ) VALUES (?, ?, 'running', ?, 0, 0, ?, ?, ?,
+            ) VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?,
                       strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             """,
-            (job_id, source, total_feeds, _now_iso(), batch_id, job_owner),
+            (
+                job_id,
+                source,
+                status,
+                total_feeds,
+                _now_iso(),
+                batch_id,
+                job_owner,
+            ),
         )
         conn.commit()
         return job_id
+
+    def refresh_pending(self, batch_id: str) -> int:
+        """Keep the heartbeat of queued rows alive while the batch runs.
+
+        Returns the number of rows refreshed.
+        """
+        conn = get_db()
+        cur = conn.execute(
+            """
+            UPDATE fetch_jobs
+            SET lease_heartbeat_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE batch_id = ? AND status = 'pending'
+            """,
+            (batch_id,),
+        )
+        conn.commit()
+        return cur.rowcount
+
+    def fail_pending(self, batch_id: str, error: str) -> int:
+        """Mark still-queued rows as failed (batch worker died)."""
+        conn = get_db()
+        cur = conn.execute(
+            """
+            UPDATE fetch_jobs
+            SET status = 'failed',
+                finished_at = ?,
+                error = ?,
+                current_feed = NULL
+            WHERE batch_id = ? AND status = 'pending'
+            """,
+            (_now_iso(), error[:2000], batch_id),
+        )
+        conn.commit()
+        return cur.rowcount
+
+    def adopt(self, job_id: str) -> leases.LeaseHandle | None:
+        """Start a queued (``pending``) job and return its lease handle.
+
+        Batch fetches pre-create every source as pending; this flips one row
+        to running, mints an owner and bumps the fence so the caller can
+        heartbeat it and write a fenced terminal state.
+
+        Returns ``None`` if the row is no longer pending (cancelled or reaped).
+        """
+        owner = uuid.uuid4().hex
+        conn = get_db()
+        row = conn.execute(
+            """
+            UPDATE fetch_jobs
+            SET status = 'running',
+                lease_owner = ?,
+                lease_heartbeat_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                fence = fence + 1,
+                started_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE id = ? AND status = 'pending'
+            RETURNING fence
+            """,
+            (owner, job_id),
+        ).fetchone()
+        conn.commit()
+        if row is None:
+            return None
+        return leases.LeaseHandle(job_id=job_id, owner=owner, fence=int(row["fence"]))
 
     # ── progress updates (called from background thread) ───────────────────
 
@@ -232,8 +308,7 @@ class FetchJobStore:
                 status="stale",
                 finished_at=_now_iso(),
                 error=(
-                    "Aborted: daemon thread presumed dead (no heartbeat). "
-                    "Likely SQLite contention or process restart."
+                    "服务进程中断或重启，任务已中止（心跳未续约）。"
                 )[:2000],
                 current_feed=None,
             )
@@ -244,8 +319,7 @@ class FetchJobStore:
             extra_fields={
                 "finished_at": _now_iso(),
                 "error": (
-                    "Aborted: daemon thread presumed dead (no heartbeat). "
-                    "Likely SQLite contention or process restart."
+                    "服务进程中断或重启，任务已中止（心跳未续约）。"
                 )[:2000],
                 "current_feed": None,
             },
@@ -360,6 +434,9 @@ class FetchJobStore:
         - results: list of per-source result dicts (for done jobs)
         - errors: list of {source, error} for failed jobs
         """
+        # Same as get()/list_recent(): reap dead rows first, otherwise an
+        # orphaned batch (worker killed) would report "running" forever.
+        self.sweep_zombies()
         rows = get_db().execute(
             "SELECT * FROM fetch_jobs WHERE batch_id = ? ORDER BY started_at ASC",
             (batch_id,),
@@ -446,8 +523,11 @@ class FetchJobStore:
         """
         self.sweep_zombies()
         if source:
+            # A source queued in a batch is not running yet, but starting it
+            # again would run the same source twice.
             row = get_db().execute(
-                "SELECT 1 FROM fetch_jobs WHERE status = 'running' AND source = ? LIMIT 1",
+                "SELECT 1 FROM fetch_jobs "
+                "WHERE status IN ('running', 'pending') AND source = ? LIMIT 1",
                 (source,),
             ).fetchone()
         else:

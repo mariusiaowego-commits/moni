@@ -290,3 +290,76 @@ class TestAtomParsing:
         assert len(items) == 1
         assert items[0]["title"] == "RSS Item"
         assert items[0]["url"] == "https://example.com/rss1"
+
+
+# ── chunked flush (v1.0.67) ───────────────────────────────────────────────
+
+
+class TestChunkedFlush:
+    """BestBlogs persists every N feeds instead of holding the whole run."""
+
+    def _fetcher(self, monkeypatch, *, flush_every=2, max_total=100, date_from=None):
+        f = FetcherBestBlogs()
+        f.date_from = date_from
+        monkeypatch.setattr(f, "_resolve_urls", lambda: ["http://opml"])
+        monkeypatch.setattr(f, "_load_config", lambda: {
+            "max_feeds": 6,
+            "max_articles_per_feed": 1,
+            "max_articles_total": max_total,
+            "request_delay": 0,
+            "flush_every_feeds": flush_every,
+        })
+        monkeypatch.setattr(
+            f, "_fetch_opml",
+            lambda url: [(f"feed{i}", f"http://feed/{i}") for i in range(6)],
+        )
+        return f
+
+    def test_flushes_every_n_feeds(self, monkeypatch):
+        f = self._fetcher(monkeypatch)
+        monkeypatch.setattr(
+            f, "_fetch_feed",
+            lambda url, title: [{"title": title, "url": f"{url}/a"}],
+        )
+        chunks: list[list[str]] = []
+        monkeypatch.setattr(
+            f, "ingest_chunk",
+            lambda articles: chunks.append([a["url"] for a in articles]),
+        )
+
+        assert f.fetch() == []
+        assert [len(c) for c in chunks] == [2, 2, 2]
+
+    def test_total_cap_spans_chunks(self, monkeypatch):
+        f = self._fetcher(monkeypatch, max_total=3)
+        monkeypatch.setattr(
+            f, "_fetch_feed",
+            lambda url, title: [{"title": title, "url": f"{url}/a"}],
+        )
+        chunks: list[list[str]] = []
+        monkeypatch.setattr(
+            f, "ingest_chunk",
+            lambda articles: chunks.append([a["url"] for a in articles]),
+        )
+
+        f.fetch()
+        assert sum(len(c) for c in chunks) == 3
+
+    def test_date_filter_runs_before_each_flush(self, monkeypatch):
+        f = self._fetcher(monkeypatch, date_from="2026-06-10")
+        monkeypatch.setattr(
+            f, "_fetch_feed",
+            lambda url, title: [{
+                "title": title,
+                "url": f"{url}/a",
+                "published_at": "2026-06-01T00:00:00+00:00",
+            }],
+        )
+        chunks: list[list[str]] = []
+        monkeypatch.setattr(
+            f, "ingest_chunk",
+            lambda articles: chunks.append(list(articles)),
+        )
+
+        f.fetch()
+        assert chunks == []
