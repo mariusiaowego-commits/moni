@@ -120,7 +120,7 @@ def test_migration_029_adds_usage_columns(fresh_db):
     assert "input_tokens" in cols
     assert "output_tokens" in cols
     assert "cost_usd" in cols
-    assert _CURRENT_VERSION == 39  # v1.0.68: 039 adds the xbot_feed source
+    assert _CURRENT_VERSION == 40  # v1.0.68: 039 adds the xbot_feed source
 
 
 # ── worker_llm.parse_usage_file ───────────────────────────────────────────
@@ -257,10 +257,10 @@ def test_call_llm_without_usage_file_still_returns_text(monkeypatch):
     assert usage["cost_usd"] == 0.0
 
 
-def test_call_llm_sets_hermes_profile_coder(monkeypatch):
-    """v1.0.35.13: call_llm 必须在 subprocess env 设 HERMES_PROFILE=coder.
+def test_call_llm_sets_hermes_profile_moni(monkeypatch):
+    """moni 项目固定使用 moni profile。
 
-    v1.0.42: HardenedSubprocess sets HERMES_PROFILE=coder on the env
+    v1.0.42: HardenedSubprocess sets HERMES_PROFILE on the env
     passed to Popen. We verify by capturing env on Popen.
     """
     import subprocess as sp
@@ -281,7 +281,37 @@ def test_call_llm_sets_hermes_profile_coder(monkeypatch):
     monkeypatch.delenv("HERMES_PROFILE", raising=False)
     call_llm("ark", "ark-code-latest", "hi")
     assert captured["env"] is not None
-    assert captured["env"].get("HERMES_PROFILE") == "coder"
+    assert captured["env"].get("HERMES_PROFILE") == "moni"
+
+
+def test_call_llm_profile_mode_omits_provider_and_model(monkeypatch):
+    """llm_model_mode=profile: 不传 --provider/-m，跟随 profile 默认模型."""
+    import subprocess as sp
+    captured: dict = {}
+
+    real_popen = sp.Popen
+
+    def fake_popen(cmd, **kwargs):
+        captured["cmd"] = list(cmd)
+        return real_popen(
+            ["/bin/echo", "ok"],
+            stdout=sp.PIPE,
+            stderr=sp.PIPE,
+            text=True,
+            env=kwargs.get("env"),
+        )
+
+    get_db().execute(
+        "INSERT OR REPLACE INTO llm_settings (key, value) VALUES ('llm_model_mode', 'profile')"
+    )
+    get_db().commit()
+    monkeypatch.setattr(sp, "Popen", fake_popen)
+    monkeypatch.delenv("HERMES_PROFILE", raising=False)
+    call_llm("ark", "ark-code-latest", "hi")
+
+    assert "--provider" not in captured["cmd"]
+    assert "-m" not in captured["cmd"]
+    assert captured["cmd"][0] == "hermes"
 
 
 def test_call_llm_preserves_existing_hermes_profile(monkeypatch):

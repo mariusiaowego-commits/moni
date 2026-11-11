@@ -27,6 +27,7 @@ from .runner import (
     HardenedSubprocess,
     LLMRunnerError,
     PromptTooLargeError,
+    read_model_mode,
 )
 from .token_log import TokenLogger
 
@@ -158,9 +159,12 @@ def call_llm(
     - process-group kill (zero orphan grandchildren)
     - argv pre-check (PromptTooLargeError instead of OSError E2BIG)
     """
+    # profile 模式下不传 --provider/-m，由 hermes profile 决定模型
+    # （即 magpie 里给该 profile 选的路由组）。
+    follow_profile = read_model_mode() == "profile"
     req = CallRequest(
-        provider=provider,
-        model_id=model,
+        provider="" if follow_profile else provider,
+        model_id="" if follow_profile else model,
         prompt=prompt,
         timeout=timeout,
         extra_args=extra_args,
@@ -191,10 +195,13 @@ def call_llm(
     # Log estimated usage (matches old behavior)
     try:
         TokenLogger().log(
-            model=model,
+            model=model or "profile",
             prompt_tokens=estimate_tokens(prompt),
             completion_tokens=estimate_tokens(result.reply_text),
-            extra={"provider": provider, "source": "hermes_chat_cli"},
+            extra={
+                "provider": provider or "profile",
+                "source": "hermes_chat_cli",
+            },
         )
     except Exception as exc:  # logging must not fail the call
         logger.debug("TokenLogger.log failed: %s", exc)

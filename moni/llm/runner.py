@@ -22,6 +22,7 @@ import logging
 import os
 import re
 import signal
+import sqlite3
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -54,6 +55,10 @@ ARGV_PROMPT_LIMIT_BYTES = int(os.environ.get("MONI_ARGV_PROMPT_LIMIT_BYTES", "20
 
 #: 进程组超时 → SIGTERM → grace → SIGKILL。
 KILL_GRACE_SEC = float(os.environ.get("MONI_KILL_GRACE_SEC", "5.0"))
+
+#: ``llm_model_mode=profile`` 时，调用不带 --provider/-m，跟随 hermes profile
+#: 的默认模型（即 magpie 里给该 profile 选的路由组）。
+PROFILE_MODEL_KEY = "__profile__"
 
 
 # ── 异常 ──────────────────────────────────────────────────────────────────
@@ -152,7 +157,7 @@ class HardenedSubprocess:
         start = time.monotonic()
         try:
             env = dict(os.environ)
-            env.setdefault("HERMES_PROFILE", "coder")
+            env.setdefault("HERMES_PROFILE", "moni")
             proc = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE if self.stdin_transport else subprocess.DEVNULL,
@@ -401,15 +406,22 @@ class FailoverRunner:
         Raises:
             FailoverExhausted: all breakers open or all hard-fail.
         """
-        chain = list(self.breakers.keys())
-        if not chain:
-            # Single-provider mode: caller must have set up a breaker
-            # manually or just run without one. Treat as 1-element chain.
-            chain = [req.model_id]
+        if not req.provider and not req.model_id:
+            chain = [PROFILE_MODEL_KEY]
             self.breakers.setdefault(
-                req.model_id,
-                CircuitBreaker(model_id=req.model_id),
+                PROFILE_MODEL_KEY,
+                CircuitBreaker(model_id=PROFILE_MODEL_KEY),
             )
+        else:
+            chain = list(self.breakers.keys())
+            if not chain:
+                # Single-provider mode: caller must have set up a breaker
+                # manually or just run without one. Treat as 1-element chain.
+                chain = [req.model_id]
+                self.breakers.setdefault(
+                    req.model_id,
+                    CircuitBreaker(model_id=req.model_id),
+                )
 
         errors: list[tuple[str, str]] = []
         for m_id in chain:
@@ -433,7 +445,7 @@ class FailoverRunner:
             return CallResult(
                 reply_text=result.stdout,
                 provider=req.provider,
-                model_id=m_id,
+                model_id="" if m_id == PROFILE_MODEL_KEY else m_id,
                 duration_ms=result.duration_ms,
                 input_tokens=getattr(result, "input_tokens", 0),
                 output_tokens=getattr(result, "output_tokens", 0),
@@ -443,11 +455,11 @@ class FailoverRunner:
 
     def _invoke(self, req: CallRequest, model_id: str) -> SubprocessResult:
         """Build argv for the given model and run it via HardenedSubprocess."""
-        cmd = [
-            "hermes", "-z", "{prompt}",
-            "--provider", req.provider,
-            "-m", model_id,
-        ]
+        cmd = ["hermes", "-z", "{prompt}"]
+        if req.provider:
+            cmd.extend(["--provider", req.provider])
+        if model_id and model_id != PROFILE_MODEL_KEY:
+            cmd.extend(["-m", model_id])
         if req.extra_args:
             cmd.extend(req.extra_args)
         if req.usage_file:
@@ -516,3 +528,33 @@ def _read_fallback_chain_from_db() -> list[tuple[str, str]]:
     except Exception as exc:  # noqa: BLE001 — best-effort, never break the runner
         logger.debug("read fallback_chain failed: %s", exc)
         return []
+
+
+def read_model_mode(db_path: str | os.PathLike[str] | None = None) -> str:
+    """Read ``llm_settings.llm_model_mode``.
+
+    ``profile``: 不传 --provider/-m，跟随 hermes profile 的默认模型。
+    ``explicit``: 按调用方给的 provider/model 调用（旧行为）。
+    缺失或读取失败时返回 ``explicit``，保证行为可预测。
+
+    ``db_path`` 为空时使用进程内的 DB 连接（web/worker 的默认路径）；
+    传入路径时直接打开该库（worker_llm 的 --db 场景）。
+    """
+    try:
+        sql = "SELECT value FROM llm_settings WHERE key = 'llm_model_mode'"
+        if db_path:
+            conn = sqlite3.connect(str(db_path))
+            conn.row_factory = sqlite3.Row
+            try:
+                row = conn.execute(sql).fetchone()
+            finally:
+                conn.close()
+        else:
+            from moni.db.connection import get_db
+
+            row = get_db().execute(sql).fetchone()
+        value = str(row["value"]).strip() if row and row["value"] else ""
+        return value if value in ("profile", "explicit") else "explicit"
+    except Exception as exc:  # noqa: BLE001 — 配置读取失败不阻断调用
+        logger.debug("read_model_mode failed: %s", exc)
+        return "explicit"

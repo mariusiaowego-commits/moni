@@ -43,7 +43,7 @@ from typing import Any, Iterable
 from moni.db.connection import get_db_path
 
 #: 默认 profile —— 与 summary_gen / llm.client 保持一致。
-DEFAULT_PROFILE = os.environ.get("MONI_HERMES_PROFILE", "default")
+DEFAULT_PROFILE = os.environ.get("MONI_HERMES_PROFILE", "moni")
 
 #: DB 配置缺失时的兜底 (与 moni/share/enrichment.py 一致)。
 DEFAULT_PROVIDER = "minimax-cn"
@@ -138,8 +138,8 @@ def detect_llm_failure(stdout: str) -> str | None:
 
 def _build_argv(
     prompt: str,
-    provider: str,
-    model: str,
+    provider: str | None,
+    model: str | None,
     *,
     profile: str = DEFAULT_PROFILE,
     skill: str | None = None,
@@ -149,7 +149,10 @@ def _build_argv(
     argv = ["hermes", "-z", prompt, "--profile", profile]
     if skill and skill.strip():
         argv.extend(["-s", skill.strip()])
-    argv.extend(["--provider", provider, "-m", model])
+    if provider:
+        argv.extend(["--provider", provider])
+    if model:
+        argv.extend(["-m", model])
     # v1.0.32: hermes -z 支持 --usage-file (one-shot 模式), 失败也写文件。
     if usage_file:
         argv.extend(["--usage-file", str(usage_file)])
@@ -230,12 +233,17 @@ def run_hermes(
       124 — subprocess 超时
       1   — hermes 非零退出 / stdout 命中失败关键字 / 运行期错误
     """
-    provider, model = resolve_provider_model(
-        db_path,
-        provider_override=provider_override,
-        model_override=model_override,
-    )
-    argv = _build_argv(prompt, provider, model, skill=skill, usage_file=usage_file)
+    from moni.llm.runner import read_model_mode
+
+    if read_model_mode(db_path) == "profile" and not (provider_override or model_override):
+        provider: str | None = None
+        model: str | None = None
+    else:
+        provider, model = resolve_provider_model(
+            db_path,
+            provider_override=provider_override,
+            model_override=model_override,
+        )
 
     def _result(stdout: str, code: int) -> dict[str, Any]:
         usage = parse_usage_file(usage_file)
