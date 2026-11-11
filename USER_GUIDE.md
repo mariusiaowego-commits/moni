@@ -637,7 +637,8 @@ v1.0.5.18 重构后, 分享菜单在"选择格式"下方多 3 块可选项 (所�
 
 - 默认 Profile 的 provider/model 额度耗尽时, 用户可手动指定覆盖
 - 例: `provider=google, model=gemini-2.5-pro` 切到 Google Gemini
-- `llm_model_mode=profile` 时，留空仍跟随 magpie 路由组；只有显式填写才覆盖
+- 设置页「模型来源」：`跟随 profile`（默认，模型在 magpie 里给 `moni` profile 选路由组）
+  或 `指定模型`（用下面两项 `active_*_model_id`）；profile 模式下两个模型下拉置灰
 - 不熟可**留空用默认**
 
 #### 5.5.3 报告 PNG 生图方式 (仅 `report_png` format 显)
