@@ -4,10 +4,11 @@
 
 ---
 
-## 当前状态: **v1.0.70 — 跟随 moni profile 的 magpie 路由组** (2026-11-11 · **进行中**)
+## 当前状态: **v1.0.70 — 跟随 moni profile 的 magpie 路由组** (2026-11-11 · **SHIPPED**)
 
-**主分支**: main @ `8fd3209` · **分支**: `feat/moni-profile-follow-magpie` · **PR**: 待建
-· **schema**: 40（migration 040）· **测试**: 1522 passed / 2 skipped
+**主分支**: main（合并提交 `3eb0b98`）· **Tag**: `v1.0.70` · **PR**: #178（已 squash 合并）
+· **schema**: 40（migration 040）· **测试**: 1524 passed / 2 skipped
+· **服务**: 8900 已迁移并重启（PID 37097，`/health` → `{"status":"ok"}`）
 
 ### v1.0.70 交付要点
 
@@ -25,10 +26,17 @@ moni 此前把 `HERMES_PROFILE` 钉在 `coder`（`moni/llm/runner.py:155`），�
 - **入队前置校验**：`/summary`、`/fact-check` 在 profile 模式下不再要求
   `active_*_model_id` 行存在（`articles.py` `_resolve_job_model`），空库也能入队。
 
-**实测**：`HERMES_PROFILE=moni hermes -z ...` 与 `hermes -z ... --profile moni` 均返回 200，
-magpie 记账 `agent=hermes` / `req=group/tq-s-select` → `inception/mercury-3`。
-清掉 `~/.hermes/profiles/moni/config.yaml` 顶层残留 `model.base_url` 后重跑同样落到
-`tq-s-select`（`PING_CFG_OK`）。
+**实测**：
+
+- `HERMES_PROFILE=moni hermes -z ...` 与 `hermes -z ... --profile moni` 均返回 200，
+  magpie 记账 `agent=hermes` / `req=group/tq-s-select` → `inception/mercury-3`。
+- 清掉 `~/.hermes/profiles/moni/config.yaml` 顶层残留 `model.base_url` 后重跑仍落
+  `tq-s-select`（`PING_CFG_OK`）。
+- 生产 E2E（合并后）：`POST /api/articles/c75ef59726eebbe0/summary` → job
+  `166139a92f5d46ceb610cebb16652061`，20s `done`，job 行 `provider=profile` / `model=''`，
+  24774 in / 1775 out；magpie 同时段记录 `req=group/tq-s-select` → `inception/mercury-3`，200。
+
+**回滚**：`llm_model_mode=explicit` 即退回逐模型绑定的旧行为。
 
 ## 历史状态: **v1.0.69 — BestBlogs 信源取舍配置** (2026-11-06 · **SHIPPED**)
 
