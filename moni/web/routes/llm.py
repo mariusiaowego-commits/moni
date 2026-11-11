@@ -168,6 +168,7 @@ class SettingsUpdate(_ExtraForbid):
     active_summary_model_id: str | None = None
     active_fact_check_model_id: str | None = None
     active_tag_model_id: str | None = None
+    llm_model_mode: str | None = Field(default=None, pattern="^(profile|explicit)$")
     temperature_summary: float | None = None
     temperature_fact_check: float | None = None
     max_tokens_summary: int | None = None

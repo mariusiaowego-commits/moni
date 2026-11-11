@@ -98,6 +98,12 @@ def enqueue_job(
     if task_type not in _VALID_TASK_TYPES:
         raise ValueError(f"unknown task_type {task_type!r}")
 
+    # profile 模式下模型由 hermes profile 决定；job 行别记录会被误读的具体模型。
+    from .runner import read_model_mode
+
+    if read_model_mode() == "profile":
+        provider, model = "profile", ""
+
     job_id = uuid.uuid4().hex
     now = datetime.now(timezone.utc).isoformat()
     conn = get_db()

@@ -148,15 +148,85 @@ class TestArticles:
         r = client.get("/api/articles/nonexistent")
         assert r.status_code == 404
 
-    def test_summarize_503_without_service(self, client: TestClient, seeded_article: int):
-        """When moni.summarizer is unavailable, expect 503."""
-        r = client.post(f"/api/articles/{seeded_article}/summary", json={"article_id": str(seeded_article)})
-        assert r.status_code in (200, 503)
+    def test_summarize_enqueues_job(
+        self, client: TestClient, seeded_article: int, monkeypatch
+    ):
+        """v1.0.5.1: 摘要走队列，HTTP 立即 202（后台 worker 在测试里不启动）。"""
+        import moni.llm.jobs as jobs_module
 
-    def test_factcheck_503_without_service(self, client: TestClient, seeded_article: int):
-        """When moni.factcheck is unavailable, expect 503."""
-        r = client.post(f"/api/articles/{seeded_article}/fact-check", json={"article_id": str(seeded_article)})
-        assert r.status_code in (200, 503)
+        monkeypatch.setattr(jobs_module, "ensure_worker_started", lambda: None)
+        r = client.post(
+            f"/api/articles/{seeded_article}/summary",
+            json={"article_id": str(seeded_article)},
+        )
+        assert r.status_code == 202
+        assert r.json()["status"] == "pending"
+
+    def test_factcheck_enqueues_job(
+        self, client: TestClient, seeded_article: int, monkeypatch
+    ):
+        """v1.0.5.1: 事实核查同样异步入队。"""
+        import moni.llm.jobs as jobs_module
+
+        monkeypatch.setattr(jobs_module, "ensure_worker_started", lambda: None)
+        r = client.post(
+            f"/api/articles/{seeded_article}/fact-check",
+            json={"article_id": str(seeded_article)},
+        )
+        assert r.status_code == 202
+        assert r.json()["status"] == "pending"
+
+    def test_summary_profile_mode_needs_no_active_model(
+        self, client: TestClient, seeded_article: int, monkeypatch
+    ):
+        """llm_model_mode=profile: 没有 active_* 行也能入队，job 记 profile。"""
+        import moni.llm.jobs as jobs_module
+
+        monkeypatch.setattr(jobs_module, "ensure_worker_started", lambda: None)
+        conn = get_db()
+        conn.execute(
+            "INSERT OR REPLACE INTO llm_settings (key, value) "
+            "VALUES ('llm_model_mode', 'profile')"
+        )
+        conn.execute(
+            "DELETE FROM llm_settings WHERE key IN "
+            "('active_summary_model_id', 'active_fact_check_model_id')"
+        )
+        conn.commit()
+
+        r = client.post(
+            f"/api/articles/{seeded_article}/summary",
+            json={"article_id": str(seeded_article)},
+        )
+        assert r.status_code == 202
+        job = conn.execute(
+            "SELECT provider, model FROM llm_jobs WHERE id = ?",
+            (r.json()["job_id"],),
+        ).fetchone()
+        assert (job["provider"], job["model"]) == ("profile", "")
+
+    def test_factcheck_explicit_mode_requires_active_model(
+        self, client: TestClient, seeded_article: int, monkeypatch
+    ):
+        """llm_model_mode=explicit: 缺 active_* 行仍然 503（旧行为不变）。"""
+        import moni.llm.jobs as jobs_module
+
+        monkeypatch.setattr(jobs_module, "ensure_worker_started", lambda: None)
+        conn = get_db()
+        conn.execute(
+            "INSERT OR REPLACE INTO llm_settings (key, value) "
+            "VALUES ('llm_model_mode', 'explicit')"
+        )
+        conn.execute(
+            "DELETE FROM llm_settings WHERE key = 'active_fact_check_model_id'"
+        )
+        conn.commit()
+
+        r = client.post(
+            f"/api/articles/{seeded_article}/fact-check",
+            json={"article_id": str(seeded_article)},
+        )
+        assert r.status_code == 503
 
     def test_resolve_user_home_pwd_branch(self, monkeypatch):
         """Verify _resolve_user_home actively executes the pwd branch without NameError."""

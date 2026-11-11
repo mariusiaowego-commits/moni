@@ -64,6 +64,8 @@ _DEFAULT_SETTINGS = {
     "temperature_fact_check": "0.2",
     "max_tokens_summary": "500",
     "max_tokens_fact_check": "1500",
+    # profile: 不传 --provider/-m，跟随 hermes profile 的默认模型（magpie 路由组）
+    "llm_model_mode": "profile",
 }
 
 

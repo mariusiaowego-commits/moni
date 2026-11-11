@@ -2699,10 +2699,22 @@
           <!-- Active model settings -->
           <div style="margin-top: 24px;">
             <h4>默认模型设置</h4>
-            <p class="muted" style="margin-bottom: 12px;">选择各类任务使用的默认模型 (model_id)。</p>
+            <div class="form-row" style="max-width: 400px;">
+              <label>模型来源</label>
+              <select x-model="llmSettingsDraft.llm_model_mode"
+                      @change="saveLlmSetting('llm_model_mode', llmSettingsDraft.llm_model_mode)">
+                <option value="profile">跟随 profile（magpie 路由组）</option>
+                <option value="explicit">指定模型（下方两项）</option>
+              </select>
+            </div>
+            <p class="muted" style="margin-bottom: 12px;"
+               x-text="llmSettingsDraft.llm_model_mode === 'profile'
+                 ? '模型由 hermes 的 moni profile 决定，在 magpie 里切换路由组'
+                 : '选择各类任务使用的默认模型 (model_id)'"></p>
             <div class="form-row" style="max-width: 400px;">
               <label>摘要模型 (active_summary_model_id)</label>
               <select x-model="llmSettingsDraft.active_summary_model_id"
+                      :disabled="llmSettingsDraft.llm_model_mode === 'profile'"
                       @change="saveLlmSetting('active_summary_model_id', llmSettingsDraft.active_summary_model_id)">
                 <option value="">— 使用默认 —</option>
                 <template x-for="m in llmModels.filter(x => x.enabled)" :key="m.id">
@@ -2713,6 +2725,7 @@
             <div class="form-row" style="max-width: 400px;">
               <label>事实核查模型 (active_fact_check_model_id)</label>
               <select x-model="llmSettingsDraft.active_fact_check_model_id"
+                      :disabled="llmSettingsDraft.llm_model_mode === 'profile'"
                       @change="saveLlmSetting('active_fact_check_model_id', llmSettingsDraft.active_fact_check_model_id)">
                 <option value="">— 使用默认 —</option>
                 <template x-for="m in llmModels.filter(x => x.enabled)" :key="m.id">

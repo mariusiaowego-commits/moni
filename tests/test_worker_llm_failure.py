@@ -2,9 +2,10 @@
 
 Covers the three worker-side fixes in ``moni/share/worker_llm.py``:
 
-- A1: provider/model resolved from ``llm_settings.active_summary_model_id``
-  → ``llm_models`` → ``llm_providers`` and passed as explicit
-  ``--provider X -m Y``; manifest overrides win.
+- A1: ``llm_model_mode=explicit`` resolves provider/model from
+  ``llm_settings.active_summary_model_id`` → ``llm_models`` → ``llm_providers``
+  and passes them as ``--provider X -m Y``; ``profile`` mode omits both and
+  follows the hermes profile default. Manifest overrides win in both modes.
 - A2: stdout with LLM failure keywords (API call failed / HTTP 4xx / HTTP
   5xx / rate limit / insufficient credits / requires available credits)
   → exit code 1 so the worker marks the task failed, not "假 done".
@@ -233,6 +234,49 @@ def test_run_hermes_override_in_argv(monkeypatch, tmp_path):
         model_override="MiniMax-M3",
     )
     assert result["exit_code"] == 0
+    assert argv[0][argv[0].index("--provider") + 1] == "minimax-cn"
+    assert argv[0][argv[0].index("-m") + 1] == "MiniMax-M3"
+
+
+def test_run_hermes_profile_mode_omits_provider_and_model(monkeypatch, tmp_path):
+    """llm_model_mode=profile: worker 跟随 moni profile 的默认模型."""
+    db = tmp_path / "test.db"
+    _seed_llm_db(db)
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "INSERT OR REPLACE INTO llm_settings (key, value) VALUES ('llm_model_mode', 'profile')"
+    )
+    conn.commit()
+    conn.close()
+
+    argv = _patch_popen(monkeypatch, stdout="ok", returncode=0)
+    result = run_hermes("make a png", db_path=db)
+
+    assert result["exit_code"] == 0
+    assert "--provider" not in argv[0]
+    assert "-m" not in argv[0]
+    assert argv[0][argv[0].index("--profile") + 1] == "moni"
+
+
+def test_run_hermes_profile_mode_keeps_explicit_override(monkeypatch, tmp_path):
+    """profile 模式仍尊重 manifest/CLI 的显式覆盖."""
+    db = tmp_path / "test.db"
+    _seed_llm_db(db)
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "INSERT OR REPLACE INTO llm_settings (key, value) VALUES ('llm_model_mode', 'profile')"
+    )
+    conn.commit()
+    conn.close()
+
+    argv = _patch_popen(monkeypatch, stdout="ok", returncode=0)
+    run_hermes(
+        "make a png",
+        db_path=db,
+        provider_override="minimax-cn",
+        model_override="MiniMax-M3",
+    )
+
     assert argv[0][argv[0].index("--provider") + 1] == "minimax-cn"
     assert argv[0][argv[0].index("-m") + 1] == "MiniMax-M3"
 

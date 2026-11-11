@@ -637,6 +637,8 @@ v1.0.5.18 重构后, 分享菜单在"选择格式"下方多 3 块可选项 (所�
 
 - 默认 Profile 的 provider/model 额度耗尽时, 用户可手动指定覆盖
 - 例: `provider=google, model=gemini-2.5-pro` 切到 Google Gemini
+- 设置页「模型来源」：`跟随 profile`（默认，模型在 magpie 里给 `moni` profile 选路由组）
+  或 `指定模型`（用下面两项 `active_*_model_id`）；profile 模式下两个模型下拉置灰
 - 不熟可**留空用默认**
 
 #### 5.5.3 报告 PNG 生图方式 (仅 `report_png` format 显)
@@ -692,7 +694,10 @@ Rescue = 把菜篮子里的文章「救回」到正式文章库：
 
 - 端点: `POST /api/articles/{id}/summary` 和 `/api/articles/{id}/fact-check`
 - 调 `moni.llm.call_llm` (subprocess 调 `hermes chat`)
-- **默认 model**: minimax-cn / MiniMax-M3 (coder profile 自带)
+- **Profile**: moni 固定用 `HERMES_PROFILE=moni`
+- **模型来源**: `llm_settings.llm_model_mode=profile`（默认）不传 `--provider/-m`，
+  跟随 `moni` profile 在 magpie 里选的路由组；设为 `explicit` 才按 LLM 设置页的
+  `active_*_model_id` 调用
 - **写回**: `articles.summary` + `summary_at` + `fact_check_*` 字段
 
 ### 5.2 怎么用

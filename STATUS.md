@@ -4,7 +4,33 @@
 
 ---
 
-## 当前状态: **v1.0.69 — BestBlogs 信源取舍配置** (2026-11-06 · **SHIPPED**)
+## 当前状态: **v1.0.70 — 跟随 moni profile 的 magpie 路由组** (2026-11-11 · **进行中**)
+
+**主分支**: main @ `8fd3209` · **分支**: `feat/moni-profile-follow-magpie` · **PR**: 待建
+· **schema**: 40（migration 040）· **测试**: 1522 passed / 2 skipped
+
+### v1.0.70 交付要点
+
+moni 此前把 `HERMES_PROFILE` 钉在 `coder`（`moni/llm/runner.py:155`），且每次调用都带
+`--provider/-m`。模型路由要改就得改代码/DB，和 dad 在 magpie 里按场景切路由组的用法冲突。
+
+- **profile 固定为 `moni`**：`runner.py` / `share/worker_llm.py` / `share/summary_gen.py` 默认值
+  从 `coder` / `default` 统一改成 `moni`（`coder` 是 2026-08-24 PR #120 因 ark 429 的临时补丁）。
+- **`llm_settings.llm_model_mode`**（默认 `profile`）：`profile` 不传 `--provider/-m`，跟随
+  `moni` profile 在 magpie 里选的路由组；`explicit` 保留旧行为（按 `active_*_model_id` 调用）。
+- **migration 040**：给存量库补 `llm_model_mode='profile'`（`INSERT OR IGNORE`，不覆盖用户已设值）。
+- **HTTP API**：`PUT /api/llm/settings` 接受 `llm_model_mode`（`profile|explicit`）。
+- **设置页**：新增「模型来源」下拉（跟随 profile / 指定模型）；profile 模式下方两个模型
+  下拉置灰，避免「改了没生效」。
+- **入队前置校验**：`/summary`、`/fact-check` 在 profile 模式下不再要求
+  `active_*_model_id` 行存在（`articles.py` `_resolve_job_model`），空库也能入队。
+
+**实测**：`HERMES_PROFILE=moni hermes -z ...` 与 `hermes -z ... --profile moni` 均返回 200，
+magpie 记账 `agent=hermes` / `req=group/tq-s-select` → `inception/mercury-3`。
+清掉 `~/.hermes/profiles/moni/config.yaml` 顶层残留 `model.base_url` 后重跑同样落到
+`tq-s-select`（`PING_CFG_OK`）。
+
+## 历史状态: **v1.0.69 — BestBlogs 信源取舍配置** (2026-11-06 · **SHIPPED**)
 
 **主分支**: main @ `0dbe7e2` · **Tag**: `v1.0.69` · **PR**: #176（已 squash 合并）
 · **schema**: 39（无新迁移）· **测试**: 1518 passed / 2 skipped

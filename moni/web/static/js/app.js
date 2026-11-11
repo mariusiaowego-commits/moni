@@ -4560,7 +4560,11 @@ function app() {
     llmProviders: [],
     llmModels: [],
     llmSettings: {},
-    llmSettingsDraft: { active_summary_model_id: '', active_fact_check_model_id: '' },
+    llmSettingsDraft: {
+      llm_model_mode: 'profile',
+      active_summary_model_id: '',
+      active_fact_check_model_id: '',
+    },
 
     // Provider form modal state
     llmProviderFormOpen: false,
@@ -4616,6 +4620,7 @@ function app() {
         .then(data => {
           this.llmSettings = data || {};
           this.llmSettingsDraft = {
+            llm_model_mode: data.llm_model_mode || 'profile',
             active_summary_model_id: data.active_summary_model_id || '',
             active_fact_check_model_id: data.active_fact_check_model_id || '',
           };

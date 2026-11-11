@@ -252,6 +252,44 @@ def get_article(article_id: str) -> Article:
     return _row_to_article(dict(row), fresh_thresholds)
 
 
+def _resolve_job_model(
+    conn, setting_key: str, label: str
+) -> tuple[str, str]:
+    """Resolve (hermes_provider, model_id) for a queued LLM job.
+
+    ``llm_model_mode=profile`` 时模型由 hermes 的 moni profile 决定（即 magpie
+    里选的路由组），不依赖 ``llm_settings.active_*`` 与 ``llm_models`` 行；
+    返回空串，由 ``enqueue_job`` 记成 ``provider='profile'``。
+    """
+    from moni.llm.runner import read_model_mode
+
+    if read_model_mode() == "profile":
+        return "", ""
+
+    active_model_id = conn.execute(
+        "SELECT value FROM llm_settings WHERE key = ?", (setting_key,)
+    ).fetchone()
+    if active_model_id is None or not active_model_id["value"]:
+        raise ServiceUnavailableError(
+            message=f"No active {label} model configured",
+            details={"hint": f"set llm_settings.{setting_key}"},
+        )
+    model_row = conn.execute(
+        """
+        SELECT m.model_id, p.hermes_provider
+        FROM llm_models m
+        JOIN llm_providers p ON p.id = m.provider_id
+        WHERE m.id = ?
+        """,
+        (active_model_id["value"],),
+    ).fetchone()
+    if model_row is None:
+        raise ServiceUnavailableError(
+            message=f"Active {label} model {active_model_id['value']!r} not found",
+        )
+    return model_row["hermes_provider"], model_row["model_id"]
+
+
 @router.post("/{article_id}/summary", status_code=202)
 def summarize_article(
     article_id: str,
@@ -267,10 +305,10 @@ def summarize_article(
     queue and writes the LLM output back to ``articles.summary``.  The
     frontend polls ``/api/llm/jobs/{id}`` to follow progress.
 
-    The active model is still resolved from ``llm_settings`` so the
-    job is bound to the same model the synchronous path would have
-    used.  We snapshot ``provider`` and ``model`` onto the job row so a
-    later change to ``llm_settings`` doesn't redirect a queued job.
+    Model resolution depends on ``llm_settings.llm_model_mode``:
+    ``explicit`` resolves ``active_summary_model_id`` and snapshots
+    ``provider``/``model`` onto the job row; ``profile`` leaves both to
+    the hermes ``moni`` profile (magpie routing group).
     """
     conn = get_db()
 
@@ -284,36 +322,15 @@ def summarize_article(
     if row is None:
         raise NotFoundError(message=f"Article {article_id!r} not found")
 
-    # Resolve active model.
-    active_model_id = conn.execute(
-        "SELECT value FROM llm_settings WHERE key = 'active_summary_model_id'"
-    ).fetchone()
-    if active_model_id is None or not active_model_id["value"]:
-        raise ServiceUnavailableError(
-            message="No active summary model configured",
-            details={"hint": "set llm_settings.active_summary_model_id"},
-        )
-    model_row = conn.execute(
-        """
-        SELECT m.model_id, p.hermes_provider
-        FROM llm_models m
-        JOIN llm_providers p ON p.id = m.provider_id
-        WHERE m.id = ?
-        """,
-        (active_model_id["value"],),
-    ).fetchone()
-    if model_row is None:
-        raise ServiceUnavailableError(
-            message=f"Active summary model {active_model_id['value']!r} not found",
-        )
+    provider, model = _resolve_job_model(conn, "active_summary_model_id", "summary")
 
     from moni.llm.jobs import enqueue_job
 
     job_id = enqueue_job(
         task_type="summary",
         article_id=article_id,
-        provider=model_row["hermes_provider"],
-        model=model_row["model_id"],
+        provider=provider,
+        model=model,
     )
     return {
         "job_id": job_id,
@@ -343,35 +360,17 @@ def fact_check_article(
     if row is None:
         raise NotFoundError(message=f"Article {article_id!r} not found")
 
-    active_model_id = conn.execute(
-        "SELECT value FROM llm_settings WHERE key = 'active_fact_check_model_id'"
-    ).fetchone()
-    if active_model_id is None or not active_model_id["value"]:
-        raise ServiceUnavailableError(
-            message="No active fact_check model configured",
-            details={"hint": "set llm_settings.active_fact_check_model_id"},
-        )
-    model_row = conn.execute(
-        """
-        SELECT m.model_id, p.hermes_provider
-        FROM llm_models m
-        JOIN llm_providers p ON p.id = m.provider_id
-        WHERE m.id = ?
-        """,
-        (active_model_id["value"],),
-    ).fetchone()
-    if model_row is None:
-        raise ServiceUnavailableError(
-            message=f"Active fact_check model {active_model_id['value']!r} not found",
-        )
+    provider, model = _resolve_job_model(
+        conn, "active_fact_check_model_id", "fact_check"
+    )
 
     from moni.llm.jobs import enqueue_job
 
     job_id = enqueue_job(
         task_type="fact_check",
         article_id=article_id,
-        provider=model_row["hermes_provider"],
-        model=model_row["model_id"],
+        provider=provider,
+        model=model,
     )
     return {
         "job_id": job_id,
