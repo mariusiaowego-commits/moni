@@ -542,6 +542,8 @@ function app() {
     configModalTarget: null,
     configModalTargetOriginal: null,  // for tag edit: original name (immutable)
     fetchConfigData: { source_id: '', source_name: '', merged: {}, defaults: {}, has_custom: false },
+    // v1.0.70 (sprint-35): X-bot 精选的 scope 信息 (来源徽标 / 串联说明)。
+    fetchConfigScopeInfo: null,
 
     // v1.0.12.2: Chinese labels + hints for fetch_config keys (and fallback).
     // Keep key as English for API; UI shows zh + description.
@@ -915,7 +917,13 @@ function app() {
     },
     fetchConfigSortedKeys() {
       const merged = this.fetchConfigData.merged || {};
-      const keys = Object.keys(merged);
+      // v1.0.70 (sprint-35): X-bot 专属键 (thresholds / scope) 有自己的
+      // 专属区块 (类型化输入框), 不进通用键循环 —— 免得门槛被当成
+      // raw JSON textarea (AC-10.2)。其它信源的键列表一个字不变。
+      const isXbot = this.fetchConfigData.source_name === 'xbot_feed';
+      const keys = isXbot
+        ? Object.keys(merged).filter(k => k !== 'thresholds' && k !== 'scope')
+        : Object.keys(merged);
       // Prefer known meta order, then unknown keys alpha
       const order = Object.keys(this.FETCH_CONFIG_META);
       return keys.sort((a, b) => {
@@ -925,6 +933,67 @@ function app() {
         const rb = ib === -1 ? 1000 : ib;
         return ra - rb || a.localeCompare(b);
       });
+    },
+    // ── v1.0.70 (sprint-35): X-bot 精选的门槛 + scope 专属区块 ──────
+    /** 读门槛值 (0 = 不设限)。 */
+    fetchConfigThresholdValue(topic, field) {
+      const t = (this.fetchConfigData.merged || {}).thresholds || {};
+      const cfg = t[topic] || {};
+      const v = cfg[field];
+      return (typeof v === 'number' && isFinite(v)) ? v : 0;
+    },
+    /** 写门槛值 (非数字 → 0)。 */
+    setFetchConfigThresholdValue(topic, field, raw) {
+      const merged = this.fetchConfigData.merged || (this.fetchConfigData.merged = {});
+      if (!merged.thresholds) merged.thresholds = {};
+      if (!merged.thresholds[topic]) merged.thresholds[topic] = {};
+      const n = parseInt(raw, 10);
+      merged.thresholds[topic][field] = (isFinite(n) && n > 0) ? n : 0;
+    },
+    /** 读 scope 里的列表字段 (一行一个)。 */
+    fetchConfigScopeList(key) {
+      const s = (this.fetchConfigData.merged || {}).scope || {};
+      const v = s[key];
+      return Array.isArray(v) ? v.join('\n') : '';
+    },
+    /** 写 scope 里的列表字段 (一行一个 → 去空行)。 */
+    setFetchConfigScopeList(key, text) {
+      const merged = this.fetchConfigData.merged || (this.fetchConfigData.merged = {});
+      if (!merged.scope) merged.scope = {};
+      merged.scope[key] = String(text || '')
+        .split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    },
+    /** 读 scope 里的字符串字段。 */
+    fetchConfigScopeText(key) {
+      const s = (this.fetchConfigData.merged || {}).scope || {};
+      return typeof s[key] === 'string' ? s[key] : '';
+    },
+    /** 写 scope 里的字符串字段。 */
+    setFetchConfigScopeText(key, text) {
+      const merged = this.fetchConfigData.merged || (this.fetchConfigData.merged = {});
+      if (!merged.scope) merged.scope = {};
+      merged.scope[key] = String(text == null ? '' : text);
+    },
+    /** scope 的来源徽标文案 (三态: upstream / moni_stored / moni_fallback)。 */
+    fetchConfigScopeSourceLabel() {
+      const info = this.fetchConfigScopeInfo || {};
+      if (info.scope_source === 'upstream') return '上游导出';
+      if (info.scope_source === 'moni_stored') return 'moni 侧副本';
+      if (info.scope_source === 'moni_fallback') return 'moni 侧兜底（快照 2026-11-11）';
+      if (info.scope_edited) return 'moni 侧副本';
+      return 'moni 侧兜底（快照 2026-11-11）';
+    },
+    /** 加载 X-bot 的 scope 信息 (来源徽标 + 串联说明)。 */
+    configLoadScope(sourceId) {
+      if (!sourceId) return Promise.resolve(null);
+      return fetch(`/api/config/sources/${encodeURIComponent(sourceId)}/scope`, { credentials: 'same-origin' })
+        .then(r => { if (!r.ok) throw new Error('加载范围失败'); return r.json(); })
+        .then(data => { this.fetchConfigScopeInfo = data; return data; })
+        .catch(err => {
+          console.error('Failed to load scope:', err);
+          this.fetchConfigScopeInfo = null;
+          return null;
+        });
     },
     configEditFetchConfig(source) {
       const sid = encodeURIComponent(source.id);
@@ -940,6 +1009,13 @@ function app() {
           };
           this.configModalType = 'fetchConfig';
           this.configModalOpen = true;
+          // v1.0.70 (sprint-35): X-bot 精选额外拉 scope (来源徽标 + 串联说明)
+          if (data.source_name === 'xbot_feed') {
+            this.fetchConfigScopeInfo = null;
+            this.configLoadScope(data.source_id);
+          } else {
+            this.fetchConfigScopeInfo = null;
+          }
         })
         .catch(err => this._notify('error', '加载抓取配置失败: ' + err.message));
     },
@@ -1548,6 +1624,36 @@ function app() {
       // Error
       if (d.error) {
         lines.push({ type: 'error', text: `❌ 错误: ${d.error}` });
+      }
+
+      // v1.0.70 (sprint-35): 门槛过滤 (X-bot 精选的第二道闸门)
+      const thrDropped = d.threshold_dropped ?? 0;
+      const thrBy = d.threshold_dropped_by || {};
+      const thrMissing = d.threshold_missing_by || {};
+      if (thrDropped > 0 || Object.keys(thrMissing).length > 0) {
+        lines.push({ type: 'section', text: '门槛过滤' });
+        if (thrDropped > 0) {
+          const detail = Object.entries(thrBy)
+            .map(([k, v]) => `${k} ${v}`)
+            .join('，');
+          lines.push({
+            type: 'item',
+            label: '门槛丢弃',
+            value: `丢弃 ${thrDropped} 条`,
+            detail: detail || '被 min_followers / min_likes 挡掉',
+          });
+        }
+        if (Object.keys(thrMissing).length > 0) {
+          const detail = Object.entries(thrMissing)
+            .map(([k, v]) => `${k} ${v}`)
+            .join('，');
+          lines.push({
+            type: 'item',
+            label: '字段缺失',
+            value: `${Object.values(thrMissing).reduce((a, b) => a + b, 0)} 条`,
+            detail: `${detail}（缺字段按放行处理，未丢弃）`,
+          });
+        }
       }
 
       return lines;

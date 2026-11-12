@@ -964,6 +964,101 @@ label { font-size: 0.85rem; }
   line-height: 1.45;
   color: #64748b;
 }
+/* v1.0.71 (sprint-35): X-bot 精选专属区块 (scope + 门槛)
+ *
+ * 深色模式可读性 (P1-5, agy + warden 复核):
+ *   * 只用**已定义**的主题变量 —— `--bg-secondary` 在 moni 里从未定义,
+ *     原先的 `var(--bg-secondary, #f8fafc)` 一律回落近白 → 深色下
+ *     "近白底 + 近白字" 不可读;
+ *   * 特异度: 通用 `input[type="text"]` / `input[type="number"]` 是
+ *     (0,1,1), 会压过 (0,1,0) 的类选择器 → 同一区块里白底/深底交错。
+ *     这里的选择器都带 `.fetch-config-xbot` 前缀 (0,2,0 / 0,2,1) 压过它们;
+ *   * 边框/标签色改用 var(--border) / var(--foreground) / var(--muted-fg)。
+ */
+.fetch-config-xbot {
+  margin-top: 1.25rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.badge-source {
+  font-size: 0.72em;
+  font-weight: 500;
+  color: var(--muted-fg);
+  background: var(--muted);
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.fetch-config-scope-block {
+  margin-bottom: 0.85rem;
+}
+.fetch-config-scope-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.fetch-config-xbot .fetch-config-scope-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--foreground);
+  resize: vertical;
+}
+.fetch-config-threshold-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.fetch-config-threshold-topic {
+  min-width: 150px;
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--foreground);
+}
+.fetch-config-threshold-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8em;
+  color: var(--muted-fg);
+}
+.fetch-config-xbot .fetch-config-threshold-field input {
+  width: 120px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--foreground);
+}
+
+/* P2-1 (agy): <480px 小屏下 topic(150px) + 粉丝框(120px) 正好占满首行,
+ * "最低点赞数" 被挤到第二行左对齐 → 阶梯错位。小屏让 topic 占满整行,
+ * 两个数字框并排在下一行。 */
+@media (max-width: 480px) {
+  .fetch-config-threshold-topic {
+    width: 100%;
+    min-width: 0;
+    margin-bottom: 4px;
+  }
+  .fetch-config-xbot .fetch-config-threshold-field input {
+    width: 100%;
+  }
+  .fetch-config-threshold-field {
+    flex: 1 1 40%;
+  }
+}
 .form-row label small.muted {
   display: block;
   font-weight: 400;

@@ -88,7 +88,7 @@ import re
 import subprocess
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, NamedTuple, Sequence
 
 from ..base import BaseFetcher, register_fetcher
 
@@ -192,6 +192,159 @@ DEFAULT_FETCH_CONFIG: dict[str, Any] = {
 
 #: fetcher 内部的别名 —— 语义上就是 ``DEFAULT_FETCH_CONFIG``。
 _DEFAULTS: dict[str, Any] = DEFAULT_FETCH_CONFIG
+
+# ── sprint-35 (v1.0.70): per-topic 门槛 + scope 副本 ─────────────────────
+#
+# **方案 A**: 这两个键**不进** ``DEFAULT_FETCH_CONFIG``。原因: 那个字典是
+# migration 039 的 SQL 字面量的唯一对照物
+# (``tests/test_migration_039_xbot_feed.py::test_039_fetch_config_matches_default``
+# 逐字比对), 往里加键 = 把那条护栏自己放宽。
+#
+# 所以它们是**独立常量**, 在**读取时**合并:
+#   * fetcher: ``_load_config()`` 额外放行这两个键;
+#   * web:     ``GET /{id}/fetch_config`` 与 ``GET /{id}/scope`` 组装响应时合并。
+#
+#: 门槛默认值 —— **全 0 = 不设限** (Q1=A)。不设限时门槛闸门完全不生效,
+#: 入库行为与改动前**逐条相同**。
+#:
+#: 语义 (每个 topic 独立):
+#:   * ``min_followers`` > 0 → ``author_followers`` 低于它就丢弃;
+#:   * ``min_likes`` > 0 → ``metrics.like`` 低于它就丢弃;
+#:   * 字段**缺失** → **放行 + 计数** (Q2=A), 不丢条目;
+#:   * 边界相等 → 放行 (``>=`` 语义)。
+DEFAULT_THRESHOLDS: dict[str, dict[str, int]] = {
+    "wechat": {"min_followers": 0, "min_likes": 0},
+    "xcircle": {"min_followers": 0, "min_likes": 0},
+}
+
+#: 门槛闸门认识的 topic。**只有这两个** —— 上游新增的 topic 一律放行
+#: (不因门槛丢条目), 并记 warning。
+THRESHOLD_TOPICS: tuple[str, ...] = ("wechat", "xcircle")
+
+#: moni 侧存的 **scope 副本** (可编辑, 仅用于记录与展示)。
+#:
+#: 它**不参与入库闸门** —— moni 改不了 X-bot 的搜索, 而上游已经筛过一遍;
+#: 按一份手抄名单再过滤 = 静默丢条目, 收益为零。
+#: 编辑它只改这份副本, UI 会明确标注"不会改变 X-bot 的搜索范围"。
+#:
+#: 账号名单来自 brief 的快照 (2026-11-11); 上游目前**没有**导出 scope 键
+#: (8 个 feed 文件顶层都只有 date/generated_at/counts_by_topic/items),
+#: 所以这份是"moni 侧兜底"来源, UI 标注快照日期以暴露漂移。
+DEFAULT_SCOPE: dict[str, Any] = {
+    "xcircle_accounts": [
+        "dotey", "Gorden_Sun", "lxfater", "op7418", "oran_ge", "vista8",
+        "imxiaohu", "FinanceYF5", "ruanyf", "onevcat", "fenng", "yihong0618",
+        "waylybaye", "cloudwu", "wshuyi", "shao__meng", "Psyche_Bastion",
+        "hi_xiaopeng", "javacruiser", "manateelazycat", "nekocode", "soasme",
+        "leveaal", "excalith", "turingou", "orangexiao", "liang2min",
+        "huangyunmin",
+    ],
+    "wechat_regex": "微信|WeChat|Weixin|小程序|公众号|视频号|mini program",
+    # 上游 2026-11-12 起才把每日 query 写进 out/wechat-queries-*.txt
+    # (在 X-bot 那台机器上), moni 看不到 → 空列表 + UI 标注"上游未导出"。
+    "wechat_queries": [],
+}
+
+#: 这两个键在 ``sources.fetch_config`` 里是**用户配的**, 读取时按它们
+#: 的键名放行 (见 ``_load_config``) —— ``_DEFAULTS`` 的白名单只认
+#: ``DEFAULT_FETCH_CONFIG`` 的键, 门槛与 scope 都不在里面。
+EXTRA_CONFIG_KEYS: tuple[str, ...] = ("thresholds", "scope")
+
+
+class ThresholdDecision(NamedTuple):
+    """门槛判定的结果 (纯函数 ``evaluate_thresholds`` 的返回值)。
+
+    * ``passed`` —— 是否放行;
+    * ``reason`` —— 未放行时的原因码 (``below_min_followers`` /
+      ``below_min_likes``); 放行时为 ``None``;
+    * ``missing`` —— 遇到的缺失字段名 (``followers`` / ``likes``)。
+      缺失**不影响放行** (Q2=A), 只用于计数。
+    """
+
+    passed: bool
+    reason: str | None = None
+    missing: tuple[str, ...] = ()
+
+
+def _threshold_value(raw: Any) -> int | None:
+    """把配置里的阈值读成 int; 非法/缺失 → None (= 该维度不设限)。"""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    try:
+        val = int(raw)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return val if val > 0 else None
+
+
+def evaluate_thresholds(
+    item: dict[str, Any],
+    thresholds: dict[str, Any],
+    topic: str,
+) -> ThresholdDecision:
+    """纯函数: 判断一条 item 是否通过该 topic 的门槛。
+
+    不碰 DB、不读配置 —— 输入 item + 阈值表 + topic, 输出判定 + 原因码。
+
+    规则 (详见 ``DEFAULT_THRESHOLDS`` 的注释):
+
+    * 阈值 0 / topic 未配置 → 该维度不设限 → 永远放行;
+    * 阈值 > 0 且字段**缺失** → **放行**并记入 ``missing`` (Q2=A);
+    * 阈值 > 0 且字段存在但低于阈值 → 丢弃, ``reason`` 记原因码;
+    * 边界相等 → 放行。
+    """
+    topic_key = (topic or "").strip().lower()
+    cfg = thresholds.get(topic_key) if isinstance(thresholds, dict) else None
+    if not isinstance(cfg, dict):
+        # 未配置的 topic → 不设限。上游新增的 topic 也走这条路:
+        # 放行 + warning, 绝不因门槛丢条目。
+        if topic_key and topic_key not in THRESHOLD_TOPICS:
+            logger.warning(
+                "[xbot-feed] unknown topic %r — thresholds not applied "
+                "(known topics: %s)",
+                topic_key, ", ".join(THRESHOLD_TOPICS),
+            )
+        return ThresholdDecision(passed=True, reason=None, missing=())
+
+    min_followers = _threshold_value(cfg.get("min_followers"))
+    min_likes = _threshold_value(cfg.get("min_likes"))
+    if min_followers is None and min_likes is None:
+        return ThresholdDecision(passed=True, reason=None, missing=())
+
+    missing: list[str] = []
+
+    if min_followers is not None:
+        raw_followers = item.get("author_followers")
+        if raw_followers is None:
+            missing.append("followers")
+        elif isinstance(raw_followers, bool) or not isinstance(
+            raw_followers, (int, float)
+        ):
+            # P2-3: 字段存在但**类型不对** (字符串 / None-ish / bool) → 与
+            # 缺失同等处理: 放行 + 计数。修复前既不判缺失也不参与比较 →
+            # 静默放行且计数为 0 (运维看是"门槛生效但没丢东西"的假象)。
+            missing.append("followers")
+        elif int(raw_followers) < min_followers:
+            return ThresholdDecision(
+                passed=False, reason="below_min_followers", missing=(),
+            )
+
+    if min_likes is not None:
+        metrics = item.get("metrics")
+        raw_likes = metrics.get("like") if isinstance(metrics, dict) else None
+        if raw_likes is None:
+            missing.append("likes")
+        elif isinstance(raw_likes, bool) or not isinstance(
+            raw_likes, (int, float)
+        ):
+            # P2-3: 同上 —— 类型不对按缺失处理。
+            missing.append("likes")
+        elif int(raw_likes) < min_likes:
+            return ThresholdDecision(
+                passed=False, reason="below_min_likes", missing=(),
+            )
+
+    return ThresholdDecision(passed=True, reason=None, missing=tuple(missing))
 
 #: 匹配 X / Twitter URL 里的数字 tweet id
 _STATUS_RE = re.compile(r"/status/(\d+)")
@@ -412,6 +565,10 @@ class FetcherXbotFeed(BaseFetcher):
         self._round_ids: list[str] = []
         self._inserted_ok = False
         self._pending_state: dict[str, Any] | None = None
+        # sprint-35: 门槛计数 (按 topic × 原因) —— 实例属性, 每轮重置。
+        self._thresholds: dict[str, Any] = {}
+        self._threshold_drops: dict[str, int] = {}
+        self._threshold_missing: dict[str, int] = {}
 
     # ── config ────────────────────────────────────────────────────────────
     def _load_config(self) -> dict[str, Any]:
@@ -427,7 +584,11 @@ class FetcherXbotFeed(BaseFetcher):
                 user = json.loads(row["fetch_config"])
                 if isinstance(user, dict):
                     for k, v in user.items():
-                        if k in _DEFAULTS:
+                        # sprint-35 (G-3): ``_DEFAULTS`` 的白名单只认
+                        # ``DEFAULT_FETCH_CONFIG`` 的键 —— 门槛与 scope 是
+                        # **独立常量** (方案 A), 不在里面 → 不放行的话
+                        # 写进库的门槛会被**静默吃掉** (配了却不生效)。
+                        if k in _DEFAULTS or k in EXTRA_CONFIG_KEYS:
                             cfg[k] = v
         except Exception as exc:  # noqa: BLE001
             logger.debug("[xbot-feed] read fetch_config failed: %s", exc)
@@ -796,6 +957,25 @@ class FetcherXbotFeed(BaseFetcher):
             )
             return None
 
+        # ── sprint-35: per-topic 门槛 (第二道闸门) ────────────────────
+        # 独立于关键词闸门: bypass_keyword_filters 只短路黑白名单, 门槛
+        # 不受它影响 (G-5)。默认全 0 → 不设限 → 完全不影响本条路径。
+        # 被丢弃的条目**不进** _round_ids → 不写 state → 门槛调松后
+        # 还能重新导入 (AC-8)。
+        decision = evaluate_thresholds(raw, self._thresholds, topic)
+        if decision.missing:
+            for field in decision.missing:
+                key = f"{topic}:missing_{field}"
+                self._threshold_missing[key] = self._threshold_missing.get(key, 0) + 1
+        if not decision.passed:
+            key = f"{topic}:{decision.reason}"
+            self._threshold_drops[key] = self._threshold_drops.get(key, 0) + 1
+            logger.info(
+                "[xbot-feed] item %s (topic=%s) dropped by threshold: %s",
+                tweet_id or raw.get("url"), topic or "?", decision.reason,
+            )
+            return None
+
         canonical_url = normalize_tweet_url(
             str(raw.get("url") or ""), handle=handle, tweet_id=tweet_id,
         )
@@ -1003,6 +1183,29 @@ class FetcherXbotFeed(BaseFetcher):
         result = super().run(dry_run=dry_run)
         if not dry_run and not result.get("error") and self._inserted_ok:
             self._flush_state(result)
+        # sprint-35 (G-13): 门槛计数必须能贯通到 job 的 result_json →
+        # 前端 ``fetchResultObj``。``moni/fetch/base.py::_ingest`` 返回的
+        # 是固定 key 的 dict, ``_merge_stats`` 只认 ``_SUM_STAT_FIELDS``
+        # 里的字段 —— 所以这里在 **fetcher 层**把三个键合并进结果
+        # (不扩 base 的字段表, 免得影响别的源)。
+        result["threshold_dropped"] = sum(self._threshold_drops.values())
+        result["threshold_dropped_by"] = dict(self._threshold_drops)
+        result["threshold_missing_by"] = dict(self._threshold_missing)
+        if self._threshold_drops:
+            logger.info(
+                "[xbot-feed] threshold dropped %d item(s): %s",
+                result["threshold_dropped"],
+                ", ".join(
+                    f"{k}={v}" for k, v in sorted(self._threshold_drops.items())
+                ),
+            )
+        if self._threshold_missing:
+            logger.info(
+                "[xbot-feed] threshold missing field(s): %s",
+                ", ".join(
+                    f"{k}={v}" for k, v in sorted(self._threshold_missing.items())
+                ),
+            )
         return result
 
     def _flush_state(self, result: dict[str, Any]) -> None:
@@ -1118,3 +1321,12 @@ class FetcherXbotFeed(BaseFetcher):
             str(h).strip().lstrip("@").lower() for h in handles if str(h).strip()
         )
         self._skip_existing_urls = bool(cfg.get("skip_existing_urls", True))
+        # sprint-35: 门槛表 (独立常量, 方案 A) —— 没配就用默认值 (全 0 = 不设限)。
+        raw_thresholds = cfg.get("thresholds")
+        if isinstance(raw_thresholds, dict):
+            self._thresholds = raw_thresholds
+        else:
+            self._thresholds = copy.deepcopy(DEFAULT_THRESHOLDS)
+        # 每轮的计数从头开始 (同一个 fetcher 实例可能被复用)。
+        self._threshold_drops = {}
+        self._threshold_missing = {}

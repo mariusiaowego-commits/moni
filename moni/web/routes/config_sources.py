@@ -21,9 +21,20 @@ from moni.db.connection import get_db
 from moni.fetch.sources.xbot_feed import (
     DEFAULT_FETCH_CONFIG as XBOT_FEED_DEFAULT_FETCH_CONFIG,
 )
-from moni.web.exceptions import ConflictError, NotFoundError
+# v1.0.70 (sprint-35): 门槛与 scope 的默认值是**独立常量** (方案 A) ——
+# 不进 DEFAULT_FETCH_CONFIG (那是 migration 039 字面量的对照物)。
+from moni.fetch.sources.xbot_feed import (
+    DEFAULT_SCOPE as XBOT_FEED_DEFAULT_SCOPE,
+    DEFAULT_THRESHOLDS as XBOT_FEED_DEFAULT_THRESHOLDS,
+)
+from moni.web.exceptions import (
+    BadRequestError,
+    ConflictError,
+    NotFoundError,
+)
 from moni.web.models import (
     FetchConfigResponse,
+    ScopeResponse,
     Source,
     SourceCreate,
     SourceUpdate,
@@ -110,6 +121,221 @@ _FETCH_CONFIG_DEFAULTS: dict[str, dict] = {
 }
 
 _RETIRED_FETCH_CONFIG_KEYS = {"consecutive_failure_limit"}
+
+
+# ── v1.0.70 (sprint-35): X-bot 精选的门槛与 scope ────────────────────────
+#
+# 这两个键是**独立常量** (方案 A): 不进 ``DEFAULT_FETCH_CONFIG``, 所以
+# ``_FETCH_CONFIG_DEFAULTS["xbot_feed"]`` 仍逐字等于 DEFAULT_FETCH_CONFIG
+# (``tests/test_xbot_feed_fetch.py::test_fetch_config_has_single_source``
+# 依赖这一点)。它们在**读取时**合并进响应。
+
+#: 门槛认识的 topic —— 未知 topic 一律 400 (写进去也不会生效)。
+_XBOT_THRESHOLD_TOPICS = ("wechat", "xcircle")
+
+#: scope 里合法的键。
+_XBOT_SCOPE_KEYS = ("xcircle_accounts", "wechat_regex", "wechat_queries")
+
+#: 上游导出 scope 时, feed JSON 顶层用的键名。
+_UPSTREAM_SCOPE_KEY = "scope"
+
+
+def _validate_thresholds(raw: object) -> dict[str, dict[str, int]]:
+    """校验 ``thresholds``; 不合法 → BadRequestError (400)。
+
+    规则:
+      * 必须是 dict;
+      * topic 必须在 {wechat, xcircle} 里 (未知 topic → 400);
+      * topic 的值必须是 dict;
+      * ``min_followers`` / ``min_likes`` 必须是 **int** (显式排除 bool)
+        且 >= 0。
+    """
+    if not isinstance(raw, dict):
+        raise BadRequestError(
+            message="thresholds must be an object with per-topic settings")
+    out: dict[str, dict[str, int]] = {}
+    for topic, cfg in raw.items():
+        if topic not in _XBOT_THRESHOLD_TOPICS:
+            raise BadRequestError(
+                message=(
+                    f"unknown threshold topic {topic!r} — "
+                    f"allowed: {', '.join(_XBOT_THRESHOLD_TOPICS)}"
+                )
+            )
+        if not isinstance(cfg, dict):
+            raise BadRequestError(
+                message=f"thresholds.{topic} must be an object")
+        topic_out: dict[str, int] = {}
+        for field in ("min_followers", "min_likes"):
+            if field not in cfg:
+                continue
+            val = cfg[field]
+            if isinstance(val, bool) or not isinstance(val, int):
+                raise BadRequestError(
+                    message=(
+                        f"thresholds.{topic}.{field} must be a whole number "
+                        f"(got {val!r})"
+                    )
+                )
+            if val < 0:
+                raise BadRequestError(
+                    message=(
+                        f"thresholds.{topic}.{field} must be >= 0 (got {val})"
+                    )
+                )
+            topic_out[field] = val
+        out[topic] = topic_out
+    return out
+
+
+def _validate_scope(raw: object) -> dict[str, object]:
+    """校验 ``scope``; 不合法 → BadRequestError (400)。
+
+    scope 是 moni 侧的**副本** (记录与展示用), 字段要求:
+      * 必须是 dict;
+      * ``xcircle_accounts`` / ``wechat_queries`` 必须是 list[str];
+      * ``wechat_regex`` 必须是 str。
+    """
+    if not isinstance(raw, dict):
+        raise BadRequestError(message="scope must be an object")
+    out: dict[str, object] = {}
+    for key, val in raw.items():
+        if key not in _XBOT_SCOPE_KEYS:
+            raise BadRequestError(
+                message=(
+                    f"unknown scope key {key!r} — "
+                    f"allowed: {', '.join(_XBOT_SCOPE_KEYS)}"
+                )
+            )
+        if key == "wechat_regex":
+            if not isinstance(val, str):
+                raise BadRequestError(
+                    message="scope.wechat_regex must be a string")
+            out[key] = val
+            continue
+        if not isinstance(val, list) or any(
+            not isinstance(v, str) for v in val
+        ):
+            raise BadRequestError(
+                message=f"scope.{key} must be a list of strings")
+        # 去空白、去空串、去重 (保持顺序) —— 免得 UI 存进一堆空行。
+        seen: set[str] = set()
+        cleaned: list[str] = []
+        for v in val:
+            item = v.strip()
+            if not item or item in seen:
+                continue
+            seen.add(item)
+            cleaned.append(item)
+        out[key] = cleaned
+    return out
+
+
+def _read_upstream_scope(cfg: dict) -> dict | None:
+    """从**本地 clone** 的 feed JSON 里读上游导出的 scope (只读, 不 git pull)。
+
+    上游目前没导出这个键 → 返回 None → 走 moni 侧兜底。
+
+    注意: 这里**只读本地文件**, 绝不在 web 请求路径上做网络同步
+    (git pull 是 fetcher 的活)。
+    """
+    import os
+    from pathlib import Path
+
+    env_dir = os.environ.get("MONI_DATA_DIR")
+    data_dir = Path(env_dir) if env_dir else Path("data")
+    configured = (cfg.get("clone_dir") or "").strip()
+    if configured:
+        clone_root = Path(configured)
+        if not clone_root.is_absolute():
+            clone_root = data_dir / clone_root
+    else:
+        clone_root = data_dir / "xbot-feed"
+    feed_dir = clone_root / "feed"
+    if not feed_dir.is_dir():
+        return None
+    try:
+        files = sorted(feed_dir.glob("*.json"), reverse=True)
+    except OSError:
+        return None
+    for path in files:
+        try:
+            payload = _json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        scope = payload.get(_UPSTREAM_SCOPE_KEY)
+        if isinstance(scope, dict):
+            return scope
+    return None
+
+
+def _effective_thresholds(user_cfg: dict) -> dict[str, dict[str, int]]:
+    """把用户配的 thresholds 与默认值合并 (用户值优先)。"""
+    merged = {
+        topic: dict(cfg)
+        for topic, cfg in XBOT_FEED_DEFAULT_THRESHOLDS.items()
+    }
+    raw = user_cfg.get("thresholds")
+    if isinstance(raw, dict):
+        for topic, cfg in raw.items():
+            if topic not in merged or not isinstance(cfg, dict):
+                continue
+            for field, val in cfg.items():
+                if field in ("min_followers", "min_likes") and isinstance(
+                    val, int
+                ) and not isinstance(val, bool) and val >= 0:
+                    merged[topic][field] = val
+    return merged
+
+
+def _effective_scope(user_cfg: dict) -> tuple[dict, str, bool, bool]:
+    """算出 (scope, scope_source, upstream_scope_available, scope_edited)。
+
+    * ``scope`` —— **展示用**的范围:
+      上游导出的 scope (权威) > moni 侧已存的副本 > DEFAULT_SCOPE 兜底;
+    * ``scope_source`` —— **三态** (P1-1, 方案 b):
+      ``upstream`` (上游导出了) > ``moni_stored`` (moni 侧有用户副本)
+      > ``moni_fallback`` (兜底快照);
+    * ``upstream_scope_available`` —— 上游 feed JSON 顶层有没有 scope 键;
+    * ``scope_edited`` —— moni 侧存着用户编辑过的副本 (UI 徽标用)。
+    """
+    user_scope = user_cfg.get("scope")
+    has_stored = isinstance(user_scope, dict) and bool(user_scope)
+
+    upstream = _read_upstream_scope(user_cfg)
+    upstream_available = upstream is not None
+
+    if upstream_available:
+        scope = dict(upstream)
+        source = "upstream"
+    elif has_stored:
+        scope = dict(user_scope)  # type: ignore[arg-type]
+        source = "moni_stored"
+    else:
+        scope = {
+            "xcircle_accounts": list(
+                XBOT_FEED_DEFAULT_SCOPE["xcircle_accounts"]),
+            "wechat_regex": XBOT_FEED_DEFAULT_SCOPE["wechat_regex"],
+            "wechat_queries": list(
+                XBOT_FEED_DEFAULT_SCOPE["wechat_queries"]),
+        }
+        source = "moni_fallback"
+    return scope, source, upstream_available, has_stored
+
+
+def _moni_scope_copy(user_cfg: dict) -> dict:
+    """moni 侧**可编辑**的 scope 副本 (用户存的, 没有就用兜底常量)。"""
+    user_scope = user_cfg.get("scope")
+    if isinstance(user_scope, dict) and user_scope:
+        return dict(user_scope)
+    return {
+        "xcircle_accounts": list(
+            XBOT_FEED_DEFAULT_SCOPE["xcircle_accounts"]),
+        "wechat_regex": XBOT_FEED_DEFAULT_SCOPE["wechat_regex"],
+        "wechat_queries": list(XBOT_FEED_DEFAULT_SCOPE["wechat_queries"]),
+    }
 
 
 
@@ -389,6 +615,13 @@ def get_fetch_config(source_id: str) -> FetchConfigResponse:
         user_cfg.pop("bypass_tag_filter")
     merged = {**defaults, **user_cfg}
 
+    # v1.0.70 (sprint-35): X-bot 精选的门槛与 scope 是**独立常量**
+    # (方案 A) —— 在**读取时**合并进响应, 而不是在 ``defaults`` 里
+    # (那样会破坏 ``test_fetch_config_has_single_source`` 的逐字比对)。
+    if source_name == "xbot_feed":
+        merged["thresholds"] = _effective_thresholds(user_cfg)
+        merged["scope"] = _moni_scope_copy(user_cfg)
+
     return FetchConfigResponse(
         source_id=source_id,
         source_name=source_name,
@@ -398,21 +631,114 @@ def get_fetch_config(source_id: str) -> FetchConfigResponse:
     )
 
 
-@router.put("/{source_id}/fetch_config", response_model=FetchConfigResponse)
-def update_fetch_config(source_id: str, body: dict) -> FetchConfigResponse:
-    """Update fetch_config for a source. Pass the full config dict."""
+@router.get("/{source_id}/scope", response_model=ScopeResponse)
+def get_source_scope(source_id: str) -> ScopeResponse:
+    """X-bot 精选的信源范围 (scope) + 门槛 (thresholds)。
+
+    * ``scope`` —— 展示用的范围: 上游导出的 > moni 侧存的副本 > 兜底常量;
+    * ``scope_source`` —— ``upstream`` | ``moni_fallback``;
+    * ``upstream_scope_available`` —— 上游 feed JSON 顶层有没有 scope 键;
+    * ``scope_edited`` —— moni 侧有没有用户编辑过的副本;
+    * ``thresholds`` —— per-topic 门槛 (默认全 0 = 不设限);
+    * ``scope_gates_ingest`` —— **false**: scope 只是记录与展示, 不参与
+      入库闸门 (编辑它不会改变 X-bot 的搜索范围)。
+
+    只读本地 clone 的 feed JSON —— **绝不在请求路径上做 git 操作**。
+    """
     conn = get_db()
     row = conn.execute(
-        "SELECT name FROM sources WHERE id = ?",
+        "SELECT name, fetch_config FROM sources WHERE id = ?",
         (source_id,),
     ).fetchone()
     if row is None:
         raise NotFoundError(message=f"Source {source_id!r} not found")
 
+    source_name = row["name"]
+    if source_name != "xbot_feed":
+        raise BadRequestError(
+            message=(
+                f"scope is only supported for the xbot_feed source "
+                f"(got {source_name!r})"
+            )
+        )
+
+    user_cfg: dict = {}
+    if row["fetch_config"]:
+        try:
+            parsed = _json.loads(row["fetch_config"])
+            if isinstance(parsed, dict):
+                user_cfg = parsed
+        except (_json.JSONDecodeError, TypeError):
+            user_cfg = {}
+
+    scope, scope_source, upstream_available, scope_edited = _effective_scope(
+        user_cfg
+    )
+    return ScopeResponse(
+        source_id=source_id,
+        source_name=source_name,
+        scope=scope,
+        scope_source=scope_source,
+        upstream_scope_available=upstream_available,
+        scope_edited=scope_edited,
+        thresholds=_effective_thresholds(user_cfg),
+        scope_gates_ingest=False,
+        stacking_note=(
+            "上游自 2026-11-12 起自带 wechat 门槛（5000 粉 / 5 赞）；"
+            "moni 门槛是第二道串联闸门，只能更严，捞不回上游已丢的条目。"
+        ),
+    )
+
+
+@router.put("/{source_id}/fetch_config", response_model=FetchConfigResponse)
+def update_fetch_config(source_id: str, body: dict) -> FetchConfigResponse:
+    """Update fetch_config for a source. Pass the full config dict.
+
+    v1.0.70 (sprint-35):
+
+    * **校验**: ``thresholds`` / ``scope`` 非法 → 400, 且**不写库**;
+    * **合并语义** (只对 xbot_feed): ``stored = {**现有, **body}``
+      → 只传 ``thresholds`` 时其余 8 个键仍在。
+      其它信源维持"整体替换 body"的既有语义 (G-2: 不改既有行为契约)。
+    """
+    conn = get_db()
+    row = conn.execute(
+        "SELECT name, fetch_config FROM sources WHERE id = ?",
+        (source_id,),
+    ).fetchone()
+    if row is None:
+        raise NotFoundError(message=f"Source {source_id!r} not found")
+
+    source_name = row["name"]
+
+    if source_name == "xbot_feed":
+        # ── 校验 (写库之前!) ─────────────────────────────────────────
+        # P1-4: 校验**只在 xbot_feed 分支内**。其它信源的
+        # ``thresholds`` / ``scope`` 键按普通键透传 → 维持"整体替换 body"
+        # 的既有语义 (G-2), 公共端点的 body 契约不被单信源需求改写。
+        payload = dict(body)
+        if "thresholds" in payload:
+            payload["thresholds"] = _validate_thresholds(payload["thresholds"])
+        if "scope" in payload:
+            payload["scope"] = _validate_scope(payload["scope"])
+
+        # 合并语义: 只传 thresholds 时, 库里原有的 8 个键不能被抹掉。
+        stored: dict = {}
+        if row["fetch_config"]:
+            try:
+                parsed = _json.loads(row["fetch_config"])
+                if isinstance(parsed, dict):
+                    stored = parsed
+            except (_json.JSONDecodeError, TypeError):
+                stored = {}
+        merged_payload = {**stored, **payload}
+    else:
+        merged_payload = dict(body)
+
     now = _now()
     conn.execute(
         "UPDATE sources SET fetch_config = ?, updated_at = ? WHERE id = ?",
-        (_json.dumps(body, ensure_ascii=False), now, source_id),
+        (_json.dumps(merged_payload, ensure_ascii=False), now, source_id),
     )
     conn.commit()
 
