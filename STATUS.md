@@ -4,7 +4,7 @@
 
 ---
 
-## 进行中: **Web UI 规范化 Phase 1–2 — Token 收敛 + 按钮/图标统一** (2026-11-12 · Sprint 39–40 · 分支 `feat/web-ui-polish`)
+## 进行中: **Web UI 规范化 Phase 1–3 — Token / 按钮图标 / 去重与弹窗** (2026-11-12 · Sprint 39–41 · 分支 `feat/web-ui-polish`)
 
 UI 体检（agy · unslop skill，62 条 findings：P0×8/P1×29/P2×25）后分 4 个 sprint 落地。
 Sprint 39 只动 CSS 层：新增 `--space-*` / `--radius-*` / `--control-h-*` / `--z-*` / `--chart-*`
@@ -19,6 +19,12 @@ Phase 2（Sprint 40）已完成：`.link-btn`/`.btn-link` 合并为同一套度�
 （sliders / tag / pencil / trash，均带 `aria-label`）；界面 emoji 与字符图标 **25 → 0**，全部换内联 SVG
 （16px / stroke 1.6 / currentColor）。`/config` 表格 30px 横向溢出用 `.url-cell max-width: 240px` 收口。
 验收：pytest 1630 passed / 2 skipped；glyph 扫描 0 命中。
+
+Phase 3（Sprint 41）已完成：pinned 子 tab 下隐藏重复的 Pin 切换列（行内改「取消 Pin」），
+`fresh`+`new` 双徽标合并为单个「新」，删掉大模型任务页第二个「刷新」；
+文章详情弹窗合并重复的「事实核查」，全弹窗仅 1 个 Primary，操作条改为底部 sticky；
+`z-index` 收敛到 `--z-modal(500)` / `--z-toast(1000)`。
+验收：DOM 断言 pinned 态 pin 列 0 可见、每行徽标 ≤1、弹窗 Primary=1、actions `position: sticky`、z=500；pytest 1630 passed / 2 skipped。
 
 ## 进行中: **分享产物 worker 修复** (2026-11-12 · 分支 `feature/v1.0.73-share-maintenance`)
 

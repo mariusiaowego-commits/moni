@@ -691,7 +691,6 @@ tbody tr:last-child td { border-bottom: none; }
   z-index: 9999; pointer-events: none;
 }
 .badge-new { background: var(--accent); color: var(--accent-fg); }
-.badge-fresh { background: var(--success-muted); color: var(--success-muted-fg); }
 .badge-danger { background: oklch(from var(--destructive) l c h / 0.15); color: var(--destructive); }
 .badge-warning { background: var(--warning-muted); color: var(--warning-muted-fg); }
 .badge-info { background: var(--info-muted); color: var(--info-muted-fg); }
@@ -992,7 +991,7 @@ label { font-size: 0.85rem; }
 .pin-undo-toast {
   position: fixed; bottom: 24px; left: 50%;
   transform: translateX(-50%);
-  z-index: 200;  /* above modals (z=100) */
+  z-index: var(--z-toast);
   pointer-events: auto;
 }
 .pin-undo-content {
@@ -1165,7 +1164,7 @@ label { font-size: 0.85rem; }
 }
 
 .modal-backdrop {
-  position: fixed; inset: 0; z-index: 100;
+  position: fixed; inset: 0; z-index: var(--z-modal);
   background: oklch(from var(--foreground) l c h / 0.3);
   backdrop-filter: blur(8px);
   display: flex; align-items: center; justify-content: center;
@@ -1570,7 +1569,7 @@ label { font-size: 0.85rem; }
    Toast (v1.0.13 — dialog certainty stack)
    ═══════════════════════════════════════════════════════════════ */
 #moni-toast-region {
-  position: fixed; bottom: 24px; right: 24px; z-index: 200;
+  position: fixed; bottom: 24px; right: 24px; z-index: var(--z-toast);
   display: flex; flex-direction: column-reverse; gap: 12px;
   pointer-events: none;
   max-width: 420px;
@@ -1586,6 +1585,7 @@ label { font-size: 0.85rem; }
   transition: opacity 0.2s, transform 0.2s;
   pointer-events: auto;
   position: relative;
+  z-index: var(--z-toast);
 }
 .toast .toast-msg { flex: 1; }
 .toast .toast-action {
@@ -2273,7 +2273,13 @@ label { font-size: 0.85rem; }
   max-height: 40vh; overflow-y: auto; margin-bottom: 14px;
   white-space: pre-wrap; word-break: break-word;
 }
-.article-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
+.article-actions {
+  position: sticky; bottom: -24px;
+  background: var(--card); margin: 0 -24px -24px;
+  padding: 12px 24px 16px; border-top: 1px solid var(--border);
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  z-index: 2;
+}
 .summary-box {
   padding: 14px; background: var(--muted); border: 1px solid var(--border);
   border-radius: 8px; margin-bottom: 12px;

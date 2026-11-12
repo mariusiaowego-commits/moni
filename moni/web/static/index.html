@@ -148,7 +148,7 @@
               <tr>
                 <!-- v1.0.8.1: Pin 列固定最左, 大按钮, 不依赖操作列
                      (之前 "操作"列里的 pin 按钮太靠右, 不明显) -->
-                <th class="pin-col-head">Pin</th>
+                <th class="pin-col-head" x-show="articlesSubTab === 'all'">Pin</th>
                 <th x-show="articlesSubTab === 'pinned'"><input type="checkbox" :checked="pinnedAllSelectedOnPage()" @change="pinnedToggleAllOnPage($event)"></th>
                 <th>标题</th><th>来源</th><th style="width: 140px; min-width: 140px;">命中标签</th>
                 <th x-show="articlesSubTab === 'pinned'">Pin 时间</th>
@@ -160,7 +160,7 @@
               <template x-for="a in activeArticles" :key="a.id">
                 <tr>
                   <!-- v1.0.8.1: 32px pin button 在最左, 单独列. 点击 GSAP 弹一下. -->
-                  <td class="pin-col">
+                  <td class="pin-col" x-show="articlesSubTab === 'all'">
                     <button class="pin-btn pin-btn-lg"
                             :class="{ 'is-pinned': a.is_pinned }"
                             :data-aid="a.id"
@@ -180,10 +180,8 @@
                          user can preview the rest without opening
                          the modal. -->
                     <span :title="a.title" x-text="truncateTitle(a.title, 150)"></span>
-                    <span class="badge badge-fresh" x-show="a.is_fresh"
-                          data-tooltip="本次抓取新增 (该信源最新一轮)">fresh</span>
-                    <span class="badge badge-new" x-show="isNew(a.created_at)"
-                          data-tooltip="最近 24 小时内抓取">new</span>
+                    <span class="badge badge-new" x-show="a.is_fresh || isNew(a.created_at)"
+                          :title="a.is_fresh ? '本次抓取新增' : '24 小时内抓取'">新</span>
                   </td>
                   <td x-text="a.source"></td>
                   <td class="tags-cell">
@@ -205,7 +203,7 @@
                   <td x-show="articlesSubTab === 'pinned'" x-text="formatTime(a.pinned_at)"></td>
                   <td x-show="articlesSubTab === 'all'" x-text="formatTime(a.published_at || a.fetched_at || a.created_at)"></td>
                   <td x-text="formatTime(a.created_at)"></td>
-                  <td><div class="row-actions"><a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a><button class="btn-danger" @click="showDeleteModal(a)">删除</button></div></td>
+                  <td><div class="row-actions"><button class="link-btn" x-show="articlesSubTab === 'pinned'" @click="togglePin(a.id)">取消 Pin</button><a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a><button class="btn-danger" @click="showDeleteModal(a)">删除</button></div></td>
                 </tr>
               </template>
               <tr x-show="activeArticles.length === 0">
@@ -832,7 +830,6 @@
           <span class="llm-stat"><span class="dot dot-done"></span>完成 <b x-text="llmJobsStats.done"></b></span>
           <span class="llm-stat"><span class="dot dot-failed"></span>失败 <b x-text="llmJobsStats.failed"></b></span>
           <span class="llm-stat"><span class="dot dot-cancelled"></span>取消 <b x-text="llmJobsStats.cancelled"></b></span>
-          <button class="link-btn" @click="loadLlmJobs()">刷新</button>
         </div>
         <table class="data-table">
           <thead>
@@ -1777,7 +1774,7 @@
         <!-- 案例详情 modal -->
         <div x-show="casesDetail" x-cloak @click.self="casesCloseDetail()"
              x-transition.opacity.duration.150ms
-             class="modal-backdrop-dim" style="position: fixed; inset: 0; z-index: 9998;">
+             class="modal-backdrop-dim" style="position: fixed; inset: 0; z-index: var(--z-modal);">
           <div x-show="casesDetail" class="case-detail" @click.stop>
             <template x-if="casesDetail">
               <div>
@@ -3035,26 +3032,6 @@
             <span class="meta-chip" x-show="articleDetail?.author"><b>作者:</b> <span x-text="articleDetail?.author"></span></span>
           </div>
           <div class="article-content" x-text="articleDetail?.content || '(无内容)'"></div>
-          <div class="article-actions">
-            <button class="btn-primary" @click="generateSummary()" :disabled="summaryLoading">
-              <span x-show="!summaryLoading">生成摘要</span>
-              <span x-show="summaryLoading">生成中...</span>
-            </button>
-            <button class="btn-secondary" @click="generateFactCheck()" :disabled="factCheckLoading">
-              <span x-show="!factCheckLoading">事实核查</span>
-              <span x-show="factCheckLoading">核查中...</span>
-            </button>
-            <!-- v1.0.21: 从当前文章提取同业案例 (F6 UI 触发, sprint 05 遗留补全) -->
-            <button class="btn-secondary" @click="extractCase()" :disabled="caseExtractLoading">
-              <span x-show="!caseExtractLoading">提取案例</span>
-              <span x-show="caseExtractLoading">提取中...</span>
-            </button>
-            <a :class="{'btn-blocked': isBlockedUrl(articleDetail?.url)}" :href="safeHref(articleDetail?.url)" target="_blank" rel="noopener noreferrer" class="btn-secondary">查看原文</a>
-            <button class="btn-secondary" @click="copyArticleUrl()" title="复制原文链接到剪贴板">
-              <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px;"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>复制链接
-            </button>
-            <span x-show="copyToast" class="text-success" style="font-size:0.85em; margin-left:4px;">已复制<svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-left: 2px; vertical-align: -1px;"><path d="M20 6 9 17l-5-5"></path></svg></span>
-          </div>
           <!-- v1.0.6.8: import full-text for AI analysis (all sources) -->
           <div class="surface-muted" style="margin: 12px 0; padding: 10px;">
             <details>
@@ -3062,7 +3039,7 @@
               <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
                 <input type="text" x-model="importFilePath" placeholder="粘贴本地 .md 文件路径"
                        style="flex:1; font-size:0.85em; padding:6px 8px; border:1px solid var(--border); border-radius:4px;">
-                <button class="btn-primary" @click="importFulltext()" :disabled="importLoading"
+                <button class="btn-secondary" @click="importFulltext()" :disabled="importLoading"
                         style="white-space:nowrap; padding:6px 12px; font-size:0.85em;">
                   <span x-show="!importLoading">导入</span>
                   <span x-show="importLoading">导入中...</span>
@@ -3078,21 +3055,6 @@
           <div class="summary-box" x-show="articleDetail?.fact_check_conclusion" x-cloak>
             <h4>事实核查结论</h4>
             <p x-text="articleDetail?.fact_check_conclusion"></p>
-          </div>
-          <!-- v1.0.22: 联网核查 + 证据链 (spec 5.1 / 5.2) -->
-          <div class="fact-check-plus-actions">
-            <button class="btn btn-secondary"
-                    @click="generateFactCheck()"
-                    :disabled="factCheckLoading"
-                    x-show="!articleDetail?.has_fact_check">
-              事实核查
-            </button>
-            <button class="btn btn-primary"
-                    @click="enqueueLlmJobFactCheckPlus(articleDetail?.id)"
-                    :disabled="factCheckLoading"
-                    x-show="!articleDetail?.has_web_fact_check">
-              联网核查
-            </button>
           </div>
           <div class="fact-check-evidence" x-show="articleDetail?.has_web_fact_check" x-cloak>
             <details>
@@ -3116,6 +3078,28 @@
                 </template>
               </ol>
             </details>
+          </div>
+          <div class="article-actions">
+            <button class="btn-primary" @click="generateSummary()" :disabled="summaryLoading">
+              <span x-show="!summaryLoading">生成摘要</span>
+              <span x-show="summaryLoading">生成中...</span>
+            </button>
+            <button class="btn-secondary" @click="generateFactCheck()" :disabled="factCheckLoading" x-show="!articleDetail?.has_fact_check">
+              <span x-show="!factCheckLoading">事实核查</span>
+              <span x-show="factCheckLoading">核查中...</span>
+            </button>
+            <button class="btn-secondary" @click="enqueueLlmJobFactCheckPlus(articleDetail?.id)" :disabled="factCheckLoading" x-show="!articleDetail?.has_web_fact_check">
+              联网核查
+            </button>
+            <button class="btn-secondary" @click="extractCase()" :disabled="caseExtractLoading">
+              <span x-show="!caseExtractLoading">提取案例</span>
+              <span x-show="caseExtractLoading">提取中...</span>
+            </button>
+            <a :class="{'btn-blocked': isBlockedUrl(articleDetail?.url)}" :href="safeHref(articleDetail?.url)" target="_blank" rel="noopener noreferrer" class="btn-secondary">查看原文</a>
+            <button class="btn-secondary" @click="copyArticleUrl()" title="复制原文链接到剪贴板">
+              <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px;"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>复制链接
+            </button>
+            <span x-show="copyToast" class="text-success" style="font-size:0.85em; margin-left:4px;">已复制<svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-left: 2px; vertical-align: -1px;"><path d="M20 6 9 17l-5-5"></path></svg></span>
           </div>
         </div>
       </div>
