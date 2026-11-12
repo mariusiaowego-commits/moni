@@ -58,8 +58,14 @@ def profile_model(profile: str | None = None) -> dict[str, Any]:
     cfg = read_profile_config(name)
     model = cfg.get("model") or {}
     providers = cfg.get("providers") or {}
+    if not isinstance(model, dict):
+        model = {}
+    if not isinstance(providers, dict):
+        providers = {}
     provider_key = str(model.get("provider") or "")
     provider_cfg = providers.get(provider_key) or {}
+    if not isinstance(provider_cfg, dict):
+        provider_cfg = {}
     return {
         "profile": name,
         "provider": provider_key,

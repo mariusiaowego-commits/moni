@@ -2655,7 +2655,7 @@
                 <tr><th>模型 ID</th><th>说明</th><th>类型</th></tr>
               </thead>
               <tbody>
-                <template x-for="m in (llmGateway?.gateway?.models || []).filter(x => !llmGatewayFilter || x.id.includes(llmGatewayFilter) || (x.label || '').includes(llmGatewayFilter))" :key="m.id">
+                <template x-for="m in (llmGateway?.gateway?.models || []).filter(x => { const q = (llmGatewayFilter || '').toLowerCase(); return !q || x.id.toLowerCase().includes(q) || (x.label || '').toLowerCase().includes(q); })" :key="m.id">
                   <tr>
                     <td><code x-text="m.id"></code></td>
                     <td x-text="m.label"></td>

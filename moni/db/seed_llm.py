@@ -95,7 +95,6 @@ def seed() -> None:
             ON CONFLICT(id) DO UPDATE SET
                 name            = excluded.name,
                 hermes_provider = excluded.hermes_provider,
-                is_active       = excluded.is_active,
                 notes           = excluded.notes,
                 updated_at      = excluded.updated_at
             """,

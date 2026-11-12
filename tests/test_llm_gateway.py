@@ -95,6 +95,22 @@ class TestGatewayModule:
         assert info["default_model"] == ""
         assert info["config_found"] is False
 
+    def test_profile_model_survives_scalar_config(self, tmp_path, monkeypatch):
+        """手写坏掉的 config.yaml（标量而非 mapping）不能让设置页 500。"""
+        from moni.llm.gateway import profile_model
+
+        profile_dir = tmp_path / "hermes" / "profiles" / "moni"
+        profile_dir.mkdir(parents=True)
+        (profile_dir / "config.yaml").write_text(
+            "model: gpt-4\nproviders: nope\n", encoding="utf-8"
+        )
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+        monkeypatch.setenv("MONI_HERMES_PROFILE", "moni")
+        info = profile_model()
+        assert info["provider"] == ""
+        assert info["default_model"] == ""
+        assert info["base_url"] == ""
+
     def test_probe_gateway_lists_groups(self, monkeypatch):
         from moni.llm.gateway import probe_gateway
 
@@ -209,3 +225,21 @@ class TestProviderTestSemantics:
         assert data["tested"] == "provider"
         assert captured["provider"]
         assert captured["model"]
+
+
+class TestSeedProviders:
+    def test_reseed_keeps_user_disabled_provider(self, fresh_db):
+        """重跑 seed 不应把用户手动停用的 provider 重新启用。"""
+        from moni.db.seed_llm import seed as seed_llm
+
+        seed_llm()
+        conn = get_db()
+        conn.execute("UPDATE llm_providers SET is_active=0 WHERE id='seed-provider-ark'")
+        conn.commit()
+
+        seed_llm()
+        row = conn.execute(
+            "SELECT is_active, notes FROM llm_providers WHERE id='seed-provider-ark'"
+        ).fetchone()
+        assert row["is_active"] == 0
+        assert "仅 explicit 模式使用" in row["notes"]
