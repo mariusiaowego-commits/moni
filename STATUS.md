@@ -16,6 +16,9 @@ PNG 格式另有一条独立问题：`PdnKZBj_ylX6XIjqy6Zc9A`（info_graphic_png
 600s 被判 timeout，但 agent 在 13:31 已写出 1080×1920 PNG，13:33 才收尾。
 `info_graphic_png` / `report_png` 超时改为默认 1200s（`MONI_WORKER_TIMEOUT_PNG` 可覆盖），
 其他格式仍用 `MONI_WORKER_TIMEOUT`（默认 600s）。
+超时不再直接判失败：`moni/share/timeout_recovery.py` 会在 `infographic/`、
+`data/briefings/`、artifacts、hermes profile reports/scratch 里找「本次运行之后」
+新出现且通过 PNG（签名+IHDR+IEND）或 HTML 校验的产物，复制成标准输出名并标 done。
 
 ## 当前状态: **v1.0.72 — 大模型设置改为网关视角** (2026-11-12 · **SHIPPED**)
 

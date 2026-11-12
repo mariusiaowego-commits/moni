@@ -51,6 +51,39 @@ task_timeout_for_format() {
     esac
 }
 
+# 超时回收：agent 常在收尾自检阶段超过 worker 上限，但文件已经落盘。
+# 找「本次运行开始之后」新出现且内容校验通过的产物，复制成标准输出名。
+recover_artifact_after_timeout() {
+    local task_id="$1"
+    local format="$2"
+    local not_before="$3"
+    local artifacts_dir="$4"
+    local recovered recovered_out
+
+    recovered=$("$PYTHON_BIN" "$REPO_ROOT/moni/share/timeout_recovery.py" \
+        --format "$format" \
+        --not-before "$not_before" \
+        --repo-root "$REPO_ROOT" \
+        --artifacts-dir "$artifacts_dir" \
+        --profile-dir "$HOME/.hermes/profiles/${MONI_HERMES_PROFILE:-moni}" \
+        2>/dev/null) || true
+    [[ -n "$recovered" && -f "$recovered" ]] || return 1
+
+    if [[ "$format" == "html_landing" ]]; then
+        recovered_out="$artifacts_dir/${task_id}-${format}.html"
+    else
+        recovered_out="$artifacts_dir/${task_id}-${format}-0.png"
+    fi
+    cp "$recovered" "$recovered_out"
+    update_progress "$task_id" "writing_artifact" 95 "超时后回收已产出产物: $recovered"
+    task_status_update "$task_id" "done" "$recovered_out"
+    sqlite3 "$DB_PATH" \
+        "UPDATE share_tasks SET progress_pct=100 WHERE id='$task_id'" \
+        >/dev/null 2>&1 || true
+    log "RECOVERED $task_id — timeout, $recovered -> $recovered_out"
+    return 0
+}
+
 # v1.0.5.18: prompt directory.  Relative to the project root so
 # the worker finds the per-format prompt files regardless of the
 # worker's CWD.  Defaults to ${REPO_ROOT}/moni/share/prompts/.
@@ -1075,6 +1108,8 @@ print(p.get('generation_approach',''))
     local hermes_out_file="$artifacts_dir/${task_id}-hermes-output.txt"
     local hermes_usage_file="$artifacts_dir/${task_id}-hermes-usage.json"
     local hermes_output=""
+    local llm_started_epoch
+    llm_started_epoch=$(date +%s)
     local llm_args=("--db" "$DB_PATH" "--timeout" "$task_timeout")
     [[ -n "$effective_skill" ]] && llm_args+=("--skill" "$effective_skill")
     [[ -n "$provider_override" ]] && llm_args+=("--provider" "$provider_override")
@@ -1090,6 +1125,10 @@ print(p.get('generation_approach',''))
     hermes_output=$(cat "$hermes_out_file" 2>/dev/null) || true
 
     if [[ $hermes_exit -eq 124 ]]; then
+        if recover_artifact_after_timeout "$task_id" "$format" \
+            "$llm_started_epoch" "$artifacts_dir"; then
+            return 0
+        fi
         error_msg="timeout after ${task_timeout}s"
         log "FAIL $task_id — timeout"
         task_status_update "$task_id" "failed" "" "$error_msg"
