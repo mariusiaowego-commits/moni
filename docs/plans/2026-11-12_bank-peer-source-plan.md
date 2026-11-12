@@ -53,6 +53,7 @@
 | **界面新闻** | `https://a.jiemian.com/index.php?m=article&a=rss` | 30 | 1/30 | 综合财经；`cid=` / `page=` 参数实测**无效**（返回同一批） |
 | **FT中文网** | `https://www.ftchinese.com/rss/feed` | 20 | 1/20 | 深度报道，境外视角 |
 | **第一财经·金融** | `https://www.yicai.com/api/ajax/getlistbycid?cid=53` | 20 | 待筛 | 纯 JSON，字段齐：`NewsTitle/NewsID/NewsNotes/pubDate/url` |
+| **中新经纬·财经** | `https://www.chinanews.com.cn/rss/finance.xml` | 30 | 1/30 | 实测命中「建设银行举办2026年对公客户经理技能竞赛」；最新 2026-11-12 15:35；`?page=` 无效 |
 | **雷锋网** | `https://www.leiphone.com/feed` | 21 | 0 | 金融科技垂类 |
 | **InfoQ** | `https://www.infoq.cn/feed` | 20 | 0 | 企业级技术 |
 | **开源中国** | `https://www.oschina.net/news/rss` | 51 | 0 | 金融开源/银行科技 |
@@ -282,3 +283,79 @@ moni FetcherBankFeed（继承 FetcherXbotFeed）
    新建 `bank-feed` 仓库需先重登 gh（当前 keyring token 失效）。
 3. **公众号**：只做「已知 URL 渲染」，还是本轮先不做？
 4. **是否现在跑一次原型**，生成今天这份 `feed-bank/2026-11-12.json` 给你验收？
+
+---
+
+## 10. 四问澄清（2026-11-12 追加，含实测证据）
+
+### 10.1 后续加信源怎么加 → 配置驱动，零代码
+
+目标清单用一份声明式 targets 描述（`kind` 决定 agent 的抓法）：
+
+```json
+{"targets": [
+  {"id":"boc_news",  "kind":"official_list", "url":"https://www.boc.cn/aboutboc/bi1/", "bank":"boc"},
+  {"id":"icbc_news", "kind":"official_list", "url":"https://www.icbc.com.cn/column/1438058319654043683.html", "bank":"icbc"},
+  {"id":"weiyangx",  "kind":"media_rss",     "url":"https://www.weiyangx.com/feed", "publisher":"未央网"},
+  {"id":"ccb_oa",    "kind":"wechat_article","url":"https://mp.weixin.qq.com/s/xxxx", "bank":"ccb"}
+]}
+```
+
+**推荐落点：moni 自己的 `sources` 表**（不另建文件）——
+moni 已有完整源 CRUD（`POST /api/config/sources`、`PUT /{source_id}`、`PUT /{source_id}/fetch_config`），
+`SourceUpdate` 支持 `url` / `fetch_config` / `notes` / `is_active`（`moni/web/models.py:459-465`）。
+于是「加一个信源」= 在 web 端加一行 source，agent 读这些行拿清单：
+
+- 每行独立启停（`is_active`）、独立绑 tag（`peer-banks`）、独立写备注
+- **不改 `config/sources.yaml`、不改 Python 代码**
+- agent 每轮跑前先读清单 → 下次运行自动带上新目标
+
+### 10.2 不做 cron，改成 web 端点击抓取 → 复用现有机制
+
+- 入口：`POST /api/fetch/sources/{name}/run`（异步 job，`moni/web/routes/fetch.py:242`），
+  另有 `/run-sync`；job 状态机 `pending → running → done|failed|timeout`（`moni/fetch/jobs.py:7`）
+- 超时：per-source 读 `sources.fetch_config['timeout_sec']`，默认 600s（bestblogs 2100s）
+  → `bank_feed` 设 900s 足够（实测 hermes 一轮 35–100s）
+- `FetcherBankFeed.fetch()` 建议行为：
+  1. 今天已有新鲜 JSON → 直接读（纯导入，秒级）
+  2. 没有 → 同步调 `hermes -z "<prompt>" --profile moni` 让 agent 生成，再读
+  → 平时手动跑 bot 写 JSON，抓取按钮只做导入；临时想抓就点按钮顺带触发一次 agent
+- 进度：`progress_callback` 可上报「agent 抓取中 / 已写 N 条」
+
+### 10.3 LLM 链路 → 确认与 moni 完全一致（hermes → profile moni → magpie）
+
+| 证据 | 位置 |
+|---|---|
+| moni 不持任何 API key，真实模型由 hermes 的 `moni` profile 决定，该 profile 指向 magpie 网关 | `moni/llm/gateway.py:3-7` |
+| `env.setdefault("HERMES_PROFILE", "moni")`；profile 模式不传 `--provider/-m`，跟随 profile 默认模型（即 magpie 给该 profile 选的路由组） | `moni/llm/runner.py:59-61,160` |
+| 现有 CLI 调用样例：`["hermes", "-z", prompt, "--profile", MONI_HERMES_PROFILE or "moni"]`，timeout 120s | `moni/share/summary_gen.py:114,247` |
+| worker 侧用 `hermes chat` 同步调用（注意：`hermes chat` 不支持 `--usage-file`） | `moni/llm/jobs.py` / AGENTS 硬规则 |
+
+→ bank-bot 用 `hermes -z ... --profile moni` 即自动走同一条链路，**不新增任何凭证**。
+本次实测用的就是 `hermes --profile moni`（两次分别 ~35s、~100s）。
+
+### 10.4 媒体 RSS 可靠性复测（按「最新条目日期」判定，纠正上轮结论）
+
+**可靠（4 个 + JSON 源）**
+
+| 源 | items | 最新条目 | 银行命中 |
+|---|---|---|---|
+| 未央网 | 30 | 2026-11-11 01:45 | 7/30 (23%) |
+| 东方财富 | 97 | 2026-11-11 23:03 | 2/98 |
+| 界面新闻 | 30 | **2026-11-12 15:07（今天）** | 1/30 |
+| FT中文网 | 20 | 2026-11-11 16:00 | 1/20 |
+| 第一财经（JSON） | 20/页，**`page=2` 实测返回不同 id（103437144 → 103437090）** | 2026-11-11 | 待筛 |
+| **中新经纬·财经**（新增） | 30 | **2026-11-12 15:35（今天）** | 1/30（「建设银行举办2026年对公客户经理技能竞赛」） |
+
+**剔除 / 降级**
+
+| 源 | 实测 | 结论 |
+|---|---|---|
+| **新华网财经 RSS** | `Last-Modified: Wed, 14 Dec 2022`，首条为 2022-12-14《多地精准助企纾困…》 | **僵尸 feed，上一轮误报「300 items」作废** |
+| 华尔街见闻 JSON API | `api-one.wallstcn.com/apiv1/content/lives` → 200 / 30 条实时 | 银行命中 **0**（宏观快讯为主），降级为可选 |
+| 腾讯/网易/搜狐/和讯/金融界/每经/证券时报/中证/全景/经观/中财/21世纪 | 全部 404 或连接超时 | 无 RSS |
+| 界面/东财 `?page=` / `?cid=` | 实测返回同一批 | 不支持翻页；回溯靠未央网 `?page=N` 与一财 `page=N` |
+
+**结论**：媒体 RSS 定 6 个（未央网 / 东财 / 界面 / FT中文 / 一财 / 中新经纬）。
+它们是**综合媒体**，银行条目是少数（命中 1–23%），所以**主力仍是 5 家官网 + 公众号**，
+媒体 RSS 起补充与回溯作用。
