@@ -41,6 +41,16 @@ else
 fi
 TIMEOUT_SECONDS="${MONI_WORKER_TIMEOUT:-600}"  # 10 minutes default, override via env
 
+# PNG 任务要先生图再自检（vision_analyze + 像素检查），正常 4-5 分钟，
+# 慢的时候会到 11 分钟；统一 600s 会在收尾阶段砍掉已经产出的成品。
+# 单独给 PNG 格式更长的窗口，其他格式仍用 TIMEOUT_SECONDS。
+task_timeout_for_format() {
+    case "$1" in
+        info_graphic_png|report_png) printf '%s' "${MONI_WORKER_TIMEOUT_PNG:-1200}" ;;
+        *) printf '%s' "$TIMEOUT_SECONDS" ;;
+    esac
+}
+
 # v1.0.5.18: prompt directory.  Relative to the project root so
 # the worker finds the per-format prompt files regardless of the
 # worker's CWD.  Defaults to ${REPO_ROOT}/moni/share/prompts/.
@@ -1044,8 +1054,10 @@ print(p.get('generation_approach',''))
     if task_should_abort "$task_id"; then
         return 0
     fi
+    local task_timeout
+    task_timeout=$(task_timeout_for_format "$format")
     update_progress "$task_id" "invoking_llm" 60 \
-        "正在调 hermes chat (timeout=${TIMEOUT_SECONDS}s) ..."
+        "正在调 hermes chat (timeout=${task_timeout}s) ..."
 
     # v1.0.31 (sprint-12): hermes invocation moved to moni/share/worker_llm.py
     # — a dedicated Python module.  It:
@@ -1063,7 +1075,7 @@ print(p.get('generation_approach',''))
     local hermes_out_file="$artifacts_dir/${task_id}-hermes-output.txt"
     local hermes_usage_file="$artifacts_dir/${task_id}-hermes-usage.json"
     local hermes_output=""
-    local llm_args=("--db" "$DB_PATH" "--timeout" "$TIMEOUT_SECONDS")
+    local llm_args=("--db" "$DB_PATH" "--timeout" "$task_timeout")
     [[ -n "$effective_skill" ]] && llm_args+=("--skill" "$effective_skill")
     [[ -n "$provider_override" ]] && llm_args+=("--provider" "$provider_override")
     [[ -n "$model_override" ]] && llm_args+=("--model" "$model_override")
@@ -1078,7 +1090,7 @@ print(p.get('generation_approach',''))
     hermes_output=$(cat "$hermes_out_file" 2>/dev/null) || true
 
     if [[ $hermes_exit -eq 124 ]]; then
-        error_msg="timeout after ${TIMEOUT_SECONDS}s"
+        error_msg="timeout after ${task_timeout}s"
         log "FAIL $task_id — timeout"
         task_status_update "$task_id" "failed" "" "$error_msg"
         return 0
