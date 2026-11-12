@@ -694,10 +694,11 @@ function app() {
         this.configLoadSources();
         this.configLoadFilters();
       } else if (this.configTab === 'llm') {
-        if (!this.llmTab) this.llmTab = 'providers';
+        if (!this.llmTab) this.llmTab = 'gateway';
         this.loadLlmProviders();
         this.loadLlmModels();
         this.loadLlmSettings();
+        if (this.llmTab === 'gateway') this.loadLlmGateway();
         if (this.llmTab === 'usage') this.loadLlmUsage();
       } else if (this.configTab === 'cron') {
         this.loadCronRuns();
@@ -4662,9 +4663,11 @@ function app() {
     },
 
     // ── LLM Settings panel ───────────────────────────────────────
-    llmTab: 'providers',
+    llmTab: 'gateway',
     llmProviders: [],
     llmModels: [],
+    llmGateway: null,
+    llmGatewayFilter: '',
     llmSettings: {},
     llmSettingsDraft: {
       llm_model_mode: 'profile',
@@ -4691,9 +4694,22 @@ function app() {
 
     switchLlmTab(tab) {
       this.llmTab = tab;
+      if (tab === 'gateway') {
+        this.loadLlmGateway();
+      }
       if (tab === 'usage' && !this.llmUsage) {
         this.loadLlmUsage();
       }
+    },
+
+    loadLlmGateway() {
+      fetch('/api/llm/gateway', { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(data => { this.llmGateway = data; })
+        .catch(err => {
+          console.error('loadLlmGateway failed:', err);
+          this.llmGateway = null;
+        });
     },
 
     llmProviderName(providerId) {
@@ -4852,7 +4868,11 @@ function app() {
 
     async testLlmProvider(provider) {
       // Single confirmation — warns about token usage
-      if (!(await moniModal.confirm(`测试 "${provider.name}" (${provider.hermes_provider}) 连通性？\n\n⚠️ 将消耗约 5-10 tokens`, { title: '测试 LLM Provider', okLabel: '测试', danger: true }))) return;
+      const viaProfile = (this.llmSettings?.llm_model_mode || 'profile') === 'profile';
+      const what = viaProfile
+        ? `当前模型来源是「跟随 profile」，本次实际测的是 profile 的默认模型（magpie 路由组），不是该 Provider 的模型。`
+        : `测试 "${provider.name}" (${provider.hermes_provider}) 连通性？`;
+      if (!(await moniModal.confirm(`${what}\n\n⚠️ 将消耗约 5-10 tokens`, { title: '测试 LLM Provider', okLabel: '测试', danger: true }))) return;
 
       provider._testing = true;
 
@@ -4863,10 +4883,13 @@ function app() {
         .then(r => r.json())
         .then(data => {
           provider._testing = false;
+          const via = data.tested === 'profile'
+            ? '实际走 profile 当前模型'
+            : '实际走该 Provider 的模型';
           if (data.ok) {
-            this._notify('success', `✅ 连通成功 — Provider: ${data.provider} · Model: ${data.model} · 耗时 ${data.duration_ms}ms`, { duration: 6000 });
+            this._notify('success', `✅ 连通成功 — ${via}: ${data.provider} / ${data.model} · 耗时 ${data.duration_ms}ms`, { duration: 6000 });
           } else {
-            this._notify('error', `❌ 连通失败 — Provider: ${data.provider} · Model: ${data.model} · ${data.error || '未知错误'}`);
+            this._notify('error', `❌ 连通失败 — ${via}: ${data.provider} / ${data.model} · ${data.error || '未知错误'}`);
           }
         })
         .catch(err => {

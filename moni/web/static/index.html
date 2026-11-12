@@ -862,7 +862,7 @@
                   <a class="link" href="#" @click.prevent="showArticleDetail({ id: job.article_id })"
                      x-text="(job.article_title || job.article_id).slice(0, 50)"></a>
                 </td>
-                <td x-text="job.model || '-'"></td>
+                <td x-text="job.model || (job.provider === 'profile' ? '跟随 profile' : '-')"></td>
                 <td x-text="formatDuration(job.duration_ms)"></td>
                 <td x-text="job.attempts + (job.status === 'failed' ? '/' + 2 : '')"></td>
                 <td x-text="job.created_at ? job.created_at.slice(0, 19).replace('T', ' ') : '-'"></td>
@@ -2595,13 +2595,90 @@
         <!-- ── Tab 4: 大模型设置 (原 LLM 设置 一级菜单) ── -->
         <div x-show="configTab === 'llm'">
           <div class="config-tabs" style="margin-bottom: 16px;">
-            <button class="tab-btn" :class="{ active: llmTab === 'providers' }" @click="switchLlmTab('providers')">Provider 绑定</button>
-            <button class="tab-btn" :class="{ active: llmTab === 'models' }"    @click="switchLlmTab('models')">Model 选择</button>
-            <button class="tab-btn" :class="{ active: llmTab === 'usage' }"     @click="switchLlmTab('usage')">用量统计</button>
+            <button class="tab-btn" :class="{ active: llmTab === 'gateway' }" @click="switchLlmTab('gateway')">网关</button>
+            <button class="tab-btn" :class="{ active: llmTab === 'models' }"   @click="switchLlmTab('models')">模型映射</button>
+            <button class="tab-btn" :class="{ active: llmTab === 'usage' }"    @click="switchLlmTab('usage')">用量统计</button>
           </div>
 
-        <!-- ── Sub-tab 1: Provider 绑定 ── -->
-        <div x-show="llmTab === 'providers'">
+        <!-- ── Sub-tab 1: 网关（真实来源） ── -->
+        <div x-show="llmTab === 'gateway'">
+          <div class="toolbar">
+            <button class="btn-refresh" @click="loadLlmGateway()">刷新</button>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px;">
+            <div class="surface-muted">
+              <div class="muted">网关地址</div>
+              <div><code x-text="llmGateway?.gateway?.base_url || '-'"></code></div>
+              <span class="status-badge" :class="llmGateway?.gateway?.reachable ? 'status-ok' : 'status-paused'"
+                    x-text="llmGateway?.gateway?.reachable ? '可达' : '不可达'"></span>
+            </div>
+            <div class="surface-muted">
+              <div class="muted">可用模型</div>
+              <div style="font-size: 1.4em; font-weight: bold;" x-text="llmGateway?.gateway?.model_count ?? '-'"></div>
+              <div class="muted">路由组 <span x-text="(llmGateway?.gateway?.groups || []).length"></span> 个</div>
+            </div>
+            <div class="surface-muted">
+              <div class="muted">当前 profile</div>
+              <div x-text="llmGateway?.profile?.profile || '-'"></div>
+              <div class="muted" x-text="llmGateway?.profile?.provider || ''"></div>
+            </div>
+            <div class="surface-muted">
+              <div class="muted">实际生效模型</div>
+              <div><code x-text="llmGateway?.profile?.default_model || '-'"></code></div>
+              <div class="muted">在 magpie 里切路由组后立即生效</div>
+            </div>
+          </div>
+
+          <p class="muted" x-show="llmGateway && !llmGateway.gateway.reachable"
+             x-text="'网关不可达：' + (llmGateway?.gateway?.error || '')"></p>
+
+          <div class="form-row" style="max-width: 400px;">
+            <label>模型来源</label>
+            <select x-model="llmSettingsDraft.llm_model_mode"
+                    @change="saveLlmSetting('llm_model_mode', llmSettingsDraft.llm_model_mode)">
+              <option value="profile">跟随 profile（magpie 路由组）</option>
+              <option value="explicit">指定模型（模型映射）</option>
+            </select>
+          </div>
+          <p class="muted" style="margin-bottom: 16px;"
+             x-text="llmSettingsDraft.llm_model_mode === 'profile'
+               ? '模型由 hermes 的 ' + (llmGateway?.profile?.profile || 'moni') + ' profile 决定，在 magpie 里切换路由组'
+               : '按「模型映射」里的绑定逐模型调用'"></p>
+
+          <div class="form-row" style="max-width: 320px;">
+            <label>过滤</label>
+            <input type="text" x-model="llmGatewayFilter" placeholder="模型 / 路由组">
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr><th>模型 ID</th><th>说明</th><th>类型</th></tr>
+              </thead>
+              <tbody>
+                <template x-for="m in (llmGateway?.gateway?.models || []).filter(x => !llmGatewayFilter || x.id.includes(llmGatewayFilter) || (x.label || '').includes(llmGatewayFilter))" :key="m.id">
+                  <tr>
+                    <td><code x-text="m.id"></code></td>
+                    <td x-text="m.label"></td>
+                    <td><span class="tag-chip" x-show="m.is_group">路由组</span></td>
+                  </tr>
+                </template>
+                <tr x-show="!(llmGateway?.gateway?.models || []).length">
+                  <td colspan="3" class="empty-row">网关不可达或没有模型</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+
+        <!-- ── Sub-tab 2: 模型映射（仅 explicit 模式生效） ── -->
+        <div x-show="llmTab === 'models'">
+          <p class="muted" style="margin-bottom: 16px;">
+            下面的绑定只在「模型来源 = 指定模型」时生效。默认的「跟随 profile」模式下，
+            实际模型由 magpie 路由组决定，这里改了也不影响推理。
+          </p>
+          <h4>Provider 映射</h4>
           <div class="toolbar">
             <button class="btn-primary" @click="openLlmProviderForm(null)">+ 新建 Provider</button>
             <button class="btn-refresh" @click="loadLlmProviders()">刷新</button>
@@ -2648,8 +2725,8 @@
           </div>
         </div>
 
-        <!-- ── Sub-tab 2: Model 选择 ── -->
         <div x-show="llmTab === 'models'">
+          <h4 style="margin-top: 24px;">Model 映射</h4>
           <div class="toolbar">
             <button class="btn-primary" @click="openLlmModelForm(null)">+ 新建 Model</button>
             <button class="btn-refresh" @click="loadLlmModels()">刷新</button>
@@ -2698,19 +2775,10 @@
 
           <!-- Active model settings -->
           <div style="margin-top: 24px;">
-            <h4>默认模型设置</h4>
-            <div class="form-row" style="max-width: 400px;">
-              <label>模型来源</label>
-              <select x-model="llmSettingsDraft.llm_model_mode"
-                      @change="saveLlmSetting('llm_model_mode', llmSettingsDraft.llm_model_mode)">
-                <option value="profile">跟随 profile（magpie 路由组）</option>
-                <option value="explicit">指定模型（下方两项）</option>
-              </select>
-            </div>
-            <p class="muted" style="margin-bottom: 12px;"
-               x-text="llmSettingsDraft.llm_model_mode === 'profile'
-                 ? '模型由 hermes 的 moni profile 决定，在 magpie 里切换路由组'
-                 : '选择各类任务使用的默认模型 (model_id)'"></p>
+            <h4>默认模型（explicit 模式）</h4>
+            <p class="muted" style="margin-bottom: 12px;">
+              选择各类任务使用的默认模型 (model_id)。
+            </p>
             <div class="form-row" style="max-width: 400px;">
               <label>摘要模型 (active_summary_model_id)</label>
               <select x-model="llmSettingsDraft.active_summary_model_id"
