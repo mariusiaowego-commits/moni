@@ -537,17 +537,16 @@ body {
   background: oklch(from var(--destructive) calc(l + 0.06) c h);
 }
 
-/* v1.0.35.1: 表格行内操作列 ghost-style btn-danger
-   跟同一行的 .link-btn / .btn-secondary 视觉重量匹配, 但保留红色语义可识别 destructive */
+/* 行内危险操作：静默，hover 才提示 */
 .row-actions .btn-danger {
   background: transparent;
-  color: var(--destructive);
-  border-color: oklch(from var(--destructive) l c h / 0.4);
-  border-radius: 4px;
+  border-color: transparent;
+  color: var(--muted-fg);
+  border-radius: var(--radius-xs);
 }
 .row-actions .btn-danger:hover:not(:disabled) {
   background: oklch(from var(--destructive) l c h / 0.08);
-  border-color: var(--destructive);
+  border-color: transparent;
   color: var(--destructive);
   box-shadow: none;
 }
@@ -565,20 +564,43 @@ body {
   border-color: oklch(from var(--border) calc(l - 0.05) c h);
 }
 
-/* Link-style button */
-.btn-link {
-  color: var(--muted-fg); font-size: 0.84rem; text-decoration: none;
-  cursor: pointer; background: none; border: none; padding: 4px 8px;
-  transition: color 0.12s ease, background 0.12s ease;
-  border-radius: 4px;
+/* 合并 .link-btn 与 .btn-link 的度量，保留两个类名（tests 引用 .link-btn） */
+.link-btn, .btn-link {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 4px 8px; min-height: 28px;
+  font-size: 13px; line-height: 1.2; border-radius: var(--radius-xs);
+  background: none; border: 1px solid transparent; cursor: pointer;
+  color: var(--muted-fg); text-decoration: none;
+  transition: background 0.12s, color 0.12s;
   min-width: max-content;
-  display: inline-block;
 }
-.btn-link:hover { color: var(--foreground); background: var(--muted); }
+.link-btn:hover, .btn-link:hover { background: var(--muted); color: var(--foreground); }
 
 /* v1.0.35.1: 行内操作列 wrapper (ghost btn-danger 用)
    用 flex + gap 替代全局 .btn + .btn 的兄弟 margin-left (row-actions 内部更紧凑) */
 .row-actions { display: inline-flex; align-items: center; gap: 8px; }
+.row-actions .icon-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: none;
+  color: var(--muted-fg);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.row-actions .icon-btn:hover:not(:disabled) {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.row-actions .icon-btn.icon-btn-danger:hover:not(:disabled) {
+  color: var(--destructive);
+  background: oklch(from var(--destructive) l c h / 0.08);
+}
 
 /* v1.0.35.1: 按钮安全距离 (相邻兄弟 +8px, 替代原本 inline-whitespace 的 ~4px)
    不影响: tab/segmented control (有自己 padding + active 状态)、modal-footer (自带 gap),
@@ -817,6 +839,7 @@ tbody tr:last-child td { border-bottom: none; }
   position: absolute; left: 232px; top: 50%; transform: translateY(-50%);
   background: none; border: none; cursor: pointer;
   color: var(--muted-fg); font-size: 1.1rem; padding: 2px 6px;
+  display: inline-flex; align-items: center; justify-content: center;
   transition: color 0.12s ease, transform 0.1s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .search-clear:hover { color: var(--foreground); }
@@ -824,6 +847,7 @@ tbody tr:last-child td { border-bottom: none; }
 .search-icon {
   position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
   font-size: 0.82rem; opacity: 0.5; pointer-events: none;
+  display: inline-flex; align-items: center; justify-content: center;
 }
 .search-box select, .filter-bar select {
   padding: 9px 12px; border: 1px solid var(--border);
@@ -868,23 +892,27 @@ label { font-size: 0.85rem; }
 .dark .link, :root.dark .link { color: var(--link); }
 .dark .link:hover, :root.dark .link:hover { color: var(--link-hover); }
 
-.link-btn { color: var(--muted-fg); font-size: 0.84rem; text-decoration: none; cursor: pointer; transition: color 0.12s; background: none; border: none; padding: 0; }
-.link-btn:hover { color: var(--foreground); }
 .muted { color: var(--muted-fg); font-size: 0.84rem; }
 
 /* ═══════════════════════════════════════════════════════════════
-   Inline SVG icons (v1.0.8)
+   Inline SVG icons (v1.0.8 / Sprint 40)
    nullframe-inspired geometry: glyph-grid, single stroke, currentColor
    ═══════════════════════════════════════════════════════════════ */
 .icon {
-  display: inline-block; vertical-align: middle;
-  flex-shrink: 0;
-  /* Default color follows text; pin-active overrides */
-  color: var(--muted-fg);
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  vertical-align: -2px;
+  display: inline-block;
+  color: currentColor;
   transition: color 0.12s;
 }
+.icon-12 { width: 12px; height: 12px; }
+.icon-14 { width: 14px; height: 14px; }
+.icon-18 { width: 18px; height: 18px; }
 .icon-pin {
-  /* Sized by the SVG width attr; this is for spacing/alignment */
+  width: 17px;
+  height: 17px;
   vertical-align: -2px;
 }
 /* Active (pinned) state — the icon CSS can't know it's active,
@@ -1154,6 +1182,8 @@ label { font-size: 0.85rem; }
   position: absolute; top: 12px; right: 14px;
   background: none; border: none; cursor: pointer;
   color: var(--muted-fg); font-size: 1.2rem; padding: 4px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-xs);
   transition: color 0.12s;
 }
 .modal-close:hover { color: var(--foreground); }
@@ -2584,6 +2614,7 @@ label { font-size: 0.85rem; }
 .cal-popover-close {
   background: none; border: none; cursor: pointer;
   font-size: 18px; color: var(--muted-fg); padding: 0 4px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
   transition: color 120ms ease-out;
 }
 .cal-popover-close:hover { color: var(--card-fg); }
@@ -2687,6 +2718,9 @@ label { font-size: 0.85rem; }
   width: 24px;
   height: 24px;
   padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px dashed oklch(from var(--destructive) l c h / 0.4);
   border-radius: 4px;
   background: transparent;
@@ -2924,6 +2958,9 @@ label { font-size: 0.85rem; }
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .case-kw-add {
   display: flex;
@@ -3993,6 +4030,8 @@ label { font-size: 0.85rem; }
 .btn-refresh:focus-visible,
 .pin-btn:focus-visible,
 .link-btn:focus-visible,
+.btn-link:focus-visible,
+.icon-btn:focus-visible,
 .tag-chip:focus-visible,
 .subtab:focus-visible,
 .toast-action:focus-visible,
@@ -4006,6 +4045,8 @@ label { font-size: 0.85rem; }
   .btn:focus,
   .pin-btn:focus,
   .link-btn:focus,
+  .btn-link:focus,
+  .icon-btn:focus,
   .tag-chip:focus,
   .subtab:focus {
     outline: 2px solid var(--accent);
