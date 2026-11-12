@@ -285,10 +285,14 @@ class BaseFetcher(ABC):
             )
 
         inserted = 0
+        insert_error: str | None = None
         if filtered_articles and not dry_run:
             try:
                 inserted = self.dedupe_insert(filtered_articles, keyword_hits)
             except Exception as exc:
+                # 不设 error 的话, 入库整体失败会和「今天没有新文章」长得一样,
+                # web / cron / CLI 四条路径都会记成功 (v1.0.76 审计 P2)。
+                insert_error = f"{type(exc).__name__}: {exc}"
                 logger.error("[%s] dedupe_insert() raised %s: %s",
                              source, type(exc).__name__, exc)
         elif dry_run:
@@ -312,7 +316,7 @@ class BaseFetcher(ABC):
             "dropped_tag_filter": tag_stats["dropped_tag_filter"],
             "tags_used": tag_stats["tags_used"],
             "dropped_articles": tag_stats.get("dropped_articles", []),
-            "error": None,
+            "error": insert_error,
         }
 
 

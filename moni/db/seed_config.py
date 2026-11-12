@@ -39,6 +39,10 @@ from .connection import get_db
 from moni.fetch.sources.xbot_feed import (
     DEFAULT_FETCH_CONFIG as XBOT_FEED_DEFAULT_FETCH_CONFIG,
 )
+# v1.0.76: bank_feed 同理 —— 默认值只有一个来源 (bank_feed.py)。
+from moni.fetch.sources.bank_feed import (
+    DEFAULT_FETCH_CONFIG as BANK_FEED_DEFAULT_FETCH_CONFIG,
+)
 
 
 def _env_token(account: str) -> str:
@@ -97,7 +101,37 @@ _DEFAULT_TAGS = [
     ("APP",             "APP",          "APP手机应用",                     "#8A71E8"),
     ("model-providers", "模型提供商",   "大模型提供商相关资讯",            "#EA580C"),
     ("workbuddy",       "workbuddy",    "workbuddy",                       "#16A34A"),
+    # v1.0.76 (sprint-40): 银行同业 —— 中/农/工/建/邮储 (及交通银行) 的资讯与
+    # 实际动作。与 banking (主题词: 监管/宏观/财报) 的区别是这里只放
+    # **点名到具体银行** 的条目 —— banking 的 300+ 关键词放进来的多是
+    # 不含任何银行主体的宏观稿 (实测近 90 天 1223 篇 banking 里只有
+    # 36 篇 = 2.9% 提到具体银行名)。
+    ("peer-banks",      "同业",        "中农工建邮储等银行的资讯与动作 (非公告)", "#0F766E"),
 ]  # noqa: E501
+
+
+# ── Tag 关键词 (只在首次 INSERT 时写入, 绝不覆盖用户已配的) ────────────────
+# 语义: tag_filter 的 OR 闸门。命中任意一个就进, 所以这里只放**银行主体词**
+# (全称 + 新闻里常用的两字简称), 不放动作词 —— 动作词 (发布/签约/落地) 在
+# 任何宏观稿里都会出现, 放进来等于把闸门拆了。真正的"哪家银行做了什么"由
+# bot 侧的目标清单负责 (每个 target 钉死一家行), 闸门只做主体词兜底。
+#
+# 长词 (>=3 字, 如"工商银行") 走普通子串, 正文任意位置命中即可;
+# 两字简称 (工行/农行/建行/中行/邮储) 按 keyword_match 的短 CJK 规则,
+# 命中标题或正文重复 2 次以上 —— 银行新闻的标题几乎必然点名, 所以召回
+# 不掉, 反而挡掉了正文里一句带过的宏观稿。
+PEER_BANKS_KEYWORDS: list[str] = [
+    "工商银行", "中国工商银行", "工行", "ICBC",
+    "农业银行", "中国农业银行", "农行",
+    "中国银行", "中行",
+    "建设银行", "中国建设银行", "建行", "CCB",
+    "邮储银行", "中国邮政储蓄银行", "邮储", "PSBC",
+    "交通银行", "交行",
+]
+
+_DEFAULT_TAG_KEYWORDS: dict[str, list[str]] = {
+    "peer-banks": PEER_BANKS_KEYWORDS,
+}
 
 
 # ── Source 定义 (5 个) ──────────────────────────────────────────────────────
@@ -317,6 +351,26 @@ _DEFAULT_SOURCES = [
             ensure_ascii=False,
         ),
     },
+    # v1.0.76 / sprint-40: bank_feed — 银行同业情报 agent 管道。
+    # 上游是一个**外部 agent** (scripts/bank_bot/run_bot.py): 抓五大行官网
+    # 栏目 + 媒体 RSS + 已知公众号 URL, 落到 data/bank_feed/*.json。
+    # 本源只读本地目录, 不联网、不持 key; agent 自己走 hermes --profile moni
+    # (即 magpie 路由组), 与 moni 现有 LLM 链路同一条。
+    # 用户想加/换信源时改 fetch_config.targets (web 端 fetch_config 编辑器),
+    # **不需要改代码**。
+    {
+        "id": "src-bank-feed",
+        "name": "bank_feed",
+        "display_name": "银行同业",
+        "source_type": "json",
+        "url": "",
+        "fetch_interval_min": 120,
+        "notes": "中农工建邮储的资讯 (非公告)。agent 抓官网栏目+媒体 RSS+已知公众号, 落到 data/bank_feed 的 JSON, 本源只做导入。抓取时若当天 feed 缺失会就地调 agent 补跑。",
+        "fetch_config": json.dumps(
+            copy.deepcopy(BANK_FEED_DEFAULT_FETCH_CONFIG),
+            ensure_ascii=False,
+        ),
+    },
 ]
 
 
@@ -389,6 +443,9 @@ _DEFAULT_SOURCE_TAGS = [
     ("src-xbot-feed", "miniprogram"),
     ("src-xbot-feed", "general-tech"),
     ("src-xbot-feed", "ai-fintech"),
+    # v1.0.76: bank_feed 只绑 1 个 tag —— 这个 tag 的关键词并集就是入库闸门,
+    # 命中哪家行就只给那篇打 peer-banks (dedupe_insert 只写命中的 tag)。
+    ("src-bank-feed", "peer-banks"),
 ]
 
 
@@ -467,17 +524,33 @@ def seed() -> None:
 
     # ── tag_definitions (复用已有表) ────────────────────────────────────
     for name, display_name, desc, color in _DEFAULT_TAGS:
+        # v1.0.76: keywords 只在**首次 INSERT** 时落库, 且 ON CONFLICT 只
+        # 在库里的值为空时补一次 —— 那是用户在 /config 里维护的数据, seed
+        # 每次都跑 (moni db init), 覆盖它等于把用户的编辑擦掉。空关键词的
+        # tag 会把闸门变成 pass-through, 所以必须补 (只补空, 不覆盖)。
+        keywords = _DEFAULT_TAG_KEYWORDS.get(name)
         conn.execute(
             """
-            INSERT INTO tag_definitions (name, display_name, description, color, created_at, is_active)
-            VALUES (?, ?, ?, ?, ?, 1)
+            INSERT INTO tag_definitions
+                (name, display_name, description, color, keywords, created_at, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, 1)
             ON CONFLICT(name) DO UPDATE SET
                 display_name = excluded.display_name,
                 description  = excluded.description,
                 color        = excluded.color,
-                is_active    = 1
+                is_active    = 1,
+                keywords     = CASE
+                    WHEN tag_definitions.keywords IS NULL
+                      OR TRIM(tag_definitions.keywords) IN ('', '[]')
+                    THEN excluded.keywords
+                    ELSE tag_definitions.keywords
+                END
             """,
-            (name, display_name, desc, color, now),
+            (
+                name, display_name, desc, color,
+                json.dumps(keywords, ensure_ascii=False) if keywords else None,
+                now,
+            ),
         )
 
     # ── sources ────────────────────────────────────────────────────────
@@ -504,8 +577,11 @@ def seed() -> None:
                 url                = excluded.url,
                 fetch_interval_min = excluded.fetch_interval_min,
                 notes              = excluded.notes,
+                -- 用户改过的 fetch_config 优先 (bank_feed.targets、xbot_feed
+                -- 的 topics 都在里面)。只在库里的值为 NULL 时落种子默认值,
+                -- 否则每次 `moni db init` 都会把用户的编辑擦回默认。
                 fetch_config       = COALESCE(
-                    excluded.fetch_config, sources.fetch_config
+                    sources.fetch_config, excluded.fetch_config
                 ),
                 updated_at         = excluded.updated_at
             """,

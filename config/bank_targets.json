@@ -1,0 +1,103 @@
+{
+  "_comment": "银行同业信源目标清单 (sprint-40 / v1.0.76)。用户可在 /config → 银行同业 → fetch_config.targets 里覆盖本文件, 改完下一个抓取周期生效, 不需要改代码。kind 三种: official_list (官网新闻栏目, 由 agent 渲染+抽取) / media_rss (标准 RSS, Python 直接解析) / media_json (JSON 列表接口, 按 fields 映射) / wechat_article (已知 mp.weixin.qq.com 链接, 由 agent 浏览器渲染)。",
+  "version": 1,
+  "updated_at": "2026-11-12",
+  "targets": [
+    {
+      "id": "boc-news",
+      "kind": "official_list",
+      "url": "https://www.boc.cn/aboutboc/bi1/",
+      "bank": "boc",
+      "publisher": "中国银行",
+      "hint": "中行「中行动态」栏目, 列表自带日期, 一页约 20 条"
+    },
+    {
+      "id": "abc-news",
+      "kind": "official_list",
+      "url": "https://www.abchina.com/cn/AboutABC/nonghzx/NewsCenter/",
+      "bank": "abc",
+      "publisher": "中国农业银行",
+      "hint": "农行「新闻中心」, 链接形如 /cn/AboutABC/nonghzx/NewsCenter/YYYYMM/tYYYYMMDD_xxxxxxx.htm"
+    },
+    {
+      "id": "icbc-news",
+      "kind": "official_list",
+      "url": "https://www.icbc.com.cn/column/1438058319654043683.html",
+      "bank": "icbc",
+      "publisher": "中国工商银行",
+      "hint": "工行「工行快讯」列表, 列表页无日期, 需进详情页取发布时间"
+    },
+    {
+      "id": "ccb-news",
+      "kind": "official_list",
+      "url": "https://group.ccb.cn/chn/ccbtoday/indexv3.shtml",
+      "bank": "ccb",
+      "publisher": "中国建设银行",
+      "hint": "建行「今日建行」, 列表自带日期"
+    },
+    {
+      "id": "psbc-news",
+      "kind": "official_list",
+      "url": "https://www.psbc.com/cn/gyyc/ycfm/ycdt/",
+      "bank": "psbc",
+      "publisher": "中国邮政储蓄银行",
+      "hint": "邮储「邮储动态」, 链接形如 /cn/gyyc/ycfm/ycdt/YYYYMM/tYYYYMMDD_xxxxxx.html"
+    },
+    {
+      "id": "weiyangx",
+      "kind": "media_rss",
+      "url": "https://www.weiyangx.com/feed",
+      "bank": null,
+      "publisher": "未央网",
+      "hint": "清华五道口金融科技评论, 银行命中率实测 7/30"
+    },
+    {
+      "id": "eastmoney",
+      "kind": "media_rss",
+      "url": "https://rss.eastmoney.com/rss_partener.xml",
+      "bank": null,
+      "publisher": "东方财富",
+      "hint": "东财合作媒体 RSS, 单次约 98 条, 不支持翻页"
+    },
+    {
+      "id": "jiemian",
+      "kind": "media_rss",
+      "url": "https://a.jiemian.com/index.php?m=article&a=rss",
+      "bank": null,
+      "publisher": "界面新闻",
+      "hint": "界面新闻全文 RSS, 约 30 条"
+    },
+    {
+      "id": "ftchinese",
+      "kind": "media_rss",
+      "url": "https://www.ftchinese.com/rss/feed",
+      "bank": null,
+      "publisher": "FT中文网",
+      "hint": "FT 中文网头条, 约 20 条"
+    },
+    {
+      "id": "chinanews-finance",
+      "kind": "media_rss",
+      "url": "https://www.chinanews.com.cn/rss/finance.xml",
+      "bank": null,
+      "publisher": "中新经纬",
+      "hint": "中新网财经 RSS, 约 30 条"
+    },
+    {
+      "id": "yicai-finance",
+      "kind": "media_json",
+      "url": "https://www.yicai.com/api/ajax/getlistbycid?cid=53&page=1&pagesize=20",
+      "bank": null,
+      "publisher": "第一财经",
+      "hint": "一财金融频道 JSON 列表, 可用 page 参数翻页",
+      "base_url": "https://www.yicai.com",
+      "items_path": "",
+      "fields": {
+        "title": "NewsTitle",
+        "url": "url",
+        "date": "CreateDate",
+        "summary": "NewsNotes"
+      }
+    }
+  ]
+}

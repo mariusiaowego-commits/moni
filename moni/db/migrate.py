@@ -18,7 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 40  # v1.0.70: llm_model_mode 默认 profile (040)
+_CURRENT_VERSION = 41  # v1.0.76: bank_feed 源 + peer-banks tag (041)
 
 
 def _rollback_if_needed(conn: sqlite3.Connection) -> None:

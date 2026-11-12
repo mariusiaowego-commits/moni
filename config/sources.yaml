@@ -83,3 +83,13 @@ sources:
   fetch_interval_min: 60
   enabled: true
   crawler_type: json
+- source_name: bank_feed
+  type: json
+  feed_url: ''
+  fetch_interval_min: 120
+  enabled: true
+  # 例外: 不参加 9:10 定时任务、web「一键抓取」和不带 --source 的 CLI 全量,
+  # 只在单源「立即抓取」/ `moni fetch --source bank_feed` 时跑
+  # (它的抓取段会拉起 agent, 耗时以十分钟计)。
+  batch_enabled: false
+  crawler_type: json

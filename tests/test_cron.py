@@ -885,6 +885,104 @@ class TestFailureIsolationInJobs:
         finally:
             _FETCHER_REGISTRY.pop("fake_good", None)
 
+    def test_result_error_counts_as_failed_source(
+        self, isolated_db, tmp_config_dir, monkeypatch
+    ):
+        """fetcher 不抛异常、只把 error 放进 result 时, cron_runs 必须 success=0。
+
+        bank_feed 走的就是这条路径: fetch() 内部捕获异常并返回 error,
+        早先的 jobs.py 只在 except 分支计数, 会把整轮记成成功。
+        """
+        from moni.cron import jobs as cron_jobs
+
+        class _ErrorFetcher(BaseFetcher):
+            source_name = "fake_error"
+
+            def fetch(self):
+                return []
+
+            def parse(self, raw):
+                return None
+
+            def run(self, dry_run: bool = False):
+                return {
+                    "source": self.source_name,
+                    "fetched": 0, "parsed": 0, "inserted": 0, "parse_errors": 0,
+                    "error": "RuntimeError: agent bot failed",
+                }
+
+        _FETCHER_REGISTRY["fake_error"] = _ErrorFetcher
+        try:
+            sources_yaml = tmp_config_dir / "sources.yaml"
+            last_run_path = tmp_config_dir / ".last_run.json"
+            _write_sources_yaml(sources_yaml, [
+                {"source_name": "fake_error", "feed_url": "http://x/e",
+                 "fetch_interval_min": 30, "enabled": True},
+            ])
+            last_run_path.write_text(json.dumps({}), encoding="utf-8")
+
+            from moni.fetch.scheduler import Scheduler as FetchScheduler
+
+            tmp_fetch = FetchScheduler(
+                config_path=sources_yaml, last_run_path=last_run_path
+            )
+            monkeypatch.setattr(
+                cron_jobs, "FetchScheduler", lambda *a, **kw: tmp_fetch
+            )
+
+            cron_jobs.fetch_all_sources()
+
+            conn = get_db()
+            row = conn.execute("SELECT success, sources_run FROM cron_runs").fetchone()
+            assert row["success"] == 0
+            assert row["sources_run"] == 0
+            log = conn.execute(
+                "SELECT error FROM fetch_log WHERE source = 'fake_error'"
+            ).fetchone()
+            assert log["error"] and "agent bot failed" in log["error"]
+        finally:
+            _FETCHER_REGISTRY.pop("fake_error", None)
+
+    def test_batch_sources_skips_batch_enabled_false(
+        self, isolated_db, tmp_config_dir, monkeypatch
+    ):
+        """batch_enabled: false 的源不进 9:10 定时任务, 但仍 enabled。"""
+        from moni.cron import jobs as cron_jobs
+
+        _FETCHER_REGISTRY.pop("fake_good", None)
+        _FETCHER_REGISTRY["fake_good"] = _FakeGoodFetcher
+        try:
+            sources_yaml = tmp_config_dir / "sources.yaml"
+            last_run_path = tmp_config_dir / ".last_run.json"
+            _write_sources_yaml(sources_yaml, [
+                {"source_name": "fake_good", "feed_url": "http://x/good",
+                 "fetch_interval_min": 30, "enabled": True},
+                {"source_name": "fake_manual", "feed_url": "http://x/manual",
+                 "fetch_interval_min": 30, "enabled": True,
+                 "batch_enabled": False},
+            ])
+            last_run_path.write_text(json.dumps({}), encoding="utf-8")
+
+            from moni.fetch.scheduler import Scheduler as FetchScheduler
+
+            tmp_fetch = FetchScheduler(
+                config_path=sources_yaml, last_run_path=last_run_path
+            )
+            monkeypatch.setattr(
+                cron_jobs, "FetchScheduler", lambda *a, **kw: tmp_fetch
+            )
+
+            cron_jobs.fetch_all_sources()
+
+            conn = get_db()
+            sources = [
+                r["source"]
+                for r in conn.execute("SELECT source FROM fetch_log ORDER BY id")
+            ]
+            assert sources == ["fake_good"]
+        finally:
+            _FETCHER_REGISTRY.pop("fake_good", None)
+
     def test_job_runs_when_no_sources_enabled(
         self, isolated_db, tmp_config_dir, monkeypatch
     ):
