@@ -542,7 +542,7 @@ function app() {
     configModalTarget: null,
     configModalTargetOriginal: null,  // for tag edit: original name (immutable)
     fetchConfigData: { source_id: '', source_name: '', merged: {}, defaults: {}, has_custom: false },
-    // v1.0.70 (sprint-35): X-bot 精选的 scope 信息 (来源徽标 / 串联说明)。
+    // v1.0.71 (sprint-35): X-bot 精选的 scope 信息 (来源徽标 / 串联说明)。
     fetchConfigScopeInfo: null,
 
     // v1.0.12.2: Chinese labels + hints for fetch_config keys (and fallback).
@@ -917,7 +917,7 @@ function app() {
     },
     fetchConfigSortedKeys() {
       const merged = this.fetchConfigData.merged || {};
-      // v1.0.70 (sprint-35): X-bot 专属键 (thresholds / scope) 有自己的
+      // v1.0.71 (sprint-35): X-bot 专属键 (thresholds / scope) 有自己的
       // 专属区块 (类型化输入框), 不进通用键循环 —— 免得门槛被当成
       // raw JSON textarea (AC-10.2)。其它信源的键列表一个字不变。
       const isXbot = this.fetchConfigData.source_name === 'xbot_feed';
@@ -934,7 +934,7 @@ function app() {
         return ra - rb || a.localeCompare(b);
       });
     },
-    // ── v1.0.70 (sprint-35): X-bot 精选的门槛 + scope 专属区块 ──────
+    // ── v1.0.71 (sprint-35): X-bot 精选的门槛 + scope 专属区块 ──────
     /** 读门槛值 (0 = 不设限)。 */
     fetchConfigThresholdValue(topic, field) {
       const t = (this.fetchConfigData.merged || {}).thresholds || {};
@@ -1009,7 +1009,7 @@ function app() {
           };
           this.configModalType = 'fetchConfig';
           this.configModalOpen = true;
-          // v1.0.70 (sprint-35): X-bot 精选额外拉 scope (来源徽标 + 串联说明)
+          // v1.0.71 (sprint-35): X-bot 精选额外拉 scope (来源徽标 + 串联说明)
           if (data.source_name === 'xbot_feed') {
             this.fetchConfigScopeInfo = null;
             this.configLoadScope(data.source_id);
@@ -1626,7 +1626,7 @@ function app() {
         lines.push({ type: 'error', text: `❌ 错误: ${d.error}` });
       }
 
-      // v1.0.70 (sprint-35): 门槛过滤 (X-bot 精选的第二道闸门)
+      // v1.0.71 (sprint-35): 门槛过滤 (X-bot 精选的第二道闸门)
       const thrDropped = d.threshold_dropped ?? 0;
       const thrBy = d.threshold_dropped_by || {};
       const thrMissing = d.threshold_missing_by || {};

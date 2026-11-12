@@ -20,7 +20,7 @@ CSS = REPO / "moni" / "web" / "static" / "css" / "main.css"
 
 
 #: X-bot 专属区块在 index.html 里的起止标记。
-_XBOT_BLOCK_START = "v1.0.70 (sprint-35): X-bot 精选专属区块"
+_XBOT_BLOCK_START = "v1.0.71 (sprint-35): X-bot 精选专属区块"
 _XBOT_BLOCK_END = '<div class="modal-footer">'
 
 

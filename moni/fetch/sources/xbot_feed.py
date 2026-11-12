@@ -193,7 +193,7 @@ DEFAULT_FETCH_CONFIG: dict[str, Any] = {
 #: fetcher 内部的别名 —— 语义上就是 ``DEFAULT_FETCH_CONFIG``。
 _DEFAULTS: dict[str, Any] = DEFAULT_FETCH_CONFIG
 
-# ── sprint-35 (v1.0.70): per-topic 门槛 + scope 副本 ─────────────────────
+# ── sprint-35 (v1.0.71): per-topic 门槛 + scope 副本 ─────────────────────
 #
 # **方案 A**: 这两个键**不进** ``DEFAULT_FETCH_CONFIG``。原因: 那个字典是
 # migration 039 的 SQL 字面量的唯一对照物

@@ -21,7 +21,7 @@ from moni.db.connection import get_db
 from moni.fetch.sources.xbot_feed import (
     DEFAULT_FETCH_CONFIG as XBOT_FEED_DEFAULT_FETCH_CONFIG,
 )
-# v1.0.70 (sprint-35): 门槛与 scope 的默认值是**独立常量** (方案 A) ——
+# v1.0.71 (sprint-35): 门槛与 scope 的默认值是**独立常量** (方案 A) ——
 # 不进 DEFAULT_FETCH_CONFIG (那是 migration 039 字面量的对照物)。
 from moni.fetch.sources.xbot_feed import (
     DEFAULT_SCOPE as XBOT_FEED_DEFAULT_SCOPE,
@@ -123,7 +123,7 @@ _FETCH_CONFIG_DEFAULTS: dict[str, dict] = {
 _RETIRED_FETCH_CONFIG_KEYS = {"consecutive_failure_limit"}
 
 
-# ── v1.0.70 (sprint-35): X-bot 精选的门槛与 scope ────────────────────────
+# ── v1.0.71 (sprint-35): X-bot 精选的门槛与 scope ────────────────────────
 #
 # 这两个键是**独立常量** (方案 A): 不进 ``DEFAULT_FETCH_CONFIG``, 所以
 # ``_FETCH_CONFIG_DEFAULTS["xbot_feed"]`` 仍逐字等于 DEFAULT_FETCH_CONFIG
@@ -615,7 +615,7 @@ def get_fetch_config(source_id: str) -> FetchConfigResponse:
         user_cfg.pop("bypass_tag_filter")
     merged = {**defaults, **user_cfg}
 
-    # v1.0.70 (sprint-35): X-bot 精选的门槛与 scope 是**独立常量**
+    # v1.0.71 (sprint-35): X-bot 精选的门槛与 scope 是**独立常量**
     # (方案 A) —— 在**读取时**合并进响应, 而不是在 ``defaults`` 里
     # (那样会破坏 ``test_fetch_config_has_single_source`` 的逐字比对)。
     if source_name == "xbot_feed":
@@ -694,7 +694,7 @@ def get_source_scope(source_id: str) -> ScopeResponse:
 def update_fetch_config(source_id: str, body: dict) -> FetchConfigResponse:
     """Update fetch_config for a source. Pass the full config dict.
 
-    v1.0.70 (sprint-35):
+    v1.0.71 (sprint-35):
 
     * **校验**: ``thresholds`` / ``scope`` 非法 → 400, 且**不写库**;
     * **合并语义** (只对 xbot_feed): ``stored = {**现有, **body}``

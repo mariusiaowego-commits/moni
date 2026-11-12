@@ -4,7 +4,50 @@
 
 ---
 
-## 当前状态: **v1.0.70 — 跟随 moni profile 的 magpie 路由组** (2026-11-11 · **SHIPPED**)
+## 当前状态: **v1.0.71 — X-bot scope 展示 + per-topic 门槛可配** (2026-11-12 · **进行中**)
+
+**主分支**: main @ `04c9a42` · **分支**: `feat/xbot-scope-thresholds-v1.0.71` · **PR**: 待建
+· **schema**: 40（无新迁移）· **测试**: 1598 passed / 2 skipped
+
+### v1.0.71 交付要点
+
+X-bot 精选（`xbot_feed`）这条信源"它到底抓什么范围、按什么标准筛"此前在 moni 工作台里
+**完全不可见** —— 28 个固定推特账号、wechat 关键词正则、上游自己的门槛，全在另一台机器的
+私有仓库里。本版把这两件事显式化，并且只让"门槛"这一半可配。
+
+- **范围展示 + 可编辑副本**：`GET /api/config/sources/{id}/scope` 返回 scope（xcircle
+  账号名单 / wechat 正则 / 每日查询词）、thresholds、来源标注。`scope_source` 三态：
+  `upstream`（上游 feed JSON 顶层导出 scope）> `moni_stored`（moni 侧存着用户编辑过的副本）
+  > `moni_fallback`（兜底快照 2026-11-11）。
+- **⚠️ scope 是 moni 侧副本，不参与入库闸门**：编辑它**不会改变 X-bot 的搜索范围**，
+  也不会让 moni 多收或少收任何条目（上游已经把范围筛过一遍，再按手抄名单过滤 = 静默丢条目）。
+  UI 里写明这一条。
+- **per-topic 门槛（第二道闸门）**：wechat / xcircle 各自的 `min_followers` / `min_likes`，
+  用**类型化输入框**编辑（不是一坨 raw JSON）。默认全 0 = 不设限 → **行为零变化**。
+  判定按 topic × 原因码计数（`threshold_dropped` / `threshold_dropped_by` /
+  `threshold_missing_by`），结果贯通到抓取结果面板与 job 结果 JSON。
+- **缺字段按放行处理并计数**：`author_followers` / `metrics.like` 缺失（含类型不对）
+  不丢弃，只计数 —— 门槛是"收紧"闸门，不是"内容匹配"，不能误杀。
+- **被丢弃的条目不进 `.xbot_feed_state.json`** → 之后把门槛调松，这些条目还能重新导入。
+- **上游自 2026-11-12 起自带 wechat 门槛**（5000 粉 / 5 赞）：moni 的门槛是**串联**的
+  第二道，**只能更严，捞不回上游已丢的条目**（实测：wechat 237 条里同时满足两者的只有
+  55 条 = 23%）。
+- **schema 不变（40）、无新表、不改 migration 039**：门槛与 scope 的默认值放**独立常量**，
+  `DEFAULT_FETCH_CONFIG` / 039 SQL 字面量 / 既有护栏测试**零改动**。
+
+### ⚠️ 已知边界：`moni db init` / `moni db seed-config` 会覆盖整行 `fetch_config`
+
+`moni/db/seed_config.py` 的 sources upsert 用
+`fetch_config = COALESCE(excluded.fetch_config, sources.fetch_config)`，而
+`excluded.fetch_config` **恒非 null** → seed **一定覆盖**整行 `fetch_config`，
+**包含本版新增的 `thresholds` 与 `scope`**。
+
+- 本版**不加** seed 保护（`seed_config.py` **零改动**，全局 seed 语义不动）。
+- **升级请用 `python3 -m moni.db.migrate`**（只跑迁移）—— migrate-only 路径**不碰**
+  `sources` 行，dad 配的门槛与 scope 在升级后原样保留。
+- ⚠️ **不要用 `moni db init` 升级** —— 它 = migrate + seed，会把你改过的门槛与 scope 抹掉。
+
+## 历史状态: **v1.0.70 — 跟随 moni profile 的 magpie 路由组** (2026-11-11 · **SHIPPED**)
 
 **主分支**: main（合并提交 `3eb0b98`）· **Tag**: `v1.0.70` · **PR**: #178（已 squash 合并）
 · **schema**: 40（migration 040）· **测试**: 1524 passed / 2 skipped
