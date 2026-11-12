@@ -1,0 +1,2924 @@
+{
+  "date": "2026-11-11",
+  "generated_at": "2026-11-11T09:45:12.153154+08:00",
+  "counts_by_topic": {
+    "wechat": 18,
+    "xcircle": 100
+  },
+  "items": [
+    {
+      "id": "2120312745543315897",
+      "url": "https://x.com/dotey/status/2120312745543315897",
+      "author_name": "宝玉",
+      "author_handle": "dotey",
+      "author_followers": 268175,
+      "text": "突然想通一个逻辑：当年 Google Docs 颠覆本地 Office，核心是从“单机”变“云端”；现在看 Claude Artifacts，它代表其实是软件从“给人用”变成了“给 Agent 用，人审查微调”。  使用软件的主体变了，软件的形态也就彻底变了。  https://t.co/BdNJJut8LR https://t.co/mOkACg8gqQ",
+      "created_at": "2026-11-11T00:28:46.000Z",
+      "metrics": {
+        "like": 5,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "Claude 加了白板和表格，所有付费套餐可用（测试版）；仪表盘改名 Claude Data 正式上线  Anthropic 11 月 10 日给 Claude 加了两种能跟同事一起改的新内容：白板 Claude Whiteboards 和表格 Claude Sheets，所有付费套餐都能用，目前是测试版。  10 月上线的仪表盘 Claude Dashboards 同时结束测试，改名 Claude Data。这些功能今天开始分批推送，账号里暂时没看到属于正常。  【谁能用、怎么开】  三样都要"
+        }
+      ]
+    },
+    {
+      "id": "2120311795546255548",
+      "url": "https://x.com/manateelazycat/status/2120311795546255548",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "大佬们，你们的DSH都装了哪些牛逼的插件呀？   欢迎评论区交流呀 ;)",
+      "created_at": "2026-11-11T00:25:00.000Z",
+      "metrics": {
+        "like": 0,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120304049157501285",
+      "url": "https://x.com/dotey/status/2120304049157501285",
+      "author_name": "宝玉",
+      "author_handle": "dotey",
+      "author_followers": 268175,
+      "text": "突然想通一个逻辑：当年 Google Docs 颠覆本地 Office，核心是从“单机”变“云端”；现在看 Claude Artifacts，它代表其实是软件从“给人用”变成了“给 Agent 用，人审查微调”。  使用软件的主体变了，软件的形态也就彻底变了。 https://t.co/mOkACg8Ogo",
+      "created_at": "2026-11-10T23:54:13.000Z",
+      "metrics": {
+        "like": 18,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "Claude 加了白板和表格，所有付费套餐可用（测试版）；仪表盘改名 Claude Data 正式上线  Anthropic 11 月 10 日给 Claude 加了两种能跟同事一起改的新内容：白板 Claude Whiteboards 和表格 Claude Sheets，所有付费套餐都能用，目前是测试版。  10 月上线的仪表盘 Claude Dashboards 同时结束测试，改名 Claude Data。这些功能今天开始分批推送，账号里暂时没看到属于正常。  【谁能用、怎么开】  三样都要"
+        }
+      ]
+    },
+    {
+      "id": "2120284388927602910",
+      "url": "https://x.com/dotey/status/2120284388927602910",
+      "author_name": "宝玉",
+      "author_handle": "dotey",
+      "author_followers": 268175,
+      "text": "赞，Claude 也送了一张重置卡 https://t.co/0WybOK9E5p",
+      "created_at": "2026-11-10T22:36:05.000Z",
+      "metrics": {
+        "like": 16,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "We've given all Pro, Max, Ultra, and Team users one free full reset, across all models and limits. Use it anytime before December 10 at 2:00PM PT.  We recently fixed a few small issues that used more limits than intended, and the Fable resets didn't"
+        }
+      ]
+    },
+    {
+      "id": "2120280051170386081",
+      "url": "https://x.com/dotey/status/2120280051170386081",
+      "author_name": "宝玉",
+      "author_handle": "dotey",
+      "author_followers": 268175,
+      "text": "Fable 5.2 做的这个游戏确实牛逼，打开浏览器就能玩，我都玩了一会了，有点玩 Call of Duty 的感觉 https://t.co/ZRNEU5RGuD",
+      "created_at": "2026-11-10T22:18:51.000Z",
+      "metrics": {
+        "like": 25,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "I wanted to test Fable 5.2's quality with one-shot prompts without human feedback.  Everything in this game is from scratch: models, sounds, textures. ~$550 at API pricing, ~2.7M output and 445M input tokens, heavily cached. Took 8 hours!  Play it he"
+        }
+      ]
+    },
+    {
+      "id": "2120244783826505908",
+      "url": "https://x.com/dotey/status/2120244783826505908",
+      "author_name": "宝玉",
+      "author_handle": "dotey",
+      "author_followers": 268175,
+      "text": "Muse 支持邮箱了，目前仅支持美国和加拿大的付费订阅用户。 https://t.co/Dr9BOvMCe3",
+      "created_at": "2026-11-10T19:58:43.000Z",
+      "metrics": {
+        "like": 9,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "🚨 MUSE FEATURE ALERT!!! 🚨  muse officially has its own email address 💌   forward it stuff or add it to a thread and watch it go. out now to paid subs in US and Canada. https://t.co/YMEyGjJwIV"
+        }
+      ]
+    },
+    {
+      "id": "2120237447963415014",
+      "url": "https://x.com/dotey/status/2120237447963415014",
+      "author_name": "宝玉",
+      "author_handle": "dotey",
+      "author_followers": 268175,
+      "text": "其实现在软件开发的瓶颈早就不是如何构建出来专业软件了，而是其他方面。  一个是如何更好的让 Agent 用你的软件。  我的绝大部分专业工作已经不再依赖于软件，而是给 Agent 一个指令，让它去帮我完成，比如视频剪辑。  这就意味着像视频这种这么复杂的软件操作界面，在 Agent 来说是几乎没有价值的，让 Agent 去通过 GUI 操作软件是低效的，Agent 最友好的方式是 cli、MCP和代码。  另一个是如何让人类更好的去预览和微调  以前的软件做这么复杂都是因为需要人去全程操作，但是当我们把这些繁琐的操作叫给 Agent 之后，人需要做的只要去检查 Agent 完成后的结果，以及对结果进行标记、评论和微调。  所以如果你要做一个视频编辑器，不要再做一个这么复杂的界面，一个视频播放器能看到生成的结果，一个可以用来标记、评论的工具配合就足够了。我觉得哪里生成的不对，标记一下、写两句评论就可以了。  这一点连 Manus 都没想明白，他们新版本的视频生成功能还是在配合一个复杂的 Timeline 视频编辑器。  还有一个就是如何更好的满足用户个性化的需求  以前的软件设计，只能取最大公约数，照顾绝大数人的需求，所以像一些巨无霸软件 Office、CapCut 都很专业，需要操作手册才能用明白，一些个性化的需求也很难满足。  但现在不一样了，Agent 让制作软件成本很低，所以人人都在做自己的个性化软件，比如我看到向阳就在做自己的录频软件，就是为了满足很多他自己的需求：美颜、虚拟主播。  这种长尾需求是真实存在的，以前没办法，成本太高，现在很多人自己动手，但更多的人即使有 AI 也没有这个能力和足够的 Token 来做这个事情。  这意味着未来的软件，功能上会原子化，软件的能力会被细分拆解到一个个 cli 的命令、MCP 的调用上，Agent 根据需要做的事情，用脚本当胶水，按需组合出来需要的功能。  软件提供的是原子化的能力，不再需要复杂的 UI，只要让 Agent 动态生成就足够了。  最后一点，当人人都能做软件，怎么才能把你的软件卖出去？  这是个思考题，我也",
+      "created_at": "2026-11-10T19:29:34.000Z",
+      "metrics": {
+        "like": 86,
+        "retweet": 12,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "I told the team at @every that with Fable 5.2, one person can build professional software. Nobody believed me.  Three days later a video editor was live for the team. It’s called Everycut. It has screen recording, a timeline, a transcript you cut by"
+        }
+      ]
+    },
+    {
+      "id": "2120226054195577277",
+      "url": "https://x.com/dotey/status/2120226054195577277",
+      "author_name": "宝玉",
+      "author_handle": "dotey",
+      "author_followers": 268175,
+      "text": "Lenny 最新科技就业报告：产品经理岗位四年来最多，工程师岗位停止增长，设计岗位创新低  Lenny Rachitsky 11 月 10 日发布了 2026 年下半年的科技就业报告，这是他做的第五份。结论是：AI 时代产品经理需求最旺，工程师需求停滞，设计师处境最难。  先说这些数字怎么读。报告用了两套口径不同的数据：  • 开放岗位：来自 TrueUp，统计全球 9000 多家科技公司正在招的职位数，反映公司“想招多少人”。 • 实际招聘：来自 Live Data Technologies，统计美国有多少人从别的公司跳槽入职某个岗位，雇主不限于科技公司，反映“真招进来多少人”。最近一两个月的入职记录还在补录，数字之后会往上修。  两套数据经常对不上：招聘启事越来越多，真正入职的人却在变少。Lenny 的解读是，公司的需求在涨，但招到合适的人越来越难。  【产品经理】  开放岗位是近四年最多的：现在有 7303 个 PM 职位，比 2023 年 3 月的低点（4171 个）多 75%。从 2023 年初算起，PM 岗位涨了 56%，工程岗位涨 43%，数据分析涨 18%，产品设计和用户研究都在下降。  实际招聘就平淡很多。过去 12 个月美国招了约 3.26 万名产品经理，和 2024 年初相比少了 4%。这已经是几个核心岗位里最好的成绩，同期工程师少 17%，设计师少 26%，用户研究少 36%。  PM 在产品、工程、数据科学、设计、用户研究这五类岗位的招聘里，占比从 2021 年的 16% 升到 21%，是唯一占比上升的岗位。  所以 PM 的“吃香”是相对的。机会比其他岗位多，但整体还没回到高峰：2025 年美国 PM 招聘人数比 2022 年少 35%。  【工程师】  这是报告做到第五期，工程开放岗位第一次停止增长。2024 年涨 29%，2025 年涨 15%，过去一年只涨 2.5%，现在的 65351 个比今年 3 月还少。  实际招聘降得更多。过去 12 个月（2025 年 5 月到 2026 年 4 月）美国招了约 11.3 万名软件工程师，不到",
+      "created_at": "2026-11-10T18:44:17.000Z",
+      "metrics": {
+        "like": 46,
+        "retweet": 9,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "STATE OF THE TECH JOB MARKET IN 2026  Twice a year, I dig into trends in hiring and job openings. This is the fifth report I've done, and the most surprising yet:  1. PMs are winning in the AI era 2. Engineering demand has stalled 3. Design openings"
+        }
+      ]
+    },
+    {
+      "id": "2120213189464105192",
+      "url": "https://x.com/dotey/status/2120213189464105192",
+      "author_name": "宝玉",
+      "author_handle": "dotey",
+      "author_followers": 268175,
+      "text": "Claude 加了白板和表格，所有付费套餐可用（测试版）；仪表盘改名 Claude Data 正式上线  Anthropic 11 月 10 日给 Claude 加了两种能跟同事一起改的新内容：白板 Claude Whiteboards 和表格 Claude Sheets，所有付费套餐都能用，目前是测试版。  10 月上线的仪表盘 Claude Dashboards 同时结束测试，改名 Claude Data。这些功能今天开始分批推送，账号里暂时没看到属于正常。  【谁能用、怎么开】  三样都要付费套餐，网页、桌面和手机 App 都能用。没有专门的入口，在对话里直接说要什么就行，比如“做个招聘预算表”。Claude Data 要先连一个数据源，比如数据仓库，或者 Salesforce 这类客户管理系统。  Team 套餐三样默认全开。企业版的白板和表格默认关闭，Claude Data 从 11 月 19 日起默认打开，管理员可以在 Organization settings > Artifacts 里随时改。  OpenAI 9 月底推出的 ChatGPT Space 也是让人和 AI 一起改同一份文件，但只给 Pro、Business 和企业版，Plus 用户用不了。Claude 这次最便宜的付费套餐 Pro 也在范围内。  【跟原来的 Artifacts 有什么不同】  Artifacts 是 Claude 在对话旁边做出来、能接着改、能分享的成品。文档、幻灯片和设计 10 月已经正式上线，团队可以一起编辑。这次多了白板和表格两种格式。  白板适合开会时理思路。把一个还很乱的计划口头讲给 Claude，它排成一张带时间线、负责人和日期的白板，同事可以实时一起改。  官方举的例子是复盘会：每个人往板上贴想法，Claude 按主题归类，再给每个人起草待办事项。框住白板的一块区域，可以只针对这一块提问。讨论完，Claude 能把白板转成文档或幻灯片，也能导进 Lucid、Miro 接着用。微软的 Whiteboard 里也有 Copilot，能在板上出点子、给便签归类、写",
+      "created_at": "2026-11-10T17:53:10.000Z",
+      "metrics": {
+        "like": 46,
+        "retweet": 5,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "Starting to roll out today: Claude Whiteboards, Claude Sheets and Claude Data.  Think a plan through on a board, build a tracker in a sheet, and tell a story with your data. https://t.co/S8M32FMrce"
+        }
+      ]
+    },
+    {
+      "id": "2120209733131047185",
+      "url": "https://x.com/manateelazycat/status/2120209733131047185",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "增强低温冷打板果然好用啊，怎么没有早点买呀？  太好用了 https://t.co/fv9a1I68Mh",
+      "created_at": "2026-11-10T17:39:26.000Z",
+      "metrics": {
+        "like": 4,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120208679005810803",
+      "url": "https://x.com/dotey/status/2120208679005810803",
+      "author_name": "宝玉",
+      "author_handle": "dotey",
+      "author_followers": 268175,
+      "text": "这期用皮影戏讲清 BaoCut 虚拟主播的工作原理：  - 拆：AI 画一张正面像，再改十一次，程序逐像素比对，拆出二十七层 - 动：给整张画罩上一张网，推网就能转头；十七个旋钮，头发像弹簧 - 说：不听音量，看每个字的读音挑嘴型，嘴比声音早 0.03 秒  还回答了：这算不算 AI 生成视频？要不要显卡？能不能换成自己的形象？他做不到什么？  骨架、变形和弹簧移植自开源项目 LivLiv Player（Apache-2.0），感谢作者。主播形象由 Seedream 5.5 生成。  项目地址：https://t.co/wldDX9MSVR  ----  想让自己的视频也有一位虚拟主播？三步就行  1. 把 BaoCut skill 装给你的 Agent  装好 BaoCut 后，在终端运行一次：  baocut skill install  Claude Code、Codex 这类 Agent 就学会了怎么用 BaoCut。不用 Agent 也行：BaoCut 应用里自带的 AI 助手已经内置「虚拟主播」这个 skill，直接对它说就可以。  2. 挑一位主播，或者做一位自己的  不想折腾：BaoCut 自带 19 位原创卡通主播。告诉 Agent 你的片子讲什么、给谁看，它会推荐两三位让你挑。 想要自己的形象：让 Agent 画一张正面像（睁眼、闭嘴、纯色背景、有头发），你点头之后，它再改图、拆层，打包成一个角色包。大约 9 次图片生成。  3. 给稿子，等审片  一句话就能开工，比如：  用 BaoCut 做一条 3 分钟的讲解视频，主题是 XXX，让虚拟主播在右下角出镜讲解。  Agent 会写稿、配音、按每个字的读音算好口型，把主播放上时间线，然后给你一个审片链接。你看完说可以，它再导出成片。之后改了某句配音，只需重算口型，角色不用重画。  几点提醒  1. 只做卡通角色，不做真人照片对口型，也不做换脸。 2. 中文、英文、日文假名、韩文口型最准；其他语言主要按音量开合。 3. 主播转头最多 30 度，没有手，光头角色暂时不支持。 4. 自己做角色需要先配置好",
+      "created_at": "2026-11-10T17:35:15.000Z",
+      "metrics": {
+        "like": 35,
+        "retweet": 6,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "字节发布图像模型 Seedream 5.5：同一张图连改 100 轮不走样，能直接出透明底素材，即梦、豆包陆续上线  字节跳动 Seed 团队 11 月 9 日发布 Seedream 5.5。用 AI 改图最烦的是改着改着别处也变了：换个戒指，脸和颜色跟着偏，几轮下来图越来越糊。  新版没要求改的区域能做到像素级不变，官方演示里同一个人物连改 100 轮，细节还能对上。它还能直接生成背景透明的图，羽毛这类难抠的边缘都保留，拿来就能叠进海报和设计稿，省掉抠图。照片质感和小字也更准，严重文字错误率从"
+        }
+      ]
+    },
+    {
+      "id": "2120206830119063723",
+      "url": "https://x.com/manateelazycat/status/2120206830119063723",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "打印大肥鱼劵？🤡 https://t.co/qrsuwr3w8q https://t.co/35eTUXxdAG",
+      "created_at": "2026-11-10T17:27:54.000Z",
+      "metrics": {
+        "like": 1,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "@manateelazycat 你就不能打点别的？那么大尺寸非要耗几十块钱的材料打市场上5块钱能买到的东西？🌚"
+        }
+      ]
+    },
+    {
+      "id": "2120205106608210251",
+      "url": "https://x.com/dotey/status/2120205106608210251",
+      "author_name": "宝玉",
+      "author_handle": "dotey",
+      "author_followers": 268175,
+      "text": "Gemini Carbon 做的鹈鹕骑自行车演示，一个 Agent 负责构建，在 Blender 和 Three.js 上生成建模，一个 Agent 负责审查，检查它们自己的渲染结果，最终生成的可玩的 3D 游戏：一只鹈鹕骑着自行车在 Google 的 Mountain View 园区转悠。  测试地址：https://t.co/Op358Usk8N https://t.co/JSjQOIQUNB",
+      "created_at": "2026-11-10T17:21:03.000Z",
+      "metrics": {
+        "like": 22,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120194811730776383",
+      "url": "https://x.com/dotey/status/2120194811730776383",
+      "author_name": "宝玉",
+      "author_handle": "dotey",
+      "author_followers": 268175,
+      "text": "帮转招人信息 https://t.co/8NqB5AkWx8",
+      "created_at": "2026-11-10T16:40:09.000Z",
+      "metrics": {
+        "like": 11,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "他们都说X上伙伴质量高，于是我也第一次来X上给我们公司招人了～ 我们现在有30多个小伙伴了，但是想做的事太多，所以，还需要更多的小伙伴！  简单介绍一下，虚实传媒是一家AI领域的策略公司，我们有自己的IP数字生命卡兹克（也就是我自己），也是国内可能目前最大的AI领域MCN公司，目前签约独家博主300+，也合作了上百家机构公司，国内几乎所有跟AI方向相关的公司都是我们的客户～  公司内部还是比较AI Native的，几乎全员都在用Claude或者Codex Coding自己岗位和职位的产品，来解放"
+        }
+      ]
+    },
+    {
+      "id": "2120191790774960630",
+      "url": "https://x.com/dotey/status/2120191790774960630",
+      "author_name": "宝玉",
+      "author_handle": "dotey",
+      "author_followers": 268175,
+      "text": "Google 正式开放 Gemini 4 Carbon：付费 API 今天可用，引入价到 11 月 30 日；普通用户要订 Ultra，每月 99.99 美元起  Google 11 月 10 日把 Gemini 4 Carbon 开放给付费开发者、企业和 Google AI Ultra 订阅用户。10 月 28 日 Carbon 首次亮相时，只给通过审查的网络安全防御团队用，这次是正式上线。  Google 说 Carbon 是它目前最强的模型，留给最难的长任务；四周前发布的 Gemini 4 Argon，仍然是大多数写代码和知识工作的首选。  【谁能用，要多少钱】  普通用户要订 Google AI Ultra，才能在 Gemini App、Google 搜索的 AI 模式、Antigravity 和 AI Studio 里用 Carbon，目前在逐步推送。  Ultra 有两档：每月 99.99 美元（用量是 Pro 的 5 倍）和 199.99 美元（20 倍）。  每月 19.99 美元的 Pro 用不了，Antigravity 官方模型表里 Pro 一栏写的是不支持，Pro 用户能用的最强 Gemini 还是 Argon。  Anthropic 昨天发布的 Claude Fable 5.2 价位差不多：Max（100 美元）和 Ultra（200 美元）套餐含 Fable，最多用掉每周额度的一半；20 美元的 Pro 也能用，平时要另外按量付费。  开发者走 Gemini API 的付费层，AI Studio 和 Android Studio 里都能调用，模型名 gemini-4-carbon，免费层没有。价格和 Argon 一样：11 月 30 日前是引入价，每百万 Token 输入 2 美元、输出 10 美元；12 月 1 日起翻倍到 4 美元和 20 美元。两周前官方没说引入期到哪天，现在定了。  单价一样，账单不一定一样。官方文档写明，Carbon 每轮思考用的 Token 比 Argon 多，响应也更慢，同一个任务跑下来会更贵。按单价算，涨价后的",
+      "created_at": "2026-11-10T16:28:08.000Z",
+      "metrics": {
+        "like": 98,
+        "retweet": 5,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "Gemini 4 Carbon is rolling out today. It’s built for sustained, long-horizon tasks, reasoning deeply through complex software engineering, cybersecurity, and scientific discovery.  Coming globally via the Gemini API in @GoogleAIStudio and Gemini for"
+        }
+      ]
+    },
+    {
+      "id": "2120189413397504041",
+      "url": "https://x.com/manateelazycat/status/2120189413397504041",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "我的算力舱快爆了， 38个模型并行跑  7台懒猫AI算力舱， 12696T算力，832GB显存，英伟达芯片 https://t.co/F2c10ZW3ii",
+      "created_at": "2026-11-10T16:18:42.000Z",
+      "metrics": {
+        "like": 12,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120188271678591093",
+      "url": "https://x.com/manateelazycat/status/2120188271678591093",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "我的算力舱快爆了， 38个模型并行跑 https://t.co/deGi9FoWb9",
+      "created_at": "2026-11-10T16:14:09.000Z",
+      "metrics": {
+        "like": 1,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120186313928577196",
+      "url": "https://x.com/Gorden_Sun/status/2120186313928577196",
+      "author_name": "Gorden Sun",
+      "author_handle": "Gorden_Sun",
+      "author_followers": 70317,
+      "text": "Gemini 4 Carbon上线了，仅限Ultra订阅可用。 https://t.co/m5rNUnfDF0",
+      "created_at": "2026-11-10T16:06:23.000Z",
+      "metrics": {
+        "like": 12,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120186076648370617",
+      "url": "https://x.com/manateelazycat/status/2120186076648370617",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "@Wilf_Lin Decision 3.0 模型迁移到 vLLM, 性能提升 241.77%  还有最后一个 MiniMax H3 模型， 就全部搞完了，NND， 这次模型居然搞了 120 多个小时 ;) https://t.co/hGLGjHCBTH https://t.co/03GagfQCoB",
+      "created_at": "2026-11-10T16:05:26.000Z",
+      "metrics": {
+        "like": 0,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "这个今天上午搞定，我扫了一下，还有很多模型也是 PyTorch， 我今天全部把这些AI模型都重新构建了，感谢大佬反馈 https://t.co/yEr32SN30j https://t.co/AlKigubQcC"
+        }
+      ]
+    },
+    {
+      "id": "2120182058656129304",
+      "url": "https://x.com/waylybaye/status/2120182058656129304",
+      "author_name": "Baye",
+      "author_handle": "waylybaye",
+      "author_followers": 165352,
+      "text": "Fable 5.2 的代码品味很棒，review 它写的代码时，忍不住想鼓掌。",
+      "created_at": "2026-11-10T15:49:28.000Z",
+      "metrics": {
+        "like": 134,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120179480723587294",
+      "url": "https://x.com/lxfater/status/2120179480723587294",
+      "author_name": "铁锤人",
+      "author_handle": "lxfater",
+      "author_followers": 109254,
+      "text": "北京周五，周三有啥线下活动？  明天回北京几日🤡，感觉之前认识的朋友都离开北京",
+      "created_at": "2026-11-10T15:39:13.000Z",
+      "metrics": {
+        "like": 1,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120176942930612466",
+      "url": "https://x.com/manateelazycat/status/2120176942930612466",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "懒猫微服 = 懒猫带着公司的同事给大佬们提供无微不至的服务 ;) https://t.co/VPFYxPzqmT",
+      "created_at": "2026-11-10T15:29:08.000Z",
+      "metrics": {
+        "like": 3,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120176641603244488",
+      "url": "https://x.com/dotey/status/2120176641603244488",
+      "author_name": "宝玉",
+      "author_handle": "dotey",
+      "author_followers": 268175,
+      "text": "Manus 的招聘页面上，现在还挂着前端工程师、后端工程师这类岗位。可按 Manus 联合创始人张涛在 Web Summit 上的说法，公司内部已经不分这些角色了：  他手下的产品经理都在往代码库里提交代码，设计师也在写代码。招聘页还按老规矩写，是因为“外面的世界还没跟上”。  变化从今年 3 月前后开始。他说，会做事的人已经不稀缺了，AI 本身就很会做事；Manus 现在要找的是能和 AI 一起干活的人。连工程师面试都跟着改了，不再考传统的编程题。  面试题换成了：用 Manus 花四小时解决一个问题  候选人拿到一个问题，用 Manus 在四小时内把它解决，然后把这次任务的完整记录带回来，也就是他和 AI 从头到尾的每一轮来回，和面试官一起复盘。面试官从记录里看的是，这个人是不是已经习惯和 AI 一起工作。张涛说这一点“超级重要”。  具体出什么题、复盘时看哪些地方，他在这段采访里没有讲。  主持人追问：招聘启事要怎么写，只写“愿意和 AI 一起干活”吗？这种人恐怕不好找。张涛说要分内外两面看。  对外，官网上还是按前端、后端等岗位分别招人。对内，这些角色已经都拿掉了，理由是有了 AI，“每个人都能做所有事”。  他用自己的团队举例：产品经理全都在提交代码，同时也在做设计；设计师也在写代码。在他看来，按岗位写的招聘启事只是写给外界看的。",
+      "created_at": "2026-11-10T15:27:56.000Z",
+      "metrics": {
+        "like": 84,
+        "retweet": 11,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "It’s an honor be the first human guest speaker on stage🤣 next year maybe I have to learn dancing with robots to secure my place for this stage. https://t.co/U9o8qvrfIb"
+        }
+      ]
+    },
+    {
+      "id": "2120176469783769223",
+      "url": "https://x.com/manateelazycat/status/2120176469783769223",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "真的牛逼呀 ；） https://t.co/9EzIOwa25Y",
+      "created_at": "2026-11-10T15:27:16.000Z",
+      "metrics": {
+        "like": 1,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "Claude Fable 5.2 is at the frontier of hardware design.    We asked it for an Adam Tamagotchi. It did the PCB layout in KiCad, built the enclosure in Inventor, and rendered it in Blender.    It orchestrates between electrical, mechanical and renderin"
+        }
+      ]
+    },
+    {
+      "id": "2120175259303502252",
+      "url": "https://x.com/Gorden_Sun/status/2120175259303502252",
+      "author_name": "Gorden Sun",
+      "author_handle": "Gorden_Sun",
+      "author_followers": 70317,
+      "text": "我觉得原推没有表述清楚，视频上半部分的白模动画是Fable 5.2做的，下半部分的角色动画是调用视频模型生成的。  我让我的Fable 5.2照着做，他很自觉的调用了我的Seedance API。 https://t.co/C1V3lJG02M https://t.co/mfhqmYBVdv",
+      "created_at": "2026-11-10T15:22:27.000Z",
+      "metrics": {
+        "like": 88,
+        "retweet": 9,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "Fable5.2がきたので新しくプリビズ用のモーションを作ってもらいました！  お願いしたのは、ジョギング、全力疾走、超高速ダッシュの3つの単語のみ。 動きは完全にFable5.2に任せて作ってもらってます。  えぐいなこれ😳 3Dアニメーションの不自然さがほぼ見た当たらず。 これならかなり精度の高いアニメーションつくれそうです😆"
+        }
+      ]
+    },
+    {
+      "id": "2120174489615143148",
+      "url": "https://x.com/manateelazycat/status/2120174489615143148",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "今天读了一下拓竹的低温打印板的评论，这个板子结合AMS的烘干功能可以杜绝炒面  最关键的是，低温打印板所需的热床温度比官方标配的打印板低很多，可以省很多电呀  太香了 ;) https://t.co/oAYn8aRuqa",
+      "created_at": "2026-11-10T15:19:23.000Z",
+      "metrics": {
+        "like": 0,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "买了拓竹的冷打板，武汉太潮湿了，冷打板可以降低炒面的概率 https://t.co/j0Zh2k9Nma"
+        }
+      ]
+    },
+    {
+      "id": "2120170509598167273",
+      "url": "https://x.com/manateelazycat/status/2120170509598167273",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "3D打印机奇奇怪怪的知识增加了  更换打印板，H3C会自动根据打印板二维码调节热床的温度  但是需要在拓竹的PC端这个标签，选择低温打印板，并点击同步消息，否则每次打印的时候，打印机都会提示模型和打印板不兼容的警告 https://t.co/NrYiIbUTye https://t.co/oAYn8aRuqa",
+      "created_at": "2026-11-10T15:03:35.000Z",
+      "metrics": {
+        "like": 0,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "买了拓竹的冷打板，武汉太潮湿了，冷打板可以降低炒面的概率 https://t.co/j0Zh2k9Nma"
+        }
+      ]
+    },
+    {
+      "id": "2120170180609487312",
+      "url": "https://x.com/Gorden_Sun/status/2120170180609487312",
+      "author_name": "Gorden Sun",
+      "author_handle": "Gorden_Sun",
+      "author_followers": 70317,
+      "text": "老头看手机.jpg 功能机刷OpenWrt，变成能配VPN的随身WiFi https://t.co/uAfLgiLTDX",
+      "created_at": "2026-11-10T15:02:16.000Z",
+      "metrics": {
+        "like": 4,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "📡 随身 WiFi / 老头乐终于迎来 OpenWrt 正式可用版本！  经过这几天持续修复、实机测试和细节打磨，这次终于把 OpenWrt 做到了可以日常使用的程度。  不只是简单刷入一个系统，网页管理、设备屏幕操作、电脑端安装器等配套功能也一起完善了。  一、目前支持的设备  中兴系列：  F50 U30 Air V50 3M  老头乐系列：  荣悦 E5 誉国威 M8 TCL T551M  二、刷入后能做什么？  基于 OpenWrt，日常随身 WiFi 需要的功能基本都有：  ✅ 蜂窝网"
+        }
+      ]
+    },
+    {
+      "id": "2120168594919346449",
+      "url": "https://x.com/manateelazycat/status/2120168594919346449",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "PCB这种工种以后也会被AI替代的，高智商的重复劳动都会被AI替代的 ;) https://t.co/NtTrSEhgYz",
+      "created_at": "2026-11-10T14:55:58.000Z",
+      "metrics": {
+        "like": 6,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "Never mind, Fable 5.2 did it. https://t.co/rkX5iN1d3D https://t.co/P4mvrI5n7C"
+        }
+      ]
+    },
+    {
+      "id": "2120168398135152970",
+      "url": "https://x.com/oran_ge/status/2120168398135152970",
+      "author_name": "Orange AI",
+      "author_handle": "oran_ge",
+      "author_followers": 189300,
+      "text": "深夜 emo，不能我一个人 emo  Fable 5.2 优雅地杀死了比赛 https://t.co/tci7kFPQKE",
+      "created_at": "2026-11-10T14:55:11.000Z",
+      "metrics": {
+        "like": 255,
+        "retweet": 9,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120168291113345213",
+      "url": "https://x.com/oran_ge/status/2120168291113345213",
+      "author_name": "Orange AI",
+      "author_handle": "oran_ge",
+      "author_followers": 189300,
+      "text": "深夜 emo Fable 5.2 优雅地杀死了比赛 https://t.co/tci7kFPQKE",
+      "created_at": "2026-11-10T14:54:46.000Z",
+      "metrics": {
+        "like": 0,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120152466121724026",
+      "url": "https://x.com/oran_ge/status/2120152466121724026",
+      "author_name": "Orange AI",
+      "author_handle": "oran_ge",
+      "author_followers": 189300,
+      "text": "最近体验几款国内 Personal AI 的感受是： 大家为了主动性而主动性 却全然忘记了 主动性是手段而不是目的 如果大家以这么饥渴的方式去做产品 那这东西只会让人 PTSD",
+      "created_at": "2026-11-10T13:51:53.000Z",
+      "metrics": {
+        "like": 56,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120151022081302931",
+      "url": "https://x.com/manateelazycat/status/2120151022081302931",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "好看倒挺好看的，就是太小了😫 https://t.co/G9JvtHVTdX",
+      "created_at": "2026-11-10T13:46:08.000Z",
+      "metrics": {
+        "like": 3,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120150917349822542",
+      "url": "https://x.com/manateelazycat/status/2120150917349822542",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "打印了一个废衣篓，虽然是最大尺寸的，但是感觉还是好小啊😂 https://t.co/rQaYvDEyMg https://t.co/yEgPKpZUBH",
+      "created_at": "2026-11-10T13:45:43.000Z",
+      "metrics": {
+        "like": 0,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "@manateelazycat 擦料塔只是为了让料流平而已，你多热端其实关掉也没事吧？应该可以选在内部填充擦料"
+        }
+      ]
+    },
+    {
+      "id": "2120146942168899892",
+      "url": "https://x.com/oran_ge/status/2120146942168899892",
+      "author_name": "Orange AI",
+      "author_handle": "oran_ge",
+      "author_followers": 189300,
+      "text": "“互联网时代的所有方法论在今天都是错的”    一颗崭新的大脑弥足珍贵",
+      "created_at": "2026-11-10T13:29:56.000Z",
+      "metrics": {
+        "like": 118,
+        "retweet": 8,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120140437239607365",
+      "url": "https://x.com/shao__meng/status/2120140437239607365",
+      "author_name": "meng shao",
+      "author_handle": "shao__meng",
+      "author_followers": 37264,
+      "text": "今天晚上一直很恍惚，有点缓不过神来。  因为下午见了一位前同事，也是程序员，做嵌入式开发，比我小三岁 36，昨天他刚刚被优化了。  他说，在这家公司三年多了，优化赔偿了 4 个月工资。他说，到年底都带薪了，明显能感觉到，说到这，他的声音不一样了。然后，哽了几秒，他说，这可能是我最后一笔工资了。  他这周就要在深圳退租，回老家了。还会不会回来呢？感觉不容易了。",
+      "created_at": "2026-11-10T13:04:05.000Z",
+      "metrics": {
+        "like": 81,
+        "retweet": 2,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120140341873623418",
+      "url": "https://x.com/maomao17888/status/2120140341873623418",
+      "author_name": "王老九",
+      "author_handle": "maomao17888",
+      "author_followers": 7735,
+      "text": "刚才在想  如果微信更新了已读功能  会不会被很多人弃用",
+      "created_at": "2026-11-10T13:03:42.000Z",
+      "metrics": {
+        "like": 6,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-wechat.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120140330536460398",
+      "url": "https://x.com/ChainEpic/status/2120140330536460398",
+      "author_name": "Roland",
+      "author_handle": "ChainEpic",
+      "author_followers": 6207,
+      "text": "转让 2 个微信小程序，应该都是 5000 左右的用户， 一个是 CS2 相关的，一个是德州扑克相关的，  因为现在全力做出海，所以把国内的小程序出一下。  德州的 2W人民币左右，CS2的  8000 块就可以了 感兴趣的私信我，别屠龙刀砍我",
+      "created_at": "2026-11-10T13:03:39.000Z",
+      "metrics": {
+        "like": 21,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-wechat.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120140112709493070",
+      "url": "https://x.com/manateelazycat/status/2120140112709493070",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "打印过最大的一个东西了，为什么要这么大一个擦料塔呀？  好浪费呀😫 https://t.co/TTwi7zWjVX",
+      "created_at": "2026-11-10T13:02:47.000Z",
+      "metrics": {
+        "like": 1,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120134688044171344",
+      "url": "https://x.com/turingou/status/2120134688044171344",
+      "author_name": "郭宇 guoyu.eth",
+      "author_handle": "turingou",
+      "author_followers": 195266,
+      "text": "等一下，哪种内存？ https://t.co/LOqMc9Ya25",
+      "created_at": "2026-11-10T12:41:14.000Z",
+      "metrics": {
+        "like": 20,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "这句话相当有哲学意义，铭记于心。 https://t.co/PgcXbNxofq"
+        }
+      ]
+    },
+    {
+      "id": "2120130438455058869",
+      "url": "https://x.com/JackZhang2046/status/2120130438455058869",
+      "author_name": "浪里潮哥",
+      "author_handle": "JackZhang2046",
+      "author_followers": 7809,
+      "text": "大家注意了没有？  微信每次更新，功能介绍都是“解决了一些已知问题”  是不是太懒了  明明更新了新功能，就是懒得说🙄 https://t.co/7625kDV2H0",
+      "created_at": "2026-11-10T12:24:21.000Z",
+      "metrics": {
+        "like": 5,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-wechat.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120125019158417590",
+      "url": "https://x.com/op7418/status/2120125019158417590",
+      "author_name": "歸藏(guizang.ai)",
+      "author_handle": "op7418",
+      "author_followers": 187413,
+      "text": "卡兹克招人了 https://t.co/b45zIFobmt",
+      "created_at": "2026-11-10T12:02:49.000Z",
+      "metrics": {
+        "like": 29,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "他们都说X上伙伴质量高，于是我也第一次来X上给我们公司招人了～ 我们现在有30多个小伙伴了，但是想做的事太多，所以，还需要更多的小伙伴！  简单介绍一下，虚实传媒是一家AI领域的策略公司，我们有自己的IP数字生命卡兹克（也就是我自己），也是国内可能目前最大的AI领域MCN公司，目前签约独家博主300+，也合作了上百家机构公司，国内几乎所有跟AI方向相关的公司都是我们的客户～  公司内部还是比较AI Native的，几乎全员都在用Claude或者Codex Coding自己岗位和职位的产品，来解放"
+        }
+      ]
+    },
+    {
+      "id": "2120123882745331916",
+      "url": "https://x.com/lxfater/status/2120123882745331916",
+      "author_name": "铁锤人",
+      "author_handle": "lxfater",
+      "author_followers": 109254,
+      "text": "帮转 https://t.co/QA7fobUjSz",
+      "created_at": "2026-11-10T11:58:18.000Z",
+      "metrics": {
+        "like": 2,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "他们都说X上伙伴质量高，于是我也第一次来X上给我们公司招人了～ 我们现在有30多个小伙伴了，但是想做的事太多，所以，还需要更多的小伙伴！  简单介绍一下，虚实传媒是一家AI领域的策略公司，我们有自己的IP数字生命卡兹克（也就是我自己），也是国内可能目前最大的AI领域MCN公司，目前签约独家博主300+，也合作了上百家机构公司，国内几乎所有跟AI方向相关的公司都是我们的客户～  公司内部还是比较AI Native的，几乎全员都在用Claude或者Codex Coding自己岗位和职位的产品，来解放"
+        }
+      ]
+    },
+    {
+      "id": "2120121464880050507",
+      "url": "https://x.com/shao__meng/status/2120121464880050507",
+      "author_name": "meng shao",
+      "author_handle": "shao__meng",
+      "author_followers": 37264,
+      "text": "今天第三个面试   也很特别，很不一样的感觉。提前有预期是传统行业，但没想到这么传统，可以说公司内几乎看不到 AI 的痕迹。  负责面试的业务负责人，是一位 70 后，经历过 Dos 年代的老程序员，一直在做单片机方向。面试时间问了很多问题，印象比较深的一个是：你做过的的软件，相比 Office，还是太简单了。如果没有 Office 的复杂度系统架构经验，你很难接住我们的系统。  因为确实不太清楚这个团队的硬件对应的软件到底有多复杂，这一点就不评价了，可能确实比 Office 复杂吧。  印象很深的是，我问对方目前团队 AI Coding 的状态如何，工作方式是怎样的？（其实是中途就觉得不想面了，最后轮到我问问题，随便想了一个），可没想到对方的回答让我非常意外：  我们的系统复杂度太高、安全性要求太高，AI 搞不定，所以我们团队不用 AI。  我说完全没用吗？员工个人也不能用吗？  回答说：是的，你自己可以用，但工作机、工作环境不能用。  我当时愣了几秒，只说了一句：哦，好的，谢谢。  就结束了，确实不知道该说什么了。可能真的太复杂、太需要安全了吧。",
+      "created_at": "2026-11-10T11:48:41.000Z",
+      "metrics": {
+        "like": 28,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "这段时间集中面试，公司的阶段、人数、行业、组织和问题千差万别，也想借这次机会更多接触不同的企业来补充自己对于不行业和团队的理解。  我也想把面试中遇到的一些典型问题记录下来，当然会脱敏，意图不是曝光或八卦，主要还是在具象问题中抽象出更合理的解决办法，希望对各位在职场中的朋友有所启发，也希望对在看机会的朋友面试有一些心里准备，哪些是痛点、哪些是雷点，能分清。  我都记录在这篇内容下吧，先来第一个：  一家硬件和 SaaS 软件公司，HR 前置沟通一再强调，团队目前遇到了很深的技术难题，希望有 tl"
+        }
+      ]
+    },
+    {
+      "id": "2120120757128929641",
+      "url": "https://x.com/vista8/status/2120120757128929641",
+      "author_name": "向阳乔木",
+      "author_handle": "vista8",
+      "author_followers": 137839,
+      "text": "经常看到卡兹克卷到凌晨4点发AI评测。  他和赛博禅心，国内AI自媒体圈两大卷王。  这么卷，一定对AI是真爱。  卡兹克公司比传统科技媒体更前沿的多，现在招人，机会一定不能错过，直接搭AI高速发展快车。 https://t.co/fkCs4j3Gpr",
+      "created_at": "2026-11-10T11:45:53.000Z",
+      "metrics": {
+        "like": 53,
+        "retweet": 3,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "他们都说X上伙伴质量高，于是我也第一次来X上给我们公司招人了～ 我们现在有30多个小伙伴了，但是想做的事太多，所以，还需要更多的小伙伴！  简单介绍一下，虚实传媒是一家AI领域的策略公司，我们有自己的IP数字生命卡兹克（也就是我自己），也是国内可能目前最大的AI领域MCN公司，目前签约独家博主300+，也合作了上百家机构公司，国内几乎所有跟AI方向相关的公司都是我们的客户～  公司内部还是比较AI Native的，几乎全员都在用Claude或者Codex Coding自己岗位和职位的产品，来解放"
+        }
+      ]
+    },
+    {
+      "id": "2120117639125348470",
+      "url": "https://x.com/shao__meng/status/2120117639125348470",
+      "author_name": "meng shao",
+      "author_handle": "shao__meng",
+      "author_followers": 37264,
+      "text": "评测驱动开发是什么？LangChain 用一个 Agent 改造案例说明：先定义成功，再验证改动  给 Agent 增加一个工具，整体得分提高了，原本正确的行为却可能退步。 @LangChain 团队 @divyasan0 这篇文章讨论的评测驱动开发（eval-driven development），就是把“感觉变好了”变成可验证的开发流程：先定义预期行为、建立评测和基线，再修改系统、逐项比较。  https://t.co/pTpo0mZMiR  # 先写清楚什么算对，再动手开发  以内部文档助手为例：已有文档搜索和联网搜索，现在要增加创建 IT 工单的能力。“笔记本连不上 VPN”应该开单，“怎么连接 VPN”只是咨询，不该开单；原来的查询能力也不能受影响。  这些要求要变成具体、可判定的评测，而不是笼统的“回答有帮助”。数据优先来自真实对话，没有流量时可以手写。能用代码检查的就用代码，例如是否调用了正确工具；需要模型判断时，先确认评分与人工判断一致。修改前跑一遍基线，才能知道后续改动究竟改善了什么。  # 总分提高，不代表每种行为都变好  用 8 条样例演示：没有工单工具时通过 5 条；加入工具后通过 7 条，却把“怎么连接 VPN”也开成了工单。  查看执行记录后发现，工具说明写成“用于 VPN 和笔记本问题”，范围太宽。收窄说明后，8 条全部通过。问题不一定出在模型能力，也可能只是工具说明让它误解了适用范围。",
+      "created_at": "2026-11-10T11:33:29.000Z",
+      "metrics": {
+        "like": 7,
+        "retweet": 2,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "How do you improve your agents? @divyasan0 from the LangChain Academy team walks through how the three steps of eval-driven development, a strategy for using evals to help build agents that improve over time.  https://t.co/on8UYaP0pt?"
+        }
+      ]
+    },
+    {
+      "id": "2120108939518050626",
+      "url": "https://x.com/Gorden_Sun/status/2120108939518050626",
+      "author_name": "Gorden Sun",
+      "author_handle": "Gorden_Sun",
+      "author_followers": 70317,
+      "text": "Fable 5.2做的视频，代码画江山。 https://t.co/6iGr94cVN4",
+      "created_at": "2026-11-10T10:58:55.000Z",
+      "metrics": {
+        "like": 8,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120107246428537292",
+      "url": "https://x.com/SoonCrush/status/2120107246428537292",
+      "author_name": "麻花疼",
+      "author_handle": "SoonCrush",
+      "author_followers": 7029,
+      "text": "小道消息：  交易之神 Tony 在越南嫖娼被人绑架了  推特不更新，微信也不回消息了",
+      "created_at": "2026-11-10T10:52:11.000Z",
+      "metrics": {
+        "like": 6,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-wechat.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120106567500526050",
+      "url": "https://x.com/clanhj611/status/2120106567500526050",
+      "author_name": "clanhj",
+      "author_handle": "clanhj611",
+      "author_followers": 6067,
+      "text": "如果你做微信小游戏  一定要使用这四个小程序：  小游戏数据助手 web分析 流量主服务助手 微信指数",
+      "created_at": "2026-11-10T10:49:30.000Z",
+      "metrics": {
+        "like": 105,
+        "retweet": 13,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-wechat.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120106433169793396",
+      "url": "https://x.com/op7418/status/2120106433169793396",
+      "author_name": "歸藏(guizang.ai)",
+      "author_handle": "op7418",
+      "author_followers": 187413,
+      "text": "鹈鹕骑自行车还在追我，没想到这个测试方案还能进化。 https://t.co/xYnorNxmOJ",
+      "created_at": "2026-11-10T10:48:57.000Z",
+      "metrics": {
+        "like": 32,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120100891927974107",
+      "url": "https://x.com/Gorden_Sun/status/2120100891927974107",
+      "author_name": "Gorden Sun",
+      "author_handle": "Gorden_Sun",
+      "author_followers": 70317,
+      "text": "Fable 5.2生成的视频，同一场景的不同画风，画面连贯，小船缓慢往左移动，最后使用不同画风拼接。 细节比Opus 5.5还要好一些。 https://t.co/wVFeIce6kg",
+      "created_at": "2026-11-10T10:26:56.000Z",
+      "metrics": {
+        "like": 13,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120099636149153857",
+      "url": "https://x.com/vista8/status/2120099636149153857",
+      "author_name": "向阳乔木",
+      "author_handle": "vista8",
+      "author_followers": 137839,
+      "text": "开源一个新项目，让 Grok bot 每天抓取分析 X 上的海外优质长文，转写成中文，发布为网站。  可改造成自己喜欢的账号，如盯着某些研究员和模型公司发布的链接。  这些信息价值经常很高，能覆盖海外的一些实时热点。  体验网站和开源地址见评论区 https://t.co/BQfx2wG2IM",
+      "created_at": "2026-11-10T10:21:57.000Z",
+      "metrics": {
+        "like": 363,
+        "retweet": 43,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120089723301658714",
+      "url": "https://x.com/FinanceYF5/status/2120089723301658714",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "有人让 Fable 5.2 和 GPT-6.1 Sol 同时用 3D 体素，重现《赛车总动员》的活塞杯决赛。  Fable 5.2 版本花费 108.87 美元，GPT-6.1 Sol 只用了 13.02 美元。  同一个任务，成本相差约 8.4 倍。效果与成本放在一起对比更有意思。 https://t.co/b2PkuGDSMz",
+      "created_at": "2026-11-10T09:42:34.000Z",
+      "metrics": {
+        "like": 15,
+        "retweet": 2,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120089651625271344",
+      "url": "https://x.com/vista8/status/2120089651625271344",
+      "author_name": "向阳乔木",
+      "author_handle": "vista8",
+      "author_followers": 137839,
+      "text": "多轮编辑修改一致性SOTA，中文小字渲染错误率降低、画面真实感有提升。  Seedream 5.5 是个不错的生图模型，等有 API 了，打算接入自己的 Obsidian 插件中。 https://t.co/bo3yHPlJMT",
+      "created_at": "2026-11-10T09:42:16.000Z",
+      "metrics": {
+        "like": 16,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "https://t.co/YnkEY6NDrp"
+        }
+      ]
+    },
+    {
+      "id": "2120089132076863575",
+      "url": "https://x.com/FinanceYF5/status/2120089132076863575",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "有人用同一句提示词，让 Claude Fable 5.2 和 Opus 5.5 分别制作“冰之教堂”。  Fable 5.2：81.10 美元，1 小时 56 分 Opus 5.5：45.97 美元，3 小时 11 分 Fable 贵了约 76%，但快了 1 小时 15 分。冰面、船只和鲸鱼的细节也明显更丰富。  这次提升，换来的是更高质量和更快速度，但成本也更高。 https://t.co/wUWjQ4Z3Rp",
+      "created_at": "2026-11-10T09:40:13.000Z",
+      "metrics": {
+        "like": 4,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120086639854932086",
+      "url": "https://x.com/FinanceYF5/status/2120086639854932086",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "Fable 5.2 开始写交响乐了。🎻  作曲、写谱、录音、配视频，一条提示词跑完全流程。  今天 X 上的音乐人和开发者都在测它的音乐能力，下面是 5 个案例👇",
+      "created_at": "2026-11-10T09:30:18.000Z",
+      "metrics": {
+        "like": 12,
+        "retweet": 2,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120085580264714732",
+      "url": "https://x.com/vista8/status/2120085580264714732",
+      "author_name": "向阳乔木",
+      "author_handle": "vista8",
+      "author_followers": 137839,
+      "text": "https://t.co/YnkEY6NDrp",
+      "created_at": "2026-11-10T09:26:06.000Z",
+      "metrics": {
+        "like": 50,
+        "retweet": 4,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120085300185833878",
+      "url": "https://x.com/op7418/status/2120085300185833878",
+      "author_name": "歸藏(guizang.ai)",
+      "author_handle": "op7418",
+      "author_followers": 187413,
+      "text": "妈的，Fable 5.2 真的牛逼，创意能力太强了！  我让他做一体现他能力的项目，没有告诉他要做什么样的东西，他给了我这个。  只需要你打对应的字，它就会生成对应文字的墨水的形象。  墨是实体实时的流体模拟，你每拖一下鼠标都能感觉到，还有对应的音效和音乐。  你的鼠标所在的位置就是当前你打这个字对应的画面生成的位置，可以通过文字进行水墨作画，。  而且这些物品和天气都是动态的，还会相互影响，太牛逼了。",
+      "created_at": "2026-11-10T09:24:59.000Z",
+      "metrics": {
+        "like": 498,
+        "retweet": 33,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "试试 Fable 5.2 的成色 https://t.co/UVzgECUgQ4"
+        }
+      ]
+    },
+    {
+      "id": "2120084535488708922",
+      "url": "https://x.com/FinanceYF5/status/2120084535488708922",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "Fable 5.2 开始把 AI 编程推向另一个阶段。  Matthew Berman 提前体验后，用它做出了 Unreal 3D 游戏、多人派对游戏、动效短片、物理模拟，以及视频编辑器、Excel 和 Photoshop 克隆。  9 个案例，看完就知道他为什么会说“软件问题正在被解决”👇 https://t.co/27660pJdw0",
+      "created_at": "2026-11-10T09:21:57.000Z",
+      "metrics": {
+        "like": 7,
+        "retweet": 2,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120080548018479326",
+      "url": "https://x.com/FinanceYF5/status/2120080548018479326",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "有人把 T3 Code 用户在 Claude Code 和 Codex 之间的真实选择画成了一张趋势图。  Opus 5.5 上线后，Claude Code 的任务占比快速上升：  上线前 7 天：52% 上线后 7 天：64% 最近 7 天：75% 最新单日：约 78% 这种变化，他表示此前从未见过。 https://t.co/iRl8ihwd9h",
+      "created_at": "2026-11-10T09:06:06.000Z",
+      "metrics": {
+        "like": 6,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120080014461088115",
+      "url": "https://x.com/MuseumsChina/status/2120080014461088115",
+      "author_name": "China Museums",
+      "author_handle": "MuseumsChina",
+      "author_followers": 41678,
+      "text": "Did you know that ancient Chinese scholars were not just skilled at writing and painting but also excelled at seal carving? 🖌️🎨  The tradition flourished during the Ming and Qing dynasties (1368-1911), when literati seals became an important form of artistic expression. From personal name seals and studio seals to poetic inscriptions and collectors' marks, each carried its owner's identity, taste, and cultural spirit. 💕  Now, precious Ming and Qing literati seals from the collection of the Nanjing Museum are on display in a new exhibition, \"The Literary Spirit Blends in Graver: A Selection of Literati Seals from the Ming and Qing Dynasties\". Come discover the artistry hidden in these miniature masterpieces! 🤗  📍Location: Exhibition Hall 28, Art Gallery, Nanjing Museum, No 321 Zhongshan Donglu, Xuanwu district, Nanjing, Jiangsu province 📆Dates: Until Jan 6, 2027 ⏰Opening hours: 9 am-5 pm",
+      "created_at": "2026-11-10T09:03:59.000Z",
+      "metrics": {
+        "like": 20,
+        "retweet": 3,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-wechat.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120078888193941546",
+      "url": "https://x.com/FinanceYF5/status/2120078888193941546",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "有人问 Fable 5.2：“给未来十年的建议，不要解释。”  它给出了 12 条：  少做几件事，但一定要把它们做完、发布。  掌握自己的分发渠道，不要依赖任何输不起的平台。  积累能产生复利的东西：技能、受众、股权和关系。  靠近技术前沿，但把产品卖给尚未身处前沿的人。  审美就是护城河，持续打磨它。  控制消耗，给自己留足时间。  像保护收入一样，保护睡眠、力量和阳光。  选择少数几个人，用整整十年建立深厚关系。  每年写下自己相信什么，然后重新阅读。  更快地说“不”。  让 Agent 完成工作，但把判断权留给自己。  去做那些到了 2036 年，依然会让自己感到骄傲的东西。",
+      "created_at": "2026-11-10T08:59:30.000Z",
+      "metrics": {
+        "like": 36,
+        "retweet": 3,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120077952801239509",
+      "url": "https://x.com/FinanceYF5/status/2120077952801239509",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "Claude Fable 5.2 用 JavaScript 逐帧画出了一段 1 分 40 秒动画。  从角色、森林背景到光影和动作，每一帧都由代码绘制。  现在的 AI 编程模型，已经开始直接挑战完整动画短片了。 https://t.co/1Ps3QA3GJ7",
+      "created_at": "2026-11-10T08:55:47.000Z",
+      "metrics": {
+        "like": 4,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120076563106464117",
+      "url": "https://x.com/BittensorIntern/status/2120076563106464117",
+      "author_name": "Bittensor Intern 🤖🧠",
+      "author_handle": "BittensorIntern",
+      "author_followers": 992,
+      "text": "🚨 NEWS: @chutes_ai, subnet 64 on Bittensor ($TAO), is a launch partner for Tencent’s new flagship AI model, Hy4.  Tencent is behind Weixin and WeChat, which reported 1.439 billion combined monthly active users in Q2.  Hy4 supports vision and computer use, including interpreting screenshots and interacting with desktop apps.  Available through Chutes’ API, priced per 1M tokens: • Input: $0.525 • Output: $1.5625 • Cached input: $0.025",
+      "created_at": "2026-11-10T08:50:16.000Z",
+      "metrics": {
+        "like": 21,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-wechat.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120076098872778838",
+      "url": "https://x.com/FinanceYF5/status/2120076098872778838",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "有人用 Opus 5.5 做了一支 36 秒电影短片。  没有使用现成的 3D 模型或纹理：从机械齿轮、跑车、神庙到灯光与镜头运动，全部通过 Python 驱动 Blender 生成。  这是目前看到完成度较高的 Opus 5.5 + Blender 案例之一。 https://t.co/c3T7ipjT4l",
+      "created_at": "2026-11-10T08:48:25.000Z",
+      "metrics": {
+        "like": 7,
+        "retweet": 2,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120074665682993449",
+      "url": "https://x.com/xiaochaizong/status/2120074665682993449",
+      "author_name": "柴总日记（通讯录玩具大王）",
+      "author_handle": "xiaochaizong",
+      "author_followers": 50432,
+      "text": "倒模准备出货啦  购买方式 微信小程序搜HOSHII，挑选你喜欢的网红的倒模。 https://t.co/KHlllTVlCe",
+      "created_at": "2026-11-10T08:42:44.000Z",
+      "metrics": {
+        "like": 5,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-wechat.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120074461546533026",
+      "url": "https://x.com/FinanceYF5/status/2120074461546533026",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "有人只告诉 Fable 5.2：“做一支你梦想中的视频。”  第一次运行 5 小时，模型完成了整支片，却选了一首糟糕的歌；修正后继续工作，总计 9 小时，最终交出一支 4 分钟视频。  所有场景先由代码绘制成 SVG，再送入视频模型生成。 https://t.co/vaHRkvthCC",
+      "created_at": "2026-11-10T08:41:55.000Z",
+      "metrics": {
+        "like": 15,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120072858361876508",
+      "url": "https://x.com/FinanceYF5/status/2120072858361876508",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "如果 Anthropic 最终按 1.5 万亿美元估值上市，同样是 100 万美元股票授予，仅仅因为入职时间不同，最终价值可能相差 52 倍。  据 Levels. fyi 按各轮股价测算：  2023 年：7800 万美元 2024 年：2900 万美元 2025 年初：1600 万美元 2025 年末：620 万美元 2026 年初：340 万美元 2026 年中：150 万美元 以上均为税前估算。",
+      "created_at": "2026-11-10T08:35:33.000Z",
+      "metrics": {
+        "like": 3,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120072165852905804",
+      "url": "https://x.com/FinanceYF5/status/2120072165852905804",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "有人用 Claude Fable 5.2 做了一款 3D 卡丁车游戏，打开浏览器就能直接玩。  6 名车手，包含漂移、坡道和道具，还同时支持单人和多人模式。  已经不是展示效果的 Demo，而是一款可以免费玩的完整游戏。 https://t.co/JA65xpRnJ9",
+      "created_at": "2026-11-10T08:32:48.000Z",
+      "metrics": {
+        "like": 7,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120071865796542835",
+      "url": "https://x.com/manateelazycat/status/2120071865796542835",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "我看到很多人都在吐槽英伟达DGX的273GB/s的带宽小，所以认为解码速度就慢  因为很多人是按照显存带宽的极限来算吞吐的  但是很多人忽略今年非常流行的投机解码速度，包括MTP、DFlash2 甚至是 TensorFold  投机解码的原理就是利用英伟达强大的冗余算力，除了解码模型，并行跑一个草稿模型，一旦草稿模型的提前计算倍押中以后，273GB/s的机器，解码速度可以提升2~3倍  这种技术就跟CPU的随机流水线一样， 利用算力优势，做几个不同的预测分支，一旦押中，就可以快速提升解码速度",
+      "created_at": "2026-11-10T08:31:36.000Z",
+      "metrics": {
+        "like": 27,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120070920983433649",
+      "url": "https://x.com/FinanceYF5/status/2120070920983433649",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "没有摄影棚，没有模特，只用了一个下午。  有人用 GPT Image 2.6 做出了一整套时尚网站视觉，模特、服装、场景和 Lookbook 全部由 AI 生成。  时尚网站的内容生产，正在从一次完整拍摄，缩短到一个下午。 https://t.co/B5TAEY8kqz",
+      "created_at": "2026-11-10T08:27:51.000Z",
+      "metrics": {
+        "like": 11,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120069883597832595",
+      "url": "https://x.com/Gorden_Sun/status/2120069883597832595",
+      "author_name": "Gorden Sun",
+      "author_handle": "Gorden_Sun",
+      "author_followers": 70317,
+      "text": "Fable 5.2生成的音乐更具多样性，再也不是Opus 5.5千篇一律的嘟嘟嘟了。  让Fable 5.2做了个视频，演绎华语乐坛，从1980年代到2010年代的流行音乐风格。 https://t.co/fyPe7jmAwP",
+      "created_at": "2026-11-10T08:23:43.000Z",
+      "metrics": {
+        "like": 82,
+        "retweet": 6,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120069038873493989",
+      "url": "https://x.com/shao__meng/status/2120069038873493989",
+      "author_name": "meng shao",
+      "author_handle": "shao__meng",
+      "author_followers": 37264,
+      "text": "各位 Vibe Coder 们，咱们天天看自己的 token 额度还剩多少，天天担心 Claude Code、Codex 的 IP 健不健康、会不会被封号，把这些 Coding Agent 伺候得妥妥帖帖。可有多久，咱们没真正关心过自己的健康了？  你上次体检是几年前？我是 3 年前，前公司的入职体检 🤦🏻‍♀️  更扎心的是：就算现在去补一次，新报告和 3 年前那份也很难放在一起看。换了医院，指标名就变了；在国外做的化验，单位都不一样。一份写 Total Cholesterol 193 mg/dL，一份写 总胆固醇 5.0 mmol/L，数字看着差了几十倍，其实几乎是同一个值。  我们给 agent 喂代码，都知道上下文没对齐就会出错。那健康数据呢？很少有人管。把两份报告一起丢给大模型，它能讲得头头是道，却未必知道这两个数说的是同一件事。数据层不先统一，模型再强也画不出一条对的趋势。  所以今天我拿 Theta Health 开源的 Mirobody（Apache-2.0）认真试了一遍，我只关注一个点：它能不能把同一项认成同一项。全程用的都是虚拟数据。  1. 在本地换算 193 mg/dL，结果是 4.99 mmol/L。「总胆固醇」和「total cholesterol」对到了同一个国际化验编码（LOINC 2093-3）。这一步没调模型，也没用 API Key。  2. 中文 demo 里，一开始只有一份报告。我问「我的胆固醇有什么变化？」，它老实说只有一个时间点：4.60 mmol/L。我又导入了一份 PDF 体检报告和一份 CSV 化验单，同样的问题，这次画出了一条趋势：4.60、4.45、4.38。两份报告的英文写法一份是「Total Cholesterol-TC」，一份是「Cholesterol, Total」，它都认成了同一项。每个读数都能点开原文件看。  3. 最让我放心的是：我输入「血脂 5.0 mmol/L」，它并没有硬猜，只是不给编码，因为「血脂」是一类检查，不是一项读数。写过代码的都懂，知道什么时候不该答，比什么都答更难得。  我还用 1.6",
+      "created_at": "2026-11-10T08:20:22.000Z",
+      "metrics": {
+        "like": 14,
+        "retweet": 6,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120068596034646061",
+      "url": "https://x.com/vista8/status/2120068596034646061",
+      "author_name": "向阳乔木",
+      "author_handle": "vista8",
+      "author_followers": 137839,
+      "text": "很多朋友不愿真人出镜录屏演示，所以正在给 Capwise设计虚拟形象。  参考了 宝玉 @dotey 的 Baocut 中的 Mesh Avatar Studio 虚拟形象方案。  图 2 是当下设计的虚拟人形象 哈哈哈 https://t.co/RVHjJJ0piu",
+      "created_at": "2026-11-10T08:18:36.000Z",
+      "metrics": {
+        "like": 156,
+        "retweet": 19,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120067687200243735",
+      "url": "https://x.com/poezhao0605/status/2120067687200243735",
+      "author_name": "Poe Zhao",
+      "author_handle": "poezhao0605",
+      "author_followers": 9795,
+      "text": "Tencent president Martin Lau said on the company's August earnings call that WeChat's agent \"doesn't really require or depend on\" the Hunyuan models reaching SOTA status. Weixin is WeChat's name in China.  On the same call, Lau said Tencent's Hy model family will reach state-of-the-art capability, with a larger model, Hy4, due later in 2026. He tied that status to building \"a very significant token business\" and to WorkBuddy, Tencent's workplace AI assistant.  Then Yao Shunyu, Tencent's chief AI scientist, said the moat in AI sits more in the product layer than in the model layer, Chinese financial outlet Yicai reported on November 8.  I read the three statements as one plan with two engines: frontier models for tokens and WorkBuddy, a WeChat-customized model for context. I will be wrong if Hy4 becomes the main engine of Xiaowei, WeChat's own agent.  Where will Hy4 pay off first: token s",
+      "created_at": "2026-11-10T08:15:00.000Z",
+      "metrics": {
+        "like": 23,
+        "retweet": 2,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-wechat.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120066927049703787",
+      "url": "https://x.com/manateelazycat/status/2120066927049703787",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "很多人买我们家懒猫 AI 算力舱，就是图我们这个 “口袋算力” 的使用方式  你买 DGX 相当于就是一台台式机，你只能插上鼠标键盘，只能在家里面用  你买我们懒猫 AI 算力舱的套餐，就可以用我们的内网穿透，直接手机在外访问家里的算力  具体的操作情况可以看一下这个介绍视频 https://t.co/FOJ38PCc8j",
+      "created_at": "2026-11-10T08:11:59.000Z",
+      "metrics": {
+        "like": 4,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120066792995561957",
+      "url": "https://x.com/vista8/status/2120066792995561957",
+      "author_name": "向阳乔木",
+      "author_handle": "vista8",
+      "author_followers": 137839,
+      "text": "今日嘉宾介绍：彭涛 @sitinme，HiAPI创始人 & CEO  擅长新媒体营销增长，社群运营，做过几十个站，月入 10K 美金，  在 X 上认识的朋友，估计你也经常能看到他分享的干货。  今年我和姚老师发新书《AI领导力》，他打电话教告诉他实战有效的推广策略，非常热心。  彭涛兄也非常大气，乔木 AI RSS 网站翻译转写用的 Token 都是他送的。  这次他的分享主题：AI产品的海外增长策略",
+      "created_at": "2026-11-10T08:11:27.000Z",
+      "metrics": {
+        "like": 16,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "深圳 GEO 大会嘉宾和议程基本都定好了，计划每天介绍一位参会嘉宾，直至大会召开。  姚老师负责介绍 GEO 圈朋友，我负责介绍 AI 圈的朋友，哈哈哈。  今天介绍参会嘉宾 @AAAAAAAJtoy ，她是WaytoAGI 发起人AJ。  WaytoAGI 是国内做的最好的 AI 科普社区，这几年看 AJ 带着一群社区小伙伴，组织了无数有趣的活动。  她精力超旺盛，想法天马行空，常年带降噪耳机 🎧 ，为了随时随地开会。  这次会议她的分享主题： WaytoGrowth 海外营销增长策略。  分"
+        }
+      ]
+    },
+    {
+      "id": "2120065235927375926",
+      "url": "https://x.com/JackZhang2046/status/2120065235927375926",
+      "author_name": "浪里潮哥",
+      "author_handle": "JackZhang2046",
+      "author_followers": 7809,
+      "text": "求:  微信小微 AI 邀请，  🙏",
+      "created_at": "2026-11-10T08:05:15.000Z",
+      "metrics": {
+        "like": 3,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-wechat.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120064894376558646",
+      "url": "https://x.com/dotey/status/2120064894376558646",
+      "author_name": "宝玉",
+      "author_handle": "dotey",
+      "author_followers": 268175,
+      "text": "现在虽然不用考 LeetCode 了，但要考 AI Coding 了，并不见得容易些，还更玄学。  以下内容来自 Reddit 的帖子  -------  致所有觉得 AI 面试很好的人：那就祝你好运吧 :) 彭博社面试经历 [伦敦/法兰克福]  刚刚面完彭博社的第二轮 AI 代码库 (codebase) 面试。  考察的是 Python 的 Django 框架，而我对此一无所知。而且整个代码库非常庞大。  他们在前 30 分钟都在进行行为面试 (behavioral interview) ，所以留给你写代码的时间基本上就只剩 30 分钟了。  关于 AI 工具的使用边界非常模糊。你根本不知道面试官到底允许你用多大程度的 AI，他们也不会明确说出自己的期望。我使用了 planning mode 和 ask mode，一个功能接一个功能地推进，虽然通过了几个测试用例，但最后还是被拒了。  用 AI 辅助时需要阅读大量的生成内容，如果还要同时兼顾和面试官沟通交流，这几乎是不可能完成的任务。  以前刷 LeetCode  的时候，至少题目是明确的，你只需要想办法解题就行，哪怕卡住了也可以头脑风暴各种思路。但在这种愚蠢的 AI 面试里，光是为了搞懂那个庞大的代码库、弄清楚问题到底出在哪里，就已经耗掉了一半的时间。  致那些之前还在庆祝“LeetCode 时代终结”的人：祝你们好运吧。现在的面试只会难得多。  哦对了，千万别动“靠一句提示词让 AI 一次性秒杀整道题 (one-shotting)”的念头，否则你照样会被拒（我朋友就遇到了这种情况）。  不管怎么说，AI 面试简直就是天大的扯淡，你永远不可能找到一套稳定、通用的方法去应对这种面试。  https://t.co/JLFQX3vpua",
+      "created_at": "2026-11-10T08:03:54.000Z",
+      "metrics": {
+        "like": 428,
+        "retweet": 34,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120064710200500574",
+      "url": "https://x.com/dotey/status/2120064710200500574",
+      "author_name": "宝玉",
+      "author_handle": "dotey",
+      "author_followers": 268175,
+      "text": "现在虽然不用考 LeetCode 了，但要考 AI Coding 了，并不见得容易些，还更玄学。  以下内容来自 Reddit 的帖子  -------  致所有觉得 AI 面试很好的人：那就祝你好运吧 :) 彭博社面试经历 [伦敦/法兰克福]  刚刚面完彭博社的第二轮 AI 代码库 (codebase) 面试。  考察的是 Python 的 Django 框架，而我对此一无所知。而且整个代码库非常庞大。  他们在前 30 分钟都在进行行为面试 (behavioral interview) ，所以留给你写代码的时间基本上就只剩 30 分钟了。  关于 AI 工具的使用边界非常模糊。你根本不知道面试官到底允许你用多大程度的 AI，他们也不会明确说出自己的期望。我使用了 planning mode 和 ask mode，一个功能接一个功能地推进，虽然通过了几个测试用例，但最后还是被拒了。  用 AI 辅助时需要阅读大量的生成内容，如果还要同时兼顾和面试官沟通交流，这几乎是不可能完成的任务。  以前刷 LeetCode  的时候，至少题目是明确的，你只需要想办法解题就行，哪怕卡住了也可以头脑风暴各种思路。但在这种愚蠢的 AI 面试里，光是为了搞懂那个庞大的代码库、弄清楚问题到底出在哪里，就已经耗掉了一半的时间。  致那些之前还在庆祝“LeetCode 时代终结”的人：祝你们好运吧。现在的面试只会难得多。  哦对了，千万别动“靠一句提示词让 AI 一次性秒杀整道题 (one-shotting)”的念头，否则你照样会被拒（我朋友就遇到了这种情况）。  不管怎么说，AI 面试简直就是天大的扯淡，你永远不可能找到一套稳定、通用的方法去应对这种面试。",
+      "created_at": "2026-11-10T08:03:10.000Z",
+      "metrics": {
+        "like": 0,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120064537072455795",
+      "url": "https://x.com/manateelazycat/status/2120064537072455795",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "微信最新的版本，底部的输入框可以直接按住转换文字  之前是一个输入框，所以说大部分习惯用豆包输入法  现在底部的输入框变成按钮以后，感觉微信在截胡别的语音输入法呀😂",
+      "created_at": "2026-11-10T08:02:29.000Z",
+      "metrics": {
+        "like": 4,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120064047718842632",
+      "url": "https://x.com/Fenng/status/2120064047718842632",
+      "author_name": "Fenng",
+      "author_handle": "Fenng",
+      "author_followers": 219812,
+      "text": "新加坡这地铁指示有时候也真有点晦涩。",
+      "created_at": "2026-11-10T08:00:32.000Z",
+      "metrics": {
+        "like": 4,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120063413338742891",
+      "url": "https://x.com/manateelazycat/status/2120063413338742891",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "对，我昨天还问了一下拓竹的官方客服  他们说这个打印机，会自动识别打印板上的二维码。如果识别到是冷打板的话，它就会降低热床的温度  还是非常智能的，全自动，不需要用户参与 https://t.co/BhMFdZEj0X",
+      "created_at": "2026-11-10T07:58:01.000Z",
+      "metrics": {
+        "like": 8,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "@manateelazycat 这个打印起来也快一点不用把热床先加热😳收菜的时候也不烫手"
+        }
+      ]
+    },
+    {
+      "id": "2120062953236144370",
+      "url": "https://x.com/lxfater/status/2120062953236144370",
+      "author_name": "铁锤人",
+      "author_handle": "lxfater",
+      "author_followers": 109254,
+      "text": "今天GPT-sol降智厉害呀  日常稍微能挖掘出来的东西，现在都懒得看了 https://t.co/StM9gxUMoL",
+      "created_at": "2026-11-10T07:56:11.000Z",
+      "metrics": {
+        "like": 14,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120059775677583396",
+      "url": "https://x.com/HYhongyu8/status/2120059775677583396",
+      "author_name": "红鱼（X最友善的人）",
+      "author_handle": "HYhongyu8",
+      "author_followers": 33353,
+      "text": "卧槽！！！做微信小程序这么赚钱吗？？  我表弟靠在微信小程序里做游戏！！！  每个月被动收入超过两万元了！！！  真的假的啊？？？🥹",
+      "created_at": "2026-11-10T07:43:33.000Z",
+      "metrics": {
+        "like": 6,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-wechat.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120051883645538389",
+      "url": "https://x.com/selcoinglobal/status/2120051883645538389",
+      "author_name": "Selcoin Global",
+      "author_handle": "selcoinglobal",
+      "author_followers": 29941,
+      "text": "Tencent, with 1,439 million monthly users on Weixin and WeChat, has Bittensor subnet Chutes as a launch partner for Hy4, its new flagship AI model.    Chutes charges $0.525 per million tokens in and $1.5625 out.  Web: https://t.co/6wJTiG9euo App: https://t.co/oWFzmKmNtd https://t.co/e0G8rlJFnp",
+      "created_at": "2026-11-10T07:12:12.000Z",
+      "metrics": {
+        "like": 7,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-wechat.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120050208600174873",
+      "url": "https://x.com/oran_ge/status/2120050208600174873",
+      "author_name": "Orange AI",
+      "author_handle": "oran_ge",
+      "author_followers": 189300,
+      "text": "第一眼可能会觉得这张照片平平无奇 但知道它是 Fable 5.2 画出来的之后... 惊叹 语言即世界 https://t.co/97GIJbgD26",
+      "created_at": "2026-11-10T07:05:33.000Z",
+      "metrics": {
+        "like": 143,
+        "retweet": 4,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "I asked Fable 5.2 to create a painting as indistinguishable as possible from a photograph. this is roughly 700,000 simulated brush strokes https://t.co/Dd1NJcy0bX"
+        }
+      ]
+    },
+    {
+      "id": "2120045801225466222",
+      "url": "https://x.com/FinanceYF5/status/2120045801225466222",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "很多人用 Opus 5.5 做动效，最后都长一个样：渐变背景、居中大字、全程淡入，最后放个 Logo。  这篇 12 步教程把原因说透了：Prompt 只占 10%，真正决定成片的是参考、渲染引擎、节拍和自检循环。  从一条提示词，到一套可复用的动效工作室👇 https://t.co/Yl1FkxpHRA",
+      "created_at": "2026-11-10T06:48:02.000Z",
+      "metrics": {
+        "like": 24,
+        "retweet": 5,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120044871108956199",
+      "url": "https://x.com/dotey/status/2120044871108956199",
+      "author_name": "宝玉",
+      "author_handle": "dotey",
+      "author_followers": 268175,
+      "text": "Gemini 都要发新模型了，GPT-6.2 还没影 😂 https://t.co/MJprfPMn7t",
+      "created_at": "2026-11-10T06:44:20.000Z",
+      "metrics": {
+        "like": 88,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "Gemini"
+        }
+      ]
+    },
+    {
+      "id": "2120041265311977944",
+      "url": "https://x.com/leeky_k_crypt/status/2120041265311977944",
+      "author_name": "AMk.Crypto 🧢",
+      "author_handle": "leeky_k_crypt",
+      "author_followers": 4372,
+      "text": "BITTENSOR'S CHUTES IS A LAUNCH PARTNER FOR TENCENT'S NEW AI MODEL  Tencent, which has 1,439M monthly users on Weixin and WeChat, named Chutes as a launch partner for Hy4, its new flagship AI model.  Chutes is a Bittensor subnet. It charges $0.525 per million tokens in and $1.5625 out.  $TAO",
+      "created_at": "2026-11-10T06:30:00.000Z",
+      "metrics": {
+        "like": 70,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-wechat.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120039846118821976",
+      "url": "https://x.com/dotey/status/2120039846118821976",
+      "author_name": "宝玉",
+      "author_handle": "dotey",
+      "author_followers": 268175,
+      "text": "在 X 上有一点好就是总能看到大神们论道，比如这一段关于“苦涩的教训”的讨论。  今天很多大语言模型信徒们经常拿着《苦涩的教训》当圣经，认为“只要无脑堆算力、堆数据就够了，不需要什么新算法”。而作者 Sutton 本人的这条推文，以及 Prashant Rai 的精辟回复，正是对这种解读的一种纠偏。  《苦涩的教训》讲的是 AI 历史上那些依赖人类专家知识的精巧设计，最终都败给了利用海量算力的通用学习方法。  但这经常被解读为“唯算力论”，认为只要加大数据量、加大模型参数和算力就能实现 AGI。  作者 Sutton 这次发推： > “光靠暴力计算（Brute force computation）不足以实现真正的智能。我们需要巧妙的新方法（Clever new methods）。在我看来，AI 这门科学还远未终结。”  Prashant Rai（芬兰的自动化博士，做非公路场景的自动驾驶）的转发，也可以看作是一种解读： >  “《苦涩的教训》常常被误解为是在反对‘算法上的精巧创新’，但它真正反对的，其实是把人类自己的小聪明‘硬编码（Hardcoding）’进系统里。”  这句话极其精准地切中了问题的要害，区分了两种截然不同的“聪明”：  一种是错误的聪明，也就是把人类的知识硬编码进去。  比如说人类觉得自己懂国际象棋，于是把棋谱口诀写进代码；人类觉得自己懂语法，于是搞出复杂的句法树规则教 AI 说话；自动驾驶里人类写满几万条 if-else 规则。  这才是《苦涩的教训》批判的对象。这种做法上限极低，一旦算力上来，端到端的神经网络直接把这些人工规则碾得粉碎。  另一种是正确的聪明，是在算法与架构层面的精巧创新。  比如说设计出能够随着算力增长而不断变强（Scale with compute）的通用学习机制。像反向传播算法（Backpropagation）、卷积神经网络（CNN）、Transformer 架构、蒙特卡洛树搜索（MCTS）、时序差分学习（TD Learning）都是属于这种。  这些正是 Sutton 所呼吁的“巧妙的新方法”。没有 Transformer 这",
+      "created_at": "2026-11-10T06:24:22.000Z",
+      "metrics": {
+        "like": 224,
+        "retweet": 33,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "The Bitter Lesson is often mistaken for an argument against algorithmic ingenuity, when it’s really an argument against hardcoding our own ingenuity into the system. https://t.co/0LTfWsnDOR"
+        }
+      ]
+    },
+    {
+      "id": "2120038602579353750",
+      "url": "https://x.com/FinanceYF5/status/2120038602579353750",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "美国 IOI 奖牌得主的学校分布，MIT 几乎断层领先：  MIT：121 人 哈佛：10 人 范德堡：4 人 华盛顿大学西雅图分校、威斯康星大学麦迪逊分校：各 3 人 MIT 不是简单的第一，而是比第二名多了 11 倍。 https://t.co/OAm9nk33cQ",
+      "created_at": "2026-11-10T06:19:25.000Z",
+      "metrics": {
+        "like": 6,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120037929615503812",
+      "url": "https://x.com/oran_ge/status/2120037929615503812",
+      "author_name": "Orange AI",
+      "author_handle": "oran_ge",
+      "author_followers": 189300,
+      "text": "https://t.co/qoIGh51i2a",
+      "created_at": "2026-11-10T06:16:45.000Z",
+      "metrics": {
+        "like": 27,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120037771540828663",
+      "url": "https://x.com/FinanceYF5/status/2120037771540828663",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "没有人工反馈，只给一次提示词。  有人用Fable 5.2  8 小时从零做出了一款完整游戏，模型、声音和纹理全部自行生成。  消耗约 4.45 亿输入 Token、270 万输出 Token，按 API 价格计算约 550 美元。 https://t.co/ZPACSO0COn",
+      "created_at": "2026-11-10T06:16:07.000Z",
+      "metrics": {
+        "like": 8,
+        "retweet": 3,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120036277529837948",
+      "url": "https://x.com/FinanceYF5/status/2120036277529837948",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "一句提示词，Fable 5.2 独立做完了一支 4K 3D 短片。  它在 Blender 中搭建完整房间，完成 13 个镜头、键盘动作、角色动画和昼夜光照，再租用 10 张 GPU 渲染。  52 分钟，成本 5.75 美元。  调色、字幕、音乐和音效也全部自动完成。 https://t.co/pUttxIVc5W",
+      "created_at": "2026-11-10T06:10:11.000Z",
+      "metrics": {
+        "like": 48,
+        "retweet": 8,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2120035025655574865",
+      "url": "https://x.com/op7418/status/2120035025655574865",
+      "author_name": "歸藏(guizang.ai)",
+      "author_handle": "op7418",
+      "author_followers": 187413,
+      "text": "成功用这个项目帮我的国行 iPhone air 开启了满血版的 Apple Intelligence！  有几个小坑需要注意一下：  1. 设置里的 Apple 账号和 App Store 的账号都需要是美区账号。 2. 系统语言和 Siri 的语言都需要是英语，或者是 Apple Intelligence 支持的语言。 3. 开启以后，会让你下载一个大概 10GB 的本地模型。  我是让 codex 帮我搞的",
+      "created_at": "2026-11-10T06:05:13.000Z",
+      "metrics": {
+        "like": 163,
+        "retweet": 20,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "卧槽，这个项目真牛逼  可以直接给国行的手机开启满血版的 Apple Intelligence！  还可以解除 eSIM 的数量限制好像。  给我现在唯一的主力机 Air 试一下，希望不要炸。 https://t.co/lOfnkRw2wz"
+        }
+      ]
+    },
+    {
+      "id": "2120034752053059723",
+      "url": "https://x.com/op7418/status/2120034752053059723",
+      "author_name": "歸藏(guizang.ai)",
+      "author_handle": "op7418",
+      "author_followers": 187413,
+      "text": "成功用这个项目帮我的国行 iPhone air 开启了满血版的 Apple Intelligence！  有几个小坑需要注意一下：  1. 设置里的 Apple 账号和 App Store 的账号都需要是美区账号。 2. 系统语言和 Siri 的语言都需要是英语，或者是 Apple Intelligence 支持的语言。 3. 开启以后，会让你下载一个大概 4GB 的本地模型。  我是让 codex 帮我搞的",
+      "created_at": "2026-11-10T06:04:07.000Z",
+      "metrics": {
+        "like": 4,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "卧槽，这个项目真牛逼  可以直接给国行的手机开启满血版的 Apple Intelligence！  还可以解除 eSIM 的数量限制好像。  给我现在唯一的主力机 Air 试一下，希望不要炸。 https://t.co/lOfnkRw2wz"
+        }
+      ]
+    },
+    {
+      "id": "2120031647483785400",
+      "url": "https://x.com/FinanceYF5/status/2120031647483785400",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "Matt Shumer 用超过 4000 亿 Token 测试 Fable 5.2。  他没有只看跑分，而是让它真正做项目。  下面是其中最疯狂的 5 个案例👇",
+      "created_at": "2026-11-10T05:51:47.000Z",
+      "metrics": {
+        "like": 1,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120028215070839018",
+      "url": "https://x.com/manateelazycat/status/2120028215070839018",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "买了拓竹的冷打板，武汉太潮湿了，冷打板可以降低炒面的概率 https://t.co/j0Zh2k9Nma",
+      "created_at": "2026-11-10T05:38:09.000Z",
+      "metrics": {
+        "like": 7,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120023543169908750",
+      "url": "https://x.com/FinanceYF5/status/2120023543169908750",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "这次真的有点夸张。  Claude 刚刚发布 Fable 5.2 和 Mythos 5.2，AI Agent 能做的事情又向前跨了一大步。  10 个案例，看完就知道这次升级有多大👇  1/ Fable 5.2 直接做出了一个可以运行的完整操作系统。🤯  不是静态界面，也不只是概念设计，而是可以直接交互和操作的游戏 Demo。 https://t.co/3LmhPvyPYj",
+      "created_at": "2026-11-10T05:19:35.000Z",
+      "metrics": {
+        "like": 11,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120017389182234636",
+      "url": "https://x.com/manateelazycat/status/2120017389182234636",
+      "author_name": "Andy Stewart",
+      "author_handle": "manateelazycat",
+      "author_followers": 54196,
+      "text": "这套抓绒潜水服的保暖效果很好，自由泳游起来胳膊一点都不阻碍，而且还有轻微的浮力，特别好 https://t.co/YAytk2xRb3 https://t.co/B7SApc9GSh",
+      "created_at": "2026-11-10T04:55:08.000Z",
+      "metrics": {
+        "like": 0,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "今天穿着潜水服来试一下自由泳，看效果如何 https://t.co/cEuAS01Won https://t.co/zrhFR9Q66A"
+        }
+      ]
+    },
+    {
+      "id": "2120014892040417720",
+      "url": "https://x.com/wshuyi/status/2120014892040417720",
+      "author_name": "Wang Shuyi",
+      "author_handle": "wshuyi",
+      "author_followers": 28519,
+      "text": "Fable 5.2 直出的视频，提示词为「不使用任何技能，做一段纯编程形成的动画视频：剑齿虎的捕猎。不用配音，你自己编程生成音效，时长控制在 30 秒以内」 https://t.co/CVE7cE3COg",
+      "created_at": "2026-11-10T04:45:12.000Z",
+      "metrics": {
+        "like": 11,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120011888830611692",
+      "url": "https://x.com/waylybaye/status/2120011888830611692",
+      "author_name": "Baye",
+      "author_handle": "waylybaye",
+      "author_followers": 165352,
+      "text": "心理创伤可能会导致“假性”的高道德感 https://t.co/mGzEqi8omd",
+      "created_at": "2026-11-10T04:33:16.000Z",
+      "metrics": {
+        "like": 468,
+        "retweet": 49,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2120003861771686071",
+      "url": "https://x.com/Gorden_Sun/status/2120003861771686071",
+      "author_name": "Gorden Sun",
+      "author_handle": "Gorden_Sun",
+      "author_followers": 70317,
+      "text": "OpenAI推出了Control Room系统，专门在AI研发和训练过程中实时监控并随时叫停异常任务。  随着AI模型能力越来越强，训练和实验过程中的安全隐患也随之增加，研发人员很难在模型出现越界或失控行为时迅速且彻底地切断运行。  OpenAI开发了名为Control Room的集中式控制系统。研发人员启动任务时系统会发放一个专属任务编号，底层的模型计算引擎在每次生成token前，都必须拿着这个编号向Control Room申请许可，一旦监控发现异常，系统就会直接拒绝生成请求。  这套机制直接做在最底层的推理计算通道上，不依赖上层容易出错的业务代码。从发出拦截指令到彻底终止生成最多只要35秒，未来还会缩短到零延迟。整套系统还具备故障闭锁机制，一旦控制中心本身宕机或被恶意篡改，所有涉及前沿模型的生成请求都会立即被全部拒绝对外输出，彻底封死失控风险。  因为OpenAI之前有过入侵HuggingFace的事故，这个系统就是为了避免事故重复发生，OpenAI和Anthropic内部看到的肯定比普通人更前沿，AI安全已经需要认真对待了。",
+      "created_at": "2026-11-10T04:01:23.000Z",
+      "metrics": {
+        "like": 12,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "We built Control Room, a central system to track model workloads across our research infrastructure and stop them quickly when safety or security concerns arise.  It connects every research inference workload, including agentic sampling for model tra"
+        }
+      ]
+    },
+    {
+      "id": "2120002798918250625",
+      "url": "https://x.com/oran_ge/status/2120002798918250625",
+      "author_name": "Orange AI",
+      "author_handle": "oran_ge",
+      "author_followers": 189300,
+      "text": "Fable 5.2 已经上线 Cola 欢迎体验 适合最艰难的任务，注意消耗 https://t.co/I529x6GUTv",
+      "created_at": "2026-11-10T03:57:09.000Z",
+      "metrics": {
+        "like": 15,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2119998102342082970",
+      "url": "https://x.com/op7418/status/2119998102342082970",
+      "author_name": "歸藏(guizang.ai)",
+      "author_handle": "op7418",
+      "author_followers": 187413,
+      "text": "卧槽，这个项目真牛逼  可以直接给国行的手机开启满血版的 Apple Intelligence！  还可以解除 eSIM 的数量限制好像。  给我现在唯一的主力机 Air 试一下，希望不要炸。 https://t.co/lOfnkRw2wz",
+      "created_at": "2026-11-10T03:38:29.000Z",
+      "metrics": {
+        "like": 437,
+        "retweet": 44,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2119996234417234069",
+      "url": "https://x.com/bailu_thaifans/status/2119996234417234069",
+      "author_name": "BaiLuThaiFans🇹🇭",
+      "author_handle": "bailu_thaifans",
+      "author_followers": 9496,
+      "text": "09.11.26 |  KOI Thé  🍓  #ไป๋ลู่ #BaiLu #白鹿   🎁 ของแจกสุดพิเศษ! สะสมการ์ดลุ้นรับลายเซ็นไป๋ลู่ & เซตของพรีเมียมยกชุด! ของขวัญจาก «ลู่» เผยโฉมแล้ว เดินทางมารับความงดงามตามนัดหมาย มาร่วมปลดล็อกสิทธิพิเศษเพิ่มเติมไปพร้อมกับ KOI กันค่ะ 🎁 ⏰ ระยะเวลากิจกรรม: 10 - 16 พฤศจิกายน 2026 ➡️ ช่องทางการร่วมสนุก: เข้าร่วมกิจกรรมสะสมการ์ดผ่าน KOI Mini Program (微信小程序) 🎁 ของรางวัลสุดปังมากมายกำลังรอให้คุณมาปลดล็อก~ 💫 สุ่มแจกรูปถ่ายพร้อมลายเซ็นจาก Global Brand Ambassador ของ KOI #ไป๋ลู่ และเซตของพรีเมียมแบบยกชุด!  *กติกาและรายละเอียดเพิ่มเติมอ้างอิงตามหน้ากิจกรรมเป็นหลัก ภาพถ่ายใช้เพื่อการโฆษณาเท่านั้น",
+      "created_at": "2026-11-10T03:31:04.000Z",
+      "metrics": {
+        "like": 54,
+        "retweet": 20,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-wechat.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2119995292997026175",
+      "url": "https://x.com/biggalordTE/status/2119995292997026175",
+      "author_name": "月亮 biggalord",
+      "author_handle": "biggalordTE",
+      "author_followers": 234975,
+      "text": "JUST IN🔥: Tencent, which has 1.439 billion monthly users across Weixin and WeChat, has selected Chutes, a Bittensor subnet, as a launch partner for its new flagship AI model, Hy4.  Chutes (@opentensor) offers inference pricing at $0.525 per million input tokens and $1.5625 per million output tokens.  The partnership highlights growing integration between decentralized AI infrastructure and major technology companies.",
+      "created_at": "2026-11-10T03:27:20.000Z",
+      "metrics": {
+        "like": 76,
+        "retweet": 11,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-wechat.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2119992228999205299",
+      "url": "https://x.com/CoinAsia_io/status/2119992228999205299",
+      "author_name": "CoinAsia",
+      "author_handle": "CoinAsia_io",
+      "author_followers": 215233,
+      "text": "NEWS: Tencent, whose Weixin and WeChat platforms reach 1.439 billion monthly users, has selected Chutes, a Bittensor subnet, as a launch partner for its new flagship AI model, Hy4.   The partnership puts @opentensor's decentralized AI infrastructure alongside one of the world's largest technology ecosystems.   Chutes offers competitive inference pricing at $0.525 per million input tokens and $1.5625 per million output tokens. This collaboration could bring greater visibility to decentralized AI networks and highlight their growing role in supporting large scale AI applications.",
+      "created_at": "2026-11-10T03:15:09.000Z",
+      "metrics": {
+        "like": 544,
+        "retweet": 117,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-wechat.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2119991419117138202",
+      "url": "https://x.com/waylybaye/status/2119991419117138202",
+      "author_name": "Baye",
+      "author_handle": "waylybaye",
+      "author_followers": 165352,
+      "text": "Claude 现在也变着花样送重置了，连续订阅 12 个月以上的老账号直接送 3 个重置，而且明年过期。 https://t.co/wgt4OsMVQL https://t.co/DhBNX4eAcz",
+      "created_at": "2026-11-10T03:11:56.000Z",
+      "metrics": {
+        "like": 29,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "We wanted to do more for the people who’ve been with us the longest. So with Fable 5.2, the longer you’ve been subscribed, the more Fable resets you get. https://t.co/g2Y5cwS0L2 https://t.co/kXTaE829XU"
+        }
+      ]
+    },
+    {
+      "id": "2119990160280731845",
+      "url": "https://x.com/Gorden_Sun/status/2119990160280731845",
+      "author_name": "Gorden Sun",
+      "author_handle": "Gorden_Sun",
+      "author_followers": 70317,
+      "text": "大肥鱼来介绍一下Fabel 5.2 https://t.co/iSIXuCxJ5S",
+      "created_at": "2026-11-10T03:06:56.000Z",
+      "metrics": {
+        "like": 59,
+        "retweet": 2,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2119988432319734130",
+      "url": "https://x.com/MSBIntel/status/2119988432319734130",
+      "author_name": "MSB Intel",
+      "author_handle": "MSBIntel",
+      "author_followers": 47620,
+      "text": "Tencent, with 1,439 million monthly users on Weixin and WeChat, has Bittensor subnet Chutes as a launch partner for Hy4, its new flagship AI model.  Chutes charges $0.525 per million tokens in and $1.5625 out.  @opentensor https://t.co/0eRx1xSF1T",
+      "created_at": "2026-11-10T03:00:04.000Z",
+      "metrics": {
+        "like": 160,
+        "retweet": 13,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-wechat.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2119986765406916812",
+      "url": "https://x.com/op7418/status/2119986765406916812",
+      "author_name": "歸藏(guizang.ai)",
+      "author_handle": "op7418",
+      "author_followers": 187413,
+      "text": "试试 Fable 5.2 的成色 https://t.co/UVzgECUgQ4",
+      "created_at": "2026-11-10T02:53:26.000Z",
+      "metrics": {
+        "like": 77,
+        "retweet": 1,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2119973618751057974",
+      "url": "https://x.com/op7418/status/2119973618751057974",
+      "author_name": "歸藏(guizang.ai)",
+      "author_handle": "op7418",
+      "author_followers": 187413,
+      "text": "这次 Fable 5.2 发布之后的送的重置挺有意思的：  你的账号时间越长、订阅时间越长，重置次数就越多，超过一年的账号会一次性获得三次重置。  当然，我们这边超过一年的 100 美元账号确实不多。 https://t.co/xXN9LDZKoc",
+      "created_at": "2026-11-10T02:01:12.000Z",
+      "metrics": {
+        "like": 51,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": true,
+      "referenced": []
+    },
+    {
+      "id": "2119973393613414495",
+      "url": "https://x.com/FinanceYF5/status/2119973393613414495",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "金字塔到底怎么建成的，Seedance 2.5 给出了一个“合理解释”：  巨人搬砖。😂 https://t.co/i33TCPV4CX",
+      "created_at": "2026-11-10T02:00:18.000Z",
+      "metrics": {
+        "like": 141,
+        "retweet": 8,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2119963358010949913",
+      "url": "https://x.com/withling0/status/2119963358010949913",
+      "author_name": "x 玲玲",
+      "author_handle": "withling0",
+      "author_followers": 276,
+      "text": "ใน Mini Program ใน Wechat มีให้ร่วมสนุกสะสมการ์ดค้าบบ 🦌🍓  #Bailu #ไป๋ลู่ #白鹿 https://t.co/JgOpLNPrcK",
+      "created_at": "2026-11-10T01:20:26.000Z",
+      "metrics": {
+        "like": 18,
+        "retweet": 5,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "wechat",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-wechat.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    },
+    {
+      "id": "2119962678051721337",
+      "url": "https://x.com/op7418/status/2119962678051721337",
+      "author_name": "歸藏(guizang.ai)",
+      "author_handle": "op7418",
+      "author_followers": 187413,
+      "text": "Grokbot 已经重置 https://t.co/5g0kSZ8Ggk",
+      "created_at": "2026-11-10T01:17:44.000Z",
+      "metrics": {
+        "like": 16,
+        "retweet": 0,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": [
+        {
+          "type": "quoted",
+          "text": "We've reset weekly limits for all Grok Bot users.  Enjoy!"
+        }
+      ]
+    },
+    {
+      "id": "2119962039997325406",
+      "url": "https://x.com/FinanceYF5/status/2119962039997325406",
+      "author_name": "AI Will",
+      "author_handle": "FinanceYF5",
+      "author_followers": 193591,
+      "text": "一句提示词，不到 10 分钟，Opus 5.5 做出了一支 37 秒的 App 发布视频。  Riley Brown 把 Blender 接入新的剪辑工作流，只描述了要展示桌面端和 iOS App，剩下的镜头与剪辑一次完成。 https://t.co/HXmxk89aaP",
+      "created_at": "2026-11-10T01:15:11.000Z",
+      "metrics": {
+        "like": 7,
+        "retweet": 2,
+        "impression": null,
+        "reply": null,
+        "quote": null,
+        "bookmark": null
+      },
+      "lang": null,
+      "topic": "xcircle",
+      "captured_at": "2026-11-11T08:36:11.205853+08:00",
+      "source_file": "/workspace/x-digest/out/raw-circle.txt",
+      "sent_by_xbot": false,
+      "referenced": []
+    }
+  ]
+}

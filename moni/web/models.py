@@ -479,6 +479,32 @@ class FetchConfigResponse(BaseModel):
     defaults: dict[str, Any]
 
 
+class ScopeResponse(BaseModel):
+    """Response for GET /api/config/sources/{id}/scope (v1.0.71 sprint-35).
+
+    ``scope`` 是**展示用**的信源范围; ``scope_source`` 说明它来自哪里
+    (三态, 优先级从上到下):
+
+    * ``upstream`` —— 上游 feed JSON 顶层导出了 scope (权威, 只读);
+    * ``moni_stored`` —— moni 侧存着用户编辑过的副本 (可编辑, 仅记录与展示);
+    * ``moni_fallback`` —— 都没有 → 用兜底快照 (moni 侧兜底, 2026-11-11)。
+
+    ``scope_edited`` 是给 UI 用的独立布尔 (与 ``scope_source`` 同步)。
+
+    ``scope_gates_ingest`` 恒为 false: scope **不参与入库闸门** ——
+    编辑它不会改变 X-bot 的搜索范围。
+    """
+    source_id: str
+    source_name: str
+    scope: dict[str, Any]
+    scope_source: str
+    upstream_scope_available: bool
+    scope_edited: bool
+    thresholds: dict[str, Any]
+    scope_gates_ingest: bool
+    stacking_note: str
+
+
 # ---------------------------------------------------------------------------
 # Config: source_keyword_filters (v1.0.2)
 # ---------------------------------------------------------------------------

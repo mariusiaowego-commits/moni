@@ -3563,6 +3563,91 @@
               <p class="empty-row muted" x-show="fetchConfigSortedKeys().length === 0">
                 该源暂无 fetch_config 字段（可用 seed 或 API 写入）
               </p>
+
+              <!-- ══ v1.0.71 (sprint-35): X-bot 精选专属区块 ══════════════ -->
+              <template x-if="fetchConfigData.source_name === 'xbot_feed'">
+                <div class="fetch-config-xbot">
+                  <!-- 范围 (可编辑副本 + 来源徽标) -->
+                  <div class="fetch-config-row">
+                    <label class="fetch-config-label">
+                      <span class="fetch-config-zh">信源范围 (scope)</span>
+                      <code class="fetch-config-key">scope</code>
+                      <span class="badge-source" x-text="fetchConfigScopeSourceLabel()"></span>
+                    </label>
+                    <p class="fetch-config-hint muted">
+                      moni 侧副本：仅用于记录与展示，<strong>不会改变 X-bot 的搜索范围</strong>，也不参与入库闸门。
+                      上游自 2026-11-12 起自带 wechat 门槛（5000 粉 / 5 赞）；moni 门槛是<strong>第二道串联闸门</strong>：只能更严，捞不回上游已丢的条目。
+                    </p>
+
+                    <div class="fetch-config-scope-block">
+                      <div class="fetch-config-scope-label">
+                        xcircle 固定账号
+                        <span class="muted" x-text="`${(fetchConfigScopeList('xcircle_accounts') || '').split('\n').filter(Boolean).length} 个`"></span>
+                      </div>
+                      <textarea rows="6"
+                                class="fetch-config-scope-input"
+                                :value="fetchConfigScopeList('xcircle_accounts')"
+                                @change="setFetchConfigScopeList('xcircle_accounts', $event.target.value)"
+                                placeholder="一行一个 handle"></textarea>
+                    </div>
+
+                    <div class="fetch-config-scope-block">
+                      <div class="fetch-config-scope-label">wechat 关键词正则</div>
+                      <input type="text"
+                             class="fetch-config-scope-input"
+                             :value="fetchConfigScopeText('wechat_regex')"
+                             @change="setFetchConfigScopeText('wechat_regex', $event.target.value)"
+                             placeholder="大小写不敏感的正则">
+                    </div>
+
+                    <div class="fetch-config-scope-block">
+                      <div class="fetch-config-scope-label">
+                        wechat 每日查询词
+                        <span class="muted" x-show="!fetchConfigScopeList('wechat_queries')">上游未导出</span>
+                      </div>
+                      <textarea rows="3"
+                                class="fetch-config-scope-input"
+                                :value="fetchConfigScopeList('wechat_queries')"
+                                @change="setFetchConfigScopeList('wechat_queries', $event.target.value)"
+                                placeholder="一行一个（上游未导出时留空）"></textarea>
+                    </div>
+                  </div>
+
+                  <!-- 门槛 (类型化输入框) -->
+                  <div class="fetch-config-row">
+                    <label class="fetch-config-label">
+                      <span class="fetch-config-zh">入库门槛 (thresholds)</span>
+                      <code class="fetch-config-key">thresholds</code>
+                    </label>
+                    <p class="fetch-config-hint muted">
+                      moni 侧的第二道闸门：按 topic 过滤进入的条目。<strong>0 = 不设限</strong>。
+                      缺 <code>author_followers</code> / <code>metrics.like</code> 的条目按<strong>放行</strong>处理（只计数，不丢弃）。
+                    </p>
+
+                    <template x-for="topic in ['wechat', 'xcircle']" :key="topic">
+                      <div class="fetch-config-threshold-row">
+                        <div class="fetch-config-threshold-topic" x-text="topic === 'wechat' ? 'wechat（微信/小程序）' : 'xcircle（推特圈）'"></div>
+                        <label class="fetch-config-threshold-field">
+                          <span>最低粉丝数</span>
+                          <input type="number"
+                                 min="0"
+                                 step="1"
+                                 :value="fetchConfigThresholdValue(topic, 'min_followers')"
+                                 @change="setFetchConfigThresholdValue(topic, 'min_followers', $event.target.value)">
+                        </label>
+                        <label class="fetch-config-threshold-field">
+                          <span>最低点赞数</span>
+                          <input type="number"
+                                 min="0"
+                                 step="1"
+                                 :value="fetchConfigThresholdValue(topic, 'min_likes')"
+                                 @change="setFetchConfigThresholdValue(topic, 'min_likes', $event.target.value)">
+                        </label>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
             </div>
             <div class="modal-footer">
               <button class="btn-secondary" @click="closeConfigModal()">取消</button>
