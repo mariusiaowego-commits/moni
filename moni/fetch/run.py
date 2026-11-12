@@ -163,8 +163,10 @@ def main(argv: list[str] | None = None) -> int:
         source_names = [cfg["source_name"] for cfg in matched]
         source_label = f"source(s) matching {args.source_name!r}"
     else:
-        source_names = [cfg["source_name"] for cfg in all_sources]
-        source_label = "all enabled sources"
+        # 批量路径排除 batch_enabled: false 的源 (bank_feed 会拉起 agent,
+        # 不跟着全量抓取跑)。显式 --source 时才包含。
+        source_names = [cfg["source_name"] for cfg in scheduler.batch_sources()]
+        source_label = "all batch-enabled sources"
 
     if not source_names:
         print("  No enabled sources found.")

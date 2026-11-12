@@ -1006,11 +1006,11 @@ def _run_batch_job_inner(
                 if result.get("error"):
                     jobs.mark_failed(job_id, str(result["error"]), handle=handle)
                     sources_failed += 1
-                    continue
+                else:
+                    jobs.mark_done(job_id, result, handle=handle)
 
-                jobs.mark_done(job_id, result, handle=handle)
-
-                # Calculate deduped
+                # 失败源也要写 fetch_log / 计入入库数 —— 部分失败时
+                # inserted 可能 > 0, 跳过会让 cron_runs.new_articles 少算。
                 dropped_total = (
                     result.get("dropped_blacklist", 0)
                     + result.get("dropped_whitelist", 0)

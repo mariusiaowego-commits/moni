@@ -432,7 +432,10 @@ def call_agent(prompt: str, *, timeout: int, profile: str) -> str:
         stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
         _kill_group(proc.pid)
-        proc.communicate()
+        try:
+            proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            print("[bank_bot] stdout pipe still held after SIGKILL", file=sys.stderr)
         raise TargetError(f"agent timed out after {timeout}s") from None
     if proc.returncode != 0:
         tail = (stderr or stdout or "").strip().splitlines()[-3:]
@@ -444,8 +447,10 @@ def _kill_group(pid: int, grace: float = 5.0) -> None:
     for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
             os.killpg(os.getpgid(pid), sig)
-        except (ProcessLookupError, PermissionError, OSError):
+        except ProcessLookupError:
             return
+        except OSError:
+            print(f"[bank_bot] killpg({pid}, {sig}) failed", file=sys.stderr)
         if sig is signal.SIGTERM:
             time.sleep(grace)
 

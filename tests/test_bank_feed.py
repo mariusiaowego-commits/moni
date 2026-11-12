@@ -621,3 +621,86 @@ def test_pass_through_still_tags_articles(fresh_db):
         for r in conn.execute("SELECT tag_name FROM article_tags")
     ]
     assert tags == [TAG_NAME]
+
+
+def test_deleted_tag_refuses_to_ingest(fresh_db):
+    """tag 被删 → 绑定被 CASCADE，合成命中会指向不存在的 tag。
+
+    正确行为是拒绝入库并报错，而不是制造一批零 tag 文章。
+    """
+    conn = get_db()
+    conn.execute("DELETE FROM tag_definitions WHERE name = ?", (TAG_NAME,))
+    conn.commit()
+    _write_feed(fresh_db, [_item(1)])
+    result = _fetcher().run()
+    assert result["inserted"] == 0
+    assert "no tag bound" in result["error"]
+    assert conn.execute("SELECT COUNT(*) FROM articles WHERE source = ?",
+                        (SOURCE_NAME,)).fetchone()[0] == 0
+
+
+def test_pass_through_with_source_filter_still_tags(fresh_db):
+    """关键词清空 + 源白名单同时存在时，filter 命中不带 tag_name。
+
+    只看「整轮 keyword_hits 是否为空」会漏掉这条路径 → 零 tag。
+    """
+    conn = get_db()
+    conn.execute("UPDATE tag_definitions SET keywords = NULL WHERE name = ?",
+                 (TAG_NAME,))
+    conn.execute(
+        """
+        INSERT INTO source_keyword_filters
+            (source_id, mode, match_field, keywords, is_active, created_at, updated_at)
+        VALUES (?, 'whitelist', 'title+content', ?, 1, '2026-11-01', '2026-11-01')
+        """,
+        (SOURCE_ID, json.dumps(["建行"], ensure_ascii=False)),
+    )
+    conn.commit()
+    _write_feed(fresh_db, [_item(1, title="建行发布2026年三季度经营业绩")])
+    result = _fetcher().run()
+    assert result["inserted"] == 1
+    tags = [r[0] for r in conn.execute("SELECT tag_name FROM article_tags")]
+    assert tags == [TAG_NAME]
+
+
+def test_bot_retry_failure_still_imports_existing_partial_feed(fresh_db, monkeypatch):
+    """补跑失败不该把盘上已有的部分 feed 一起丢掉。"""
+    conn = get_db()
+    _no_feed_fetch_config(conn)
+    stale = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    _write_partial_feed(
+        fresh_db, [_item(1)], [{"target": "icbc", "error": "timeout"}],
+        generated_at=stale,
+    )
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen(1, "", "agent exploded"))
+    result = _fetcher().run()
+    assert result["inserted"] == 1
+    assert "agent 补跑失败" in result["error"]
+    assert "feed 不完整" in result["error"]
+
+
+def test_insert_failure_is_not_a_green_success(fresh_db):
+    """dedupe_insert 抛错时 result["error"] 必须有值 (四条入口都靠它)。"""
+    import sqlite3
+
+    from moni.fetch.base import BaseFetcher
+
+    class _BoomFetcher(BaseFetcher):
+        source_name = "boom"
+
+        def fetch(self):
+            return [{"url": "https://example.com/boom", "title": "建设银行新闻"}]
+
+        def parse(self, raw):
+            return {
+                "title": raw["title"],
+                "url": raw["url"],
+                "content": "建设银行正文",
+            }
+
+        def dedupe_insert(self, articles, keyword_hits=None):
+            raise sqlite3.OperationalError("disk I/O error")
+
+    result = _BoomFetcher().run()
+    assert result["inserted"] == 0
+    assert result["error"] and "disk I/O error" in result["error"]

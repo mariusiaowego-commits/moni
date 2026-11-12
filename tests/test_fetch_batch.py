@@ -39,6 +39,19 @@ class _OkFetcher2(_OkFetcher):
         return [{"url": "http://example.com/b", "title": "B"}]
 
 
+class _PartialErrorFetcher(_OkFetcher):
+    """模仿 bank_feed：部分入库 + result["error"]。"""
+
+    source_name = "bad_a"
+
+    def run(self, dry_run: bool = False):
+        return {
+            "source": self.source_name,
+            "fetched": 2, "parsed": 2, "inserted": 1, "parse_errors": 0,
+            "error": "RuntimeError: boom",
+        }
+
+
 @pytest.fixture
 def fresh_db(tmp_path):
     set_db_path(tmp_path / "news.db")
@@ -124,3 +137,31 @@ def test_successful_batch_closes_every_row(fresh_db, monkeypatch):
     jobs = _jobs_by_source()
     assert jobs["ok_a"]["status"] == "done"
     assert jobs["ok_b"]["status"] == "done"
+
+
+def test_failed_source_still_writes_fetch_log(fresh_db, monkeypatch):
+    """失败源也要留 fetch_log 并计入入库数（部分失败时 inserted > 0）。"""
+    monkeypatch.setitem(fetch_base._FETCHER_REGISTRY, "bad_a", _PartialErrorFetcher)
+
+    store = FetchJobStore()
+    batch_id = "batch-partial"
+    job_ids = _queue(store, batch_id, ["bad_a"])
+
+    fetch_routes._run_batch_job(
+        batch_id, [{"source_name": "bad_a"}], None,
+        "2026-11-06T00:00:00+08:00", job_ids,
+    )
+
+    job = _jobs_by_source()["bad_a"]
+    assert job["status"] == "failed"
+    assert "boom" in job["error"]
+
+    log = get_db().execute(
+        "SELECT inserted, error FROM fetch_log WHERE source = 'bad_a'"
+    ).fetchone()
+    assert log is not None
+    assert log["inserted"] == 1
+    assert log["error"] and "boom" in log["error"]
+
+    cron = get_db().execute("SELECT new_articles FROM cron_runs").fetchone()
+    assert cron["new_articles"] == 1

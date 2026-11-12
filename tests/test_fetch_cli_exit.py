@@ -39,3 +39,26 @@ def test_main_exit_code_reflects_source_errors(monkeypatch, results, expected):
         lambda *a, **kw: (results, sum(r["fetched"] for r in results), 0),
     )
     assert fetch_run.main(["--source", "stub"]) == expected
+
+
+def test_bulk_fetch_skips_batch_disabled_sources(monkeypatch):
+    """不带 --source 的全量 CLI 也要排除 batch_enabled: false 的源。"""
+    import importlib
+
+    fetch_run = importlib.import_module("moni.fetch.run")
+    seen: list[list[str]] = []
+
+    class _Scheduler:
+        def enabled_sources(self):
+            return [{"source_name": "auto"}, {"source_name": "manual"}]
+
+        def batch_sources(self):
+            return [{"source_name": "auto"}]
+
+    monkeypatch.setattr(fetch_run, "Scheduler", _Scheduler)
+    monkeypatch.setattr(
+        fetch_run, "_collect_results",
+        lambda names, **kw: (seen.append(list(names)) or ([], 0, 0)),
+    )
+    assert fetch_run.main([]) == 0
+    assert seen == [["auto"]]

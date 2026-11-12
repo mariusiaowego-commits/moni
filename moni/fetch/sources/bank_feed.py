@@ -120,27 +120,45 @@ def _kill_group(pid: int, grace: float = 5.0) -> None:
     for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
             os.killpg(os.getpgid(pid), sig)
-        except (ProcessLookupError, PermissionError, OSError):
+        except ProcessLookupError:
             return
+        except OSError:
+            # 权限/时序问题也要继续走到 SIGKILL, 不能把孙进程留在原地。
+            logger.warning("[bank-feed] killpg(%s, %s) failed", pid, sig)
         if sig is signal.SIGTERM:
             time.sleep(grace)
 
 
-def _synthetic_hits(
-    articles: list[dict[str, Any]], tag_names: list[str]
+def _with_bound_tag_hits(
+    articles: list[dict[str, Any]],
+    keyword_hits: list[dict[str, Any]],
+    bound_tags: list[str],
 ) -> list[dict[str, Any]]:
-    """tag 闸门 pass-through 时补的命中记录 (AGENTS.md 铁律 3)。"""
-    return [
+    """保证每篇文章都带一个本源的绑定 tag。
+
+    不能只看「整轮 keyword_hits 是否为空」—— 源/全局关键词过滤器命中时
+    ``keyword_hits`` 非空, 但那些 hit 的 ``tag_name`` 是 ``None`` 或
+    ``[global]``, 落不进 ``article_tags``。所以按**每篇文章**检查它是否
+    已经有绑定 tag 的命中, 没有才补一条 (AGENTS.md 铁律 3)。
+    """
+    bound = set(bound_tags)
+    tagged_urls = {
+        str(hit.get("article_url") or "")
+        for hit in keyword_hits
+        if hit.get("tag_name") in bound
+    }
+    extra = [
         {
             "article_url": art.get("url", ""),
-            "keyword": "(pass-through)",
-            "tag_name": tag_name,
+            "keyword": "(自动归属)",
+            "tag_name": bound_tags[0],
             "filter_id": None,
-            "hit_field": "pass-through",
+            "hit_field": "tag_binding",
         }
         for art in articles
-        for tag_name in tag_names
+        if str(art.get("url") or "") not in tagged_urls
     ]
+    return list(keyword_hits) + extra
 
 
 def _normalize_published_at(raw: Any) -> str | None:
@@ -185,6 +203,7 @@ class FetcherBankFeed(BaseFetcher):
         self._round_ids: list[str] = []
         self._inserted_ok = False
         self._today_errors: list[dict[str, Any]] = []
+        self._bot_error = ""
 
     # ── config ────────────────────────────────────────────────────────────
     def _load_config(self) -> dict[str, Any]:
@@ -224,6 +243,31 @@ class FetcherBankFeed(BaseFetcher):
     def _repo_root(self) -> Path:
         """moni 仓库根目录 (本文件在 ``<root>/moni/fetch/sources/``)。"""
         return Path(__file__).resolve().parents[3]
+
+    def _bound_tags(self) -> list[str]:
+        """本源绑定的 tag 名 (不看 is_active / keywords, 只看行是否存在)。
+
+        tag 被删时 source_tags 会 CASCADE 掉 —— 那时返回空, 调用方必须
+        拒绝入库, 否则就是「有文章、零 tag」。
+        """
+        try:
+            from ...db.connection import get_db
+
+            rows = get_db().execute(
+                """
+                SELECT st.tag_name
+                FROM source_tags st
+                JOIN sources s ON s.id = st.source_id
+                WHERE s.name = ?
+                """,
+                (self.source_name,),
+            ).fetchall()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[bank-feed] cannot read bound tags: %s", exc)
+            return []
+        names = [str(r[0]) for r in rows]
+        # 主 tag 优先, 其余按名字稳定排序
+        return sorted(names, key=lambda n: (n != SOURCE_TAG, n))
 
     # ── targets ───────────────────────────────────────────────────────────
     def _load_targets(self, cfg: dict[str, Any]) -> list[dict[str, Any]]:
@@ -334,7 +378,10 @@ class FetcherBankFeed(BaseFetcher):
             # hermes 会拉起浏览器子进程; 只 kill 直接子进程会把孙进程和
             # 管道留在原地, communicate() 永远等不到 EOF。
             _kill_group(proc.pid)
-            stdout, stderr = proc.communicate()
+            try:
+                proc.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                logger.error("[bank-feed] bot stdout pipe still held after SIGKILL")
             raise RuntimeError(
                 f"bank-feed: agent bot timed out after {timeout}s"
             ) from None
@@ -430,7 +477,15 @@ class FetcherBankFeed(BaseFetcher):
         cfg = self._load_config()
         self._cfg = cfg
         self._today_errors = []
+        self._bot_error = ""
         targets = self._load_targets(cfg)
+
+        if not self._bound_tags():
+            # 没有绑定 tag 就必然零 tag; 宁可不入库也不要制造无 tag 文章。
+            raise RuntimeError(
+                "bank-feed: no tag bound to this source — refusing to ingest "
+                "untagged articles"
+            )
 
         if self._should_run_bot(cfg):
             if not cfg.get("bot_enabled", True):
@@ -444,7 +499,16 @@ class FetcherBankFeed(BaseFetcher):
                     raise RuntimeError(
                         "bank-feed: no targets configured — cannot run the agent"
                     )
-                self._run_bot(cfg, targets)
+                try:
+                    self._run_bot(cfg, targets)
+                except RuntimeError as exc:
+                    if not self._today_feed_exists():
+                        raise
+                    # 补跑失败但盘上有（不完整的）feed: 先把已到手的数据入库,
+                    # 再把失败报上去。整轮中止只会让这些数据一直进不来。
+                    logger.error("[bank-feed] bot retry failed, importing "
+                                 "existing partial feed: %s", exc)
+                    self._bot_error = str(exc)
 
         files = self._feed_files(int(cfg.get("max_days") or 0))
         if not files:
@@ -583,10 +647,18 @@ class FetcherBankFeed(BaseFetcher):
         ``tag_name``, ``dedupe_insert`` 只给**命中的** tag 写
         ``article_tags`` (AGENTS.md 铁律 3)。
         """
-        if articles and not keyword_hits:
-            # tag 被停用 / 关键词清空 / 绑定缺失 时 tag 闸门是 pass-through。
-            # 这条路径必须显式合成命中, 否则文章入库后零 tag、前端筛不到。
-            keyword_hits = _synthetic_hits(articles, self._source_tags())
+        bound_tags = self._bound_tags()
+        if articles:
+            if bound_tags:
+                keyword_hits = _with_bound_tag_hits(
+                    articles, list(keyword_hits or []), bound_tags
+                )
+            else:
+                # fetch() 已经拦过一次; 走到这里说明 tag 在抓取过程中被删了。
+                logger.error(
+                    "[bank-feed] tag binding disappeared mid-run — "
+                    "articles would be untagged"
+                )
         inserted = super().dedupe_insert(articles, keyword_hits)
         self._inserted_ok = True
         # 只记**确实在库里**的 item: 基类对单条 INSERT 异常只 warning,
@@ -596,16 +668,6 @@ class FetcherBankFeed(BaseFetcher):
             if item_id and self._article_exists(art):
                 self._round_ids.append(item_id)
         return inserted
-
-    def _source_tags(self) -> list[str]:
-        try:
-            from ..tag_filter import _load_tag_keywords_for_source
-
-            bound = _load_tag_keywords_for_source(self.source_name)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[bank-feed] cannot read bound tags: %s", exc)
-            bound = {}
-        return list(bound) or [SOURCE_TAG]
 
     def _article_exists(self, art: dict[str, Any]) -> bool:
         try:
@@ -632,13 +694,19 @@ class FetcherBankFeed(BaseFetcher):
         if not dry_run and self._inserted_ok:
             # 部分失败也要落 state: 已入库的条目不该在重跑时再处理一遍。
             self._flush_state()
-        if not dry_run and self._today_errors and not result.get("error"):
-            failed = ", ".join(
-                str(e.get("target") or "?") for e in self._today_errors[:5]
-            )
-            result["error"] = (
-                f"feed 不完整: {len(self._today_errors)} 个目标失败 ({failed})"
-            )
+        if not dry_run and not result.get("error"):
+            problems: list[str] = []
+            if self._bot_error:
+                problems.append(f"agent 补跑失败: {self._bot_error}")
+            if self._today_errors:
+                failed = ", ".join(
+                    str(e.get("target") or "?") for e in self._today_errors[:5]
+                )
+                problems.append(
+                    f"feed 不完整: {len(self._today_errors)} 个目标失败 ({failed})"
+                )
+            if problems:
+                result["error"] = "; ".join(problems)
         return result
 
     def _flush_state(self) -> None:
