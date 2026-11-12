@@ -101,6 +101,15 @@ DEFAULT_MAX_ITEMS = 12
 #: 正文低于这个字数的条目仍然入库, 但会被案例库抽取跳过。只做记录。
 MIN_USEFUL_TEXT = 100
 
+#: 媒体列表只给导语时, 低于这个长度就去详情页取正文。
+DETAIL_MIN_TEXT = 200
+#: 详情页正文上限 (字符), 防止把整页导航都塞进 raw_content。
+DETAIL_MAX_CHARS = 6000
+#: 单篇详情页超时 (秒)。
+DETAIL_TIMEOUT = 12.0
+#: 详情页里属于导航/版权/引导的段落, 直接丢掉。
+_BOILERPLATE = ("扫一扫", "微信", "分享到", "责任编辑", "免责声明", "版权声明", "登录后")
+
 ITEM_FIELDS = ("id", "url", "title", "bank", "source_type", "publisher")
 
 
@@ -363,6 +372,13 @@ def collect_media(target: dict[str, Any], *, timeout: float) -> list[dict[str, A
         banks = detect_banks(title, "")
         if not banks:
             continue
+        if (
+            target.get("fetch_detail", True)
+            and len(body) < DETAIL_MIN_TEXT
+        ):
+            detail = fetch_detail_text(entry["url"], timeout=timeout)
+            if len(detail) > len(body):
+                body = detail
         # 一条新闻只产出一条 item: moni 的文章 id 由 source+url+title 决定,
         # 同 url 的多条会在入库时被 IGNORE 掉, 多出来的只是噪音。
         # 多条行名同时出现时取第一家主行, 其余在标题里可读。
@@ -377,7 +393,36 @@ def collect_media(target: dict[str, Any], *, timeout: float) -> list[dict[str, A
             "publisher": target["publisher"],
             "target_id": target["id"],
         })
+        if len(items) >= target["max_items"]:
+            break
     return items[: target["max_items"]]
+
+
+def extract_article_text(html: str) -> str:
+    """从详情页 HTML 里取正文段落 (确定性, 不调模型)。"""
+    body = re.sub(
+        r"(?is)<(script|style|nav|footer|header)\b.*?</\1>", " ", html or ""
+    )
+    paragraphs: list[str] = []
+    total = 0
+    for raw in re.findall(r"(?is)<p[^>]*>(.*?)</p>", body):
+        text = _strip_html(raw)
+        if len(text) < 20 or any(mark in text for mark in _BOILERPLATE):
+            continue
+        paragraphs.append(text)
+        total += len(text)
+        if total >= DETAIL_MAX_CHARS:
+            break
+    return "\n".join(paragraphs)[:DETAIL_MAX_CHARS]
+
+
+def fetch_detail_text(url: str, *, timeout: float) -> str:
+    """抓详情页正文; 失败返回空串 (导语仍然是有效内容)。"""
+    try:
+        html = _http_get(url, min(timeout, DETAIL_TIMEOUT)).decode("utf-8", "ignore")
+    except (TargetError, UnicodeError, OSError):
+        return ""
+    return extract_article_text(html)
 
 
 # ── agent 段: official_list / wechat_article ───────────────────────────────

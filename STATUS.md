@@ -36,8 +36,10 @@
 | `GET /api/articles?tag=peer-banks` | 63 条 |
 | `moni extract cases --source bank_feed --limit 5` | 5 篇 → 6 个 case（subject 如「中国农业银行安徽省分行」） |
 | `moni keyword-audit --source bank_feed` | 63/63 存活，0 丢弃 |
+| 正文完整性 | 63 篇 0 空；61 篇 ≥100 字；官方 58 篇 174–661 字 |
+| 媒体正文 | 导语 <200 字时抓详情页：一财 44/0 字 → 1475/1719 字，媒体 0 条 <100 字 |
 | 失败路径 | bot 脚本缺失 → job `failed`（error 带原因）；`moni fetch --source bank_feed` exit 1 |
-| `pytest tests/` | 1736 passed / 2 skipped（1 例仅沙箱失败：039 worktree） |
+| `pytest tests/` | 1739 passed / 2 skipped（1 例仅沙箱失败：039 worktree） |
 
 耗时：agent 段逐页抓 5 个官网约 12 分钟（单目标上限 240s，总预算 1200s）。
 

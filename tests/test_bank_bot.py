@@ -227,6 +227,61 @@ def test_collect_media_http_error_raises_target_error(bot, monkeypatch):
         bot.collect_media(target, timeout=1.0)
 
 
+def test_extract_article_text_filters_boilerplate_and_caps(bot):
+    html = (
+        "<p>打开微信，扫一扫分享到朋友圈</p>"
+        "<p>建设银行今日发布公告，营业收入与净利润同比增长。</p>"
+        + "".join(f"<p>{'银' * 100}</p>" for _ in range(200))
+    )
+    text = bot.extract_article_text(html)
+    assert "扫一扫" not in text
+    assert "建设银行今日发布公告" in text
+    assert len(text) <= bot.DETAIL_MAX_CHARS
+
+
+def test_collect_media_fetches_detail_when_summary_short(bot, monkeypatch):
+    detail = (
+        "<html><p>打开微信扫一扫</p><p>"
+        + "建设银行与某机构签署战略合作协议，双方将在同业业务上深化合作。" * 6
+        + "</p></html>"
+    )
+
+    def _get(url, timeout):
+        if url == "https://example.com/news/1.html":
+            return detail.encode("utf-8")
+        return RSS2.encode("utf-8")
+
+    monkeypatch.setattr(bot, "_http_get", _get)
+    target = bot.normalize_targets([
+        {"id": "t1", "kind": "media_rss", "url": "https://e.com/feed",
+         "publisher": "测试媒体"},
+    ])[0]
+    items = bot.collect_media(target, timeout=1.0)
+    first = [it for it in items if it["url"].endswith("/1.html")][0]
+    assert "战略合作协议" in first["text"]
+    assert len(first["text"]) >= bot.MIN_USEFUL_TEXT
+
+
+def test_collect_media_skips_detail_when_summary_long(bot, monkeypatch):
+    long_rss = RSS2.replace(
+        "<p>建设银行近日举办技能竞赛。</p>",
+        "<p>" + "建设银行举办技能竞赛，" * 20 + "</p>",
+    )
+    calls: list[str] = []
+
+    def _get(url, timeout):
+        calls.append(url)
+        return long_rss.encode("utf-8")
+
+    monkeypatch.setattr(bot, "_http_get", _get)
+    target = bot.normalize_targets([
+        {"id": "t1", "kind": "media_rss", "url": "https://e.com/feed",
+         "publisher": "测试媒体"},
+    ])[0]
+    bot.collect_media(target, timeout=1.0)
+    assert calls == ["https://e.com/feed"]
+
+
 # ── agent 段 ────────────────────────────────────────────────────────────
 
 def test_parse_agent_json_strips_fence(bot):
