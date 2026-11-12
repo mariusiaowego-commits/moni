@@ -471,15 +471,15 @@
               <details class="fetch-summary-details fetch-all-details">
                 <summary class="fetch-summary-summary">
                   <span class="fetch-summary-title"
-                        x-text="(fetchAllResult?.status === 'done' ? '✅ 全部完成' : '⚠️ 部分失败')
+                        x-text="(fetchAllResult?.status === 'done' ? '全部完成' : '部分失败')
                           + ' · ' + (fetchAllResult?.sources_ok ?? '') + '/' + (fetchAllResult?.sources_total ?? '') + ' 源 · 新增 '
                           + (fetchAllResult?.total_inserted ?? 0) + ' 篇'"></span>
                   <span class="fetch-raw-hint">分源明细 · 点击展开</span>
                 </summary>
                 <div class="fetch-all-summary fetch-all-summary-in-ops">
                   <div class="fa-header">
-                    <span x-show="fetchAllResult?.status === 'done'" class="fa-status-ok">✅ 全部完成</span>
-                    <span x-show="fetchAllResult?.status === 'partial'" class="fa-status-warn">⚠️ 部分失败</span>
+                    <span x-show="fetchAllResult?.status === 'done'" class="fa-status-ok">全部完成</span>
+                    <span x-show="fetchAllResult?.status === 'partial'" class="fa-status-warn">部分失败</span>
                     <span class="fa-stat" x-text="(fetchAllResult?.sources_ok ?? '') + '/' + (fetchAllResult?.sources_total ?? '') + ' 源成功'"></span>
                     <span class="fa-stat" x-text="'新增 ' + (fetchAllResult?.total_inserted ?? 0) + ' 篇'"></span>
                     <span x-show="fetchAllResult?.date_from" class="fa-stat fa-catchup" x-text="'周末补抓: ' + (fetchAllResult?.date_from ?? '') + ' 起'"></span>
@@ -700,7 +700,7 @@
         <div class="modal-content fetch-modal">
           <div class="modal-header">
             <h3>
-              <span x-show="fetchBatchMode">⚡ 全部抓取</span>
+              <span x-show="fetchBatchMode">全部抓取</span>
               <span x-show="!fetchBatchMode">抓取中: <span x-text="fetchProgress?.source || '...'"></span></span>
             </h3>
             <button class="modal-close" @click="closeFetchProgress()" aria-label="关闭"><svg class="icon icon-18" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
@@ -727,7 +727,7 @@
               </div>
             </div>
             <div class="completion-overlay" id="completionOverlay">
-              <div class="completion-check">✓</div>
+              <div class="completion-check"><svg class="icon icon-24" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></div>
               <div class="completion-text">抓取完成！</div>
               <div class="completion-sub" id="completionSub"></div>
             </div>
@@ -1121,7 +1121,7 @@
           <p x-show="selectedArticleIds.length > 0 && shareBBIneligibleCount > 0"
              data-testid="bb-ineligible-hint"
              class="banner-warning">
-            ⚠️ 已选 <strong x-text="shareBBIneligibleCount"></strong> 篇非 bestblogs 源文章，BB 增强仅对 bestblogs / bestblog-podcast / bestblog-x / bestblog-yt 源生效（其他文章会被静默跳过，不消耗 API 额度）。
+            <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px; vertical-align: -2px;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>已选 <strong x-text="shareBBIneligibleCount"></strong> 篇非 bestblogs 源文章，BB 增强仅对 bestblogs / bestblog-podcast / bestblog-x / bestblog-yt 源生效（其他文章会被静默跳过，不消耗 API 额度）。
           </p>
           <p class="muted" style="font-size: 0.85em; margin-top: 4px;">
             注: 勾选任一增强选项会调用 BestBlogs API（每天 50 次免费额度）。已拉取的文章不会重复调用。
@@ -1135,7 +1135,7 @@
         <div class="share-section">
           <details>
             <summary style="cursor:pointer; color:var(--muted-fg); font-size: 0.9em;">
-              ⚙ 高级选项 (provider / model 覆盖)
+              <svg class="icon icon-14" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px; vertical-align: -2px;"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>高级选项 (provider / model 覆盖)
             </summary>
             <div style="margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap;">
               <label>
@@ -2018,14 +2018,14 @@
                       <button type="button" class="btn btn-ghost btn-sm"
                               @click="resetExclusions()">一键重置</button>
                       <button type="button" class="btn btn-ghost btn-sm"
-                              aria-label="关闭" @click="closeExcludePanel()">关闭 ✕</button>
+                              aria-label="关闭" @click="closeExcludePanel()">关闭</button>
                     </div>
                   </div>
                   <div class="stats-exclude-selected" x-show="excludedItemCount()">
                     <template x-for="chip in excludedChips()" :key="chip.key">
                       <button type="button" class="stats-exclude-chip is-excluded"
                               @click="removeExclusion(chip)">
-                        <span class="stats-exclude-ban" aria-hidden="true">🚫</span>
+                        <span class="stats-exclude-ban" aria-hidden="true"><svg class="icon icon-14" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m4.9 4.9 14.2 14.2"></path></svg></span>
                         <span x-text="chip.label"></span>
                       </button>
                     </template>
@@ -2056,7 +2056,7 @@
                               :class="{ 'is-excluded': isKeywordExcluded(kw) }"
                               :aria-pressed="isKeywordExcluded(kw)"
                               @click="toggleKeyword(kw)">
-                        <span class="stats-exclude-ban" x-show="isKeywordExcluded(kw)" aria-hidden="true">🚫</span>
+                        <span class="stats-exclude-ban" x-show="isKeywordExcluded(kw)" aria-hidden="true"><svg class="icon icon-14" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m4.9 4.9 14.2 14.2"></path></svg></span>
                         <span x-text="kw"></span>
                       </button>
                     </template>
@@ -2079,7 +2079,7 @@
                                   :class="{ 'is-excluded': isRegionExcluded(group.region) }"
                                   :aria-pressed="isRegionExcluded(group.region)"
                                   @click="toggleRegion(group.region)">
-                            <span class="stats-exclude-ban" x-show="isRegionExcluded(group.region)" aria-hidden="true">🚫</span>
+                            <span class="stats-exclude-ban" x-show="isRegionExcluded(group.region)" aria-hidden="true"><svg class="icon icon-14" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m4.9 4.9 14.2 14.2"></path></svg></span>
                             <span x-text="group.label"></span>
                           </button>
                           <template x-for="c in group.countries" :key="c.code">
@@ -2087,7 +2087,7 @@
                                     :class="{ 'is-excluded': isCountryExcluded(c.code) }"
                                     :aria-pressed="isCountryExcluded(c.code)"
                                     @click="toggleCountry(c.code)">
-                              <span class="stats-exclude-ban" x-show="isCountryExcluded(c.code)" aria-hidden="true">🚫</span>
+                              <span class="stats-exclude-ban" x-show="isCountryExcluded(c.code)" aria-hidden="true"><svg class="icon icon-14" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m4.9 4.9 14.2 14.2"></path></svg></span>
                               <span x-text="c.name"></span>
                             </button>
                           </template>
@@ -2532,7 +2532,7 @@
             <select x-model="configFilterSourceFilter" @change="filterFiltersBySource()"
                     style="margin-left: 12px; padding: 4px 8px;">
               <option value="">所有 source (含全局)</option>
-              <option value="__global__">🌐 全局通用规则 (所有信源)</option>
+              <option value="__global__">全局通用规则 (所有信源)</option>
               <template x-for="s in configSources" :key="s.id">
                 <option :value="s.id" x-text="s.name"></option>
               </template>
@@ -2556,7 +2556,7 @@
                     <td x-text="f.id"></td>
                     <td>
                       <template x-if="f.is_global || f.source_id === '__global__'">
-                        <span class="badge-global">🌐 全局生效</span>
+                        <span class="badge-global">全局生效</span>
                       </template>
                       <template x-if="!f.is_global && f.source_id !== '__global__'">
                         <span x-text="f.source_id"></span>
@@ -3053,7 +3053,7 @@
             <button class="btn-secondary" @click="copyArticleUrl()" title="复制原文链接到剪贴板">
               <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px;"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>复制链接
             </button>
-            <span x-show="copyToast" class="text-success" style="font-size:0.85em; margin-left:4px;">已复制 ✓</span>
+            <span x-show="copyToast" class="text-success" style="font-size:0.85em; margin-left:4px;">已复制<svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-left: 2px; vertical-align: -1px;"><path d="M20 6 9 17l-5-5"></path></svg></span>
           </div>
           <!-- v1.0.6.8: import full-text for AI analysis (all sources) -->
           <div class="surface-muted" style="margin: 12px 0; padding: 10px;">
@@ -3191,7 +3191,7 @@
           <button class="btn-secondary" @click="copyJobDetail()"
                   x-show="jobDetail?.status === 'done' || jobDetail?.status === 'failed'">
             <span x-show="!jobDetailCopied">复制内容</span>
-            <span x-show="jobDetailCopied">已复制 ✓</span>
+            <span x-show="jobDetailCopied">已复制<svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-left: 2px; vertical-align: -1px;"><path d="M20 6 9 17l-5-5"></path></svg></span>
           </button>
           <button class="btn-secondary" @click="closeJobDetail()">关闭</button>
         </div>
@@ -3361,11 +3361,11 @@
                     <button type="button" class="btn btn-secondary btn-sm"
                             :class="{ 'btn-confirmed': configModalTarget.nameConfirmed }"
                             @click="toggleConfirmTagName()">
-                      <span x-text="configModalTarget.nameConfirmed ? '✏️ 修改' : '✓ 确定标识'"></span>
+                      <span x-text="configModalTarget.nameConfirmed ? '修改' : '确定标识'"></span>
                     </button>
                   </template>
                   <template x-if="!!configModalTargetOriginal">
-                    <span class="badge-locked" title="系统主键，已固化不可修改">🔒 已固化</span>
+                    <span class="badge-locked" title="系统主键，已固化不可修改"><svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>已固化</span>
                   </template>
                 </div>
                 <small class="text-danger" x-show="configModalTarget.nameError" x-text="configModalTarget.nameError"></small>
@@ -3733,7 +3733,7 @@
                   <small class="muted">选择特定源或全局生效 (全局规则对所有信源生效)</small>
                 </label>
                 <select x-model="configModalTarget.source_id" :disabled="!!configModalTarget.id">
-                  <option value="__global__">🌐 [ 全局通用 (所有信源) ]</option>
+                  <option value="__global__">[ 全局通用 (所有信源) ]</option>
                   <template x-for="s in configSources" :key="s.id">
                     <option :value="s.id" x-text="s.name"></option>
                   </template>
@@ -3741,7 +3741,7 @@
               </div>
               <div class="banner-warning" style="margin-bottom: 16px;"
                    x-show="(configModalTarget.source_id === '__global__' || configModalTarget.is_global) && configModalTarget.mode === 'whitelist'">
-                ⚠️ <strong>全局白名单</strong>将对所有信源生效，未命中的文章将全部被过滤丢弃，请确保关键词覆盖度足够广。
+                <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px; vertical-align: -2px;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg><strong>全局白名单</strong>将对所有信源生效，未命中的文章将全部被过滤丢弃，请确保关键词覆盖度足够广。
               </div>
               <div class="form-row">
                 <label>模式 mode <span class="required">*</span>
@@ -3906,7 +3906,7 @@
             <template x-for="t in themeList" :key="t.name">
               <div class="theme-item" :class="{ active: activeTheme === t.name }" @click="applyTheme(t.name)">
                 <div>
-                  <div class="theme-item-name" x-text="(activeTheme === t.name ? '✓ ' : '') + t.name"></div>
+                  <div class="theme-item-name" x-text="t.name"></div>
                   <div class="theme-item-meta" x-text="Object.keys(t.light).length + ' 个变量' + (t.isDefault ? ' · 内置' : '')"></div>
                   <div class="theme-colors">
                     <div class="theme-dot" :style="'background:' + (t.light['--background'] || 'var(--muted)')"></div>

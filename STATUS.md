@@ -4,7 +4,7 @@
 
 ---
 
-## 进行中: **Web UI 规范化 Phase 1 — 4px 栅格与 Token 收敛** (2026-11-12 · Sprint 39 · 分支 `feat/web-ui-polish`)
+## 进行中: **Web UI 规范化 Phase 1–2 — Token 收敛 + 按钮/图标统一** (2026-11-12 · Sprint 39–40 · 分支 `feat/web-ui-polish`)
 
 UI 体检（agy · unslop skill，62 条 findings：P0×8/P1×29/P2×25）后分 4 个 sprint 落地。
 Sprint 39 只动 CSS 层：新增 `--space-*` / `--radius-*` / `--control-h-*` / `--z-*` / `--chart-*`
@@ -13,6 +13,12 @@ Sprint 39 只动 CSS 层：新增 `--space-*` / `--radius-*` / `--control-h-*` /
 验收：`pytest` 1630 passed / 2 skipped；10 视图亮暗 20 张截图无回归。
 **口径**：移动端不做（PC 专用）；`/fetch` 粒子动效保留。
 后续：Phase 2 按钮与图标、Phase 3 去重与弹窗、Phase 4 PC 视口与对比度。
+
+Phase 2（Sprint 40）已完成：`.link-btn`/`.btn-link` 合并为同一套度量（4px 8px / 28px / 13px），
+行内危险操作降为静默文字态（hover 才出 `--destructive`），`/config` 操作列改 4 个 28px icon-only 按钮
+（sliders / tag / pencil / trash，均带 `aria-label`）；界面 emoji 与字符图标 **25 → 0**，全部换内联 SVG
+（16px / stroke 1.6 / currentColor）。`/config` 表格 30px 横向溢出用 `.url-cell max-width: 240px` 收口。
+验收：pytest 1630 passed / 2 skipped；glyph 扫描 0 命中。
 
 ## 进行中: **分享产物 worker 修复** (2026-11-12 · 分支 `feature/v1.0.73-share-maintenance`)
 
