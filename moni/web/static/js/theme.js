@@ -45,6 +45,17 @@ const DEFAULT_THEME = {
     '--stage-overlay': 'oklch(0.963 0.013 97.4 / 0.92)',
     '--shadow': '0 1px 3px oklch(0.218 0.000 89.9 / 0.06)',
     '--shadow-lg': '0 4px 12px oklch(0.218 0.000 89.9 / 0.08)',
+    /* v1.0.76 (Sprint 39 Phase 1): semantic tokens */
+    '--link': '#4a3a8c',
+    '--link-hover': '#D1B3FF',
+    '--tag-chip-fg': '#1A1A1A',
+    '--fg-strong': '#0f172a',
+    '--fg-muted': '#64748b',
+    '--surface-2': '#f1f5f9',
+    '--chart-user': '#9CA3AF',
+    '--chart-fact': '#3B82F6',
+    '--chart-human': '#6B7280',
+    '--chart-web': '#10B981',
   },
   dark: {
     '--radius': '0.375rem',
@@ -82,6 +93,17 @@ const DEFAULT_THEME = {
     '--stage-overlay': 'oklch(0.18 0.01 90 / 0.92)',
     '--shadow': '0 1px 3px oklch(0 0 0 / 0.2)',
     '--shadow-lg': '0 4px 12px oklch(0 0 0 / 0.3)',
+    /* v1.0.76 (Sprint 39 Phase 1): semantic tokens (dark overrides) */
+    '--link': '#D1B3FF',
+    '--link-hover': '#F2E6CE',
+    '--tag-chip-fg': '#F2E6CE',
+    '--fg-strong': '#f8fafc',
+    '--fg-muted': '#94a3b8',
+    '--surface-2': '#1e293b',
+    '--chart-user': '#6B7280',
+    '--chart-fact': '#60A5FA',
+    '--chart-human': '#9CA3AF',
+    '--chart-web': '#34D399',
   },
 };
 

@@ -4,6 +4,16 @@
 
 ---
 
+## 进行中: **Web UI 规范化 Phase 1 — 4px 栅格与 Token 收敛** (2026-11-12 · Sprint 39 · 分支 `feat/web-ui-polish`)
+
+UI 体检（agy · unslop skill，62 条 findings：P0×8/P1×29/P2×25）后分 4 个 sprint 落地。
+Sprint 39 只动 CSS 层：新增 `--space-*` / `--radius-*` / `--control-h-*` / `--z-*` / `--chart-*`
+等语义 token，组件规则裸 hex 从 29 处降到 0，`.btn-sm` 归到 `4px 10px / h28`，
+导航项归到 `6px 14px / h36` 并去掉彩色 glow。
+验收：`pytest` 1630 passed / 2 skipped；10 视图亮暗 20 张截图无回归。
+**口径**：移动端不做（PC 专用）；`/fetch` 粒子动效保留。
+后续：Phase 2 按钮与图标、Phase 3 去重与弹窗、Phase 4 PC 视口与对比度。
+
 ## 进行中: **分享产物 worker 修复** (2026-11-12 · 分支 `feature/v1.0.73-share-maintenance`)
 
 v1.0.42 起 `worker_llm.py` 把 prompt 从 `-z` 后面挪到 argv 末尾，hermes argparse
