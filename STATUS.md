@@ -4,6 +4,14 @@
 
 ---
 
+## 进行中: **分享产物 worker 修复** (2026-11-12 · 分支 `feature/v1.0.73-share-maintenance`)
+
+v1.0.42 起 `worker_llm.py` 把 prompt 从 `-z` 后面挪到 argv 末尾，hermes argparse
+把 `--usage-file` 当成 `-z` 的值后 exit 2；worker 只记录 stdout，导致
+`share_tasks.error` 为空、任务「无原因失败」。修复：argv 用 `{prompt}` 占位符由
+`HardenedSubprocess` 原地替换，非 0 退出且 stdout 为空时回填 stderr。
+生产库副本重跑 `wnk8S6glnjrqYfpqRUomsg` 已产出 24,661 字节 html_landing（status=done）。
+
 ## 当前状态: **v1.0.72 — 大模型设置改为网关视角** (2026-11-12 · **SHIPPED**)
 
 **主分支**: main（合并提交 `2cd0138`）· **Tag**: `v1.0.72` · **PR**: #181（已 squash 合并）

@@ -145,8 +145,12 @@ def _build_argv(
     skill: str | None = None,
     usage_file: str | os.PathLike[str] | None = None,
 ) -> list[str]:
-    """Build hermes argv — 显式 --provider / -m,不依赖用户默认配置。"""
-    argv = ["hermes", "-z", prompt, "--profile", profile]
+    """Build hermes argv — 显式 --provider / -m,不依赖用户默认配置。
+
+    ``-z`` 的值必须是紧邻的 prompt; ``HardenedSubprocess`` 会把
+    ``{prompt}`` 占位符原地替换(见 runner._build_argv),不能改由末尾追加。
+    """
+    argv = ["hermes", "-z", "{prompt}", "--profile", profile]
     if skill and skill.strip():
         argv.extend(["-s", skill.strip()])
     if provider:
@@ -256,16 +260,12 @@ def run_hermes(
             "usage": usage,
         }
 
-    proc: subprocess.Popen[str] | None = None
     try:
         # v1.0.42: route through moni.llm.runner so subprocess killpg +
         # argv pre-check + stdin transport handling come for free.
         from moni.llm.runner import HardenedSubprocess
         argv = _build_argv(prompt, provider, model, profile=DEFAULT_PROFILE,
                            skill=skill, usage_file=usage_file)
-        # Strip the prompt arg that _build_argv inlined; HardenedSubprocess
-        # appends the prompt itself as the last argv.
-        argv = [a for a in argv if a != prompt]
         runner = HardenedSubprocess(cmd=argv, prompt_text=prompt, timeout=timeout_sec)
         sub = runner.run()
         stdout = sub.stdout
@@ -281,7 +281,10 @@ def run_hermes(
         return _result(f"worker_llm run_hermes error: {exc!r}\n", 1)
 
     if code != 0:
-        return _result(stdout, code)
+        # hermes 的 argparse 错误只写 stderr, 只回 stdout 会得到空 error,
+        # 任务在 DB 里看起来「无原因失败」。
+        detail = stdout.strip() or sub.stderr.strip()
+        return _result(f"{detail}\n" if detail else stdout, code)
 
     hit = detect_llm_failure(stdout or "")
     if hit:

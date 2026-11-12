@@ -148,14 +148,15 @@ def test_detect_llm_failure_ok_output(text):
 class _FakePopen:
     """Minimal subprocess.Popen stand-in for run_hermes tests."""
 
-    def __init__(self, stdout: str, returncode: int):
+    def __init__(self, stdout: str, returncode: int, stderr: str = ""):
         self._stdout = stdout
+        self._stderr = stderr
         self.returncode = returncode
         self.called = False
 
     def communicate(self, timeout: float | None = None):
         self.called = True
-        return self._stdout, ""
+        return self._stdout, self._stderr
 
     def kill(self):
         pass
@@ -164,12 +165,14 @@ class _FakePopen:
         pass
 
 
-def _patch_popen(monkeypatch, stdout: str, returncode: int) -> list[list[str]]:
+def _patch_popen(
+    monkeypatch, stdout: str, returncode: int, stderr: str = ""
+) -> list[list[str]]:
     captured: list[list[str]] = []
 
     def fake_popen(argv, **kwargs):
         captured.append(argv)
-        return _FakePopen(stdout, returncode)
+        return _FakePopen(stdout, returncode, stderr)
 
     monkeypatch.setattr(worker_llm.subprocess, "Popen", fake_popen)
     return captured
@@ -217,6 +220,37 @@ def test_run_hermes_nonzero_returns_rc(monkeypatch, tmp_path):
     result = run_hermes("make a png", db_path=db)
     assert result["exit_code"] == 3
     assert "boom" in result["stdout"]
+
+
+def test_run_hermes_prompt_stays_with_oneshot_flag(monkeypatch, tmp_path):
+    """回归: v1.0.42 曾把 prompt 挪到 argv 末尾, -z 吃到 --usage-file,
+    hermes argparse exit 2, 分享任务全部静默失败。"""
+    db = tmp_path / "test.db"
+    _seed_llm_db(db)
+    usage = tmp_path / "usage.json"
+    argv = _patch_popen(monkeypatch, stdout="ok", returncode=0)
+
+    run_hermes("build landing", db_path=db, usage_file=usage)
+
+    assert argv[0][:3] == ["hermes", "-z", "build landing"]
+    assert argv[0][argv[0].index("--usage-file") + 1] == str(usage)
+
+
+def test_run_hermes_surfaces_stderr_on_argparse_error(monkeypatch, tmp_path):
+    """退出码非 0 且 stdout 为空时, 把 stderr 带出来, 不再落空 error。"""
+    db = tmp_path / "test.db"
+    _seed_llm_db(db)
+    _patch_popen(
+        monkeypatch,
+        stdout="",
+        returncode=2,
+        stderr="hermes: error: argument -z/--oneshot: expected one argument\n",
+    )
+
+    result = run_hermes("build landing", db_path=db)
+
+    assert result["exit_code"] == 2
+    assert "expected one argument" in result["stdout"]
 
 
 def test_run_hermes_override_in_argv(monkeypatch, tmp_path):
