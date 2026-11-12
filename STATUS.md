@@ -4,10 +4,23 @@
 
 ---
 
-## 当前状态: **v1.0.72 — 大模型设置改为网关视角** (2026-11-12 · **进行中**)
+## 当前状态: **v1.0.72 — 大模型设置改为网关视角** (2026-11-12 · **SHIPPED**)
 
-**主分支**: main @ `db8c3c6` · **分支**: `feat/llm-gateway-ui` · **PR**: #181
+**主分支**: main（合并提交 `2cd0138`）· **Tag**: `v1.0.72` · **PR**: #181（已 squash 合并）
 · **schema**: 40（无新迁移）· **测试**: 1607 passed / 2 skipped（1 例仅沙箱失败：test_migration_039）
+· **服务**: 8900 已重启（PID 51952）
+
+### v1.0.72 部署验证
+
+- `GET /api/llm/gateway` → `mode=profile`、`profile=moni`、`provider=magpie`、
+  `default_model=group/tq-s-select`、`base_url=http://127.0.0.1:3425/v1`、
+  `reachable=true`、`model_count=58`、`groups=[group/tq-s-select, auto/deepseek-v4.1-flash]`。
+- 生产 UI 实测（Playwright @ 8900）：`tabs=[网关, 用量统计]`；四张卡片
+  `网关可达 / 58 模型 / 2 路由组 / moni·magpie / group/tq-s-select`；
+  `details.open=false`，展开后 headings=`[Provider 映射, Model 映射, 默认模型（explicit 模式）]`。
+- 真实调用（`POST /api/llm/providers/seed-provider-ark/test`）：
+  `ok=true`、`mode=profile`、`tested=profile`、`provider=magpie`、
+  `model=group/tq-s-select`、`duration_ms=13699`。
 
 ### v1.0.72 交付要点
 
