@@ -4,10 +4,11 @@
 
 ---
 
-## 当前状态: **v1.0.71 — X-bot scope 展示 + per-topic 门槛可配** (2026-11-12 · **进行中**)
+## 当前状态: **v1.0.71 — X-bot scope 展示 + per-topic 门槛可配** (2026-11-12 · **SHIPPED**)
 
-**主分支**: main @ `04c9a42` · **分支**: `feat/xbot-scope-thresholds-v1.0.71` · **PR**: #180
+**主分支**: main（合并提交 `e8d63de`）· **Tag**: `v1.0.71` · **PR**: #180（已 squash 合并）
 · **schema**: 40（**沿用 main 的 migration 040，本版无新迁移**）· **测试**: 1598 passed / 2 skipped
+· **服务**: 8900 已重启（PID 24463，`/health` → `{"status":"ok"}`）
 
 ### v1.0.71 交付要点
 
@@ -47,6 +48,34 @@ X-bot 精选（`xbot_feed`）这条信源"它到底抓什么范围、按什么�
 - **升级请用 `python3 -m moni.db.migrate`**（只跑迁移）—— migrate-only 路径**不碰**
   `sources` 行，dad 配的门槛与 scope 在升级后原样保留。
 - ⚠️ **不要用 `moni db init` 升级** —— 它 = migrate + seed，会把你改过的门槛与 scope 抹掉。
+
+### 上线执行记录 (2026-11-12)
+
+- **合并**：PR #180 squash 合并 → main `e8d63de`（父提交 `04c9a42`）；分支
+  `feat/xbot-scope-thresholds-v1.0.71` **保留**（未删）。tag `v1.0.71` 打在 `e8d63de` 上
+  （lightweight，与 v1.0.69 / v1.0.70 同体例）。
+- **CI**：GitHub Actions `pytest · py3.12` 在 PR head `121c625` 上 **success**
+  （run 43140327255）。
+- **部署**：`launchctl kickstart -k gui/501/com.moni.web` → 8900 PID 由 `37097` 变为
+  **`24463`**（launchd `com.moni.web` 已托管）。
+- **健康检查**（只打 8900，未跑真实抓取）：
+  - `GET /` → **200**；`GET /health` → `{"status":"ok"}`；
+  - `GET /api/config/sources/src-xbot-feed/scope` → **200**，`scope_source="moni_fallback"`、
+    `upstream_scope_available=false`、28 个 xcircle 账号、wechat 正则正常；
+  - **门槛默认全关**：prod 的 `thresholds` = wechat/xcircle 各 `min_followers=0` / `min_likes=0`
+    （不设限 = 行为零变化）；
+  - **prod 的 xbot `fetch_config` 完好**：8 个原有键都在（`blacklisted_handles` /
+    `topic_tags` / `repo_url` / `clone_dir` / `max_days` / `git_timeout` /
+    `bypass_keyword_filters` / `skip_existing_urls`），**未被 seed 或迁移改动**；
+  - **新代码确实在跑**：8900 吐出的 `index.html` 含 `fetch-config-xbot` 区块、
+    `main.css` 含 `.fetch-config-xbot .fetch-config-scope-input` 规则、
+    `app.js` 含 `moni_stored` 三态分支；
+  - **prod 日志无 traceback**（`/private/tmp/moni-8900-v1.0.52.log`）。
+- **静态资源 cache-bust 未动**：`index.html` 里的 `?v=`（`main.css` / `app.js` = `20261013002`）
+  **本版没改** —— v1.0.70 同样改了静态文件而没 bump，本版沿用同一口径，未改 `index.html`。
+  实测 8900 直接吐的是**新** HTML / CSS / JS（见上），无旧资源残留。
+- **回滚**：本版无新表、无新迁移、无 DDL → 回滚只需把 main 退到 `04c9a42`
+  并 `launchctl kickstart` 重启 8900；prod 的 `sources` 行未被本版改动，无需数据回滚。
 
 ## 历史状态: **v1.0.70 — 跟随 moni profile 的 magpie 路由组** (2026-11-11 · **SHIPPED**)
 
