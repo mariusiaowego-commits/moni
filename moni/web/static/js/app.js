@@ -433,10 +433,11 @@ function app() {
       if (view === 'llmSettings') {
         this.currentView = 'config';
         this.configTab = 'llm';
-        this.llmTab = 'providers';
+        this.llmTab = 'gateway';
         this.loadLlmProviders();
         this.loadLlmModels();
         this.loadLlmSettings();
+        this.loadLlmGateway();
         const path = '/config';
         if (window.location.pathname !== path) {
           try { window.history.pushState({ view: 'config', configTab: 'llm' }, '', path); }
@@ -501,10 +502,11 @@ function app() {
       if (view === 'llmSettings') {
         this.currentView = 'config';
         this.configTab = 'llm';
-        this.llmTab = 'providers';
+        this.llmTab = 'gateway';
         this.loadLlmProviders();
         this.loadLlmModels();
         this.loadLlmSettings();
+        this.loadLlmGateway();
         return;
       }
       // v1.0.13 (audit fix F3): same teardown on back/forward.
