@@ -12,6 +12,14 @@ v1.0.42 起 `worker_llm.py` 把 prompt 从 `-z` 后面挪到 argv 末尾，herme
 `HardenedSubprocess` 原地替换，非 0 退出且 stdout 为空时回填 stderr。
 生产库副本重跑 `wnk8S6glnjrqYfpqRUomsg` 已产出 24,661 字节 html_landing（status=done）。
 
+PNG 格式另有一条独立问题：`PdnKZBj_ylX6XIjqy6Zc9A`（info_graphic_png）跑满
+600s 被判 timeout，但 agent 在 13:31 已写出 1080×1920 PNG，13:33 才收尾。
+`info_graphic_png` / `report_png` 超时改为默认 1200s（`MONI_WORKER_TIMEOUT_PNG` 可覆盖），
+其他格式仍用 `MONI_WORKER_TIMEOUT`（默认 600s）。
+超时不再直接判失败：`moni/share/timeout_recovery.py` 会在 `infographic/`、
+`data/briefings/`、artifacts、hermes profile reports/scratch 里找「本次运行之后」
+新出现且通过 PNG（签名+IHDR+IEND）或 HTML 校验的产物，复制成标准输出名并标 done。
+
 ## 当前状态: **v1.0.72 — 大模型设置改为网关视角** (2026-11-12 · **SHIPPED**)
 
 **主分支**: main（合并提交 `2cd0138`）· **Tag**: `v1.0.72` · **PR**: #181（已 squash 合并）
