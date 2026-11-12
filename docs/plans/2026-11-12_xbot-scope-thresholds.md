@@ -104,7 +104,8 @@ UI 上必须写清三行：①moni 侧副本仅记录与展示，不改变 X-bot
   `DEFAULT_FETCH_CONFIG` / `moni/db/migrations/039_xbot_feed_source.sql` /
   `tests/test_migration_039_xbot_feed.py` 的护栏**零改动**。
 - **schema 不变（40）、无新表、无新 migration**；状态全落在已有的
-  `sources.fetch_config` JSON 列。
+  `sources.fetch_config` JSON 列。（schema 40 是 **main 的 migration 040** ——
+  `llm_model_mode` 默认 profile —— **本版没有引入 040，也没有新迁移**。）
 - **`moni/db/seed_config.py` 零改动**（G-7）—— 见 §边界。
 - 不改 `moni/fetch/keyword_match.py` / `filters.py` / `tag_filter.py`，
   不改 X-bot 仓库，不反向同步门槛到 X-bot。

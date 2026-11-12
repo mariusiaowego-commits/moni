@@ -6,8 +6,8 @@
 
 ## 当前状态: **v1.0.71 — X-bot scope 展示 + per-topic 门槛可配** (2026-11-12 · **进行中**)
 
-**主分支**: main @ `04c9a42` · **分支**: `feat/xbot-scope-thresholds-v1.0.71` · **PR**: 待建
-· **schema**: 40（无新迁移）· **测试**: 1598 passed / 2 skipped
+**主分支**: main @ `04c9a42` · **分支**: `feat/xbot-scope-thresholds-v1.0.71` · **PR**: #180
+· **schema**: 40（**沿用 main 的 migration 040，本版无新迁移**）· **测试**: 1598 passed / 2 skipped
 
 ### v1.0.71 交付要点
 
@@ -34,6 +34,7 @@ X-bot 精选（`xbot_feed`）这条信源"它到底抓什么范围、按什么�
   55 条 = 23%）。
 - **schema 不变（40）、无新表、不改 migration 039**：门槛与 scope 的默认值放**独立常量**，
   `DEFAULT_FETCH_CONFIG` / 039 SQL 字面量 / 既有护栏测试**零改动**。
+  （schema 40 来自 main 的 migration 040 —— `llm_model_mode` 默认 profile，**本版没有新迁移**。）
 
 ### ⚠️ 已知边界：`moni db init` / `moni db seed-config` 会覆盖整行 `fetch_config`
 
