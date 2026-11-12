@@ -58,7 +58,7 @@
 | R1 | **中国人民银行 · 新闻 RSS** | RSS 2.0 | `GET https://www.pbc.gov.cn/goutongjiaoliu/113456/2986536/index.html` → 200，6 items，最新 2026-11-11 | 货币政策执行报告、行长会议、对外监管磋商。标题实测：「中国人民银行与印度尼西亚银行…」「2026年第三季度中国货币政策执行报告」 |
 | R2 | **央行其他栏目页** | HTML | `https://www.pbc.gov.cn/rmyh/3963412/index.html` → 200，44KB，21 个日期型链接；`/jinrongxinxizhongxin/148526/index.html` → 89 链接 | 金融司/新闻稿原文，服务端渲染，可直接解析 |
 | R3 | **国家金融监督管理总局** | SPA | 首页 200 但仅 237B；`ItemList.html?itemPId=914&itemId=915` → 200 / 4012B / **0 个日期链接** | 行政处罚、监管动态 —— 最高价值但当前抓不到，见 §3.1 |
-| R4 | **国家外汇管理局** | HTML | `https://www.safe.gov.cn/safe/whxw/index.html` → 200，22KB，20 个日期链接 | 外汇/跨境业务政策，同业跨境产品对标 |
+| R4 | **国家外汇管理局** | HTML 列表+详情 | 列表 `https://www.safe.gov.cn/safe/whxw/index.html` → 200 / 22KB / 20 个日期链接；详情 `https://www.safe.gov.cn/safe/2026/1111/28084.html` → 200 / 17.6KB，**正文段落可解析**，含「索引号 000014453-2026-00846 / 发布日期 2026-11-11 / 来源 国家外汇管理局」+ 全文 | 外汇/跨境业务政策，同业跨境产品对标 |
 | R5 | **中国外汇交易中心** | HTML | `https://www.chinamoney.com.cn/chinese/bkccpr/` → 200，24KB（中间价数据页） | LPR / Shibor / 存单报价，同业定价基准 |
 
 ### 2.2 行业协会与自律组织（**同业主场**）
@@ -71,21 +71,20 @@
 | A4 | CBA · 新闻中心 | HTML | `catid=2.html` → 200 / 35KB / 16 个日期 | 监管口径讲话、协会发布报告 |
 | A5 | CBA · 专题研究 / 相关形势研究 | HTML | `catid/30` / `catid/60` → 28 个日期 | 行业深度研究（对标参考价值） |
 | A6 | CBA · 普法专栏 / 规范性文件 | HTML | `catid/100` / `catid/120` → 25 / 18 个日期 | 合规红线 |
-| A7 | **中国支付清算协会** | HTML | `https://www.pcac.org.cn/` → 200 / 107KB / 10 个日期 | 支付清算行业标准（mpaypass 的上游补充） |
+| A7 | **中国支付清算协会** | HTML 列表+详情 | 列表 `https://www.pcac.org.cn/` → 200 / 107KB / 10 个日期；详情 `https://www.pcac.org.cn/eportal/ui?pageId=598378&articleKey=624353&columnId=595148` → 200 / 31.4KB，**标题可取**（「第十四届中国支付清算论坛召开 跨境二维码统一网关已于7月底上线试运行」），但正文段落只抓到版权行 → **正文选择器待调** | 支付清算行业标准（mpaypass 的上游补充） |
 
 ### 2.3 上市银行公告与财报（**同业动作的原始凭证**）
 
 | # | 信源 | 接入形态 | 实测 | 价值 |
 |---|---|---|---|---|
-| L1 | **巨潮资讯网公告检索 API** | POST JSON | `POST http://www.cninfo.com.cn/new/hisAnnouncement/query`（`searchkey=银行`）→ 200 / 23.7KB，`totalAnnouncement=109617`；`searchkey=招商银行` → 200，`totalAnnouncement=2459`，返回 `secCode=600036` / `announcementTitle` / `adjunctUrl`（PDF） | 42 家上市银行的**全部**公告：财报、高管变动、关联交易、股权变更。零成本、可定向按行检索 |
-| L2 | **上交所公告接口** | GET JSONP | `query.sse.com.cn/security/stock/queryCompanyBulletinNew.do?...keyWord=银行` → 200，返回 JSONP | 沪市银行公告补充（巨潮已覆盖时可作备份） |
+| L1 | **巨潮资讯网公告检索 API** | POST JSON + PDF | `POST http://www.cninfo.com.cn/new/hisAnnouncement/query`（`searchkey=银行`）→ 200 / 23.7KB，`totalAnnouncement=109617`；`searchkey=招商银行` → 200，`totalAnnouncement=2459`，返回 `secCode=600036` / `secName` / `announcementTitle` / `announcementTime` / `adjunctUrl`。PDF 实测可下载：`http://static.cninfo.com.cn/finalpage/2026-10-31/1225649440.PDF` → 200 / `application/pdf` / 106452 B | 42 家上市银行的**全部**公告：财报、高管变动、关联交易、股权变更。**标题/元数据白拿；正文是 PDF，而 moni 当前无 PDF 抽取依赖**（见 §4.1） |
 
 ### 2.4 财经媒体（银行专属频道）
 
 | # | 信源 | 接入形态 | 实测 | 价值 |
 |---|---|---|---|---|
 | M1 | **金融时报**（人民日报社主管） | HTML 列表+详情 | 首页 200 / 67.8KB / **260 个日期型链接**；文章 URL 形如 `https://www.financialnews.com.cn/2026-11/12/content_460725.html` → 200 / 25.3KB，正文实测「本报讯 记者马梅若报道 11月11日，中国人民银行发布2026年第三季度中国货币政策执行报告。」 | 央媒级权威 + 银行条线深稿；日期在 URL 里，解析极易 |
-| M2 | **第一财经 · 金融频道** | JSON API | `GET https://www.yicai.com/api/ajax/getlistbycid?cid=53&page=1&pagesize=20` → 200 / 28.9KB，JSON 数组含 `ChannelName:"金融"` / `CreateDate` / `EntityName` | 结构化最干净，零解析成本 |
+| M2 | **第一财经 · 金融频道** | JSON API + HTML 详情 | `GET https://www.yicai.com/api/ajax/getlistbycid?cid=53&page=1&pagesize=20` → 200 / 28.9KB。字段实测齐全：`NewsTitle` / `NewsID` / `NewsNotes`(摘要) / `NewsSource` / `NewsLength` / `pubDate` / `url` / `EntityPublishDate`。详情 `https://www.yicai.com/news/103437144.html` → 200 / 25.3KB，**正文 27 段**可解析 | 结构化最干净，零解析成本。注意 `cid=53` 是泛金融频道（实测首条为保险新闻），需按 `EntityName`/关键词再筛银行 |
 | M3 | 财联社电报 | JSON | `www.cls.cn/v3/depth/home/assembled/1000` → `{"errno":"10012","msg":"签名错误"}`；`nodeapi/telegraphList` → 404 | **需带签名**，抓取成本高，本轮不建议 |
 
 ### 2.5 境外监管（全球对标）
@@ -134,9 +133,32 @@
 - **替代思路**：公众号的高价值内容在 A1/L1/M1 有同源转载（协会会转载银行业动态、
   金融时报会转载政策解读），先把可抓的做厚。
 
+### 3.4 上交所公告接口
+
+- `query.sse.com.cn/security/stock/queryCompanyBulletinNew.do?...keyWord=银行` 返回 **200 但
+  `result:[]`、`total:0`** —— 接口连通、参数未调通。
+- 结论：巨潮已覆盖沪深上市银行公告，本轮**不计入可用源**；若需要再单独调参。
+
 ---
 
 ## 4. 纳入 moni 的落地机制（每加一个源 6 步）
+
+### 4.1 获取形态与依赖约束（开工前必须知道）
+
+| 形态 | moni 现状 | 结论 |
+|---|---|---|
+| RSS 2.0 | `xml.etree.ElementTree` 已在用（`qbitai.py` / `kr_rss.py` / `huxiu.py`） | 零新增依赖，抄 `qbitai.py` 骨架即可 |
+| HTML 列表+详情 | `httpx` + `beautifulsoup4` 已在 `pyproject.toml`；`mpaypass.py` 已用 BS4 | 零新增依赖 |
+| JSON API | `httpx` 即可 | 零新增依赖 |
+| **PDF 正文** | **无任何 PDF 库**（`pypdf`/`pdfplumber`/`fitz`/`pdfminer` 全无） | 巨潮公告正文需**新增依赖**，或先用标题/元数据入库 |
+| 无头 Chrome | 已有 `moni/fetch/chrome_daemon.py` | 备选，用于 SPA 站（监管总局、各行官网） |
+
+**两条解析注意点（实测踩到）**
+
+1. 央行 RSS 的 `<link>` 在 CDATA 里且**不带 scheme**：`www.pbc.gov.cn/goutongjiaoliu/...`，
+   入库前要补 `https://`；`description` 里是 HTML 片段，需剥标签。
+2. 外汇局/协会详情页正文里混着导航与脚本模板段落（`<p>` 命中 4 段但只有 1 段是真正文），
+   必须按容器选择器取，不能用「所有 `<p>` 长度 > N」的粗筛。
 
 moni 的源契约（`moni/fetch/base.py:1-25`）：
 
@@ -184,9 +206,9 @@ moni 的源契约（`moni/fetch/base.py:1-25`）：
 
 | 源 | 形态 | 说明 |
 |---|---|---|
-| `cninfo_bank` | json(POST) | L1；按行/按关键词定向拉公告标题+摘要，PDF 正文另说 |
+| `cninfo_bank` | json(POST) | L1；按行/按关键词定向拉公告标题+元数据（白拿）。PDF 正文需新增 PDF 依赖，见 §4.1 |
 | `safe_news` | html | R4；外汇/跨境 |
-| `pcac_news` | html | A7；支付清算标准 |
+| `pcac_news` | html | A7；标题可用，正文选择器待调 |
 | `fed_press` / `ecb_press` | rss | O1/O2；英文源需 language tag 区分 |
 
 ### P2（需要额外决策）
