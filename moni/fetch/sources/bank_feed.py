@@ -52,8 +52,12 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import os
+import re
+import signal
 import subprocess
 import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -68,8 +72,9 @@ FEED_SUBDIR = "bank_feed"
 #: 导入状态文件名 (放在 moni 数据目录下)
 STATE_FILENAME = ".bank_feed_state.json"
 
-#: 相对 feed 目录的候选 tag (默认; 用户可在 fetch_config.candidate_tags 改)
-DEFAULT_CANDIDATE_TAGS: list[str] = ["peer-banks"]
+#: 本源唯一的 tag (迁移 041 建的绑定)。tag 被停用/清空关键词时,
+#: 用它兜底合成命中, 避免文章入库后零 tag (AGENTS.md 铁律 3)。
+SOURCE_TAG = "peer-banks"
 
 #: bot 脚本 (相对 moni 仓库根目录)
 DEFAULT_BOT_SCRIPT = "scripts/bank_bot/run_bot.py"
@@ -82,8 +87,6 @@ DEFAULT_FETCH_CONFIG: dict[str, Any] = {
     # 目标清单: [{"id", "kind", "url", "bank", "publisher"}]
     # kind: official_list | media_rss | wechat_article
     "targets": [],
-    # 候选 tag (闸门用哪个 tag 的关键词)
-    "candidate_tags": list(DEFAULT_CANDIDATE_TAGS),
     # 只导入最近 N 天的 feed (0 = 不限制)
     "max_days": 30,
     # 整轮抓取的任务级超时 (web 端 fetch job 的上限, 读 timeout_sec)。
@@ -91,6 +94,8 @@ DEFAULT_FETCH_CONFIG: dict[str, Any] = {
     "timeout_sec": 1800,
     # agent (bot) 超时秒数 —— 媒体段 ~10s, agent 段预算 1200s, 留余量
     "bot_timeout_sec": 1500,
+    # 当天 feed 有目标失败时, 隔多久才重跑 agent 补齐 (避免连点两次烧两轮)
+    "retry_after_min": 30,
     # 抓到没有今天的 feed 时, 是否就地调 agent 补跑
     "bot_enabled": True,
     # bot 脚本路径 (相对 moni 仓库根目录)
@@ -101,9 +106,41 @@ DEFAULT_FETCH_CONFIG: dict[str, Any] = {
     "skip_existing_urls": True,
 }
 
+#: bank / target_id 只允许 ASCII 标识符 —— 它们会被写进 content 的归属
+#: 元数据, 中文行名会让 tag 闸门恒真。
+_IDENT_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _kill_group(pid: int, grace: float = 5.0) -> None:
+    """SIGTERM 整个进程组, 宽限期后 SIGKILL (抄 llm/runner.py 的做法)。"""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(os.getpgid(pid), sig)
+        except (ProcessLookupError, PermissionError, OSError):
+            return
+        if sig is signal.SIGTERM:
+            time.sleep(grace)
+
+
+def _synthetic_hits(
+    articles: list[dict[str, Any]], tag_names: list[str]
+) -> list[dict[str, Any]]:
+    """tag 闸门 pass-through 时补的命中记录 (AGENTS.md 铁律 3)。"""
+    return [
+        {
+            "article_url": art.get("url", ""),
+            "keyword": "(pass-through)",
+            "tag_name": tag_name,
+            "filter_id": None,
+            "hit_field": "pass-through",
+        }
+        for art in articles
+        for tag_name in tag_names
+    ]
 
 
 def _normalize_published_at(raw: Any) -> str | None:
@@ -147,6 +184,7 @@ class FetcherBankFeed(BaseFetcher):
         self._pending_state: dict[str, Any] | None = None
         self._round_ids: list[str] = []
         self._inserted_ok = False
+        self._today_errors: list[dict[str, Any]] = []
 
     # ── config ────────────────────────────────────────────────────────────
     def _load_config(self) -> dict[str, Any]:
@@ -208,16 +246,58 @@ class FetcherBankFeed(BaseFetcher):
         return [t for t in targets if isinstance(t, dict)]
 
     # ── agent (bot) ───────────────────────────────────────────────────────
-    def _feed_is_fresh(self) -> bool:
-        """今天的 feed 是否已经在盘上。"""
-        latest = self._feed_dir() / "latest.json"
+    def _latest_payload(self) -> dict[str, Any] | None:
         try:
-            payload = json.loads(latest.read_text(encoding="utf-8"))
+            payload = json.loads(
+                (self._feed_dir() / "latest.json").read_text(encoding="utf-8")
+            )
         except (OSError, ValueError):
-            return False
-        if not isinstance(payload, dict):
-            return False
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def _is_today(self, payload: dict[str, Any]) -> bool:
         return str(payload.get("date") or "") == date.today().isoformat()
+
+    def _feed_is_fresh(self) -> bool:
+        """今天的 feed 是否已经在盘上, 且这一轮没有目标失败。
+
+        只写了一半的 feed (``errors`` 非空) 不算 fresh: 下一次抓取会重新
+        调 agent 补齐。重跑不会产生重复文章 —— 已导入的 id 记在 state 里。
+        """
+        payload = self._latest_payload()
+        return payload is not None and self._is_today(payload) and not payload.get(
+            "errors"
+        )
+
+    def _today_feed_exists(self) -> bool:
+        """今天的 feed 是否落盘 (允许 ``errors`` 非空 = 部分结果)。"""
+        payload = self._latest_payload()
+        return payload is not None and self._is_today(payload)
+
+    def _feed_age_minutes(self) -> float | None:
+        """latest.json 的 ``generated_at`` 距今多少分钟; 读不出来返回 None。"""
+        payload = self._latest_payload()
+        if payload is None:
+            return None
+        generated = _normalize_published_at(payload.get("generated_at"))
+        if not generated:
+            return None
+        try:
+            stamp = datetime.fromisoformat(generated)
+        except ValueError:
+            return None
+        return (datetime.now(timezone.utc) - stamp).total_seconds() / 60
+
+    def _should_run_bot(self, cfg: dict[str, Any]) -> bool:
+        """今天的 feed 缺失 → 跑; 有失败 → 过了冷却窗口再跑。"""
+        if not self._today_feed_exists():
+            return True
+        if self._feed_is_fresh():
+            return False
+        age = self._feed_age_minutes()
+        if age is None:
+            return True
+        return age >= float(cfg.get("retry_after_min") or 0)
 
     def _run_bot(self, cfg: dict[str, Any], targets: list[dict[str, Any]]) -> None:
         """就地调 agent 补跑今天的 feed。失败 → 抛错 (不静默)。"""
@@ -237,28 +317,35 @@ class FetcherBankFeed(BaseFetcher):
         ]
         logger.info("[bank-feed] running agent bot (timeout %ss)", timeout)
         try:
-            proc = subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
-                input=payload,
-                capture_output=True,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=timeout,
                 cwd=str(self._repo_root()),
+                start_new_session=True,
             )
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(
-                f"bank-feed: agent bot timed out after {timeout}s"
-            ) from exc
         except OSError as exc:
             raise RuntimeError(f"bank-feed: cannot start agent bot: {exc}") from exc
+        try:
+            stdout, stderr = proc.communicate(payload, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # hermes 会拉起浏览器子进程; 只 kill 直接子进程会把孙进程和
+            # 管道留在原地, communicate() 永远等不到 EOF。
+            _kill_group(proc.pid)
+            stdout, stderr = proc.communicate()
+            raise RuntimeError(
+                f"bank-feed: agent bot timed out after {timeout}s"
+            ) from None
 
         if proc.returncode != 0:
-            tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-5:]
+            tail = (stderr or stdout or "").strip().splitlines()[-5:]
             raise RuntimeError(
                 "bank-feed: agent bot failed (exit "
                 f"{proc.returncode}): " + " | ".join(tail)
             )
-        if not self._feed_is_fresh():
+        if not self._today_feed_exists():
             raise RuntimeError(
                 "bank-feed: agent bot exited 0 but produced no feed for today"
             )
@@ -268,9 +355,14 @@ class FetcherBankFeed(BaseFetcher):
         feed_dir = self._feed_dir()
         if not feed_dir.is_dir():
             return []
+        # 倒序: 同一条 item 出现在多天 feed 里时, 新的一份先被读到, 旧版本
+        # 在 seen_in_round 里被丢掉 (先到先得 = 先读到新数据)。
         files = sorted(
-            p for p in feed_dir.glob("*.json")
-            if p.name != "latest.json" and not p.name.startswith("_")
+            (
+                p for p in feed_dir.glob("*.json")
+                if p.name != "latest.json" and not p.name.startswith("_")
+            ),
+            reverse=True,
         )
         if max_days <= 0:
             return files
@@ -285,23 +377,30 @@ class FetcherBankFeed(BaseFetcher):
                 kept.append(path)
         return kept
 
-    def _read_feed_file(self, path: Path) -> list[dict[str, Any]]:
+    def _read_feed_file(
+        self, path: Path
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]] | None:
+        """读一份 feed → (items, errors); 文件坏了返回 ``None``。"""
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             logger.error("[bank-feed] cannot read %s: %s", path.name, exc)
-            return []
+            return None
         if not isinstance(payload, dict):
             logger.error(
                 "[bank-feed] %s: unexpected payload type %s",
                 path.name, type(payload).__name__,
             )
-            return []
+            return None
         items = payload.get("items")
         if not isinstance(items, list):
             logger.error("[bank-feed] %s: no items array", path.name)
-            return []
-        return [it for it in items if isinstance(it, dict)]
+            return None
+        errors = payload.get("errors")
+        return (
+            [it for it in items if isinstance(it, dict)],
+            [e for e in errors if isinstance(e, dict)] if isinstance(errors, list) else [],
+        )
 
     # ── state ─────────────────────────────────────────────────────────────
     def _load_state(self) -> dict[str, Any]:
@@ -330,18 +429,22 @@ class FetcherBankFeed(BaseFetcher):
         """确保今天的 feed 在盘上, 然后读出还没导入的 raw item。"""
         cfg = self._load_config()
         self._cfg = cfg
+        self._today_errors = []
         targets = self._load_targets(cfg)
 
-        if not self._feed_is_fresh():
+        if self._should_run_bot(cfg):
             if not cfg.get("bot_enabled", True):
-                raise RuntimeError(
-                    "bank-feed: no feed for today and bot_enabled is off"
-                )
-            if not targets:
-                raise RuntimeError(
-                    "bank-feed: no targets configured — cannot run the agent"
-                )
-            self._run_bot(cfg, targets)
+                if not self._today_feed_exists():
+                    raise RuntimeError(
+                        "bank-feed: no feed for today and bot_enabled is off"
+                    )
+                # 有当天 feed (哪怕不完整) 就先导入, 不因为关掉 bot 丢数据。
+            else:
+                if not targets:
+                    raise RuntimeError(
+                        "bank-feed: no targets configured — cannot run the agent"
+                    )
+                self._run_bot(cfg, targets)
 
         files = self._feed_files(int(cfg.get("max_days") or 0))
         if not files:
@@ -355,8 +458,21 @@ class FetcherBankFeed(BaseFetcher):
         raws: list[dict[str, Any]] = []
         seen_in_round: set[str] = set()
         skipped_already = 0
+        today = date.today().isoformat()
         for path in files:
-            for item in self._read_feed_file(path):
+            loaded = self._read_feed_file(path)
+            if loaded is None:
+                if path.stem == today:
+                    # 今天的 feed 坏了 = 今天的数据不可信。历史文件坏了只
+                    # 影响补录, 不能让整轮抓取失败。
+                    raise RuntimeError(
+                        f"bank-feed: today's feed {path.name} is unreadable"
+                    )
+                continue
+            items, feed_errors = loaded
+            if path.stem == today:
+                self._today_errors = feed_errors
+            for item in items:
                 key = str(item.get("id") or "").strip() or str(
                     item.get("url") or ""
                 ).strip()
@@ -394,6 +510,9 @@ class FetcherBankFeed(BaseFetcher):
             return None
 
         bank = str(raw.get("bank") or "").strip()
+        if bank and not _IDENT_RE.fullmatch(bank):
+            logger.warning("[bank-feed] invalid bank code %r — dropped from metadata", bank)
+            bank = ""
         source_type = str(raw.get("source_type") or "").strip()
         publisher = str(raw.get("publisher") or "").strip() or None
 
@@ -408,6 +527,11 @@ class FetcherBankFeed(BaseFetcher):
         if source_type:
             meta_bits.append(f"type:{source_type}")
         target_id = str(raw.get("target_id") or "").strip()
+        if target_id and not _IDENT_RE.fullmatch(target_id):
+            logger.warning(
+                "[bank-feed] invalid target_id %r — dropped from metadata", target_id
+            )
+            target_id = ""
         if target_id:
             meta_bits.append(f"target:{target_id}")
         if meta_bits:
@@ -459,13 +583,44 @@ class FetcherBankFeed(BaseFetcher):
         ``tag_name``, ``dedupe_insert`` 只给**命中的** tag 写
         ``article_tags`` (AGENTS.md 铁律 3)。
         """
-        for art in articles:
-            item_id = art.get("bank_item_id")
-            if item_id:
-                self._round_ids.append(str(item_id))
+        if articles and not keyword_hits:
+            # tag 被停用 / 关键词清空 / 绑定缺失 时 tag 闸门是 pass-through。
+            # 这条路径必须显式合成命中, 否则文章入库后零 tag、前端筛不到。
+            keyword_hits = _synthetic_hits(articles, self._source_tags())
         inserted = super().dedupe_insert(articles, keyword_hits)
         self._inserted_ok = True
+        # 只记**确实在库里**的 item: 基类对单条 INSERT 异常只 warning,
+        # 先记账会把没入库的条目永久标成已导入。
+        for art in articles:
+            item_id = str(art.get("bank_item_id") or "").strip()
+            if item_id and self._article_exists(art):
+                self._round_ids.append(item_id)
         return inserted
+
+    def _source_tags(self) -> list[str]:
+        try:
+            from ..tag_filter import _load_tag_keywords_for_source
+
+            bound = _load_tag_keywords_for_source(self.source_name)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[bank-feed] cannot read bound tags: %s", exc)
+            bound = {}
+        return list(bound) or [SOURCE_TAG]
+
+    def _article_exists(self, art: dict[str, Any]) -> bool:
+        try:
+            from ...db.connection import get_db
+
+            row = get_db().execute(
+                "SELECT 1 FROM articles WHERE source = ? AND url = ? LIMIT 1",
+                (self.source_name, str(art.get("url") or "")),
+            ).fetchone()
+            return row is not None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[bank-feed] cannot verify insert: %s", exc)
+            # 查不到就把「已导入」记上 —— 宁可少记一次重试, 也不要在
+            # 数据库不可用时把整轮 item 反复重放。
+            return True
 
     # ── run ───────────────────────────────────────────────────────────────
     def run(self, dry_run: bool = False) -> dict[str, Any]:
@@ -474,8 +629,16 @@ class FetcherBankFeed(BaseFetcher):
         self._pending_state = None
         self._round_ids = []
         result = super().run(dry_run=dry_run)
-        if not dry_run and not result.get("error") and self._inserted_ok:
+        if not dry_run and self._inserted_ok:
+            # 部分失败也要落 state: 已入库的条目不该在重跑时再处理一遍。
             self._flush_state()
+        if not dry_run and self._today_errors and not result.get("error"):
+            failed = ", ".join(
+                str(e.get("target") or "?") for e in self._today_errors[:5]
+            )
+            result["error"] = (
+                f"feed 不完整: {len(self._today_errors)} 个目标失败 ({failed})"
+            )
         return result
 
     def _flush_state(self) -> None:
@@ -488,4 +651,3 @@ class FetcherBankFeed(BaseFetcher):
                 imported.append(item_id)
         state["imported_ids"] = imported
         self._save_state(state)
-

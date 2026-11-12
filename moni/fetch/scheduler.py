@@ -167,3 +167,16 @@ class Scheduler:
         for cfg in self.sources:
             if cfg.get("enabled", True):
                 yield cfg
+
+    def batch_sources(self) -> list[dict]:
+        """Sources that participate in cron / "一键抓取" batches.
+
+        ``batch_enabled: false`` keeps a source out of the scheduled 9:10
+        run and the web batch while leaving it available to the single
+        source trigger (``POST /api/fetch/sources/{name}/run``) and the CLI
+        (``moni fetch --source <name>``).  Used by sources whose run is
+        expensive and deliberately manual (``bank_feed`` runs an agent).
+        """
+        for cfg in self.enabled_sources():
+            if cfg.get("batch_enabled", True):
+                yield cfg

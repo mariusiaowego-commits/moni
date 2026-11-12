@@ -96,6 +96,38 @@ def _set_fetch_config(conn, cfg: dict) -> None:
     conn.commit()
 
 
+class _FakeProc:
+    """走 ``subprocess.Popen`` 接口的假进程 (production 用 Popen 才能杀进程组)。"""
+
+    pid = 9_999_999  # 不存在的 pid: 真被 killpg 也只会 ProcessLookupError
+
+    def __init__(self, returncode: int, stdout: str, stderr: str, *,
+                 timeout: bool) -> None:
+        self.returncode = returncode
+        self._stdout = stdout
+        self._stderr = stderr
+        self._timeout = timeout
+        self.timeout_kwarg: float | None = None
+
+    def communicate(self, input=None, timeout=None):
+        self.timeout_kwarg = timeout
+        # 超时后调用方会 kill 进程组再 communicate() 收尾, 第二次必须返回。
+        if self._timeout and timeout:
+            self._timeout = False
+            raise subprocess.TimeoutExpired("hermes", timeout or 1)
+        return self._stdout, self._stderr
+
+
+def _fake_popen(returncode: int = 0, stdout: str = "ok", stderr: str = "", *,
+                timeout: bool = False, on_start=None):
+    def _factory(cmd, **kwargs):
+        if on_start is not None:
+            on_start(cmd, kwargs)
+        return _FakeProc(returncode, stdout, stderr, timeout=timeout)
+
+    return _factory
+
+
 # ── A. 配置层 ───────────────────────────────────────────────────────────
 
 def test_source_is_registered():
@@ -175,13 +207,44 @@ def test_sources_yaml_has_entry():
     assert entry is not None
     assert entry["enabled"] is True
     assert entry["crawler_type"] == "json"
+    # 抓取段会拉起 agent (十分钟级), 只允许单源「立即抓取」触发,
+    # 不参加 9:10 定时任务和 web「一键抓取」。
+    assert entry["batch_enabled"] is False
+
+
+def test_scheduler_batch_includes_and_single_source_still_works():
+    from moni.fetch.scheduler import Scheduler
+
+    scheduler = Scheduler()
+    enabled = [c["source_name"] for c in scheduler.enabled_sources()]
+    batch = [c["source_name"] for c in scheduler.batch_sources()]
+    assert SOURCE_NAME in enabled
+    assert SOURCE_NAME not in batch
+
+
+def test_seed_keeps_user_edited_fetch_config(fresh_db):
+    """`moni db init` 每次都会跑 seed; 用户改过的 targets 不能被默认值擦掉。"""
+    from moni.db.seed_config import seed
+
+    conn = get_db()
+    mine = {"targets": [{"id": "my-target", "kind": "media_rss",
+                         "url": "https://example.com/mine"}]}
+    _set_fetch_config(conn, mine)
+
+    seed()
+
+    row = conn.execute(
+        "SELECT fetch_config FROM sources WHERE name = ?", (SOURCE_NAME,)
+    ).fetchone()
+    assert json.loads(row["fetch_config"])["targets"] == mine["targets"]
 
 
 def test_fetch_config_defaults_and_single_source():
     from moni.fetch.sources.bank_feed import DEFAULT_FETCH_CONFIG
     from moni.web.routes.config_sources import _FETCH_CONFIG_DEFAULTS
 
-    assert DEFAULT_FETCH_CONFIG["candidate_tags"] == [TAG_NAME]
+    # candidate_tags 没有任何读取方 (闸门只看绑定的 tag), 不再留在配置里
+    assert "candidate_tags" not in DEFAULT_FETCH_CONFIG
     assert DEFAULT_FETCH_CONFIG["bot_script"] == "scripts/bank_bot/run_bot.py"
     assert DEFAULT_FETCH_CONFIG["targets_file"] == "config/bank_targets.json"
     # job 级 timeout 必须比 bot 自己的超时大, 否则 bot 还在跑任务就被判 timeout
@@ -277,12 +340,22 @@ def test_fetch_empty_feed_dir_raises(fresh_db):
         f.fetch()
 
 
-def test_fetch_skips_broken_feed_file(fresh_db, tmp_path):
+def test_fetch_skips_broken_historical_feed_file(fresh_db, tmp_path):
     _write_feed(fresh_db, [_item(1)])
-    ( _feed_dir(fresh_db) / "2026-11-10.json").write_text("{broken", encoding="utf-8")
+    old = (date.today() - timedelta(days=2)).isoformat()
+    (_feed_dir(fresh_db) / f"{old}.json").write_text("{broken", encoding="utf-8")
     f = _fetcher()
     raws = f.fetch()
     assert [r["id"] for r in raws] == ["feed-item-1"]
+
+
+def test_fetch_raises_when_today_feed_is_corrupt(fresh_db):
+    """今天的 feed 坏了 = 今天的数据不可信, 不能静默当 0 篇。"""
+    today = date.today().isoformat()
+    _write_feed(fresh_db, [_item(1)])
+    (_feed_dir(fresh_db) / f"{today}.json").write_text("{broken", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="today's feed"):
+        _fetcher().fetch()
 
 
 def test_fetch_max_days_limits_dated_files(fresh_db):
@@ -314,10 +387,7 @@ def _no_feed_fetch_config(conn) -> None:
 def test_agent_nonzero_exit_raises(fresh_db, monkeypatch):
     conn = get_db()
     _no_feed_fetch_config(conn)
-    monkeypatch.setattr(
-        subprocess, "run",
-        lambda *a, **kw: subprocess.CompletedProcess(a[0], 2, "", "boom"),
-    )
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen(2, "", "boom"))
     f = _fetcher()
     with pytest.raises(RuntimeError, match="agent bot failed"):
         f.fetch()
@@ -326,22 +396,21 @@ def test_agent_nonzero_exit_raises(fresh_db, monkeypatch):
 def test_agent_timeout_raises(fresh_db, monkeypatch):
     conn = get_db()
     _no_feed_fetch_config(conn)
+    killed: list[int] = []
+    import moni.fetch.sources.bank_feed as bank_feed
 
-    def _timeout(*args, **kwargs):
-        raise subprocess.TimeoutExpired(args[0], 1)
-
-    monkeypatch.setattr(subprocess, "run", _timeout)
+    monkeypatch.setattr(bank_feed, "_kill_group", lambda pid: killed.append(pid))
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen(timeout=True))
     with pytest.raises(RuntimeError, match="timed out"):
         _fetcher().fetch()
+    # 只杀直接子进程会留下 hermes 的浏览器孙进程, 必须整组杀
+    assert killed == [_FakeProc.pid]
 
 
 def test_agent_success_but_no_feed_raises(fresh_db, monkeypatch):
     conn = get_db()
     _no_feed_fetch_config(conn)
-    monkeypatch.setattr(
-        subprocess, "run",
-        lambda *a, **kw: subprocess.CompletedProcess(a[0], 0, "ok", ""),
-    )
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen(0))
     with pytest.raises(RuntimeError, match="no feed for today"):
         _fetcher().fetch()
 
@@ -372,16 +441,15 @@ def test_agent_writes_feed_and_fetch_picks_it_up(fresh_db, monkeypatch):
     conn = get_db()
     _no_feed_fetch_config(conn)
 
-    def _fake_run(cmd, **kwargs):
+    def _write(cmd, kwargs):
         out_dir = Path(cmd[cmd.index("--output-dir") + 1])
         stamp = cmd[cmd.index("--date") + 1]
         payload = json.dumps({"date": stamp, "items": [_item(1)]}, ensure_ascii=False)
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / f"{stamp}.json").write_text(payload, encoding="utf-8")
         (out_dir / "latest.json").write_text(payload, encoding="utf-8")
-        return subprocess.CompletedProcess(cmd, 0, "ok", "")
 
-    monkeypatch.setattr(subprocess, "run", _fake_run)
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen(0, on_start=_write))
     raws = _fetcher().fetch()
     assert [r["id"] for r in raws] == ["feed-item-1"]
 
@@ -389,10 +457,7 @@ def test_agent_writes_feed_and_fetch_picks_it_up(fresh_db, monkeypatch):
 def test_run_reports_error_instead_of_zero(fresh_db, monkeypatch):
     conn = get_db()
     _no_feed_fetch_config(conn)
-    monkeypatch.setattr(
-        subprocess, "run",
-        lambda *a, **kw: subprocess.CompletedProcess(a[0], 1, "", "agent exploded"),
-    )
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen(1, "", "agent exploded"))
     result = _fetcher().run()
     assert result["inserted"] == 0
     assert result["error"] and "agent exploded" in result["error"]
@@ -469,10 +534,7 @@ def test_cross_source_soft_dedupe(fresh_db):
 def test_state_not_written_when_fetch_fails(fresh_db, monkeypatch):
     conn = get_db()
     _no_feed_fetch_config(conn)
-    monkeypatch.setattr(
-        subprocess, "run",
-        lambda *a, **kw: subprocess.CompletedProcess(a[0], 1, "", "fail"),
-    )
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen(1, "", "fail"))
     _fetcher().run()
     assert not (fresh_db / ".bank_feed_state.json").exists()
 
@@ -481,3 +543,81 @@ def test_dry_run_writes_no_state(fresh_db):
     _write_feed(fresh_db, [_item(1)])
     _fetcher().run(dry_run=True)
     assert not (fresh_db / ".bank_feed_state.json").exists()
+
+
+# ── F. 部分失败 / 完整性 ─────────────────────────────────────────────────
+
+def _write_partial_feed(data_dir: Path, items, errors,
+                        generated_at: str = "2026-11-12T08:00:00+08:00") -> None:
+    today = date.today().isoformat()
+    payload = {
+        "date": today,
+        "generated_at": generated_at,
+        "counts_by_bank": {},
+        "errors": errors,
+        "items": items,
+    }
+    feed_dir = _feed_dir(data_dir)
+    feed_dir.mkdir(parents=True, exist_ok=True)
+    body = json.dumps(payload, ensure_ascii=False)
+    (feed_dir / f"{today}.json").write_text(body, encoding="utf-8")
+    (feed_dir / "latest.json").write_text(body, encoding="utf-8")
+
+
+def test_partial_feed_imports_items_and_reports_error(fresh_db):
+    """媒体成功、官网全挂: 已抓到的要入库, 但任务必须报「不完整」。"""
+    conn = get_db()
+    _set_fetch_config(conn, {"bot_enabled": False})
+    now = datetime.now(timezone.utc).isoformat()
+    _write_partial_feed(
+        fresh_db,
+        [_item(1)],
+        [{"target": "icbc", "error": "timeout"}, {"target": "boc", "error": "403"}],
+        generated_at=now,
+    )
+    result = _fetcher().run()
+    assert result["inserted"] == 1
+    assert "feed 不完整" in result["error"]
+    assert "icbc" in result["error"]
+
+
+def test_partial_feed_is_not_fresh_and_triggers_retry(fresh_db, monkeypatch):
+    """带 errors 的当天 feed 不算完成; 过了冷却窗口再抓要重新调 agent 补齐。"""
+    stale = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    _write_partial_feed(
+        fresh_db, [_item(1)], [{"target": "boc", "error": "403"}],
+        generated_at=stale,
+    )
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        subprocess, "Popen",
+        _fake_popen(0, on_start=lambda cmd, kw: calls.append(cmd)),
+    )
+    _fetcher().fetch()
+    assert calls, "partial feed must trigger a bot retry"
+
+
+def test_state_only_records_items_that_exist(fresh_db, monkeypatch):
+    """插入失败的条目不能被记成「已导入」, 否则第二天也不再重试。"""
+    _write_feed(fresh_db, [_item(1), _item(2)])
+    f = _fetcher()
+    monkeypatch.setattr(f, "_article_exists", lambda art: art["url"].endswith("/1"))
+    f.run()
+    state = json.loads((fresh_db / ".bank_feed_state.json").read_text(encoding="utf-8"))
+    assert state["imported_ids"] == ["feed-item-1"]
+
+
+def test_pass_through_still_tags_articles(fresh_db):
+    """peer-banks 被停用/清空关键词时, 闸门 pass-through 也必须落 tag。"""
+    conn = get_db()
+    conn.execute("UPDATE tag_definitions SET is_active = 0 WHERE name = ?", (TAG_NAME,))
+    conn.commit()
+    _write_feed(fresh_db, [_item(1, title="今日 A 股三大指数集体收跌",
+                                 text="市场全天成交 1.9 万亿。")])
+    result = _fetcher().run()
+    assert result["inserted"] == 1
+    tags = [
+        r[0]
+        for r in conn.execute("SELECT tag_name FROM article_tags")
+    ]
+    assert tags == [TAG_NAME]

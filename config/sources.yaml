@@ -88,4 +88,7 @@ sources:
   feed_url: ''
   fetch_interval_min: 120
   enabled: true
+  # 例外: 不参加 9:10 定时任务和 web「一键抓取」, 只在单源「立即抓取」时跑
+  # (它的抓取段会拉起 agent, 耗时以十分钟计)。
+  batch_enabled: false
   crawler_type: json

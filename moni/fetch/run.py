@@ -184,9 +184,10 @@ def main(argv: list[str] | None = None) -> int:
         err = f"  ERROR: {result['error']}" if result.get("error") else ""
         dry_tag = " [dry-run]" if args.dry_run else ""
         print(
-            f"  [{result['source']}]{dry_tag}  "
-            f"fetched={result['fetched']}  parsed={result['parsed']}  "
-            f"inserted={result['inserted']}  parse_errors={result['parse_errors']}"
+            f"  [{result.get('source')}]{dry_tag}  "
+            f"fetched={result.get('fetched', 0)}  parsed={result.get('parsed', 0)}  "
+            f"inserted={result.get('inserted', 0)}  "
+            f"parse_errors={result.get('parse_errors', 0)}"
             + (f"  {err}" if err else "")
         )
 
@@ -204,6 +205,13 @@ def main(argv: list[str] | None = None) -> int:
             f"{total_skipped} skipped, {total_fetched} total fetched. "
             f"Elapsed: {elapsed:.1f}s."
         )
+
+    failed = [r for r in results if r.get("error")]
+    if failed:
+        # 退出码是唯一能让 shell / cron / CI 看见失败的信号。
+        names = ", ".join(str(r.get("source")) for r in failed[:5])
+        print(f"\nFAILED: {len(failed)} source(s) — {names}")
+        return 1
 
     return 0
 

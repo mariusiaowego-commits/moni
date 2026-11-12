@@ -49,7 +49,7 @@ SELECT
     120,
     1,
     '中农工建邮储的资讯 (非公告)。agent 抓官网栏目+媒体 RSS+已知公众号, 落到 data/bank_feed 的 JSON, 本源只做导入。抓取时若当天 feed 缺失会就地调 agent 补跑。',
-    '{"targets": [], "candidate_tags": ["peer-banks"], "max_days": 30, "timeout_sec": 1800, "bot_timeout_sec": 1500, "bot_enabled": true, "bot_script": "scripts/bank_bot/run_bot.py", "targets_file": "config/bank_targets.json", "skip_existing_urls": true}',
+    '{"targets": [], "max_days": 30, "timeout_sec": 1800, "bot_timeout_sec": 1500, "retry_after_min": 30, "bot_enabled": true, "bot_script": "scripts/bank_bot/run_bot.py", "targets_file": "config/bank_targets.json", "skip_existing_urls": true}',
     datetime('now'),
     datetime('now')
 WHERE NOT EXISTS (
@@ -68,9 +68,10 @@ JOIN tag_definitions t ON t.name = 'peer-banks'
 WHERE s.id = 'src-bank-feed';
 
 -- Only log success when the binding really took effect. Count the
--- *effective* bindings (tag active), because apply_tag_keyword_filter()
--- joins tag_definitions with is_active = 1 -- an inactive tag would
--- leave the gate open while this row claimed success.
+-- *effective* bindings (tag active AND keywords non-empty), because
+-- apply_tag_keyword_filter() joins tag_definitions with is_active = 1 and
+-- skips tags without keywords -- either case leaves the gate open while
+-- this row claimed success.
 CREATE TABLE IF NOT EXISTS schema_cleanup_log (
     migration   TEXT PRIMARY KEY,
     applied_at  TEXT NOT NULL
@@ -82,6 +83,8 @@ WHERE (
     JOIN tag_definitions t ON t.name = st.tag_name
     WHERE st.source_id = 'src-bank-feed'
       AND t.is_active = 1
+      AND t.keywords IS NOT NULL
+      AND TRIM(t.keywords) NOT IN ('', '[]')
 ) >= 1;
 
 COMMIT;

@@ -4,7 +4,8 @@ bot 是 moni 之外的独立生产者 (agent 管道的上游), 但它产出的 J
 moni 的 bank_feed 源读的东西, 所以坏契约必须在**这里**挡住。
 
 不联网: HTTP 一律 monkeypatch ``_http_get``; agent 一律 monkeypatch
-``subprocess.run``。
+``subprocess.Popen`` (production 用 Popen + 进程组, 超时能杀掉 hermes 的
+浏览器孙进程)。
 """
 from __future__ import annotations
 
@@ -27,6 +28,32 @@ def bot():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+class _FakeProc:
+    pid = 9_999_999
+
+    def __init__(self, returncode: int, stdout: str, stderr: str, *,
+                 timeout: bool) -> None:
+        self.returncode = returncode
+        self._stdout = stdout
+        self._stderr = stderr
+        self._timeout = timeout
+
+    def communicate(self, input=None, timeout=None):
+        # 超时后调用方会 kill 进程组再 communicate() 收尾, 第二次必须返回。
+        if self._timeout and timeout:
+            self._timeout = False
+            raise subprocess.TimeoutExpired("hermes", timeout or 1)
+        return self._stdout, self._stderr
+
+
+def _fake_popen(returncode: int = 0, stdout: str = "[]", stderr: str = "", *,
+                timeout: bool = False):
+    def _factory(cmd, **kwargs):
+        return _FakeProc(returncode, stdout, stderr, timeout=timeout)
+
+    return _factory
 
 
 RSS2 = """<?xml version="1.0" encoding="utf-8"?>
@@ -302,21 +329,18 @@ def test_collect_agent_budget_exhaustion_is_recorded(bot, monkeypatch):
 
 
 def test_call_agent_nonzero_exit_raises(bot, monkeypatch):
-    monkeypatch.setattr(
-        subprocess, "run",
-        lambda *a, **kw: subprocess.CompletedProcess(a[0], 3, "", "usage error"),
-    )
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen(3, "", "usage error"))
     with pytest.raises(bot.TargetError, match="agent exited 3"):
         bot.call_agent("hi", timeout=1, profile="moni")
 
 
 def test_call_agent_timeout_raises(bot, monkeypatch):
-    def _timeout(*args, **kwargs):
-        raise subprocess.TimeoutExpired(args[0], 1)
-
-    monkeypatch.setattr(subprocess, "run", _timeout)
+    killed: list[int] = []
+    monkeypatch.setattr(bot, "_kill_group", lambda pid: killed.append(pid))
+    monkeypatch.setattr(subprocess, "Popen", _fake_popen(timeout=True))
     with pytest.raises(bot.TargetError, match="timed out"):
         bot.call_agent("hi", timeout=1, profile="moni")
+    assert killed == [_FakeProc.pid]
 
 
 # ── 合并 / 落盘 ─────────────────────────────────────────────────────────
@@ -396,3 +420,72 @@ def test_validate_ok_and_bad(tmp_path, bot):
 
 def test_validate_empty_dir(tmp_path, bot):
     assert bot.main(["--validate", "--output-dir", str(tmp_path / "none")]) == 2
+
+
+# ── 契约收紧 (v1.0.76 审计修复) ───────────────────────────────────────────
+
+def _run_main(tmp_path, bot, monkeypatch, *, rss: str, targets: list[dict],
+              extra: list[str] | None = None) -> int:
+    import io
+    import sys as _sys
+
+    monkeypatch.setattr(bot, "_http_get", lambda url, timeout: rss.encode("utf-8"))
+    monkeypatch.setattr(_sys, "stdin", io.StringIO(json.dumps({"targets": targets})))
+    return bot.main([
+        "--output-dir", str(tmp_path / "feed"),
+        "--date", "2026-11-12",
+        "--no-agent",
+        *(extra or []),
+    ])
+
+
+def test_main_refuses_empty_feed_even_without_errors(tmp_path, bot, monkeypatch):
+    """0 条 ≠ 今天没新闻: 没有任何 error 时也不许写空 feed。"""
+    rss = RSS2.replace("建设银行举办2026年对公客户经理技能竞赛", "今日 A 股收盘")
+    code = _run_main(
+        tmp_path, bot, monkeypatch,
+        rss=rss,
+        targets=[{"id": "t1", "kind": "media_rss", "url": "https://e.com/feed"}],
+    )
+    assert code == 2
+    assert not (tmp_path / "feed" / "2026-11-12.json").exists()
+
+
+def test_collect_media_emits_one_item_for_multi_bank_title(bot, monkeypatch):
+    rss = RSS2.replace(
+        "建设银行举办2026年对公客户经理技能竞赛",
+        "工商银行与建设银行签署战略合作协议",
+    )
+    monkeypatch.setattr(bot, "_http_get", lambda url, timeout: rss.encode("utf-8"))
+    items = bot.collect_media(
+        {"id": "t1", "kind": "media_rss", "url": "https://e.com/feed",
+         "publisher": "测试媒体", "max_items": 12},
+        timeout=1,
+    )
+    # 同 url 的多条会被 moni 的文章 id 合并, 只产出一条才有意义
+    multi = [it for it in items if it["url"] == "https://example.com/news/1.html"]
+    assert len(multi) == 1
+    assert multi[0]["bank"] in ("icbc", "ccb")
+
+
+def test_rows_to_items_truncates_to_max_items(bot):
+    rows = [
+        {"title": f"建设银行新闻{i}", "url": f"https://e.com/{i}",
+         "text": "建设银行正文", "created_at": "2026-11-12"}
+        for i in range(5)
+    ]
+    target = {"id": "t1", "kind": "official_list", "bank": "ccb",
+              "publisher": "中国建设银行", "max_items": 2}
+    assert len(bot._rows_to_items(rows, target)) == 2
+
+
+def test_item_problems_rejects_bad_source_type_and_oversize(bot):
+    item = {
+        "id": "ccb-1", "url": "https://e.com/1", "title": "建设银行发布业绩",
+        "bank": "ccb", "source_type": "blog", "publisher": "测试",
+    }
+    assert any("source_type" in p for p in bot.item_problems(item, 0))
+
+    item["source_type"] = "media"
+    item["title"] = "建" * 301
+    assert any("title" in p for p in bot.item_problems(item, 0))

@@ -101,7 +101,10 @@ sprint: "[[sprint-40-bank-intel-bot-2026-11-12]]"
 
 ### 关键决策
 
-- **不做 cron**：只做 web 端点击触发（用户明确要求）
+- **不新建调度**：web 端单源「立即抓取」触发（用户要求）。`config/sources.yaml`
+  给它 `batch_enabled: false`，因此工作日 9:10 的 `fetch_all_sources` 和
+  web「一键抓取」都不含它；`enabled` 仍为 true，单源触发和 CLI
+  （`moni fetch --source bank_feed`）不受影响。
 - **不做自建 RSSHub**：用户明确否决
 - **transport 用本地目录**（`data/bank_feed/`）而非 git 桥接：bot 与 moni 同机，少一层 git 凭据/冲突
 - **独立 fetcher 而非继承 xbot_feed**：transport、契约、tag 逻辑都不同；继承会把 xbot 的

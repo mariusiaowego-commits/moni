@@ -524,9 +524,10 @@ def seed() -> None:
 
     # ── tag_definitions (复用已有表) ────────────────────────────────────
     for name, display_name, desc, color in _DEFAULT_TAGS:
-        # v1.0.76: keywords 只在**首次 INSERT** 时落库。ON CONFLICT 分支
-        # 故意不写 keywords —— 那是用户在 /config 里维护的数据, seed 每次
-        # 启动都会跑 (moni db init), 覆盖它等于把用户的编辑擦掉。
+        # v1.0.76: keywords 只在**首次 INSERT** 时落库, 且 ON CONFLICT 只
+        # 在库里的值为空时补一次 —— 那是用户在 /config 里维护的数据, seed
+        # 每次都跑 (moni db init), 覆盖它等于把用户的编辑擦掉。空关键词的
+        # tag 会把闸门变成 pass-through, 所以必须补 (只补空, 不覆盖)。
         keywords = _DEFAULT_TAG_KEYWORDS.get(name)
         conn.execute(
             """
@@ -537,7 +538,13 @@ def seed() -> None:
                 display_name = excluded.display_name,
                 description  = excluded.description,
                 color        = excluded.color,
-                is_active    = 1
+                is_active    = 1,
+                keywords     = CASE
+                    WHEN tag_definitions.keywords IS NULL
+                      OR TRIM(tag_definitions.keywords) IN ('', '[]')
+                    THEN excluded.keywords
+                    ELSE tag_definitions.keywords
+                END
             """,
             (
                 name, display_name, desc, color,
@@ -570,8 +577,11 @@ def seed() -> None:
                 url                = excluded.url,
                 fetch_interval_min = excluded.fetch_interval_min,
                 notes              = excluded.notes,
+                -- 用户改过的 fetch_config 优先 (bank_feed.targets、xbot_feed
+                -- 的 topics 都在里面)。只在库里的值为 NULL 时落种子默认值,
+                -- 否则每次 `moni db init` 都会把用户的编辑擦回默认。
                 fetch_config       = COALESCE(
-                    excluded.fetch_config, sources.fetch_config
+                    sources.fetch_config, excluded.fetch_config
                 ),
                 updated_at         = excluded.updated_at
             """,

@@ -509,6 +509,13 @@ def _run_fetch_job(
             )
             return
 
+        # A fetcher reports per-source failures in ``result["error"]`` instead
+        # of raising (fetch() swallows its own exceptions). Treat that as a
+        # failed job — otherwise the UI shows a green "done" with 0 articles.
+        if result.get("error"):
+            jobs.mark_failed(job_id, str(result["error"]), handle=handle)
+            return
+
         jobs.mark_done(job_id, result, handle=handle)
 
     except TimeoutError as exc:
@@ -808,7 +815,7 @@ def trigger_fetch_all() -> dict[str, Any]:
         date_from = saturday.strftime("%Y-%m-%d")
 
     fetch_scheduler = FetchScheduler()
-    enabled = list(fetch_scheduler.enabled_sources())
+    enabled = list(fetch_scheduler.batch_sources())
     if not enabled:
         return {"status": "skipped", "message": "No enabled sources", "results": []}
 
@@ -996,6 +1003,11 @@ def _run_batch_job_inner(
                     }, handle=handle)
                     continue
 
+                if result.get("error"):
+                    jobs.mark_failed(job_id, str(result["error"]), handle=handle)
+                    sources_failed += 1
+                    continue
+
                 jobs.mark_done(job_id, result, handle=handle)
 
                 # Calculate deduped
@@ -1033,8 +1045,6 @@ def _run_batch_job_inner(
                 )
 
                 total_inserted += result.get("inserted", 0)
-                if result.get("error"):
-                    sources_failed += 1
 
             except TimeoutError as exc:
                 logger.warning("[%s] batch job timed out: %s", source_name, exc)

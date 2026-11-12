@@ -42,6 +42,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -359,18 +360,23 @@ def collect_media(target: dict[str, Any], *, timeout: float) -> list[dict[str, A
         # 正文里一句提到工行不代表这条是同业新闻 —— 实测按正文归属时
         # 东财的三条大盘复盘全被记成工行。银行新闻的标题几乎必然点名,
         # 所以标题归属召回不掉, 精度高得多。
-        for bank in detect_banks(title, ""):
-            items.append({
-                "id": make_item_id(bank, entry["url"]),
-                "url": entry["url"],
-                "title": title,
-                "text": body,
-                "created_at": _parse_date(entry["date"]),
-                "bank": bank,
-                "source_type": "media",
-                "publisher": target["publisher"],
-                "target_id": target["id"],
-            })
+        banks = detect_banks(title, "")
+        if not banks:
+            continue
+        # 一条新闻只产出一条 item: moni 的文章 id 由 source+url+title 决定,
+        # 同 url 的多条会在入库时被 IGNORE 掉, 多出来的只是噪音。
+        # 多条行名同时出现时取第一家主行, 其余在标题里可读。
+        items.append({
+            "id": make_item_id(banks[0], entry["url"]),
+            "url": entry["url"],
+            "title": title,
+            "text": body,
+            "created_at": _parse_date(entry["date"]),
+            "bank": banks[0],
+            "source_type": "media",
+            "publisher": target["publisher"],
+            "target_id": target["id"],
+        })
     return items[: target["max_items"]]
 
 
@@ -410,21 +416,38 @@ def call_agent(prompt: str, *, timeout: int, profile: str) -> str:
         raise BotError("agent prompt exceeds 200KB argv limit")
     cmd = [_hermes_bin(), "-z", prompt, "--profile", profile]
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
             stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            # hermes 会拉起浏览器子进程; 自成进程组才能在超时时整组杀掉,
+            # 否则孙进程占着管道, communicate() 等到天荒地老。
+            start_new_session=True,
         )
-    except subprocess.TimeoutExpired as exc:
-        raise TargetError(f"agent timed out after {timeout}s") from exc
     except OSError as exc:
         raise TargetError(f"cannot start agent ({cmd[0]}): {exc}") from exc
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_group(proc.pid)
+        proc.communicate()
+        raise TargetError(f"agent timed out after {timeout}s") from None
     if proc.returncode != 0:
-        tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-3:]
+        tail = (stderr or stdout or "").strip().splitlines()[-3:]
         raise TargetError(f"agent exited {proc.returncode}: " + " | ".join(tail))
-    return proc.stdout or ""
+    return stdout or ""
+
+
+def _kill_group(pid: int, grace: float = 5.0) -> None:
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(os.getpgid(pid), sig)
+        except (ProcessLookupError, PermissionError, OSError):
+            return
+        if sig is signal.SIGTERM:
+            time.sleep(grace)
 
 
 def parse_agent_json(stdout: str) -> list[dict[str, Any]]:
@@ -549,7 +572,7 @@ def _rows_to_items(rows: list[dict[str, Any]],
             "publisher": str(row.get("publisher") or "").strip() or target["publisher"],
             "target_id": target["id"],
         })
-    return items
+    return items[: int(target.get("max_items") or DEFAULT_MAX_ITEMS)]
 
 
 # ── 合并 / 落盘 / 校验 ─────────────────────────────────────────────────────
@@ -563,9 +586,15 @@ def item_problems(item: Any, idx: int) -> list[str]:
             problems.append(f"items[{idx}].{field} is empty")
     if item.get("bank") not in BANK_ALIASES:
         problems.append(f"items[{idx}].bank is unknown")
+    if item.get("source_type") not in ("official", "media", "wechat"):
+        problems.append(f"items[{idx}].source_type is not official|media|wechat")
     url = str(item.get("url") or "")
     if url and not url.startswith(("http://", "https://")):
         problems.append(f"items[{idx}].url is not absolute")
+    if len(str(item.get("title") or "")) > 300:
+        problems.append(f"items[{idx}].title is longer than 300 chars")
+    if len(str(item.get("text") or "")) > 20_000:
+        problems.append(f"items[{idx}].text is longer than 20000 chars")
     return problems
 
 
@@ -757,10 +786,10 @@ def main(argv: list[str] | None = None) -> int:
         for problem in problems[:10]:
             print(f"  - {problem}", file=sys.stderr)
 
-    if not items and errors:
+    if not items:
         print(
-            f"[bank_bot] all sources failed ({len(errors)} error(s)) — "
-            "refusing to write an empty feed",
+            f"[bank_bot] no item captured ({len(errors)} error(s)) — "
+            "refusing to write an empty feed (0 条 ≠ 今天没新闻)",
             file=sys.stderr,
         )
         return 2

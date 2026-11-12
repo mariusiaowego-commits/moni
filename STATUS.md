@@ -21,20 +21,23 @@
   `hermes --profile moni`（= magpie 路由组，与 moni 其他 LLM 调用同一条链路）。
 - **11 个默认目标**（`config/bank_targets.json`）：5 个官网新闻栏目 + 5 个媒体
   RSS + 1 个媒体 JSON（第一财经）。加信源改 `fetch_config.targets`，零代码。
-- **不做 cron**：web 端「抓取」按钮触发（用户要求）。
+- **不新建调度**：`config/sources.yaml` 里 `batch_enabled: false` —— 不进工作日
+  9:10 的 `fetch_all_sources`，也不进 web「一键抓取」；只在抓取管理里对
+  「银行同业」单点「立即抓取」（或 `moni fetch --source bank_feed`）时跑。
 
 ### 8903 实测（隔离 DB，2026-11-12）
 
 | 项 | 结果 |
 |---|---|
-| `POST /api/fetch/sources/bank_feed/run` | 200 → job done |
+| `POST /api/fetch/sources/bank_feed/run` | 200 → job done（fetched 4 / inserted 1；幂等复跑 inserted 0）|
 | bot 产出 | 61 条 / 0 error；`{icbc:14, boc:12, ccb:12, abc:12, psbc:10, bocom:1}` |
-| 入库 | `articles` 62 条，`article_tags` 62 条 `peer-banks` |
+| 入库 | `articles` 63 条，`article_tags` 63 条 `peer-banks`（0 篇零 tag）|
 | tag 命中 | `建设银行/中国建设银行`、`工行/农行`、`工商银行/农业银行`（真实关键词） |
-| `GET /api/articles?tag=peer-banks` | 62 条 |
+| `GET /api/articles?tag=peer-banks` | 63 条 |
 | `moni extract cases --source bank_feed --limit 5` | 5 篇 → 6 个 case（subject 如「中国农业银行安徽省分行」） |
-| `moni keyword-audit --source bank_feed` | 62/62 存活，0 丢弃 |
-| `pytest tests/` | 1712 passed / 2 skipped（1 例仅沙箱失败：039 worktree） |
+| `moni keyword-audit --source bank_feed` | 63/63 存活，0 丢弃 |
+| 失败路径 | bot 脚本缺失 → job `failed`（error 带原因）；`moni fetch --source bank_feed` exit 1 |
+| `pytest tests/` | 1729 passed / 2 skipped（1 例仅沙箱失败：039 worktree） |
 
 耗时：agent 段逐页抓 5 个官网约 12 分钟（单目标上限 240s，总预算 1200s）。
 
