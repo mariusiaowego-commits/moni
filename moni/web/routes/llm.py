@@ -266,8 +266,9 @@ def delete_provider(provider_id: str) -> None:
 def test_provider(provider_id: str) -> dict:
     """Test provider connectivity with a minimal LLM call.
 
-    Uses the provider's first enabled model and a very short prompt
-    with max_tokens=1 to minimize token usage (~5-10 tokens total).
+    ``llm_model_mode=profile`` 时，实际调用的是 hermes profile 的默认模型
+    （magpie 路由组）——请求里的 provider/model 会被忽略，所以这里必须把
+    「实际测的是什么」回给前端，否则测试结果会误导人。
     """
     import time as _time
     conn = get_db()
@@ -278,6 +279,37 @@ def test_provider(provider_id: str) -> dict:
         raise NotFoundError(message=f"Provider {provider_id!r} not found")
 
     hermes_provider = provider["hermes_provider"]
+
+    from moni.llm.gateway import profile_model
+    from moni.llm.runner import read_model_mode
+
+    if read_model_mode() == "profile":
+        info = profile_model()
+        model_id = info["default_model"]
+        t0 = _time.monotonic()
+        try:
+            from moni.llm.client import call_llm
+
+            reply = call_llm("", "", "hi", timeout=60)
+            return {
+                "ok": True,
+                "mode": "profile",
+                "provider": info["provider"] or hermes_provider,
+                "model": model_id,
+                "tested": "profile",
+                "reply_preview": reply[:100],
+                "duration_ms": int((_time.monotonic() - t0) * 1000),
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "mode": "profile",
+                "provider": info["provider"] or hermes_provider,
+                "model": model_id,
+                "tested": "profile",
+                "error": str(exc)[:200],
+                "duration_ms": int((_time.monotonic() - t0) * 1000),
+            }
 
     # Find the first enabled model for this provider
     model = conn.execute(
@@ -320,8 +352,10 @@ def test_provider(provider_id: str) -> dict:
         duration_ms = int((_time.monotonic() - t0) * 1000)
         return {
             "ok": True,
+            "mode": "explicit",
             "provider": hermes_provider,
             "model": model_id,
+            "tested": "provider",
             "reply_preview": reply[:100],
             "duration_ms": duration_ms,
         }
@@ -329,11 +363,24 @@ def test_provider(provider_id: str) -> dict:
         duration_ms = int((_time.monotonic() - t0) * 1000)
         return {
             "ok": False,
+            "mode": "explicit",
             "provider": hermes_provider,
             "model": model_id,
+            "tested": "provider",
             "error": str(exc)[:200],
             "duration_ms": duration_ms,
         }
+
+
+@router.get("/gateway")
+def get_gateway() -> dict:
+    """网关快照：当前模式 + hermes profile 的默认模型 + 网关可用模型/路由组。
+
+    只读；网关不可达时照常返回 200，把错误原因带回去（设置页要能显示「不可达」）。
+    """
+    from moni.llm.gateway import gateway_snapshot
+
+    return gateway_snapshot()
 
 
 # ── Model CRUD ───────────────────────────────────────────────────────────

@@ -4,6 +4,29 @@
 
 ---
 
+## 当前状态: **v1.0.72 — 大模型设置改为网关视角** (2026-11-12 · **进行中**)
+
+**主分支**: main @ `db8c3c6` · **分支**: `feat/llm-gateway-ui` · **PR**: #181
+· **schema**: 40（无新迁移）· **测试**: 1607 passed / 2 skipped（1 例仅沙箱失败：test_migration_039）
+
+### v1.0.72 交付要点
+
+v1.0.70 之后模型来源已经交给 magpie，但「大模型设置」页还是 hermes 时代的形态：
+Provider 绑定 / Model 选择 两张表 + `active_*_model_id` 下拉，看着能配，实际在默认
+（跟随 profile）模式下改什么都不影响推理；provider 连通测试更是**测的不是它写着的那个
+provider**（参数被忽略）。本页改成网关视角。
+
+- **`GET /api/llm/gateway`**（只读）：当前模式 + hermes `moni` profile 的 provider /
+  默认模型 / 网关地址 + 网关 `/v1/models` 可用模型清单（标出路由组）。网关不可达时仍返回
+  200，把原因带给页面。
+- **子页重排**：`网关` / `用量统计`。网关页放「模型来源」开关与实际生效模型；
+  Provider / Model 绑定收进默认折叠的「高级：explicit 兜底（模型映射）」，并写明
+  **只在指定模型模式下生效**。
+- **连通测试语义修正**：profile 模式下后端改测 profile 当前模型，响应带 `tested=profile`，
+  界面与确认弹窗都写明「实际走 profile 当前模型」。
+- **任务列表**：profile 模式下「模型」列显示「跟随 profile」，不再空白。
+- **seed 备注更新**：老 provider 行标注「仅 explicit 模式使用」，新增 `magpie` provider 行。
+
 ## 当前状态: **v1.0.71 — X-bot scope 展示 + per-topic 门槛可配** (2026-11-12 · **SHIPPED**)
 
 **主分支**: main（合并提交 `e8d63de`）· **Tag**: `v1.0.71` · **PR**: #180（已 squash 合并）

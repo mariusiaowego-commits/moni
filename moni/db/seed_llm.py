@@ -22,27 +22,34 @@ from .connection import get_db
 _DEFAULT_PROVIDERS = [
     {
         "id": "seed-provider-ark",
-        "name": "Ark (默认)",
+        "name": "Ark",
         "hermes_provider": "ark",
-        "notes": "Volcengine Ark (dad 2026-08-24 指定，替换已无额度的 minimax-cn)。Key 在 ~/.hermes/.env。",
+        "notes": "Volcengine Ark 直连。Key 在 ~/.hermes/.env。仅 explicit 模式使用。",
     },
     {
         "id": "seed-provider-minimax-cn",
         "name": "minimax-cn",
         "hermes_provider": "minimax-cn",
-        "notes": "coder profile 默认 provider。Key 在 ~/.hermes/config.yaml。⚠️ Token Plan 2026-08-24 已耗尽 (HTTP 429)。",
+        "notes": "MiniMax 直连。Key 在 ~/.hermes/config.yaml。⚠️ Token Plan 2026-08-24 已耗尽 (HTTP 429)。仅 explicit 模式使用。",
     },
     {
         "id": "seed-provider-google",
         "name": "Google Gemini",
         "hermes_provider": "google",
-        "notes": "通过 `hermes --provider google` 调 Gemini 直连。Key 在 ~/.hermes/.env (GOOGLE_API_KEY)。",
+        "notes": "通过 `hermes --provider google` 调 Gemini 直连。Key 在 ~/.hermes/.env (GOOGLE_API_KEY)。仅 explicit 模式使用。",
     },
     {
         "id": "seed-provider-openrouter",
         "name": "OpenRouter",
         "hermes_provider": "openrouter",
-        "notes": "OpenRouter 网关可访问多模型。Key 在 ~/.hermes/.env (OPENROUTER_API_KEY)。",
+        "notes": "OpenRouter 网关可访问多模型。Key 在 ~/.hermes/.env (OPENROUTER_API_KEY)。仅 explicit 模式使用。",
+    },
+    {
+        "id": "seed-provider-magpie",
+        "name": "magpie",
+        "hermes_provider": "magpie",
+        "notes": "magpie 本地网关 (127.0.0.1:3425)。explicit 模式可绑定 magpie 的 model_id"
+                 "（形如 provider/model 或 group/xxx）；默认 profile 模式不需要绑定。",
     },
 ]
 
@@ -88,7 +95,6 @@ def seed() -> None:
             ON CONFLICT(id) DO UPDATE SET
                 name            = excluded.name,
                 hermes_provider = excluded.hermes_provider,
-                is_active       = excluded.is_active,
                 notes           = excluded.notes,
                 updated_at      = excluded.updated_at
             """,
