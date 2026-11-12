@@ -37,7 +37,7 @@
 | `moni extract cases --source bank_feed --limit 5` | 5 篇 → 6 个 case（subject 如「中国农业银行安徽省分行」） |
 | `moni keyword-audit --source bank_feed` | 63/63 存活，0 丢弃 |
 | 失败路径 | bot 脚本缺失 → job `failed`（error 带原因）；`moni fetch --source bank_feed` exit 1 |
-| `pytest tests/` | 1735 passed / 2 skipped（1 例仅沙箱失败：039 worktree） |
+| `pytest tests/` | 1736 passed / 2 skipped（1 例仅沙箱失败：039 worktree） |
 
 耗时：agent 段逐页抓 5 个官网约 12 分钟（单目标上限 240s，总预算 1200s）。
 

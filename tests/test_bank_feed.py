@@ -704,3 +704,19 @@ def test_insert_failure_is_not_a_green_success(fresh_db):
     result = _BoomFetcher().run()
     assert result["inserted"] == 0
     assert result["error"] and "disk I/O error" in result["error"]
+
+
+def test_binding_deleted_between_fetch_and_insert_is_refused(fresh_db):
+    """fetch() 之后绑定被删的窗口: 入库必须拒绝, 不能产出零 tag 文章。"""
+    _write_feed(fresh_db, [_item(1)])
+    f = _fetcher()
+    f._cfg = {}
+    art = f.parse(_item(1))
+    assert art is not None
+
+    conn = get_db()
+    conn.execute("DELETE FROM tag_definitions WHERE name = ?", (TAG_NAME,))
+    conn.commit()
+    with pytest.raises(RuntimeError, match="tag binding disappeared"):
+        f.dedupe_insert([art], [])
+    assert conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0] == 0

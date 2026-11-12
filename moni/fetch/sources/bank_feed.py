@@ -249,22 +249,20 @@ class FetcherBankFeed(BaseFetcher):
 
         tag 被删时 source_tags 会 CASCADE 掉 —— 那时返回空, 调用方必须
         拒绝入库, 否则就是「有文章、零 tag」。
-        """
-        try:
-            from ...db.connection import get_db
 
-            rows = get_db().execute(
-                """
-                SELECT st.tag_name
-                FROM source_tags st
-                JOIN sources s ON s.id = st.source_id
-                WHERE s.name = ?
-                """,
-                (self.source_name,),
-            ).fetchall()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[bank-feed] cannot read bound tags: %s", exc)
-            return []
+        数据库读失败不在这里吞掉: 那是基础设施问题, 不是「没有绑定」。
+        """
+        from ...db.connection import get_db
+
+        rows = get_db().execute(
+            """
+            SELECT st.tag_name
+            FROM source_tags st
+            JOIN sources s ON s.id = st.source_id
+            WHERE s.name = ?
+            """,
+            (self.source_name,),
+        ).fetchall()
         names = [str(r[0]) for r in rows]
         # 主 tag 优先, 其余按名字稳定排序
         return sorted(names, key=lambda n: (n != SOURCE_TAG, n))
@@ -649,16 +647,16 @@ class FetcherBankFeed(BaseFetcher):
         """
         bound_tags = self._bound_tags()
         if articles:
-            if bound_tags:
-                keyword_hits = _with_bound_tag_hits(
-                    articles, list(keyword_hits or []), bound_tags
-                )
-            else:
+            if not bound_tags:
                 # fetch() 已经拦过一次; 走到这里说明 tag 在抓取过程中被删了。
-                logger.error(
-                    "[bank-feed] tag binding disappeared mid-run — "
-                    "articles would be untagged"
+                # 抛错让 base._ingest 把它写进 result["error"], 不要悄悄入库。
+                raise RuntimeError(
+                    "bank-feed: tag binding disappeared mid-run — "
+                    "refusing to insert untagged articles"
                 )
+            keyword_hits = _with_bound_tag_hits(
+                articles, list(keyword_hits or []), bound_tags
+            )
         inserted = super().dedupe_insert(articles, keyword_hits)
         self._inserted_ok = True
         # 只记**确实在库里**的 item: 基类对单条 INSERT 异常只 warning,
