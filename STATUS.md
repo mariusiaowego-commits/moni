@@ -4,7 +4,7 @@
 
 ---
 
-## 进行中: **Web UI 规范化 Phase 1–3 — Token / 按钮图标 / 去重与弹窗** (2026-11-12 · Sprint 39–41 · 分支 `feat/web-ui-polish`)
+## 进行中: **Web UI 规范化 Phase 1–4 全量完成** (2026-11-12 · Sprint 39–42 · 分支 `feat/web-ui-polish` · PR #186)
 
 UI 体检（agy · unslop skill，62 条 findings：P0×8/P1×29/P2×25）后分 4 个 sprint 落地。
 Sprint 39 只动 CSS 层：新增 `--space-*` / `--radius-*` / `--control-h-*` / `--z-*` / `--chart-*`
@@ -25,6 +25,11 @@ Phase 3（Sprint 41）已完成：pinned 子 tab 下隐藏重复的 Pin 切换�
 文章详情弹窗合并重复的「事实核查」，全弹窗仅 1 个 Primary，操作条改为底部 sticky；
 `z-index` 收敛到 `--z-modal(500)` / `--z-toast(1000)`。
 验收：DOM 断言 pinned 态 pin 列 0 可见、每行徽标 ≤1、弹窗 Primary=1、actions `position: sticky`、z=500；pytest 1630 passed / 2 skipped。
+
+Phase 4（Sprint 42）已完成：1280/1440/1920 × 10 视图 `scrollWidth === clientWidth` 30/30；
+可见文本字号从 23 种收敛到 **7 档**（12/13/14/16/18/24/28px，全部走 `--font-*`）；
+全局 `:focus-visible` 2px accent 焦点环；标签 chip 对比度亮/暗最小 11.97:1。
+pytest 1630 passed / 2 skipped。移动端按 dad 决定不做。
 
 ## 进行中: **分享产物 worker 修复** (2026-11-12 · 分支 `feature/v1.0.73-share-maintenance`)
 

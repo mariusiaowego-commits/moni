@@ -719,8 +719,8 @@
             <canvas id="particleCanvas"></canvas>
             <!-- v1.0.9.8: feed info above particles -->
             <div id="feedInfoBar" style="position:absolute; top:50px; left:50%; transform:translateX(-50%); text-align:center; z-index:4; pointer-events:none;">
-              <div id="feedName" style="font-size:0.78rem; color:var(--muted-fg); margin-bottom:2px;"></div>
-              <div style="font-size:0.85rem; color:var(--foreground);">
+              <div id="feedName" style="font-size:var(--font-12); color:var(--muted-fg); margin-bottom:2px;"></div>
+              <div style="font-size:var(--font-14); color:var(--foreground);">
                 已抓 <b id="modalArticleCount">0</b> 篇
               </div>
             </div>
@@ -739,21 +739,21 @@
               'dot-failed': fetchProgress?.status === 'failed' || fetchProgress?.status === 'timeout'
             }"></span>
             <span class="fetch-status-text" id="fetchStatusText">抓取中...</span>
-            <span class="muted" style="margin-left:auto; font-size:0.82rem;" x-text="fetchProgress ? `(${fetchProgress.elapsed_seconds}s)` : ''"></span>
+            <span class="muted" style="margin-left:auto; font-size:var(--font-13);" x-text="fetchProgress ? `(${fetchProgress.elapsed_seconds}s)` : ''"></span>
           </div>
 
           <!-- ── Batch mode: source-level progress bar ── -->
           <div x-show="fetchBatchMode" style="margin-bottom:14px;">
-            <div class="muted" style="font-size:12px; margin-bottom:4px;">源进度</div>
+            <div class="muted" style="font-size:var(--font-12); margin-bottom:4px;">源进度</div>
             <div style="background:var(--bg-secondary); border-radius:6px; height:18px; overflow:hidden; position:relative;">
               <div :style="`background:var(--accent); height:100%; width:${fetchBatchPercent}%; transition:width 0.3s ease;`"></div>
-              <div style="position:absolute; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:600;"
+              <div style="position:absolute; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; font-size:var(--font-12); font-weight:600;"
                 x-text="fetchProgress ? `${fetchProgress.done_sources || 0} / ${fetchProgress.total_sources || 0} 源` : '...'"></div>
             </div>
           </div>
 
           <!-- ── Batch mode: current feed ── -->
-          <div x-show="fetchBatchMode" style="font-size:13px; margin-bottom:14px;">
+          <div x-show="fetchBatchMode" style="font-size:var(--font-13); margin-bottom:14px;">
             <div class="muted">当前源: <span x-text="fetchProgress?.current_source || '—'" style="font-family:monospace;"></span></div>
             <div x-show="fetchProgress?.current_feed" class="muted" style="margin-top:2px;">feed: <span x-text="fetchProgress?.current_feed || ''" style="font-family:monospace;"></span></div>
           </div>
@@ -762,14 +762,14 @@
           <div x-show="!fetchBatchMode" style="margin-bottom:14px;">
             <div style="background:var(--bg-secondary); border-radius:6px; height:18px; overflow:hidden; position:relative;">
               <div :style="`background:var(--accent); height:100%; width:${fetchProgressPercent}%; transition:width 0.3s ease;`"></div>
-              <div style="position:absolute; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:600;"
+              <div style="position:absolute; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; font-size:var(--font-12); font-weight:600;"
                 x-text="fetchProgress ? `${fetchProgress.done_feeds || 0} / ${fetchProgress.total_feeds || 0}` : '...'"></div>
             </div>
-            <div class="muted" style="margin-top:8px; font-size:13px;">当前 feed: <span x-text="fetchProgress?.current_feed || '(初始化中)'" style="font-family:monospace;"></span></div>
+            <div class="muted" style="margin-top:8px; font-size:var(--font-13);">当前 feed: <span x-text="fetchProgress?.current_feed || '(初始化中)'" style="font-family:monospace;"></span></div>
           </div>
 
           <!-- Articles counter -->
-          <div style="font-size:13px; display:flex; gap:20px;">
+          <div style="font-size:var(--font-13); display:flex; gap:20px;">
             <span>已抓 <b id="bottomArticleCount" x-text="fetchProgress?.articles_so_far || 0"></b> 篇</span>
             <span class="muted">每 5 秒自动刷新</span>
           </div>
@@ -915,10 +915,10 @@
               <span x-show="!briefSubmitting" x-text="'用当前 Pin 生成简报 (' + (pinnedTotal || 0) + ')'"></span>
               <span x-show="briefSubmitting">提交中…</span>
             </button>
-            <span class="muted" style="font-size:0.85em;"
+            <span class="muted" style="font-size:var(--font-14);"
                   x-show="(pinnedTotal || 0) === 0">先去文章流 Pin 至少 1 篇</span>
           </div>
-          <p x-show="briefError" class="text-danger" style="margin:10px 0 0; font-size:0.9em;" x-text="briefError"></p>
+          <p x-show="briefError" class="text-danger" style="margin:10px 0 0; font-size:var(--font-14);" x-text="briefError"></p>
 
           <!-- sticky current brief status -->
           <div x-show="activeBriefTask" class="panel-soft">
@@ -927,7 +927,7 @@
               <span class="status-badge" :class="'status-' + (activeBriefTask?.status || '')"
                     x-text="activeBriefTask?.status || ''"></span>
             </div>
-            <div style="font-size:0.85em; margin-top:6px;" class="muted"
+            <div style="font-size:var(--font-14); margin-top:6px;" class="muted"
                  x-text="briefStageLabel(activeBriefTask?.progress_stage) + ' · ' + (activeBriefTask?.progress_pct ?? 0) + '%' + (activeBriefTask?.progress_message ? ' — ' + activeBriefTask.progress_message : '')"></div>
             <div class="progress-track" style="margin-top:8px;"
                  x-show="activeBriefTask && (activeBriefTask.status === 'running' || activeBriefTask.status === 'pending')">
@@ -949,9 +949,9 @@
               <template x-if="activeBriefTask && ['pending','running','paused','failed'].includes(activeBriefTask.status)">
                 <button class="btn-secondary" class="text-danger" @click="shareTaskCancel(activeBriefTask.id)">丢弃</button>
               </template>
-              <span class="muted" style="font-size:0.8em;" x-text="'任务 ' + (activeBriefTask?.id || '')"></span>
+              <span class="muted" style="font-size:var(--font-13);" x-text="'任务 ' + (activeBriefTask?.id || '')"></span>
             </div>
-            <p x-show="activeBriefTask?.error" class="text-danger" style="font-size:0.85em; margin:8px 0 0;"
+            <p x-show="activeBriefTask?.error" class="text-danger" style="font-size:var(--font-14); margin:8px 0 0;"
                x-text="activeBriefTask?.error"></p>
           </div>
         </div>
@@ -1120,7 +1120,7 @@
              class="banner-warning">
             <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px; vertical-align: -2px;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>已选 <strong x-text="shareBBIneligibleCount"></strong> 篇非 bestblogs 源文章，BB 增强仅对 bestblogs / bestblog-podcast / bestblog-x / bestblog-yt 源生效（其他文章会被静默跳过，不消耗 API 额度）。
           </p>
-          <p class="muted" style="font-size: 0.85em; margin-top: 4px;">
+          <p class="muted" style="font-size:var(--font-14); margin-top: 4px;">
             注: 勾选任一增强选项会调用 BestBlogs API（每天 50 次免费额度）。已拉取的文章不会重复调用。
           </p>
         </div>
@@ -1131,7 +1131,7 @@
              exhausted.  Empty input == use the default. -->
         <div class="share-section">
           <details>
-            <summary style="cursor:pointer; color:var(--muted-fg); font-size: 0.9em;">
+            <summary style="cursor:pointer; color:var(--muted-fg); font-size:var(--font-14);">
               <svg class="icon icon-14" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px; vertical-align: -2px;"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>高级选项 (provider / model 覆盖)
             </summary>
             <div style="margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap;">
@@ -1213,7 +1213,7 @@
               <tbody>
                 <template x-for="q in shareQueue" :key="q.id">
                   <tr>
-                    <td x-text="q.id" style="font-size:0.8em; max-width:10em; overflow:hidden; text-overflow:ellipsis;" :title="q.id"></td>
+                    <td x-text="q.id" style="font-size:var(--font-13); max-width:10em; overflow:hidden; text-overflow:ellipsis;" :title="q.id"></td>
                     <td x-text="q.article_count"></td>
                     <td x-text="q.format"></td>
                     <td><span class="status-badge" :class="'status-' + q.status" x-text="q.status"></span></td>
@@ -1223,7 +1223,7 @@
                            the cell empty so the table doesn't bloat). -->
                       <template x-if="q.status === 'running' && q.progress_pct !== null && q.progress_pct !== undefined">
                         <div style="min-width: 80px;">
-                          <div style="font-size: 0.8em; margin-bottom: 2px;"
+                          <div style="font-size:var(--font-13); margin-bottom: 2px;"
                                x-text="(q.progress_stage || '?') + ' · ' + q.progress_pct + '%'"></div>
                           <div class="progress-track progress-track-sm">
                             <div :style="'background:var(--chart-1); height: 100%; width: ' + q.progress_pct + '%; transition: width 0.5s;'"></div>
@@ -2278,11 +2278,11 @@
             </div>
             <div class="stats-module-primary">
               <span x-text="fmt(efficiency.raw?.total_savings_minutes || 0)"></span>
-              <span style="font-size:13px; color: var(--muted-fg)">分钟</span>
+              <span style="font-size:var(--font-13); color: var(--muted-fg)">分钟</span>
             </div>
             <div class="stats-module-row"><span>任务数</span><strong x-text="fmt(efficiency.count || 0)"></strong></div>
             <div class="stats-module-row"><span>口径</span><strong x-text="efficiency.display_label"></strong></div>
-            <div class="stats-module-row"><span>来源</span><strong x-text="efficiency.t0_source" style="font-size:10px"></strong></div>
+            <div class="stats-module-row"><span>来源</span><strong x-text="efficiency.t0_source" style="font-size:var(--font-12)"></strong></div>
           </div>
 
           <!-- v1.0.25: 事实核查 method 分布 (第 6 块) -->
@@ -2611,7 +2611,7 @@
             </div>
             <div class="surface-muted">
               <div class="muted">可用模型</div>
-              <div style="font-size: 1.4em; font-weight: bold;" x-text="llmGateway?.gateway?.model_count ?? '-'"></div>
+              <div style="font-size:var(--font-24); font-weight: bold;" x-text="llmGateway?.gateway?.model_count ?? '-'"></div>
               <div class="muted">路由组 <span x-text="(llmGateway?.gateway?.groups || []).length"></span> 个</div>
             </div>
             <div class="surface-muted">
@@ -2828,16 +2828,16 @@
             <!-- Summary cards -->
             <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 24px;">
               <div class="surface-muted" style="min-width: 140px;">
-                <div class="muted" style="font-size: 0.85em;">总请求数</div>
-                <div style="font-size: 1.4em; font-weight: bold;" x-text="(llmUsage?.summary?.total_requests ?? 0).toLocaleString()"></div>
+                <div class="muted" style="font-size:var(--font-14);">总请求数</div>
+                <div style="font-size:var(--font-24); font-weight: bold;" x-text="(llmUsage?.summary?.total_requests ?? 0).toLocaleString()"></div>
               </div>
               <div class="surface-muted" style="min-width: 140px;">
-                <div class="muted" style="font-size: 0.85em;">总 Token</div>
-                <div style="font-size: 1.4em; font-weight: bold;" x-text="(llmUsage?.summary?.total_tokens ?? 0).toLocaleString()"></div>
+                <div class="muted" style="font-size:var(--font-14);">总 Token</div>
+                <div style="font-size:var(--font-24); font-weight: bold;" x-text="(llmUsage?.summary?.total_tokens ?? 0).toLocaleString()"></div>
               </div>
               <div class="surface-muted" style="min-width: 140px;">
-                <div class="muted" style="font-size: 0.85em;">总费用 (估)</div>
-                <div style="font-size: 1.4em; font-weight: bold;" x-text="'$' + (llmUsage?.summary?.total_cost ?? 0).toFixed(4)"></div>
+                <div class="muted" style="font-size:var(--font-14);">总费用 (估)</div>
+                <div style="font-size:var(--font-24); font-weight: bold;" x-text="'$' + (llmUsage?.summary?.total_cost ?? 0).toFixed(4)"></div>
               </div>
             </div>
 
@@ -2846,11 +2846,11 @@
             <div x-show="llmUsageGroupBy === 'module'" style="margin-top: 12px;">
               <template x-for="item in (llmUsage?.by_module || [])" :key="item.module || item.label">
                 <div style="display: flex; align-items: center; margin-bottom: 8px; gap: 12px;">
-                  <span style="min-width: 120px; text-align: right; font-size: 0.9em;" x-text="item.module || item.label"></span>
+                  <span style="min-width: 120px; text-align: right; font-size:var(--font-14);" x-text="item.module || item.label"></span>
                   <div class="progress-track" style="flex:1; height:24px; border-radius:4px;">
                     <div :style="'height:100%;border-radius:4px;background:var(--chart-1);width:' + llmBarWidth(item, 'by_module') + '%;min-width:2px;'"></div>
                   </div>
-                  <span style="min-width: 60px; font-size: 0.85em;" x-text="(item.total_tokens ?? item.tokens ?? 0).toLocaleString()"></span>
+                  <span style="min-width: 60px; font-size:var(--font-14);" x-text="(item.total_tokens ?? item.tokens ?? 0).toLocaleString()"></span>
                 </div>
               </template>
               <div x-show="!llmUsage?.by_module || llmUsage.by_module.length === 0" class="muted">暂无数据</div>
@@ -2858,11 +2858,11 @@
             <div x-show="llmUsageGroupBy === 'model'" style="margin-top: 12px;">
               <template x-for="item in (llmUsage?.by_model || [])" :key="item.model || item.label">
                 <div style="display: flex; align-items: center; margin-bottom: 8px; gap: 12px;">
-                  <span style="min-width: 160px; text-align: right; font-size: 0.9em; word-break:break-all;" x-text="item.model || item.label"></span>
+                  <span style="min-width: 160px; text-align: right; font-size:var(--font-14); word-break:break-all;" x-text="item.model || item.label"></span>
                   <div class="progress-track" style="flex:1; height:24px; border-radius:4px;">
                     <div :style="'height:100%;border-radius:4px;background:var(--success);width:' + llmBarWidth(item, 'by_model') + '%;min-width:2px;'"></div>
                   </div>
-                  <span style="min-width: 60px; font-size: 0.85em;" x-text="(item.total_tokens ?? item.tokens ?? 0).toLocaleString()"></span>
+                  <span style="min-width: 60px; font-size:var(--font-14);" x-text="(item.total_tokens ?? item.tokens ?? 0).toLocaleString()"></span>
                 </div>
               </template>
               <div x-show="!llmUsage?.by_model || llmUsage.by_model.length === 0" class="muted">暂无数据</div>
@@ -2870,11 +2870,11 @@
             <div x-show="llmUsageGroupBy === 'date'" style="margin-top: 12px;">
               <template x-for="item in (llmUsage?.by_date || [])" :key="item.date || item.label">
                 <div style="display: flex; align-items: center; margin-bottom: 8px; gap: 12px;">
-                  <span style="min-width: 100px; text-align: right; font-size: 0.9em;" x-text="item.date || item.label"></span>
+                  <span style="min-width: 100px; text-align: right; font-size:var(--font-14);" x-text="item.date || item.label"></span>
                   <div class="progress-track" style="flex:1; height:24px; border-radius:4px;">
                     <div :style="'height:100%;border-radius:4px;background:var(--chart-4);width:' + llmBarWidth(item, 'by_date') + '%;min-width:2px;'"></div>
                   </div>
-                  <span style="min-width: 60px; font-size: 0.85em;" x-text="(item.total_tokens ?? item.tokens ?? 0).toLocaleString()"></span>
+                  <span style="min-width: 60px; font-size:var(--font-14);" x-text="(item.total_tokens ?? item.tokens ?? 0).toLocaleString()"></span>
                 </div>
               </template>
               <div x-show="!llmUsage?.by_date || llmUsage.by_date.length === 0" class="muted">暂无数据</div>
@@ -3035,12 +3035,12 @@
           <!-- v1.0.6.8: import full-text for AI analysis (all sources) -->
           <div class="surface-muted" style="margin: 12px 0; padding: 10px;">
             <details>
-              <summary style="cursor:pointer; color:var(--muted-fg); font-size:0.9em;"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px; vertical-align: -2px;"><path d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M2 15h10"></path><path d="m9 18 3-3-3-3"></path></svg>导入全文（用于 AI 摘要/核查）</summary>
+              <summary style="cursor:pointer; color:var(--muted-fg); font-size:var(--font-14);"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px; vertical-align: -2px;"><path d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M2 15h10"></path><path d="m9 18 3-3-3-3"></path></svg>导入全文（用于 AI 摘要/核查）</summary>
               <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
                 <input type="text" x-model="importFilePath" placeholder="粘贴本地 .md 文件路径"
-                       style="flex:1; font-size:0.85em; padding:6px 8px; border:1px solid var(--border); border-radius:4px;">
+                       style="flex:1; font-size:var(--font-14); padding:6px 8px; border:1px solid var(--border); border-radius:4px;">
                 <button class="btn-secondary" @click="importFulltext()" :disabled="importLoading"
-                        style="white-space:nowrap; padding:6px 12px; font-size:0.85em;">
+                        style="white-space:nowrap; padding:6px 12px; font-size:var(--font-14);">
                   <span x-show="!importLoading">导入</span>
                   <span x-show="importLoading">导入中...</span>
                 </button>
@@ -3099,7 +3099,7 @@
             <button class="btn-secondary" @click="copyArticleUrl()" title="复制原文链接到剪贴板">
               <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px;"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>复制链接
             </button>
-            <span x-show="copyToast" class="text-success" style="font-size:0.85em; margin-left:4px;">已复制<svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-left: 2px; vertical-align: -1px;"><path d="M20 6 9 17l-5-5"></path></svg></span>
+            <span x-show="copyToast" class="text-success" style="font-size:var(--font-14); margin-left:4px;">已复制<svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-left: 2px; vertical-align: -1px;"><path d="M20 6 9 17l-5-5"></path></svg></span>
           </div>
         </div>
       </div>
@@ -3238,7 +3238,7 @@
               <b>完成后请到:</b>
               <code x-text="shareEstimate?.artifact_path_template || '—'"></code>
             </p>
-            <p class="muted" style="font-size: 0.85em; margin-top: 8px;">
+            <p class="muted" style="font-size:var(--font-14); margin-top: 8px;">
               注: token / 耗时是粗估, 实际取决于 LLM 输出长度.
               生成后请到「队列状态」表点链接查看.
             </p>
@@ -3246,7 +3246,7 @@
           <div class="summary-box error-text" x-show="shareEstimateError" x-cloak>
             <h4>估算失败</h4>
             <pre class="job-detail-text" x-text="shareEstimateError"></pre>
-            <p class="muted" style="font-size: 0.85em;">
+            <p class="muted" style="font-size:var(--font-14);">
               估算失败时仍可点确认直接入队 (跳过预览).
             </p>
           </div>
@@ -3295,7 +3295,7 @@
             </span>
             <span class="meta-chip">
               <b>日志路径:</b>
-              <code style="font-size: 0.85em;" x-text="workerModalResult?.log_path"></code>
+              <code style="font-size:var(--font-14);" x-text="workerModalResult?.log_path"></code>
             </span>
           </div>
           <div class="summary-box error-text" x-show="workerModalResult?.error" x-cloak>
@@ -3552,7 +3552,7 @@
               <h3>抓取配置 — <span x-text="fetchConfigData.source_name"></span></h3>
             </div>
             <div class="modal-body">
-              <p class="hint" style="margin-bottom:12px; color:var(--muted-fg); font-size:0.9em;">
+              <p class="hint" style="margin-bottom:12px; color:var(--muted-fg); font-size:var(--font-14);">
                 每项显示<strong>中文含义</strong> + 英文 key。保存后立即写入数据库。
               </p>
               <p class="hint" x-show="fetchConfigData.has_custom" class="text-warning">
@@ -3565,7 +3565,7 @@
                     <code class="fetch-config-key" x-text="key"></code>
                     <span class="hint"
                           x-show="fetchConfigData.defaults && fetchConfigData.defaults[key] !== undefined"
-                          style="color:var(--muted-fg); font-size:0.85em;">
+                          style="color:var(--muted-fg); font-size:var(--font-14);">
                       （默认:
                       <span x-text="typeof fetchConfigData.defaults[key] === 'object'
                         ? JSON.stringify(fetchConfigData.defaults[key])
@@ -3601,7 +3601,7 @@
                             :value="fetchConfigTextValue(key)"
                             @change="setFetchConfigTextValue(key, $event.target.value)"
                             placeholder='{"key": "value"}'
-                            style="font-family: ui-monospace, monospace; font-size: 12px;"></textarea>
+                            style="font-family: ui-monospace, monospace; font-size:var(--font-12);"></textarea>
 
                   <!-- plain string -->
                   <input type="text"
@@ -3908,13 +3908,13 @@
           </div>
         </div>
         <div x-show="themeTab === 'import'">
-          <p style="font-size:0.85rem;color:var(--muted-fg);margin-bottom:10px;">
+          <p style="font-size:var(--font-14);color:var(--muted-fg);margin-bottom:10px;">
             粘贴 <code style="background:var(--muted);padding:1px 5px;border-radius:3px;">globals.css</code> 内容，自动解析 CSS 变量并保存。
           </p>
           <textarea class="theme-textarea" x-model="themeCssInput" placeholder=":root {\n  --background: ...;\n  ...\n}\n\n.dark { ... }"></textarea>
           <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
             <button class="btn btn-primary" @click="importTheme()">解析并保存</button>
-            <span style="font-size:0.82rem;color:var(--muted-fg);" x-text="themeImportStatus"></span>
+            <span style="font-size:var(--font-13);color:var(--muted-fg);" x-text="themeImportStatus"></span>
           </div>
         </div>
         <div style="margin-top:16px;display:flex;justify-content:flex-end;">
