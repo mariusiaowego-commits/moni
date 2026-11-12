@@ -83,3 +83,9 @@ sources:
   fetch_interval_min: 60
   enabled: true
   crawler_type: json
+- source_name: bank_feed
+  type: json
+  feed_url: ''
+  fetch_interval_min: 120
+  enabled: true
+  crawler_type: json

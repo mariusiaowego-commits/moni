@@ -4,6 +4,45 @@
 
 ---
 
+## 进行中: **v1.0.76 — 银行同业 agent 管道** (2026-11-12 · 分支 `feature/v1.0.76-bank-intel-bot`)
+
+汇报里宣称的「同业追踪」此前没有数据支撑：近 90 天 `banking` 1223 篇里只有
+36 篇（2.9%）提到具体银行名，案例库 424 条 100% 来自 mpaypass + 36kr。
+本版加的是一个**以银行为主角**的源，而不是又一批宏观金融稿。
+
+### 做了什么
+
+- **`bank_feed` 源**（`moni/fetch/sources/bank_feed.py`）：只做导入，读
+  `data/bank_feed/*.json`。当天 feed 缺失时**就地调 agent 补跑**
+  （`scripts/bank_bot/run_bot.py`），失败抛 `RuntimeError` 让 job 记 `failed`。
+- **`peer-banks` tag**（同业）+ migration 041（schema 40 → 41）：只放五家行名，
+  不放动作词（OR 闸门没法表达 AND；放动作词等于把闸门拆了）。
+- **agent 两段式**：媒体 RSS/JSON 用 Python 确定性解析；官网栏目 + 公众号交
+  `hermes --profile moni`（= magpie 路由组，与 moni 其他 LLM 调用同一条链路）。
+- **11 个默认目标**（`config/bank_targets.json`）：5 个官网新闻栏目 + 5 个媒体
+  RSS + 1 个媒体 JSON（第一财经）。加信源改 `fetch_config.targets`，零代码。
+- **不做 cron**：web 端「抓取」按钮触发（用户要求）。
+
+### 8903 实测（隔离 DB，2026-11-12）
+
+| 项 | 结果 |
+|---|---|
+| `POST /api/fetch/sources/bank_feed/run` | 200 → job done |
+| bot 产出 | 61 条 / 0 error；`{icbc:14, boc:12, ccb:12, abc:12, psbc:10, bocom:1}` |
+| 入库 | `articles` 62 条，`article_tags` 62 条 `peer-banks` |
+| tag 命中 | `建设银行/中国建设银行`、`工行/农行`、`工商银行/农业银行`（真实关键词） |
+| `GET /api/articles?tag=peer-banks` | 62 条 |
+| `moni extract cases --source bank_feed --limit 5` | 5 篇 → 6 个 case（subject 如「中国农业银行安徽省分行」） |
+| `moni keyword-audit --source bank_feed` | 62/62 存活，0 丢弃 |
+| `pytest tests/` | 1712 passed / 2 skipped（1 例仅沙箱失败：039 worktree） |
+
+耗时：agent 段逐页抓 5 个官网约 12 分钟（单目标上限 240s，总预算 1200s）。
+
+### 为什么 agent 不用「一次调完 5 个官网」
+
+第一版把 5 个官网塞进一次 `hermes -z`，实测 600s 没跑完 → 5 个官网**全丢**，
+只剩媒体 RSS 的 4 条。改成一页一次调用后同样的输入拿到 58 条官网条目（+3 条媒体，共 61）。
+
 ## 进行中: **分享产物 worker 修复** (2026-11-12 · 分支 `feature/v1.0.73-share-maintenance`)
 
 v1.0.42 起 `worker_llm.py` 把 prompt 从 `-z` 后面挪到 argv 末尾，hermes argparse

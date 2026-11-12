@@ -14,3 +14,4 @@ from . import huxiu        # noqa: F401 — registers FetcherHuxiu
 from . import xwatch       # noqa: F401 — registers FetcherXWatch (v1.0.11 X keyword monitor)
 from . import follow_builders  # noqa: F401 — registers FetcherFollowBuilders (v1.0.41 / sprint-21)
 from . import xbot_feed   # noqa: F401 — registers FetcherXbotFeed (v1.0.66 X-bot 精选桥接)
+from . import bank_feed   # noqa: F401 — registers FetcherBankFeed (v1.0.76 银行同业 agent 管道)

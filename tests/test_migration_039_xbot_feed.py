@@ -99,7 +99,7 @@ def _links(conn, source_id: str = SOURCE_ID) -> list[str]:
 
 
 def test_039_version_constant_is_39():
-    assert _CURRENT_VERSION == 40
+    assert _CURRENT_VERSION == 41
 
 
 # ── 2. the source lands on an unseeded (v38-era) database ──────────────
@@ -259,9 +259,15 @@ def test_039_does_not_touch_other_sources(seeded_db):
 
 
 def test_039_skips_links_when_tags_missing(unseeded_db):
-    """An unseeded database has no tag_definitions rows at all."""
+    """An unseeded database has none of the four xbot tags.
+
+    (041 seeds a tag of its own -- ``peer-banks`` -- so "no tag rows at
+    all" is no longer the shape of a freshly migrated database.  What
+    this test needs is the absence of *xbot's* tags.)
+    """
     assert unseeded_db.execute(
-        "SELECT COUNT(*) FROM tag_definitions"
+        "SELECT COUNT(*) FROM tag_definitions WHERE name IN "
+        "('wechat', 'miniprogram', 'general-tech', 'ai-fintech')"
     ).fetchone()[0] == 0
     _run_sql_file(unseeded_db, MIGRATION_039)  # must not raise
     assert _row(unseeded_db) is not None
@@ -426,7 +432,7 @@ def test_039_fresh_db_via_migrate(tmp_path):
     version = conn.execute(
         "SELECT COALESCE(MAX(version), 0) FROM schema_version"
     ).fetchone()[0]
-    assert version == 40
+    assert version == 41
     assert _row(conn) is not None
     close_db()
 
@@ -448,7 +454,7 @@ def test_039_on_v38_db_without_seed(tmp_path):
     version = conn.execute(
         "SELECT COALESCE(MAX(version), 0) FROM schema_version"
     ).fetchone()[0]
-    assert version == 40
+    assert version == 41
     assert _row(conn) is not None
     close_db()
 
@@ -839,7 +845,7 @@ def test_039_upgrades_a_v38_db_without_seed(tmp_path):
     new_version = conn.execute(
         "SELECT COALESCE(MAX(version), 0) FROM schema_version"
     ).fetchone()[0]
-    assert new_version == 40
+    assert new_version == 41
     row = conn.execute(
         "SELECT id, name, display_name, is_active FROM sources WHERE id = ?",
         (SOURCE_ID,),
@@ -885,7 +891,7 @@ def test_039_upgrades_a_v38_db_that_has_the_business_tags(tmp_path):
     conn.row_factory = sqlite3.Row
     assert conn.execute(
         "SELECT COALESCE(MAX(version), 0) FROM schema_version"
-    ).fetchone()[0] == 40
+    ).fetchone()[0] == 41
     row = conn.execute(
         "SELECT id, name, is_active FROM sources WHERE id = ?", (SOURCE_ID,)
     ).fetchone()
@@ -1031,7 +1037,7 @@ def test_039_upgrades_a_db_built_by_old_code(tmp_path):
         new_version = conn.execute(
             "SELECT COALESCE(MAX(version), 0) FROM schema_version"
         ).fetchone()[0]
-        assert new_version == 40
+        assert new_version == 41
         row = conn.execute(
             "SELECT id, name, display_name, is_active FROM sources WHERE id = ?",
             (SOURCE_ID,),
