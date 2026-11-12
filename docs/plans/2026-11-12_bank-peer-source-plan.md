@@ -187,3 +187,98 @@ A 立刻上线，B 在后台做（colima 起服务 + 扫码 + 路由调试）。
 2. **`peer-banks` tag 是否新建**（建议新建，关键词 = 五大行名 + 动作词）
 3. **公众号路线**：自建 RSSHub（需你扫码）还是先只做 A？
 4. **RSS 源取舍**：16 个全接，还是只接命中率高的 4 个（未央网 / 东财 / 界面 / FT中文）？
+
+---
+
+## 9. 方案 D（采纳）：bank-bot —— 复刻 x-bot 的 agent 桥接
+
+用户否决自建 RSSHub（cookie 失效 + 反爬 + 常驻服务 + 合规风险），改为
+「配置一个 agent 定期抓取，像 x-bot 精选一样把结果喂给 moni」。
+
+### 9.1 五项能力实测（2026-11-12，hermes profile `moni`）
+
+| 能力 | 实测结果 |
+|---|---|
+| web 搜索 | `hermes -z "查工商银行数字化转型最近新闻"` → 返回 3 条真实新闻（标题/来源/日期/链接），含新浪财经、中国电子银行网 |
+| 公众号正文渲染 | `web_extract` 被 `mp.weixin.qq.com` 拒绝（Blocked），**改用 browser 渲染成功**，取到 `#js_content` / `#js_name` / `#publish_time`，两篇正文完整 |
+| 官网新闻列表渲染 | 中行 `https://www.boc.cn/aboutboc/bi1/` 一页 20 条**自带日期**，最新 2026-11-09；工行「工行快讯」`https://www.icbc.com.cn/column/1438058319654043683.html` 可读但**列表不带日期**，需逐篇进详情页（成本 5 倍） |
+| git 凭据 | 对私有仓库 `mariusiaowego-commits/xbot-feed`：`git ls-remote` 200、`git push --dry-run` **Everything up-to-date** → 可读可推，**无需新凭据、无需新建仓库** |
+| 定时调度 | `hermes cron` 本机可用（list/create/edit/run/status/doctor），已有历史任务 `wiki-auto-ingest`（已暂停） |
+
+### 9.2 结构性限制（必须接受）
+
+1. **公众号「自动发现」做不到**：搜狗微信被图形验证码拦截；五大行官微原文不被普通搜索引擎索引。
+   agent 只能渲染**已知 URL** 的公众号文章 → 公众号定位为**补充**，不是主力。
+2. 工行官网列表无日期 → 每条须进详情页；工行真正的企业新闻在 `icbc-ltd.com`，
+   `icbc.com.cn` 的「工行快讯」更新偏慢（实测最新 2026-11-03）。
+
+### 9.3 架构（与 x-bot 逐层对应）
+
+```
+hermes cron（每天 08:00 / 18:00）
+  ├─ 读：5 家官网新闻列表（中行/工行/农行/建行/邮储）
+  ├─ 读：5 个媒体 RSS（未央网/东财/界面/FT中文/第一财经）
+  ├─ 可选：已知 URL 的公众号文章（browser 渲染）
+  ├─ LLM：判定「是否五大行」「是否实质动作」→ 去重 → 摘要 ≥100 字
+  ├─ 写：feed-bank/YYYY-MM-DD.json + feed-bank/latest.json
+  └─ git commit && git push（同一私有仓库 xbot-feed，新增子目录）
+        ↓
+moni FetcherBankFeed（继承 FetcherXbotFeed）
+  ├─ git pull → 读 feed-bank/*.json
+  ├─ id 去重（.bank_feed_state.json）
+  ├─ topic=banks → 候选 tag peer-banks → keyword_match 真命中才挂
+  └─ dedupe_insert → 案例抽取（moni cases extract --source bank_feed）
+```
+
+### 9.4 JSON 契约（x-bot 契约 + 3 个字段）
+
+```json
+{
+  "date": "2026-11-12",
+  "generated_at": "2026-11-12T08:05:00+08:00",
+  "counts_by_bank": {"icbc": 3, "boc": 5, "abc": 0, "ccb": 1, "psbc": 0},
+  "items": [{
+    "id": "icbc-20261103-1290636159689232384",
+    "url": "https://www.icbc.com.cn/page/1290636159689232384.html",
+    "title": "工商银行2026年前三季度经营稳中有进",
+    "text": "正文或摘要（≥100 字才能进案例库）",
+    "created_at": "2026-11-03T00:00:00+08:00",
+    "bank": "icbc",
+    "source_type": "official|media|wechat",
+    "publisher": "中国工商银行",
+    "captured_at": "2026-11-12T08:05:00+08:00"
+  }]
+}
+```
+
+### 9.5 moni 侧改动（约 30 行）
+
+1. `xbot_feed.DEFAULT_FETCH_CONFIG` 增加 `feed_subdir`（默认 `"feed"`），`_feed_dir()` 读它 —— 6 行
+2. 新增 `class FetcherBankFeed(FetcherXbotFeed)`：`source_name = "bank_feed"`，
+   `DEFAULT_FETCH_CONFIG` 覆盖 `feed_subdir="feed-bank"`、`topic_tags={"banks": ["peer-banks"]}` —— 15 行
+3. `seed_config.py`：`_DEFAULT_TAGS` 加 `peer-banks`；`_DEFAULT_SOURCES` 加 `bank_feed`；
+   `_DEFAULT_SOURCE_TAGS` 绑定 —— 10 行
+4. 测试：JSON 契约 fixture + topic→tag 命中测试
+
+复用前提已核对：`FEED_SUBDIR` 只在 `_feed_dir()` 一处使用（`xbot_feed.py:104,668`），
+参数化成配置项不影响现有行为。
+
+### 9.6 与方案 B（RSSHub）对照
+
+| | 方案 B 自建 RSSHub | 方案 D bank-bot |
+|---|---|---|
+| 微信 cookie | 必须，会过期 | **不需要** |
+| 常驻服务 | 需要（colima + 容器） | 不需要（cron 单次跑） |
+| 新凭据/仓库 | 需要 | **不需要**（复用 xbot-feed） |
+| 合规 | 抓公众号后台，灰区 | 只读公开页面，干净 |
+| 公众号覆盖 | 全量（有 cookie 时） | 仅已知 URL，有限 |
+| 官网/媒体覆盖 | 无 | **强**（官网列表 + 媒体 RSS） |
+| 维护 | cookie 每周续 + 镜像升级 | prompt/选择器漂移 |
+
+### 9.7 待确认
+
+1. **频率**：每天 08:00 / 18:00 两次，还是加 12:00 共三次？
+2. **feed 位置**：同一私有仓库 `feed-bank/` 子目录（推荐，零新凭据）；
+   新建 `bank-feed` 仓库需先重登 gh（当前 keyring token 失效）。
+3. **公众号**：只做「已知 URL 渲染」，还是本轮先不做？
+4. **是否现在跑一次原型**，生成今天这份 `feed-bank/2026-11-12.json` 给你验收？
