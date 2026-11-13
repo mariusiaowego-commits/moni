@@ -3306,9 +3306,9 @@ function app() {
       { value: 'markdown',            label: 'Markdown' },
       { value: 'html_landing',        label: 'HTML 网页' },
       { value: 'info_graphic_png',    label: '信息图 PNG' },
-      { value: 'rich_text',           label: '富媒体文本' },  // 🆕
+      { value: 'rich_text',           label: '富文本' },  // 🆕
       { value: 'report_png',          label: '报告 PNG' },     // 🆕
-      { value: 'pdf',                 label: 'PDF 日报' },     // 🆕 v1.0.5.21
+      { value: 'pdf',                 label: '报告 PDF' },     // 🆕 v1.0.5.21
     ],
     // v1.0.5.18: 4 user-options (universal across all 6 formats, per
     // PRD §2).  include_abstract defaults to true (most users want
@@ -3362,11 +3362,11 @@ function app() {
         desc: '单图数据报告 · 关键指标与结论一图概览 · 适合快速传阅',
       },
       {
-        value: 'pdf', label: 'PDF 日报', badge: '标准版式',
+        value: 'pdf', label: '报告 PDF', badge: '标准版式',
         desc: 'A4 标准打印排版 · 含封面与结构化排版 · 适合呈送管理层',
       },
       {
-        value: 'rich_text', label: '富媒体文本', badge: '即时交流',
+        value: 'rich_text', label: '富文本', badge: '即时交流',
         desc: '带格式重点高亮 · 富文本可直接粘贴至邮件或钉钉/企微',
       },
       {
