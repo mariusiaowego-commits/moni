@@ -4,7 +4,11 @@
 
 ---
 
-## 进行中: **Web UI 规范化 Phase 1–4 全量完成** (2026-11-12 · Sprint 39–42 · 分支 `feat/web-ui-polish` · PR #186)
+## 已发布: **v1.0.77 — Web UI 规范化 Phase 1–4** (2026-11-13 · Sprint 39–42 · PR #186 · tag `v1.0.77`)
+
+**合并**: `2f3e22b`（squash，base = `main@53aee12`，已含 v1.0.76 bank_feed）
+· **测试**: 1739 passed / 2 skipped · **服务**: 8900 重启后 200
+· **口径**: PC 专用（移动端不做）；`/fetch` Canvas 粒子动效保留
 
 UI 体检（agy · unslop skill，62 条 findings：P0×8/P1×29/P2×25）后分 4 个 sprint 落地。
 Sprint 39 只动 CSS 层：新增 `--space-*` / `--radius-*` / `--control-h-*` / `--z-*` / `--chart-*`
