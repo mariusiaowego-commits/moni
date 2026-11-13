@@ -879,7 +879,10 @@ function app() {
         this.closeConfigModal();
       }).catch(err => this._notify('error', '保存失败: ' + err.message));
     },
-    configEditSourceTags(source) { this.openConfigModal('sourceTags', source); },
+    configEditSourceTags(source) {
+      this.configLoadTags();
+      this.openConfigModal('sourceTags', source);
+    },
     configSaveSourceTags(sourceId, tagNames) {
       return fetch(`/api/config/sources/${encodeURIComponent(sourceId)}/tags`, {
         method: 'PUT', credentials: 'same-origin',

@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261113003">
+  <link rel="stylesheet" href="css/main.css?v=20261113006">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -3606,6 +3606,7 @@
                   <span class="tag-chip" x-text="t.name"></span>
                 </label>
               </template>
+              <p class="hint" x-show="configTags.length === 0">暂无 tag，请先在「业务 tag」页签新建。</p>
             </div>
             <div class="modal-footer">
               <button class="btn-secondary" @click="closeConfigModal()">取消</button>
@@ -4016,7 +4017,7 @@
   <script src="js/cases.js?v=20260826023"></script>
   <script src="js/stats.js?v=20260827002"></script>
   <script src="js/theme.js?v=20260813019"></script>
-  <script src="js/app.js?v=20261113003"></script>
+  <script src="js/app.js?v=20261113006"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
        GSAP presence, and the scale pop now honours prefers-reduced-motion. -->

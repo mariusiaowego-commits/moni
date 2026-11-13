@@ -1380,7 +1380,23 @@ label { font-size: var(--font-14); }
 .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .modal-header h3 { margin-bottom: 0; }
 .modal-body { margin-bottom: 16px; }
-.modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+/* v1.0.84: .modal-content 整体滚动时页脚会被滚出视口（长弹窗的保存按钮看不见），
+   页脚改为吸底并铺满左右/底部内边距，与 .article-actions 同一套做法。 */
+.modal-footer {
+  position: sticky; bottom: -24px;
+  display: flex; justify-content: flex-end; gap: 8px;
+  background: var(--card);
+  margin: 0 -24px;
+  padding: 12px 24px 16px;
+  border-top: 1px solid var(--border);
+  z-index: 2;
+}
+.modal-content.fetch-modal .modal-footer { bottom: -28px; margin: 0 -32px; padding: 12px 32px 20px; }
+/* 确认弹窗内容短、不存在滚动，保持原有的非吸底样式 */
+.moni-modal-confirm .modal-footer {
+  position: static; bottom: auto; background: transparent;
+  margin: 16px 0 0; padding: 12px 0 0;
+}
 /* v1.0.35.1: modal-footer 自带 gap: 8px, 取消兄弟选择器加的 margin-left 避免叠加到 16px */
 .modal-footer .btn,
 .modal-footer .btn-link,
