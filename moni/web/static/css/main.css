@@ -4175,7 +4175,8 @@ label { font-size: var(--font-14); }
 @media (prefers-reduced-motion: reduce) {
   /* ── status dots (infinite pulse) ── */
   .svc-dot-on,
-  .dot-running {
+  .dot-running,
+  .queue-statusbar .dot.running {
     animation: none;
   }
 
