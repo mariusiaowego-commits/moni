@@ -4,6 +4,14 @@
 
 ---
 
+## 补丁: **v1.0.87 — 生图方式说明 + 提炼卡文案** (2026-11-13 · Sprint 46 · PR #204 · tag `v1.0.87`)
+
+**合并**: squash（base = `main@9f4e586` / v1.0.86）· **测试**: 前端红线 92 passed
+
+生图方式四种各配一句说明并随选中项联动（`sharePngApproachOptions` + `pngApproachDesc()`）。内容提炼卡标题改为「提炼内容摘要」/「深度事实核查」，色块标签接在标题同行；灰色说明精简且不含 BestBlogs 文案。审计 nits 同 PR 修掉：摘要来源不支持时给出禁用原因、标签 `nowrap`。
+
+---
+
 ## 补丁: **v1.0.86 — 分享页页签样式与文案收口** (2026-11-13 · Sprint 46 · PR #203 · tag `v1.0.86`)
 
 **合并**: squash（base = `main@b595b6b` / v1.0.85）· **测试**: 前端红线 92 passed；全量沿用分支 1742 passed / 2 skipped
