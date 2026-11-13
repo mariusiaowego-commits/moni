@@ -679,6 +679,42 @@ function app() {
         hint: '库中已有的推文不再重复请求 syndication。',
         type: 'bool',
       },
+      // Scraper / RSS fetch_config keys
+      feed_url: {
+        label: 'Feed / RSS 地址',
+        hint: '源的 Feed 或 RSS XML 链接。',
+        type: 'string',
+      },
+      entry_xpath: {
+        label: '条目提取规则 (XPath)',
+        hint: '解析 HTML 时定位单篇文章条目的 XPath 表达式。',
+        type: 'string',
+      },
+      title_xpath: {
+        label: '标题提取规则 (XPath)',
+        hint: '从条目中提取文章标题的 XPath 表达式。',
+        type: 'string',
+      },
+      url_xpath: {
+        label: '链接提取规则 (XPath)',
+        hint: '从条目中提取文章链接的 XPath 表达式。',
+        type: 'string',
+      },
+      content_xpath: {
+        label: '正文提取规则 (XPath)',
+        hint: '从条目中提取正文摘要的 XPath 表达式。',
+        type: 'string',
+      },
+      date_xpath: {
+        label: '日期提取规则 (XPath)',
+        hint: '从条目中提取发布日期的 XPath 表达式。',
+        type: 'string',
+      },
+      thresholds: {
+        label: '准入门槛',
+        hint: '按 topic 设置的最低点赞数/粉丝数闸门配置。',
+        type: 'json_object',
+      },
     },
 
     // v1.0.5.10: name -> {description, keywords} map for hover tooltips
@@ -1216,7 +1252,7 @@ function app() {
       if (isNaN(d)) return '-';
       const pad = n => String(n).padStart(2, '0');
       return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ` +
-             `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+             `${pad(d.getHours())}:${pad(d.getMinutes())}`;
     },
 
     // v1.0.8.5: truncate long titles in list views.  Returns the
@@ -4699,7 +4735,7 @@ function app() {
       if (tab === 'gateway') {
         this.loadLlmGateway();
       }
-      if (tab === 'usage' && !this.llmUsage) {
+      if (tab === 'usage') {
         this.loadLlmUsage();
       }
     },

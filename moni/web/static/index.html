@@ -143,69 +143,90 @@
           <button class="btn-danger" @click="bulkUnpin()">批量 unpin</button>
         </div>
         <div class="table-container">
-          <table>
-            <thead>
-              <tr>
-                <!-- v1.0.8.1: Pin 列固定最左, 大按钮, 不依赖操作列
-                     (之前 "操作"列里的 pin 按钮太靠右, 不明显) -->
-                <th class="pin-col-head" x-show="articlesSubTab === 'all'">Pin</th>
-                <th x-show="articlesSubTab === 'pinned'"><input type="checkbox" :checked="pinnedAllSelectedOnPage()" @change="pinnedToggleAllOnPage($event)"></th>
-                <th>标题</th><th>来源</th><th style="width: 140px; min-width: 140px;">命中标签</th>
-                <th x-show="articlesSubTab === 'pinned'">Pin 时间</th>
-                <th x-show="articlesSubTab === 'all'">原文时间</th>
-                <th>抓取时间</th><th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template x-for="a in activeArticles" :key="a.id">
+          <table class="articles-table" style="table-layout: fixed; width: 100%;">
+            <colgroup>
+                <col style="width: 44px;" x-show="articlesSubTab === 'all'">
+                <col style="width: 44px;" x-show="articlesSubTab === 'pinned'">
+                <col style="width: 420px;">
+                <col style="width: 120px;">
+                <col style="width: 170px;">
+                <col style="width: 155px;" x-show="articlesSubTab === 'pinned'">
+                <col style="width: 155px;" x-show="articlesSubTab === 'all'">
+                <col style="width: 155px;">
+                <col style="width: 100px;">
+              </colgroup>
+              <thead>
                 <tr>
-                  <!-- v1.0.8.1: 32px pin button 在最左, 单独列. 点击 GSAP 弹一下. -->
-                  <td class="pin-col" x-show="articlesSubTab === 'all'">
-                    <button class="pin-btn pin-btn-lg"
-                            :class="{ 'is-pinned': a.is_pinned }"
-                            :data-aid="a.id"
-                            @click="togglePin(a.id)"
-                            :title="a.is_pinned ? '取消 Pin' : 'Pin 这篇文章'">
-                      <span x-html="pinIcon(a.is_pinned)"></span>
-                    </button>
-                  </td>
-                  <td x-show="articlesSubTab === 'pinned'">
-                    <input type="checkbox" :value="a.id" x-model="pinnedSelectedIds">
-                  </td>
-                  <td>
-                    <!-- v1.0.8.5: long titles are truncated to 150 chars
-                         with an ellipsis.  The full title is shown in
-                         the article detail modal.  title attribute
-                         on the <span> gives a hover tooltip so the
-                         user can preview the rest without opening
-                         the modal. -->
-                    <span :title="a.title" x-text="truncateTitle(a.title, 150)"></span>
-                    <span class="badge badge-new" x-show="a.is_fresh || isNew(a.created_at)"
-                          :title="a.is_fresh ? '本次抓取新增' : '24 小时内抓取'">新</span>
-                  </td>
-                  <td x-text="a.source"></td>
-                  <td class="tags-cell">
-                    <!-- v1.0.35.1: 全部 tag 都展示, 用紧凑 chip + 自适应换行 + 列宽自适应 -->
-                    <template x-for="tagObj in (a.tags || [])" :key="tagObj.name">
-                      <span class="tag-chip-wrap">
-                        <span class="tag-chip"
-                              :class="{ 'tag-chip-no-color': !tagObj?.color }"
-                              :style="tagObj?.color
-                                ? '--tag-bg: ' + tagObj.color + '1A; --tag-fg: ' + tagObj.color + ';'
-                                : ''"
-                              tabindex="0"
-                              x-text="tagObj ? (tagObj.display_name || tagObj.name) : tagName"></span>
-                        <span class="tip" x-text="formatTagTooltip(tagObj ? tagObj.name : tagName, tagObj?.keyword_hits || [])"></span>
-                      </span>
-                    </template>
-                    <span x-show="!a.tags || a.tags.length === 0" class="muted">-</span>
-                  </td>
-                  <td x-show="articlesSubTab === 'pinned'" x-text="formatTime(a.pinned_at)"></td>
-                  <td x-show="articlesSubTab === 'all'" x-text="formatTime(a.published_at || a.fetched_at || a.created_at)"></td>
-                  <td x-text="formatTime(a.created_at)"></td>
-                  <td><div class="row-actions"><button class="link-btn" x-show="articlesSubTab === 'pinned'" @click="togglePin(a.id)">取消 Pin</button><a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a><button class="btn-danger" @click="showDeleteModal(a)">删除</button></div></td>
+                  <!-- v1.0.8.1: Pin 列放最左侧, 与批量勾选列互斥显示
+                      (之前 "操作"列里的 pin 按钮太靠右, 不明显) -->
+                  <th class="pin-col-head" x-show="articlesSubTab === 'all'">Pin</th>
+                  <th x-show="articlesSubTab === 'pinned'"><input type="checkbox" :checked="pinnedAllSelectedOnPage()" @change="pinnedToggleAllOnPage($event)"></th>
+                  <th>标题</th><th>来源</th><th>命中标签</th>
+                  <th x-show="articlesSubTab === 'pinned'">Pin 时间</th>
+                  <th x-show="articlesSubTab === 'all'">原文时间</th>
+                  <th>抓取时间</th><th style="text-align: right;">操作</th>
                 </tr>
-              </template>
+              </thead>
+              <tbody>
+                <template x-for="a in activeArticles" :key="a.id">
+                  <tr>
+                    <!-- v1.0.8.1: 32px pin button 在最左, 单独列. 点击 GSAP 弹一下. -->
+                    <td class="pin-col" x-show="articlesSubTab === 'all'">
+                      <button class="pin-btn pin-btn-lg"
+                              :class="{ 'is-pinned': a.is_pinned }"
+                              :data-aid="a.id"
+                              @click="togglePin(a.id)"
+                              :title="a.is_pinned ? '取消 Pin' : 'Pin 这篇文章'">
+                        <span x-html="pinIcon(a.is_pinned)"></span>
+                      </button>
+                    </td>
+                    <td x-show="articlesSubTab === 'pinned'">
+                      <input type="checkbox" :value="a.id" x-model="pinnedSelectedIds">
+                    </td>
+                    <td class="title-cell">
+                      <div class="title-flex">
+                        <span class="title-text" :title="a.title" x-text="truncateTitle(a.title, 150)"></span>
+                        <span class="badge badge-new" x-show="a.is_fresh || isNew(a.created_at)"
+                              :title="a.is_fresh ? '本次抓取新增' : '24 小时内抓取'">新</span>
+                      </div>
+                    </td>
+                    <td class="nowrap" :title="a.source" x-text="a.source"></td>
+                    <td class="tags-cell">
+                      <div class="tags-flex">
+                        <template x-for="tagObj in (a.tags || []).slice(0, 2)" :key="tagObj.name">
+                          <span class="tag-chip-wrap">
+                            <span class="tag-chip"
+                                  :class="{ 'tag-chip-no-color': !tagObj?.color }"
+                                  :style="tagObj?.color
+                                    ? '--tag-bg: ' + tagObj.color + '1A; --tag-fg: ' + tagObj.color + ';'
+                                    : ''"
+                                  tabindex="0"
+                                  x-text="tagObj ? (tagObj.display_name || tagObj.name) : tagName"></span>
+                            <span class="tip" x-text="formatTagTooltip(tagObj ? tagObj.name : tagName, tagObj?.keyword_hits || [])"></span>
+                          </span>
+                        </template>
+                        <span class="tag-overflow-pill" x-show="(a.tags || []).length > 2" tabindex="0">
+                          <span x-text="'+' + ((a.tags || []).length - 2)"></span>
+                          <div class="popover-card">
+                            <div class="popover-card-title">全部标签 (<span x-text="(a.tags || []).length"></span>)</div>
+                            <div class="popover-chips">
+                              <template x-for="tagObj in a.tags" :key="tagObj.name">
+                                <span class="popover-chip"
+                                      :style="tagObj?.color ? '--tag-bg: ' + tagObj.color + '1A; --tag-fg: ' + tagObj.color + ';' : ''"
+                                      x-text="tagObj ? (tagObj.display_name || tagObj.name) : ''"></span>
+                              </template>
+                            </div>
+                          </div>
+                        </span>
+                      </div>
+                      <span x-show="!a.tags || a.tags.length === 0" class="muted">-</span>
+                    </td>
+                    <td class="tabular-nums nowrap" x-show="articlesSubTab === 'pinned'" x-text="formatTime(a.pinned_at)"></td>
+                    <td class="tabular-nums nowrap" x-show="articlesSubTab === 'all'" x-text="formatTime(a.published_at || a.fetched_at || a.created_at)"></td>
+                    <td class="tabular-nums nowrap" x-text="formatTime(a.created_at)"></td>
+                    <td style="text-align: right;"><div class="row-actions" style="justify-content: flex-end;"><a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a><button class="btn-danger" @click="showDeleteModal(a)">删除</button></div></td>
+                  </tr>
+                </template>
               <tr x-show="activeArticles.length === 0">
                 <td colspan="8" class="empty-row">
                   <span x-show="articlesSubTab === 'pinned'">还没有 pin 任何文章。点击列表最左的 Pin 按钮开始收集。</span>
@@ -369,9 +390,10 @@
                       :disabled="isFetchRunning"
                       :title="isFetchRunning ? '抓取进行中，请结束后再查看上次结果' : '打开最近一次全部抓取结果'">上次结果</button>
               <button type="button"
-                      class="btn-secondary"
+                      class="icon-btn"
                       @click="loadSources()"
-                      title="重新加载信源列表">刷新</button>
+                      title="重新加载信源列表"
+                      aria-label="刷新"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path><path d="M16 21h5v-5"></path></svg></button>
             </div>
           </div>
 
@@ -822,7 +844,7 @@
             <h3>大模型任务</h3>
             <p class="panel-title-hint">摘要 / 事实核查等异步任务的排队与执行状态</p>
           </div>
-          <button class="link-btn" @click="loadLlmJobs()">刷新</button>
+          <button class="icon-btn" @click="loadLlmJobs()" title="刷新任务列表" aria-label="刷新"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path><path d="M16 21h5v-5"></path></svg></button>
         </div>
         <div class="llm-stats">
           <span class="llm-stat"><span class="dot dot-pending"></span>排队 <b x-text="llmJobsStats.pending"></b></span>
@@ -2401,10 +2423,25 @@
 
       <!-- ══ Config Management (v1.0.2-F; v1.0.25: +大模型设置 / 跑批日志) ═ -->
       <section x-show="currentView === 'config'" x-cloak>
-        <div class="panel-header">
+        <div class="panel-header" style="margin-bottom: 8px;">
           <div class="panel-title-row">
             <h3>配置管理</h3>
             <p class="panel-title-hint">管理抓取源、业务标签、过滤规则与系统设置</p>
+          </div>
+          <div class="panel-actions" style="display: flex; align-items: center; gap: 8px;">
+            <button class="btn-primary" x-show="configTab === 'sources'" @click="configCreateSource()">+ 新建 source</button>
+            <button class="btn-primary" x-show="configTab === 'tags'" @click="configCreateTag()">+ 新建 tag</button>
+            <div x-show="configTab === 'filters'" style="display: flex; align-items: center; gap: 8px;">
+              <select x-model="configFilterSourceFilter" @change="filterFiltersBySource()"
+                      style="padding: 4px 8px; font-size: var(--font-12);">
+                <option value="">所有 source (含全局)</option>
+                <option value="__global__">全局通用规则 (所有信源)</option>
+                <template x-for="s in configSources" :key="s.id">
+                  <option :value="s.id" x-text="s.name"></option>
+                </template>
+              </select>
+              <button class="btn-primary" @click="configCreateFilter()">+ 新建 filter</button>
+            </div>
           </div>
         </div>
         <div class="config-tabs">
@@ -2417,12 +2454,18 @@
 
         <!-- ── Tab 1: 抓取源 ── -->
         <div x-show="configTab === 'sources'">
-          <div class="toolbar">
-            <button class="btn-primary" @click="configCreateSource()">+ 新建 source</button>
-            <button class="btn-refresh" @click="configLoadSources()">刷新</button>
-          </div>
           <div class="table-container">
-            <table>
+            <table style="table-layout: fixed; width: 100%;">
+              <colgroup>
+                <col style="width: 190px;">
+                <col style="width: 165px;">
+                <col style="width: 110px;">
+                <col style="width: 155px;">
+                <col style="width: 65px;">
+                <col style="width: 88px;">
+                <col style="width: 220px;">
+                <col style="width: 140px;">
+              </colgroup>
               <thead>
                 <tr>
                   <th>源标识 (name)</th>
@@ -2432,28 +2475,42 @@
                   <th>抓取间隔</th>
                   <th>状态</th>
                   <th>业务标签</th>
-                  <th>操作</th>
+                  <th style="text-align: right;">操作</th>
                 </tr>
               </thead>
               <tbody>
                 <template x-for="s in configSources" :key="s.id">
                   <tr>
-                    <td x-text="s.name"></td>
-                    <td x-text="s.display_name || '-'"></td>
-                    <td x-text="s.source_type"></td>
-                    <td class="url-cell" x-text="s.url"></td>
-                    <td x-text="s.fetch_interval_min + 'm'"></td>
-                    <td>
+                    <td class="nowrap" :title="s.name"><code x-text="s.name"></code></td>
+                    <td class="nowrap" :title="s.display_name" x-text="s.display_name || '-'"></td>
+                    <td class="nowrap" :title="s.source_type" x-text="s.source_type"></td>
+                    <td class="url-cell nowrap" :title="s.url" x-text="s.url"></td>
+                    <td class="nowrap" x-text="s.fetch_interval_min + 'm'"></td>
+                    <td class="nowrap">
                       <span class="status-badge" :class="s.is_active ? 'status-ok' : 'status-paused'"
                             x-text="s.is_active ? '启用' : '停用'"></span>
                     </td>
-                    <td>
-                      <template x-for="t in s.tags" :key="t">
-                        <span class="tag-chip" x-text="t"></span>
-                      </template>
+                    <td class="tags-cell">
+                      <div class="tags-flex">
+                        <template x-for="t in (s.tags || []).slice(0, 2)" :key="t">
+                          <span class="tag-chip" x-text="t"></span>
+                        </template>
+                        <span class="tag-overflow-pill" x-show="(s.tags || []).length > 2" tabindex="0">
+                          <span x-text="'+' + ((s.tags || []).length - 2)"></span>
+                          <div class="popover-card">
+                            <div class="popover-card-title">全部业务标签 (<span x-text="(s.tags || []).length"></span>)</div>
+                            <div class="popover-chips">
+                              <template x-for="t in s.tags" :key="t">
+                                <span class="popover-chip" x-text="t"></span>
+                              </template>
+                            </div>
+                          </div>
+                        </span>
+                      </div>
+                      <span x-show="!s.tags || s.tags.length === 0" class="muted">-</span>
                     </td>
-                    <td>
-                      <div class="row-actions">
+                    <td style="text-align: right;">
+                      <div class="row-actions" style="justify-content: flex-end;">
                         <button class="icon-btn" title="抓取配置" aria-label="抓取配置" @click="configEditFetchConfig(s)"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"></line><line x1="10" x2="3" y1="4" y2="4"></line><line x1="21" x2="12" y1="12" y2="12"></line><line x1="8" x2="3" y1="12" y2="12"></line><line x1="21" x2="16" y1="20" y2="20"></line><line x1="12" x2="3" y1="20" y2="20"></line><line x1="14" x2="14" y1="2" y2="6"></line><line x1="8" x2="8" y1="10" y2="14"></line><line x1="16" x2="16" y1="18" y2="22"></line></svg></button>
                         <button class="icon-btn" title="改 tags" aria-label="改 tags" @click="configEditSourceTags(s)"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"></path><path d="M7 7h.01"></path></svg></button>
                         <button class="icon-btn" title="编辑" aria-label="编辑" @click="configEditSource(s)"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path><path d="m15 5 4 4"></path></svg></button>
@@ -2472,12 +2529,16 @@
 
         <!-- ── Tab 2: 业务 tag ── -->
         <div x-show="configTab === 'tags'">
-          <div class="toolbar">
-            <button class="btn-primary" @click="configCreateTag()">+ 新建 tag</button>
-            <button class="btn-refresh" @click="configLoadTags()">刷新</button>
-          </div>
           <div class="table-container">
-            <table>
+            <table style="table-layout: fixed; width: 100%;">
+              <colgroup>
+                <col style="width: 150px;">
+                <col style="width: 150px;">
+                <col style="width: 120px;">
+                <col style="width: 320px;">
+                <col style="width: 80px;">
+                <col style="width: 120px;">
+              </colgroup>
               <thead>
                 <tr>
                   <th>标识 (name)</th>
@@ -2489,7 +2550,7 @@
                   <th>色块</th>
                   <th>描述</th>
                   <th>状态</th>
-                  <th>操作</th>
+                  <th style="text-align: right;">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -2502,14 +2563,16 @@
                             :style="`background: ${t.color || '#999'}`"
                             x-text="t.color || '-'"></span>
                     </td>
-                    <td x-text="t.description || '-'"></td>
-                    <td>
+                    <td class="nowrap" :title="t.description || '-'" x-text="t.description || '-'"></td>
+                    <td class="nowrap">
                       <span class="status-badge" :class="t.is_active ? 'status-ok' : 'status-paused'"
                             x-text="t.is_active ? '启用' : '停用'"></span>
                     </td>
-                    <td>
-                      <button class="btn-link" @click="configEditTag(t)">编辑</button>
-                      <button class="btn-danger" @click="configDeleteTag(t)">删除</button>
+                    <td style="text-align: right;">
+                      <div class="row-actions" style="justify-content: flex-end;">
+                        <button class="btn-link" @click="configEditTag(t)">编辑</button>
+                        <button class="btn-danger" @click="configDeleteTag(t)">删除</button>
+                      </div>
                     </td>
                   </tr>
                 </template>
@@ -2523,35 +2586,33 @@
 
         <!-- ── Tab 3: 关键词过滤 ── -->
         <div x-show="configTab === 'filters'">
-          <div class="toolbar">
-            <button class="btn-primary" @click="configCreateFilter()">+ 新建 filter</button>
-            <button class="btn-refresh" @click="configLoadFilters()">刷新</button>
-            <select x-model="configFilterSourceFilter" @change="filterFiltersBySource()"
-                    style="margin-left: 12px; padding: 4px 8px;">
-              <option value="">所有 source (含全局)</option>
-              <option value="__global__">全局通用规则 (所有信源)</option>
-              <template x-for="s in configSources" :key="s.id">
-                <option :value="s.id" x-text="s.name"></option>
-              </template>
-            </select>
-          </div>
           <div class="table-container">
-            <table>
+            <table style="table-layout: fixed; width: 100%;">
+              <colgroup>
+                <col style="width: 50px;">
+                <col style="width: 170px;">
+                <col style="width: 150px;">
+                <col style="width: 95px;">
+                <col style="width: 230px;">
+                <col style="width: 320px;">
+                <col style="width: 110px;">
+              </colgroup>
               <thead>
                 <tr>
                   <th>ID</th>
-                  <th>所属源</th>
-                  <th>模式</th>
-                  <th>匹配字段</th>
-                  <th>关键词</th>
-                  <th>操作</th>
+                  <th>作用范围</th>
+                  <th>类型</th>
+                  <th>匹配范围</th>
+                  <th>命中关键词</th>
+                  <th>规则说明</th>
+                  <th style="text-align: right;">操作</th>
                 </tr>
               </thead>
               <tbody>
                 <template x-for="f in configFilters" :key="(f.is_global ? 'g-' : 's-') + f.id">
                   <tr>
-                    <td x-text="f.id"></td>
-                    <td>
+                    <td class="nowrap" x-text="f.id"></td>
+                    <td class="nowrap">
                       <template x-if="f.is_global || f.source_id === '__global__'">
                         <span class="badge-global">全局生效</span>
                       </template>
@@ -2559,7 +2620,7 @@
                         <span x-text="f.source_id"></span>
                       </template>
                     </td>
-                    <td>
+                    <td class="nowrap">
                       <span class="status-badge"
                             :class="f.mode === 'blacklist' ? 'status-paused' : 'status-ok'"
                             x-text="f.mode === 'blacklist' ? '黑名单' : (f.mode === 'whitelist' ? '白名单' : f.mode)"></span>
@@ -2567,22 +2628,38 @@
                         <span class="status-badge status-muted" style="margin-left: 4px;">已停用</span>
                       </template>
                     </td>
-                    <td x-text="f.match_field === 'title+content' ? '标题+正文'
+                    <td class="nowrap" x-text="f.match_field === 'title+content' ? '标题+正文'
                       : (f.match_field === 'title' ? '标题'
                       : (f.match_field === 'content' ? '正文' : f.match_field))"></td>
-                    <td>
-                      <template x-for="kw in f.keywords" :key="kw">
-                        <span class="tag-chip" x-text="kw"></span>
-                      </template>
+                    <td class="tags-cell">
+                      <div class="tags-flex">
+                        <template x-for="kw in (f.keywords || []).slice(0, 3)" :key="kw">
+                          <span class="tag-chip" x-text="kw"></span>
+                        </template>
+                        <span class="tag-overflow-pill" x-show="(f.keywords || []).length > 3" tabindex="0">
+                          <span x-text="'+' + ((f.keywords || []).length - 3)"></span>
+                          <div class="popover-card">
+                            <div class="popover-card-title">全部关键词 (<span x-text="(f.keywords || []).length"></span>)</div>
+                            <div class="popover-chips">
+                              <template x-for="kw in f.keywords" :key="kw">
+                                <span class="popover-chip" x-text="kw"></span>
+                              </template>
+                            </div>
+                          </div>
+                        </span>
+                      </div>
                     </td>
-                    <td>
-                      <button class="btn-link" @click="configEditFilter(f)">编辑</button>
-                      <button class="btn-danger" @click="configDeleteFilter(f)">删除</button>
+                    <td class="nowrap" :title="f.notes || ''" x-text="f.notes || '—'"></td>
+                    <td style="text-align: right;">
+                      <div class="row-actions" style="justify-content: flex-end;">
+                        <button class="btn-link" @click="configEditFilter(f)">编辑</button>
+                        <button class="btn-danger" @click="configDeleteFilter(f)">删除</button>
+                      </div>
                     </td>
                   </tr>
                 </template>
                 <tr x-show="configFilters.length === 0">
-                  <td colspan="6" class="empty-row">暂无 filter</td>
+                  <td colspan="7" class="empty-row">暂无 filter</td>
                 </tr>
               </tbody>
             </table>
@@ -2591,17 +2668,15 @@
 
         <!-- ── Tab 4: 大模型设置 (原 LLM 设置 一级菜单) ── -->
         <div x-show="configTab === 'llm'">
-          <div class="subtab-bar" style="margin-bottom: 16px;">
-            <button class="subtab" :class="{ active: llmTab === 'gateway', 'is-active': llmTab === 'gateway' }" @click="switchLlmTab('gateway')">网关</button>
-            <button class="subtab" :class="{ active: llmTab === 'usage', 'is-active': llmTab === 'usage' }"    @click="switchLlmTab('usage')">用量统计</button>
+          <div class="llm-segmented-row" style="margin-bottom: 16px;">
+            <div class="segmented-control">
+              <button type="button" class="segmented-item" :class="{ 'is-active': llmTab === 'gateway' }" @click="switchLlmTab('gateway')">网关</button>
+              <button type="button" class="segmented-item" :class="{ 'is-active': llmTab === 'usage' }" @click="switchLlmTab('usage')">用量统计</button>
+            </div>
           </div>
 
         <!-- ── Sub-tab 1: 网关（真实来源） ── -->
         <div x-show="llmTab === 'gateway'">
-          <div class="toolbar">
-            <button class="btn-refresh" @click="loadLlmGateway()">刷新</button>
-          </div>
-
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px;">
             <div class="surface-muted">
               <div class="muted">网关地址</div>
@@ -2674,7 +2749,6 @@
           <h4>Provider 映射</h4>
           <div class="toolbar">
             <button class="btn-primary" @click="openLlmProviderForm(null)">+ 新建 Provider</button>
-            <button class="btn-refresh" @click="loadLlmProviders()">刷新</button>
           </div>
           <div class="table-container">
             <table>
@@ -2721,7 +2795,6 @@
           <h4 style="margin-top: 24px;">Model 映射</h4>
           <div class="toolbar">
             <button class="btn-primary" @click="openLlmModelForm(null)">+ 新建 Model</button>
-            <button class="btn-refresh" @click="loadLlmModels()">刷新</button>
           </div>
           <div class="table-container">
             <table>
@@ -2817,11 +2890,10 @@
                 <option value="date">按日期</option>
               </select>
             </label>
-            <button class="btn-refresh" @click="loadLlmUsage()">刷新</button>
           </div>
 
           <div x-show="!llmUsage" class="empty-row" style="margin-top: 24px;">
-            点击"刷新"加载用量数据
+            暂无用量数据
           </div>
 
           <div x-show="llmUsage" style="margin-top: 16px;">
@@ -2885,9 +2957,6 @@
 
         <!-- ── Tab 5: 跑批日志 (原一级菜单) ── -->
         <div x-show="configTab === 'cron'">
-          <div class="toolbar">
-            <button class="btn-refresh" @click="loadCronRuns()">刷新</button>
-          </div>
           <div class="table-container">
             <table>
               <thead>
@@ -3713,7 +3782,7 @@
             </div>
             <div class="modal-body">
               <div class="form-row">
-                <label>所属抓取源 source <span class="required">*</span>
+                <label>作用范围 <span class="required">*</span>
                   <small class="muted">选择特定源或全局生效 (全局规则对所有信源生效)</small>
                 </label>
                 <select x-model="configModalTarget.source_id" :disabled="!!configModalTarget.id">
@@ -3728,7 +3797,7 @@
                 <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px; vertical-align: -2px;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg><strong>全局白名单</strong>将对所有信源生效，未命中的文章将全部被过滤丢弃，请确保关键词覆盖度足够广。
               </div>
               <div class="form-row">
-                <label>模式 mode <span class="required">*</span>
+                <label>类型 <span class="required">*</span>
                   <small class="muted">黑名单丢弃命中；白名单只保留命中</small>
                 </label>
                 <select x-model="configModalTarget.mode">
@@ -3737,7 +3806,7 @@
                 </select>
               </div>
               <div class="form-row">
-                <label>匹配字段 match_field
+                <label>匹配范围
                   <small class="muted">在哪些文本上做关键词匹配</small>
                 </label>
                 <select x-model="configModalTarget.match_field">
@@ -3747,7 +3816,7 @@
                 </select>
               </div>
               <div class="form-row">
-                <label>关键词 keywords <span class="required">*</span>
+                <label>命中关键词 <span class="required">*</span>
                   <small class="muted">输入后按回车/逗号生成标签，支持批量粘贴</small>
                 </label>
                 <!-- v1.0.40: 关键词 Chip CRUD 组件 (Filter + Tag 统一) -->
@@ -3783,7 +3852,7 @@
                 </label>
               </div>
               <div class="form-row">
-                <label>备注 notes</label>
+                <label>规则说明</label>
                 <textarea x-model="configModalTarget.notes" rows="2"></textarea>
               </div>
             </div>

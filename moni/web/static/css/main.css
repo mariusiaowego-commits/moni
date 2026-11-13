@@ -712,7 +712,17 @@ tbody tr:last-child td { border-bottom: none; }
 .badge-warning { background: var(--warning-muted); color: var(--warning-muted-fg); }
 .badge-info { background: var(--info-muted); color: var(--info-muted-fg); }
 .badge-success { background: var(--success-muted); color: var(--success-muted-fg); }
-.status-badge { padding: 3px 10px; border-radius: 4px; font-size: var(--font-12); font-weight: 500; white-space: nowrap; }
+.status-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: var(--font-12);
+  font-weight: 500;
+  white-space: nowrap !important;
+  overflow: visible !important;
+  display: inline-flex;
+  align-items: center;
+  min-width: auto;
+}
 .status-success { background: var(--success-muted); color: var(--success-muted-fg); }
 .status-failed { background: oklch(from var(--destructive) l c h / 0.15); color: var(--destructive); }
 .status-cancelled { background: oklch(0.9 0.02 0); color: oklch(0.4 0.02 0); }
@@ -737,33 +747,156 @@ tbody tr:last-child td { border-bottom: none; }
 }
 .dark .tag-chip, :root.dark .tag-chip, body.dark .tag-chip { color: var(--tag-chip-fg); }
 .tags-cell {
-  /* v1.0.35.1: 重新设计排版
-     - 全部 chip 都展示, 不再 slice
-     - 列宽自适应内容 (max-width 220px 上限, 不撑开标题列)
-     - chip 用紧凑版 (字号/内边距/外边距 都缩小), 但间距保留 */
-  max-width: 220px;
+  /* Sprint 45: 修复芯片独占一行 bug，强制单行横排，溢出浮层展示 */
+  max-width: 240px;
   vertical-align: middle;
-  overflow: hidden;
-  font-size: 0;  /* 消除 inline-block 之间的换行空格 */
+  overflow: visible;
+  position: relative;
+  white-space: nowrap;
+  padding-right: 16px !important;
+}
+.table-container table td:last-child {
+  padding-left: 12px !important;
+}
+.articles-table td.tabular-nums {
+  font-size: var(--font-12, 12px);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap !important;
+  letter-spacing: -0.01em;
 }
 .tags-cell > .tag-chip-wrap {
+  display: inline-flex;
+  vertical-align: middle;
+  font-size: var(--font-12);
+  margin: 0 4px 0 0;
+  white-space: nowrap;
+}
+/* Sprint 45: 紧凑 chip 样式 — 保证单行不换行 */
+.tags-cell .tag-chip {
+  padding: 2px 6px;
+  border-radius: var(--radius-xs, 4px);
+  margin: 0;
+  white-space: nowrap;
+  max-width: 85px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   display: inline-block;
-  vertical-align: top;
-  font-size: var(--font-12);  /* v1.0.35.1: 字号缩 (原 0.78rem) */
-  margin: 2px 4px 2px 0;  /* v1.0.35.1: 间距缩 (原 6px 右), 但仍有 */
-  /* 单 chip 截断 */
-  max-width: calc(100% - 4px);
+  vertical-align: middle;
+}
+.nowrap {
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+.nowrap code {
+  white-space: nowrap !important;
+  word-break: normal !important;
+}
+.articles-table tbody tr,
+section[x-show*="config"] table tbody tr {
+  height: 44px;
+  max-height: 46px;
+}
+.articles-table tbody td,
+section[x-show*="config"] table tbody td {
+  padding: 6px 12px;
+  font-size: var(--font-13, 13px);
+  line-height: 1.4;
+  vertical-align: middle;
+}
+.articles-table thead th,
+section[x-show*="config"] table thead th {
+  padding: 8px 12px;
+  font-size: var(--font-12, 12px);
+}
+.title-cell {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* v1.0.35.1: 紧凑 chip 样式 — 缩小 padding + 圆角更方 */
-.tags-cell .tag-chip {
-  padding: 2px 6px;
-  border-radius: var(--radius-xs, 4px);
-  margin: 0;  /* wrap 已带 margin, 不重复 */
+.title-flex {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  white-space: nowrap;
+  vertical-align: middle;
 }
-/* v1.0.35.1: 完整 tag 列表浮层 — hover td 弹, 复用 .tip 风格 molevibe 浮层 */
+.title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.popover-chip {
+  display: inline-block;
+  font-size: var(--font-12, 12px);
+  padding: 1px 6px;
+  border-radius: var(--radius-xs, 4px);
+  background: var(--muted);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.tags-flex {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1, 4px);
+  white-space: nowrap;
+  position: relative;
+  vertical-align: middle;
+}
+.tag-overflow-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: var(--radius-xs, 4px);
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--muted);
+  color: var(--muted-fg);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  position: relative;
+  user-select: none;
+  white-space: nowrap;
+}
+.tag-overflow-pill:hover {
+  background: var(--border);
+  color: var(--foreground);
+}
+.popover-card {
+  display: none;
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  z-index: 100;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.14);
+  padding: 10px 12px;
+  width: 240px;
+  white-space: normal;
+}
+.popover-card-title {
+  font-size: var(--font-12, 12px);
+  font-weight: 600;
+  color: var(--muted-fg);
+  margin-bottom: 6px;
+}
+.popover-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.tag-overflow-pill:hover .popover-card,
+.popover-card:hover {
+  display: block;
+}
+/* 完整 tag 列表浮层 — hover td 弹, 复用 .tip 风格 molevibe 浮层 */
 .tags-overflow {
   display: none;
   position: absolute;
@@ -964,7 +1097,7 @@ label { font-size: var(--font-14); }
 .pin-col { width: 44px; text-align: center; }
 .pin-col-head { width: 44px; text-align: center; color: var(--muted-fg); font-weight: 500; font-size: var(--font-12); }
 .pin-col .pin-btn {
-  width: 32px; height: 32px;
+  width: 24px; height: 24px;
   padding: 0;
   display: inline-flex; align-items: center; justify-content: center;
 }
@@ -1044,6 +1177,38 @@ label { font-size: var(--font-14); }
   color: var(--accent-fg);
   background: var(--accent);
   border-color: var(--accent);
+}
+
+/* Segmented control for in-header or in-card view switching */
+.segmented-control {
+  display: inline-flex;
+  align-items: center;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+.segmented-item {
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: var(--font-13);
+  font-weight: 500;
+  color: var(--muted-fg);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1.3;
+}
+.segmented-item:hover {
+  color: var(--foreground);
+}
+.segmented-item.is-active,
+.segmented-item.active {
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 /* ═══════════════════════════════════════════════════════════════
