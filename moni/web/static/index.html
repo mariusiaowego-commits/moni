@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261113011">
+  <link rel="stylesheet" href="css/main.css?v=20261113012">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -1159,10 +1159,8 @@
                       :class="{ 'is-active': shareIncludeAbstract }"
                       @click="shareIncludeAbstract = !shareIncludeAbstract">
                 <span class="switch-card-info">
-                  <span class="switch-card-title">
-                    包含 AI 核心摘要
-                    <span class="mini-tag">通用推荐</span>
-                  </span>
+                  <span class="switch-card-title">包含 AI 核心摘要</span>
+                  <span class="switch-card-tag"><span class="mini-tag">通用推荐</span></span>
                   <span class="switch-card-desc">为每篇文章生成一段提炼摘要，作为简报主体内容。</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': shareIncludeAbstract }"></span>
@@ -1172,10 +1170,8 @@
                       :disabled="shareBBSummarySource === 'bestblogs'"
                       @click="shareIncludeFactCheck = !shareIncludeFactCheck">
                 <span class="switch-card-info">
-                  <span class="switch-card-title">
-                    包含深度事实核查
-                    <span class="mini-tag warn">耗时较长</span>
-                  </span>
+                  <span class="switch-card-title">包含深度事实核查</span>
+                  <span class="switch-card-tag"><span class="mini-tag warn">耗时较长</span></span>
                   <span class="switch-card-desc">对关键论断做交叉核查，生成可信度标注；BestBlogs 摘要模式下不可用。</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': shareIncludeFactCheck }"></span>
@@ -4079,7 +4075,7 @@
   <script src="js/cases.js?v=20260826023"></script>
   <script src="js/stats.js?v=20260827002"></script>
   <script src="js/theme.js?v=20260813019"></script>
-  <script src="js/app.js?v=20261113011"></script>
+  <script src="js/app.js?v=20261113012"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
        GSAP presence, and the scale pop now honours prefers-reduced-motion. -->
