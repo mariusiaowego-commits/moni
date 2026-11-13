@@ -2451,6 +2451,21 @@ commit `e593c73`, share copy 同步到 `~/Documents/moni-share/moni-web-showcase
 - commit 链: `6394c6f`(--fg typo) → `cea9e39`(defer) → `ea1a292`(body.dark scope, 失败) → `3353508`(grok fix, 成功). tag `v1.0.35.8`.
 
 share copy: `~/Documents/moni-share/moni-web-showcase.html` (sha256[:16]=`472f6586588366e1`)
+## 已发布: **v1.0.78 — Sprint 44 补丁 + 前端缓存修复** (2026-11-13 · Sprint 43–44 · PR #191 · tag `v1.0.78`)
+
+**合并**: `d376079`（squash，base = `main@a1c1566`）· **测试**: 1739 passed / 2 skipped · **服务**: 8900 重启后 200
+
+1. 顶栏三图标 light 下不可见：`.theme-toggle` 34px 白卡 + moon `fill="none"` + stroke 1.6（屏显 1.07px）、
+   palette 圆点 `r=0.5`（0.33px）→ 统一 `.btn.btn-ghost.btn-sm`（28px/透明/6px 圆角）、图标 18px、
+   stroke 1.8、palette `r=1.2`、moon path 12% 前景填充。
+2. `/config` 一级页签在右上（x=875）、二级在左下（x=120）：L1 抽到标题下单独一行，L2 改 `.subtab-bar`，
+   两者左边缘统一 x=120。
+3. 「后端改了但界面没变」：`index.html` 无 `Cache-Control` 被浏览器启发式缓存 → `serve_root` /
+   `spa_fallback` 返回 `index.html` 时带 `no-cache`，`?v=` 提到 `20261113002`。
+
+实测：三按钮 `h=28px` / 背景透明 / `svg width=18` / `stroke-width=1.8`；L1 `x=[120,195,279,380,481]`、
+L2 `x=[120,182]`。
+
 ## 已发布: **v1.0.79 — LocalOriginGuard 防 CSRF / DNS-rebinding** (2026-11-13 · PR #171 · tag `v1.0.79`)
 
 **合并**: `4f1acef`（squash，base = `main@a1c1566`）· **测试**: 1743 passed / 2 skipped · **服务**: 8900 生效
@@ -2463,7 +2478,6 @@ share copy: `~/Documents/moni-share/moni-web-showcase.html` (sha256[:16]=`472f65
 实现（8900 实测）：伪造 `Host: evil.com`、伪造 Origin、`Sec-Fetch-Site: cross-site` 均 403；正常 GET、
 同源 POST、静态资源 200。合并前独立核验：本地试合并树全量 pytest 1743 passed / 2 skipped。
 
-## 已发布: **v1.0.78 — Sprint 44 补丁 + 前端缓存修复** (2026-11-13 · Sprint 43–44 · PR #191 · tag `v1.0.78`)
 ## 已发布: **v1.0.80 — Sprint 45 标签叠加与按钮散落整改** (2026-11-13 · PR #194 · tag `v1.0.80`)
 
 **合并**: `a84a945`（squash，base = `main@0d61aca`）· **测试**: 1743 passed / 2 skipped · **服务**: 8900 重启后 200
@@ -2483,7 +2497,6 @@ dad 点名「各种标签叠加和按钮乱放」。agy 出 design reference（`
 8902 实测：抓取源 18 行全 **44px**、状态列 93px/显示名 174px/规则说明 376px/文章时间 160px 全部 0 截断；
 `/config` chrome **2 层**、内容起始 y=**186px**（改前 298px）；分段控件 `x=120` 与卡片左对齐。
 
-## 已发布: **v1.0.79 — LocalOriginGuard 防 CSRF / DNS-rebinding** (2026-11-13 · PR #171 · tag `v1.0.79`)
 ## 补丁: **v1.0.81 / v1.0.82 — 上线后列宽收口** (2026-11-13 · PR #196 / #197)
 
 8900 上线实测补两处残留截断（8902 复测时未覆盖）：
@@ -2496,5 +2509,3 @@ dad 点名「各种标签叠加和按钮乱放」。agy 出 design reference（`
 复核（8900，1440×900，按列统计 `scrollWidth > clientWidth`）：显示名 / 类型 / 状态 / 业务标签 /
 操作 / 作用范围 / 规则说明 / 命中关键词 / 文章时间 全部 **0 截断**；仅 URL 列（设计省略）与
 `chinese_independent_blogs` 这类超长源标识按省略号显示。
-
-## 已发布: **v1.0.80 — Sprint 45 标签叠加与按钮散落整改** (2026-11-13 · PR #194 · tag `v1.0.80`)
