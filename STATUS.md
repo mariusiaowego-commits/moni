@@ -4,6 +4,16 @@
 
 ---
 
+## 已发布: **v1.0.85 — 分享页三页签** (2026-11-13 · Sprint 46 · PR #202 · tag `v1.0.85`)
+
+**合并**: squash（base = `main@adc53b7` / v1.0.84）· **测试**: 前端红线 89 passed；全量沿用分支 1742 passed / 2 skipped
+
+分享页改为三个并列页签：一键分享（默认）/ 自定义分享 / 分享队列。一键分享 7 种格式卡片（含 `report_png`）。自定义分享去掉 320px 内层滚动，Pin 每页 20 篇、全部文章默认 24 篇（可选 12/24/48/96）。「立即处理队列」只保留一个 SVG 三角。队列脉冲 `.queue-statusbar .dot.running` 纳入 `prefers-reduced-motion`。
+
+## 补丁: **v1.0.84 — 改 tags / tag 色 / tooltip / 队列表头** (2026-11-13 · PR #201 · tag `v1.0.84`)
+
+**合并**: `adc53b7`。改 tags 弹窗打开前先加载 tag；`.tag-chip` 用 tag 色做淡底；`--surface-modal` 柔化弹窗底；tooltip 真实节点挂到 `#moni-float`；队列表头 `nowrap`。
+
 ## 已发布: **v1.0.78 — Sprint 44 补丁 + 前端缓存修复** (2026-11-13 · Sprint 43–44 · PR #191 · tag `v1.0.78`)
 
 **合并**: `d376079`（squash，base = `main@f0e7321`）· **测试**: 1739 passed / 2 skipped · **服务**: 8900 重启后 200

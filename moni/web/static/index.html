@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261113009">
+  <link rel="stylesheet" href="css/main.css?v=20261113010">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -910,353 +910,409 @@
         </table>
       </section>
 
-      <!-- ══ Share (v1.0.5.11: article picker is now a card grid) ══ -->
+      <!-- ══ Share (v1.0.85 / sprint-46: 三并列页签改版) ══ -->
       <section x-show="currentView === 'share'" x-cloak>
         <div class="panel-header">
           <div class="panel-title-row">
             <h3>分享</h3>
-            <p class="panel-title-hint">用当前全部 Pin 生成简报 · 默认含 AI 摘要、事实核查、业务价值评判 · 不调用 BestBlogs</p>
+            <p class="panel-title-hint">把 Pin 池一键转化为简报、信息图与研报 · 支持多端投递与队列排程</p>
           </div>
         </div>
 
-        <!-- v1.0.10: one-click brief primary path -->
-        <div class="share-section brief-panel" class="share-section brief-panel" style="border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 20px; background: var(--card);">
-          <h4 style="margin-top:0;">一键简报</h4>
-          <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
-            <label style="display:flex; align-items:center; gap:6px;">
-              格式
-              <select x-model="briefFormat" style="padding: 4px 8px;">
-                <template x-for="fmt in shareFormats" :key="'brief-'+fmt.value">
-                  <option :value="fmt.value" x-text="fmt.label"></option>
-                </template>
-              </select>
-            </label>
-            <button class="btn-primary"
-                    @click="createBrief()"
-                    :disabled="briefSubmitting || (pinnedTotal || 0) === 0">
-              <span x-show="!briefSubmitting" x-text="'用当前 Pin 生成简报 (' + (pinnedTotal || 0) + ')'"></span>
-              <span x-show="briefSubmitting">提交中…</span>
-            </button>
-            <span class="muted" style="font-size:var(--font-14);"
-                  x-show="(pinnedTotal || 0) === 0">先去文章流 Pin 至少 1 篇</span>
-          </div>
-          <p x-show="briefError" class="text-danger" style="margin:10px 0 0; font-size:var(--font-14);" x-text="briefError"></p>
-
-          <!-- sticky current brief status -->
-          <div x-show="activeBriefTask" class="panel-soft">
-            <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-              <strong>当前简报</strong>
-              <span class="status-badge" :class="'status-' + (activeBriefTask?.status || '')"
-                    x-text="activeBriefTask?.status || ''"></span>
-            </div>
-            <div style="font-size:var(--font-14); margin-top:6px;" class="muted"
-                 x-text="briefStageLabel(activeBriefTask?.progress_stage) + ' · ' + (activeBriefTask?.progress_pct ?? 0) + '%' + (activeBriefTask?.progress_message ? ' — ' + activeBriefTask.progress_message : '')"></div>
-            <div class="progress-track" style="margin-top:8px;"
-                 x-show="activeBriefTask && (activeBriefTask.status === 'running' || activeBriefTask.status === 'pending')">
-              <div :style="'background:var(--chart-1); height:100%; width:' + (activeBriefTask?.progress_pct || 0) + '%; transition:width 0.4s;'"></div>
-            </div>
-            <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
-              <template x-if="activeBriefTask?.output_url && activeBriefTask?.status === 'done'">
-                <a class="btn-primary" :class="{'btn-blocked': isBlockedUrl(activeBriefTask.output_url)}" :href="safeHref(activeBriefTask.output_url)" target="_blank" rel="noopener noreferrer">打开产物</a>
-              </template>
-              <template x-if="activeBriefTask?.status === 'failed' || activeBriefTask?.status === 'paused'">
-                <button class="btn-secondary" @click="shareTaskResume(activeBriefTask.id)">继续/重试</button>
-              </template>
-              <template x-if="activeBriefTask?.status === 'failed'">
-                <button class="btn-secondary" @click="retryBrief()">重新生成</button>
-              </template>
-              <template x-if="activeBriefTask && (activeBriefTask.status === 'pending' || activeBriefTask.status === 'running')">
-                <button class="btn-secondary" @click="shareTaskPause(activeBriefTask.id)">暂停</button>
-              </template>
-              <template x-if="activeBriefTask && ['pending','running','paused','failed'].includes(activeBriefTask.status)">
-                <button class="btn-secondary" class="text-danger" @click="shareTaskCancel(activeBriefTask.id)">丢弃</button>
-              </template>
-              <span class="muted" style="font-size:var(--font-13);" x-text="'任务 ' + (activeBriefTask?.id || '')"></span>
-            </div>
-            <p x-show="activeBriefTask?.error" class="text-danger" style="font-size:var(--font-14); margin:8px 0 0;"
-               x-text="activeBriefTask?.error"></p>
-          </div>
+        <div class="share-tabbar" role="tablist">
+          <button class="share-tab" :class="{ 'is-active': shareTab === 'brief' }"
+                  role="tab" @click="shareTab = 'brief'">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
+            一键分享
+            <span class="share-tab-hint">默认</span>
+          </button>
+          <button class="share-tab" :class="{ 'is-active': shareTab === 'custom' }"
+                  role="tab" @click="shareTab = 'custom'">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+            自定义分享
+          </button>
+          <button class="share-tab" :class="{ 'is-active': shareTab === 'queue' }"
+                  role="tab" @click="shareTab = 'queue'">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+            分享队列
+            <span class="share-tab-count" x-show="shareQueueBadgeCount > 0" x-text="shareQueueBadgeCount"></span>
+          </button>
         </div>
 
-        <details class="share-section share-collapsible">
-          <summary class="share-collapsible-summary">
-            自定义分享（勾选子集、BB 增强、provider…）
-          </summary>
-          <div class="share-collapsible-content">
+        <!-- ── Tab 1: 一键分享 ─────────────────────────────────── -->
+        <div x-show="shareTab === 'brief'" class="share-pane">
+          <div class="share-card">
+            <div class="share-card-head">
+              <h4>精选 Pin 一键生成</h4>
+              <span class="muted" style="font-size:var(--font-13);"
+                    x-text="'当前 Pin 池：' + (pinnedTotal || 0) + ' 篇'"></span>
+            </div>
 
-        <div class="share-section">
-          <h4>选择文章</h4>
-          <!-- v1.0.8: chip 切换 [全部] / [仅 Pin]. 默认 Pin 模式
-               (按用户决策 3: 先展示新方式). selectedArticleIds 跨
-               模式保留, 已选的不会被清空. -->
-          <div class="share-source-chip" style="display: flex; gap: 8px; margin-bottom: 12px;">
-            <button class="subtab"
-                    :class="{ 'is-active': shareArticleSource === 'all' }"
-                    @click="setShareArticleSource('all')">
-              <span class="subtab-icon" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg></span> 全部文章
-            </button>
-            <button class="subtab"
-                    :class="{ 'is-active': shareArticleSource === 'pinned' }"
-                    @click="setShareArticleSource('pinned')">
-              <span x-html="pinIcon(true)"></span> 仅我的 Pin
-              <span class="muted" x-text="'(' + (pinnedTotal || 0) + ')'"></span>
-            </button>
-          </div>
-          <!-- v1.0.5.15: source filter + pagination (跟文章查阅菜单一致) -->
-          <div class="filter-bar" style="margin-bottom: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-            <label>
-              来源:
-              <select x-model="allArticlesSource" @change="onAllArticlesSourceChange()">
-                <option value="">全部来源</option>
-                <template x-for="s in allArticlesSources" :key="s.name || s">
-                  <option :value="s.name || s" x-text="(s.display_name || s.name || s) + ' (' + (s.name || s) + ')'"></option>
+            <h5 class="share-step-title">选择输出格式</h5>
+            <div class="format-grid">
+              <template x-for="f in briefFormatCards" :key="f.value">
+                <button type="button" class="format-card"
+                        :class="{ 'is-active': briefFormat === f.value }"
+                        @click="briefFormat = f.value">
+                  <div class="format-card-top">
+                    <span class="format-card-title">
+                      <template x-if="f.value === 'html_landing'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M2 12h20"></path><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></template>
+                      <template x-if="f.value === 'markdown'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg></template>
+                      <template x-if="f.value === 'info_graphic_png'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.9-3.9a2 2 0 0 0-2.8 0L5 20"></path></svg></template>
+                      <template x-if="f.value === 'report_png'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"></path><rect x="7" y="12" width="3" height="6"></rect><rect x="12" y="8" width="3" height="10"></rect><rect x="17" y="5" width="3" height="13"></rect></svg></template>
+                      <template x-if="f.value === 'pdf'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><path d="M9 15h6"></path><path d="M9 18h4"></path></svg></template>
+                      <template x-if="f.value === 'rich_text'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7V4h16v3"></path><path d="M9 20h6"></path><path d="M12 4v16"></path></svg></template>
+                      <template x-if="f.value === 'plain_text'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h10"></path></svg></template>
+                      <span x-text="f.label"></span>
+                    </span>
+                    <span class="format-card-badge" x-text="f.badge"></span>
+                  </div>
+                  <p class="format-card-desc" x-text="f.desc"></p>
+                </button>
+              </template>
+            </div>
+
+            <div class="share-actionbar">
+              <button class="btn-primary"
+                      @click="createBrief()"
+                      :disabled="briefSubmitting || (pinnedTotal || 0) === 0">
+                <span x-show="!briefSubmitting"
+                      x-text="'一键生成简报 (' + (pinnedTotal || 0) + ' 篇 Pin)'"></span>
+                <span x-show="briefSubmitting">提交中…</span>
+              </button>
+              <span class="hint" x-show="(pinnedTotal || 0) === 0">还没有 Pin 文章，请先在「文章查阅」Pin 至少 1 篇</span>
+              <span class="hint" x-show="(pinnedTotal || 0) > 0">预计约 25 秒 · 自动注入 AI 摘要、事实核查与业务价值评分</span>
+            </div>
+            <p x-show="briefError" class="text-danger"
+               style="margin:10px 0 0; font-size:var(--font-14);" x-text="briefError"></p>
+
+            <!-- 当前简报任务进度卡 -->
+            <div x-show="activeBriefTask" class="task-status-card">
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+                <strong style="font-size:var(--font-14);">当前简报任务</strong>
+                <div style="display:flex; align-items:center; gap:10px;">
+                  <span class="status-badge" :class="'status-' + (activeBriefTask?.status || '')"
+                        x-text="activeBriefTask?.status || ''"></span>
+                  <span class="muted" style="font-size:var(--font-12);"
+                        x-text="'ID: ' + (activeBriefTask?.id || '')"></span>
+                  <button class="btn-ghost btn-sm" @click="shareTab = 'queue'">在队列中查看 →</button>
+                </div>
+              </div>
+              <div style="font-size:var(--font-13); margin-top:8px;" class="muted"
+                   x-text="briefStageLabel(activeBriefTask?.progress_stage) + ' · ' + (activeBriefTask?.progress_pct ?? 0) + '%' + (activeBriefTask?.progress_message ? ' — ' + activeBriefTask.progress_message : '')"></div>
+              <div class="progress-track" style="margin-top:8px;"
+                   x-show="activeBriefTask && (activeBriefTask.status === 'running' || activeBriefTask.status === 'pending')">
+                <div :style="'background:var(--chart-1); height:100%; width:' + (activeBriefTask?.progress_pct || 0) + '%; transition:width 0.4s;'"></div>
+              </div>
+              <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+                <template x-if="activeBriefTask?.output_url && activeBriefTask?.status === 'done'">
+                  <a class="btn-primary" :class="{'btn-blocked': isBlockedUrl(activeBriefTask.output_url)}" :href="safeHref(activeBriefTask.output_url)" target="_blank" rel="noopener noreferrer">打开产物</a>
                 </template>
-              </select>
-            </label>
-            <label>
-              分类:
-              <select x-model="allArticlesTag" @change="onAllArticlesTagChange()">
-                <option value="">全部分类</option>
-                <template x-for="t in allArticlesTags" :key="t.name">
-                  <option :value="t.name" x-text="t.display_name || t.name"></option>
+                <template x-if="activeBriefTask?.status === 'failed' || activeBriefTask?.status === 'paused'">
+                  <button class="btn-secondary" @click="shareTaskResume(activeBriefTask.id)">继续/重试</button>
                 </template>
-              </select>
-            </label>
-            <label>
-              每页:
-              <select x-model.number="allArticlesPageSize" @change="allArticlesChangePageSize()">
-                <template x-for="n in allArticlesPageSizeOptions" :key="n">
-                  <option :value="n" x-text="n + ' 条'"></option>
+                <template x-if="activeBriefTask?.status === 'failed'">
+                  <button class="btn-secondary" @click="retryBrief()">重新生成</button>
                 </template>
-              </select>
-            </label>
-            <span class="muted" x-text="`第 ${allArticlesPage} 页`"></span>
-            <button class="btn-secondary" @click="allArticlesPrevPage()" :disabled="allArticlesPage <= 1">上一页</button>
-            <button class="btn-secondary" @click="allArticlesNextPage()" :disabled="!allArticlesHasMore">下一页</button>
-          </div>
-          <!-- v1.0.5.11: was a 168-row table that scrolled for days.
-               Now a card grid — one tile per article, max 4 per row,
-               sized by viewport.  Each tile is the article title +
-               source + checkbox.  Selection state visible via a
-               violet border (calendar-date-picker accent). -->
-          <div class="article-card-grid">
-            <template x-for="a in shareArticles" :key="a.id">
-              <label class="article-card"
-                     :class="{ 'is-selected': selectedArticleIds.includes(a.id) }">
-                <input type="checkbox" :value="a.id"
-                       x-model="selectedArticleIds"
-                       class="article-card-check">
-                <div class="article-card-source" x-text="a.source"></div>
-                <div class="article-card-title" :title="a.title" x-text="truncateTitle(a.title, 150)"></div>
-              </label>
-            </template>
-            <div class="article-card empty"
-                 x-show="shareArticles.length === 0">
-              <span x-show="shareArticleSource === 'pinned'">还没有 pin 任何文章</span>
-              <span x-show="shareArticleSource === 'all'">暂无数据</span>
+                <template x-if="activeBriefTask && (activeBriefTask.status === 'pending' || activeBriefTask.status === 'running')">
+                  <button class="btn-secondary" @click="shareTaskPause(activeBriefTask.id)">暂停</button>
+                </template>
+                <template x-if="activeBriefTask && ['pending','running','paused','failed'].includes(activeBriefTask.status)">
+                  <button class="btn-secondary text-danger" @click="shareTaskCancel(activeBriefTask.id)">丢弃</button>
+                </template>
+              </div>
+              <p x-show="activeBriefTask?.error" class="text-danger" style="font-size:var(--font-13); margin:8px 0 0;"
+                 x-text="activeBriefTask?.error"></p>
             </div>
           </div>
         </div>
 
-        <div class="share-section">
-          <h4>选择格式</h4>
-          <div class="format-selector">
-            <template x-for="fmt in shareFormats" :key="fmt.value">
-              <label class="format-chip">
-                <input type="radio" :value="fmt.value" x-model="shareFormat" :name="'shareFormat-' + fmt.value">
-                <span x-text="fmt.label"></span>
-              </label>
-            </template>
-          </div>
-          <!-- v1.0.5.14: title field for formats that require it
-               (html_landing, ppt_slides).  Backend HtmlLandingPayload /
-               PptSlidesPayload have a required `title` field; without
-               it they return 400.  We show the input only when the
-               selected format needs it (other formats ignore the
-               value, so it's safe to send along). -->
-          <div class="form-row" x-show="shareFormatNeedsTitle()" style="margin-top: 12px;">
-            <label>页面/演示标题 (title) <span class="required">*</span></label>
-            <input type="text" x-model="shareFormatTitle"
-                   placeholder="e.g. 2026 同业洞察周报">
-            <small class="muted">html_landing 必填;其他格式忽略</small>
-          </div>
-        </div>
+        <!-- ── Tab 2: 自定义分享 ───────────────────────────────── -->
+        <div x-show="shareTab === 'custom'" class="share-pane">
 
-        <!-- v1.0.5.18: 内容选项 (4 user-options universal across all
-             6 formats, per PRD §2).  include_abstract=true by default
-             (most users want an AI summary).  include_fact_check=false
-             by default (slower, opt-in). -->
-        <div class="share-section">
-          <h4>内容选项</h4>
-          <label style="margin-right: 24px; cursor: pointer;">
-            <input type="checkbox" x-model="shareIncludeAbstract">
-            包含 AI 摘要
-          </label>
-          <label style="cursor: pointer;">
-            <input type="checkbox" x-model="shareIncludeFactCheck"
-                   :disabled="shareBBSummarySource === 'bestblogs'">
-            包含事实核查
-            <small class="muted">（较慢）</small>
-          </label>
-        </div>
+          <!-- 步骤 1：选择文章范围 -->
+          <div class="share-card">
+            <div class="share-card-head">
+              <h4><span class="share-step-num">1</span> 选择文章范围</h4>
+              <span class="muted" style="font-size:var(--font-13);"
+                    x-text="'第 ' + shareArticlePage + ' 页 · 本页 ' + (shareArticles || []).length + ' 篇'"></span>
+            </div>
 
-
-        <!-- v1.0.5.25: BestBlogs 增强选项 -->
-        <div class="share-section">
-          <h4>BestBlogs 增强 <small class="muted">（仅 bestblogs 源文章可用，消耗 API 额度）</small></h4>
-          <div style="margin-bottom: 8px;">
-            <label style="cursor: pointer; font-weight: 500;">摘要来源:</label>
-            <select x-model="shareBBSummarySource" style="margin-left: 8px; padding: 4px 8px;">
-              <option value="moni_ai">moni AI 摘要</option>
-              <option value="bestblogs">BestBlogs 摘要</option>
-              <option value="both">两者都展示</option>
-              <option value="none">不展示摘要</option>
-            </select>
-          </div>
-          <div style="display: flex; gap: 16px; flex-wrap: wrap;">
-            <label style="cursor: pointer;">
-              <input type="checkbox" x-model="shareBBEnhanceScore">
-              质量评分 (score)
-            </label>
-            <label style="cursor: pointer;">
-              <input type="checkbox" x-model="shareBBEnhanceMainPoints">
-              要点列表 (mainPoints)
-            </label>
-            <label style="cursor: pointer;">
-              <input type="checkbox" x-model="shareBBEnhanceKeyQuotes">
-              金句 (keyQuotes)
-            </label>
-            <label style="cursor: pointer;">
-              <input type="checkbox" x-model="shareBBEnhanceTags">
-              专业标签 (bbTags)
-            </label>
-          </div>
-          <!-- v1.0.9.3: dynamic hint when selected articles include
-               non-bestblogs* sources.  These are silently skipped
-               (no API call, no BB block in artifact).  Show the
-               count so the user knows which articles won't be
-               enhanced.  Moni UX rule: tell user "why nothing
-               happened" instead of swallowing the configuration. -->
-          <p x-show="selectedArticleIds.length > 0 && shareBBIneligibleCount > 0"
-             data-testid="bb-ineligible-hint"
-             class="banner-warning">
-            <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px; vertical-align: -2px;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>已选 <strong x-text="shareBBIneligibleCount"></strong> 篇非 bestblogs 源文章，BB 增强仅对 bestblogs / bestblog-podcast / bestblog-x / bestblog-yt 源生效（其他文章会被静默跳过，不消耗 API 额度）。
-          </p>
-          <p class="muted" style="font-size:var(--font-14); margin-top: 4px;">
-            注: 勾选任一增强选项会调用 BestBlogs API（每天 50 次免费额度）。已拉取的文章不会重复调用。
-          </p>
-        </div>
-
-        <!-- v1.0.5.18: 高级选项 (provider / model override, 折叠).
-             Per PRD §2: lets the user override the default hermes
-             profile's provider/model when one provider's quota is
-             exhausted.  Empty input == use the default. -->
-        <div class="share-section">
-          <details>
-            <summary style="cursor:pointer; color:var(--muted-fg); font-size:var(--font-14);">
-              <svg class="icon icon-14" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px; vertical-align: -2px;"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>高级选项 (provider / model 覆盖)
-            </summary>
-            <div style="margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap;">
+            <div class="share-picker-toolbar">
+              <div class="segmented-control">
+                <button class="segmented-item"
+                        :class="{ 'is-active': shareArticleSource === 'all' }"
+                        @click="setShareArticleSource('all')">全部文章</button>
+                <button class="segmented-item"
+                        :class="{ 'is-active': shareArticleSource === 'pinned' }"
+                        @click="setShareArticleSource('pinned')">
+                  仅我的 Pin (<span x-text="pinnedTotal || 0"></span>)
+                </button>
+              </div>
               <label>
-                Provider:
-                <input type="text" x-model="shareProvider"
-                       placeholder="留空=用默认"
-                       style="width: 140px;">
+                来源:
+                <select x-model="allArticlesSource" @change="onAllArticlesSourceChange()">
+                  <option value="">全部来源</option>
+                  <template x-for="s in allArticlesSources" :key="s.name || s">
+                    <option :value="s.name || s" x-text="(s.display_name || s.name || s)"></option>
+                  </template>
+                </select>
               </label>
               <label>
-                Model:
-                <input type="text" x-model="shareModel"
-                       placeholder="留空=用默认"
-                       style="width: 180px;">
+                分类:
+                <select x-model="allArticlesTag" @change="onAllArticlesTagChange()">
+                  <option value="">全部分类</option>
+                  <template x-for="t in allArticlesTags" :key="t.name">
+                    <option :value="t.name" x-text="t.display_name || t.name"></option>
+                  </template>
+                </select>
               </label>
+              <span class="spacer"></span>
+              <button class="btn-secondary btn-sm" @click="shareSelectAllOnPage()">全选当前页</button>
+              <button class="btn-ghost btn-sm" @click="shareClearSelection()">清空勾选</button>
+              <span class="share-selected-count" x-text="'已勾选 ' + selectedArticleIds.length + ' 篇'"></span>
             </div>
-            <small class="muted">
-              例: provider=<code>google</code>, model=<code>gemini-2.5-pro</code>.
-              不熟可留空用 default profile 的配置.
-            </small>
-          </details>
-        </div>
 
-        <!-- v1.0.5.18: report_png / info_graphic_png 专用 — 生图方式选择 (4 种 approach).
-             Per PRD §4: baoyu-infographic (default) / ljg-card / kami / direct.
-             Only rendered when shareFormat is a PNG format (x-show). -->
-        <div class="share-section" x-show="shareFormat === 'report_png' || shareFormat === 'info_graphic_png'">
-          <h4>生图方式</h4>
-          <select x-model="sharePngApproach" style="width: 100%; max-width: 320px;">
-            <option value="baoyu-infographic">信息图风格 (baoyu-infographic, 默认)</option>
-            <option value="ljg-card">卡片风格 (ljg-card)</option>
-            <option value="kami">排版风格 (kami)</option>
-            <option value="direct">直出 (no skill, agent 自己拼 image_generate prompt)</option>
-          </select>
-          <small class="muted">
-            选哪种方式 = worker 调哪个 skill 调 image_generate 工具.
-            baoyu-infographic 最成熟; direct 最灵活但需 LLM 自己写图 prompt.
-          </small>
-        </div>
+            <!-- 文章卡片：自然流式排布，无内层滚动条（原始 320px scroll trap 已移除） -->
+            <div class="article-card-grid">
+              <template x-for="a in shareArticles" :key="a.id">
+                <label class="article-card"
+                       :class="{ 'is-selected': selectedArticleIds.includes(a.id) }">
+                  <input type="checkbox" :value="a.id"
+                         x-model="selectedArticleIds"
+                         class="article-card-check">
+                  <div class="article-card-source" x-text="a.source"></div>
+                  <div class="article-card-title" :title="a.title" x-text="truncateTitle(a.title, 150)"></div>
+                </label>
+              </template>
+              <div class="article-card empty"
+                   x-show="shareArticles.length === 0">
+                <span x-show="shareArticleSource === 'pinned'">还没有 pin 任何文章</span>
+                <span x-show="shareArticleSource === 'all'">暂无数据</span>
+              </div>
+            </div>
 
-        <!-- v1.0.5.20: info_graphic_png / pdf 专用 — 标题输入框.
-             用户可以自定义信息图/PDF 的总标题，默认"同业追踪日报". -->
-        <div class="share-section" x-show="shareFormat === 'info_graphic_png' || shareFormat === 'pdf'">
-          <h4>报告标题</h4>
-          <input type="text" x-model="shareInfoGraphicTitle"
-                 placeholder="同业追踪日报"
-                 style="width: 100%; max-width: 320px;">
-          <small class="muted">
-            信息图/PDF 的总标题，默认"同业追踪日报".
-          </small>
-        </div>
-
-        <div class="share-section">
-          <button class="btn-primary" @click="addToQueue()" :disabled="selectedArticleIds.length === 0">加入队列</button>
-          <small class="muted" style="margin-left:8px;">入队后需点下方「立即处理队列」（自定义路径不自动启动）</small>
-        </div>
-          </div><!-- end share-collapsible-content -->
-        </details><!-- end custom share outer -->
-
-        <div class="share-section">
-          <h4>队列状态</h4>
-          <!-- v1.0.5.17: "立即处理队列" button.  Spawns the worker
-               subprocess in the background and opens a log-tail
-               modal.  Disabled when no pending/running tasks. -->
-          <div style="margin-bottom: 12px; display: flex; gap: 12px; align-items: center;">
-            <button class="btn-primary" @click="triggerWorker()"
-                    :disabled="!shareQueueHasPending() || workerRunning">
-              <span x-show="!workerRunning">▶ 立即处理队列</span>
-              <span x-show="workerRunning">worker 正在跑...</span>
-            </button>
-            <span class="muted" x-text="shareQueuePendingCount() + ' 个待处理'"></span>
+            <div class="share-picker-footer">
+              <span x-text="'本页展示 ' + (shareArticles || []).length + ' 篇'"></span>
+              <div class="pager">
+                <button class="btn-secondary btn-sm" @click="shareArticlePrevPage()"
+                        :disabled="shareArticlePage <= 1">上一页</button>
+                <span x-text="'第 ' + shareArticlePage + ' 页'"></span>
+                <button class="btn-secondary btn-sm" @click="shareArticleNextPage()"
+                        :disabled="!shareArticleHasMore">下一页</button>
+              </div>
+            </div>
           </div>
+
+          <!-- 步骤 2：输出格式与专属配置 -->
+          <div class="share-card">
+            <div class="share-card-head">
+              <h4><span class="share-step-num">2</span> 输出格式与专属配置</h4>
+            </div>
+
+            <div class="segmented-control" style="margin-bottom:var(--space-4);">
+              <template x-for="fmt in shareFormats" :key="'seg-'+fmt.value">
+                <button class="segmented-item"
+                        :class="{ 'is-active': shareFormat === fmt.value }"
+                        @click="shareFormat = fmt.value"
+                        x-text="fmt.label"></button>
+              </template>
+            </div>
+
+            <div x-show="shareFormatNeedsTitle()" style="display:flex; flex-direction:column; gap:6px;">
+              <label style="font-size:var(--font-13); font-weight:600;">
+                页面标题 <span class="required">*</span>
+              </label>
+              <input type="text" x-model="shareFormatTitle"
+                     placeholder="e.g. 2026 同业洞察周报"
+                     style="max-width:420px;">
+              <small class="muted">html_landing 必填；其他格式忽略</small>
+            </div>
+
+            <div x-show="shareFormat === 'report_png' || shareFormat === 'info_graphic_png'"
+                 style="margin-top:var(--space-4);">
+              <div class="share-step-title" style="margin-bottom:var(--space-2);">生图方式</div>
+              <div class="segmented-control">
+                <button class="segmented-item" :class="{ 'is-active': sharePngApproach === 'baoyu-infographic' }" @click="sharePngApproach = 'baoyu-infographic'">信息图（推荐）</button>
+                <button class="segmented-item" :class="{ 'is-active': sharePngApproach === 'ljg-card' }" @click="sharePngApproach = 'ljg-card'">卡片</button>
+                <button class="segmented-item" :class="{ 'is-active': sharePngApproach === 'kami' }" @click="sharePngApproach = 'kami'">排版</button>
+                <button class="segmented-item" :class="{ 'is-active': sharePngApproach === 'direct' }" @click="sharePngApproach = 'direct'">直出</button>
+              </div>
+              <small class="muted" style="display:block; margin-top:6px;">baoyu-infographic 最成熟；direct 最灵活但需模型自行撰写生图 prompt。</small>
+            </div>
+
+            <div x-show="shareFormat === 'info_graphic_png' || shareFormat === 'pdf'"
+                 style="margin-top:var(--space-4); display:flex; flex-direction:column; gap:6px;">
+              <label style="font-size:var(--font-13); font-weight:600;">报告标题</label>
+              <input type="text" x-model="shareInfoGraphicTitle"
+                     placeholder="同业追踪日报" style="max-width:420px;">
+              <small class="muted">信息图 / PDF 的总标题，默认「同业追踪日报」</small>
+            </div>
+          </div>
+
+          <!-- 步骤 3：内容提炼与核验 -->
+          <div class="share-card">
+            <div class="share-card-head">
+              <h4><span class="share-step-num">3</span> 内容提炼与核验</h4>
+            </div>
+            <div class="switch-cards-grid">
+              <button type="button" class="switch-card"
+                      :class="{ 'is-active': shareIncludeAbstract }"
+                      @click="shareIncludeAbstract = !shareIncludeAbstract">
+                <div>
+                  <h5>包含 AI 核心摘要 <span class="mini-tag">通用推荐</span></h5>
+                  <p>为每篇文章生成一段提炼摘要，作为简报主体内容。</p>
+                </div>
+                <span class="toggle-switch" :class="{ 'on': shareIncludeAbstract }"></span>
+              </button>
+              <button type="button" class="switch-card"
+                      :class="{ 'is-active': shareIncludeFactCheck }"
+                      :disabled="shareBBSummarySource === 'bestblogs'"
+                      @click="shareIncludeFactCheck = !shareIncludeFactCheck">
+                <div>
+                  <h5>包含深度事实核查 <span class="mini-tag warn">耗时较长</span></h5>
+                  <p>对关键论断做交叉核查，生成可信度标注；BestBlogs 摘要模式下不可用。</p>
+                </div>
+                <span class="toggle-switch" :class="{ 'on': shareIncludeFactCheck }"></span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 步骤 4：BestBlogs 增强与模型调度 -->
+          <div class="share-card">
+            <div class="share-card-head">
+              <h4><span class="share-step-num">4</span> 扩展增强与模型调度</h4>
+            </div>
+            <div class="bb-panel">
+              <div class="share-step-title" style="margin-bottom:var(--space-2);">BestBlogs 摘要来源</div>
+              <div class="segmented-control">
+                <button class="segmented-item" :class="{ 'is-active': shareBBSummarySource === 'moni_ai' }" @click="shareBBSummarySource = 'moni_ai'">moni AI</button>
+                <button class="segmented-item" :class="{ 'is-active': shareBBSummarySource === 'bestblogs' }" @click="shareBBSummarySource = 'bestblogs'">BestBlogs</button>
+                <button class="segmented-item" :class="{ 'is-active': shareBBSummarySource === 'both' }" @click="shareBBSummarySource = 'both'">两者都展示</button>
+                <button class="segmented-item" :class="{ 'is-active': shareBBSummarySource === 'none' }" @click="shareBBSummarySource = 'none'">不展示</button>
+              </div>
+
+              <div class="share-step-title" style="margin:var(--space-4) 0 var(--space-2);">增强特性</div>
+              <div class="chip-group">
+                <button class="chip-item" :class="{ 'is-active': shareBBEnhanceScore }"
+                        @click="shareBBEnhanceScore = !shareBBEnhanceScore"
+                        x-text="(shareBBEnhanceScore ? '✓ ' : '') + '质量评分'"></button>
+                <button class="chip-item" :class="{ 'is-active': shareBBEnhanceMainPoints }"
+                        @click="shareBBEnhanceMainPoints = !shareBBEnhanceMainPoints"
+                        x-text="(shareBBEnhanceMainPoints ? '✓ ' : '') + '要点列表'"></button>
+                <button class="chip-item" :class="{ 'is-active': shareBBEnhanceKeyQuotes }"
+                        @click="shareBBEnhanceKeyQuotes = !shareBBEnhanceKeyQuotes"
+                        x-text="(shareBBEnhanceKeyQuotes ? '✓ ' : '') + '金句'"></button>
+                <button class="chip-item" :class="{ 'is-active': shareBBEnhanceTags }"
+                        @click="shareBBEnhanceTags = !shareBBEnhanceTags"
+                        x-text="(shareBBEnhanceTags ? '✓ ' : '') + '专业标签'"></button>
+              </div>
+
+              <p x-show="selectedArticleIds.length > 0 && shareBBIneligibleCount > 0"
+                 data-testid="bb-ineligible-hint"
+                 class="banner-warning" style="margin-top:var(--space-3);">
+                已选 <strong x-text="shareBBIneligibleCount"></strong> 篇非 bestblogs 源文章，BB 增强仅对 bestblogs / bestblog-podcast / bestblog-x / bestblog-yt 生效（其他文章会被跳过，不消耗 API 额度）。
+              </p>
+              <p class="muted" style="font-size:var(--font-12); margin:var(--space-2) 0 0;">
+                勾选任一增强项会调用 BestBlogs API（每天 50 次免费额度），已拉取的文章不会重复调用。
+              </p>
+            </div>
+
+            <details class="share-advanced" style="margin-top:var(--space-4);">
+              <summary>高级选项（provider / model 覆盖）</summary>
+              <div style="margin-top:var(--space-3); display:flex; gap:var(--space-3); flex-wrap:wrap;">
+                <label style="font-size:var(--font-13);">Provider:
+                  <input type="text" x-model="shareProvider" placeholder="留空=用默认" style="width:160px;">
+                </label>
+                <label style="font-size:var(--font-13);">Model:
+                  <input type="text" x-model="shareModel" placeholder="留空=用默认" style="width:200px;">
+                </label>
+              </div>
+              <small class="muted" style="display:block; margin-top:6px;">例：provider=google，model=gemini-2.5-pro；不熟可留空，使用 default profile。</small>
+            </details>
+          </div>
+
+          <!-- 底部动作栏 -->
+          <div class="share-card" style="display:flex; align-items:center; justify-content:space-between; gap:var(--space-4); flex-wrap:wrap;">
+            <div>
+              <div style="font-size:var(--font-14); font-weight:600;" x-text="customShareSummary"></div>
+              <span class="muted" style="font-size:var(--font-12);">入队后在「分享队列」中统一处理（自定义路径不自动启动）</span>
+            </div>
+            <button class="btn-primary" @click="addToQueue()"
+                    :disabled="selectedArticleIds.length === 0">加入分享队列</button>
+          </div>
+        </div>
+
+        <!-- ── Tab 3: 分享队列 ─────────────────────────────────── -->
+        <div x-show="shareTab === 'queue'" class="share-pane">
+          <div class="queue-statusbar">
+            <span>
+              <span class="dot" :class="{ 'running': shareWorkerActive }"></span>
+              <span x-text="shareWorkerActive ? 'Worker 运行中' : 'Worker 空闲'"></span>
+            </span>
+            <span class="queue-stat">待处理 <strong x-text="shareQueueStatusCount(['pending'])"></strong></span>
+            <span class="queue-stat">处理中 <strong x-text="shareQueueStatusCount(['running'])"></strong></span>
+            <span class="queue-stat">已完成 <strong x-text="shareQueueStatusCount(['done'])"></strong></span>
+            <span class="queue-stat">失败 <strong x-text="shareQueueStatusCount(['failed'])"></strong></span>
+            <div class="queue-toolbar">
+              <button class="btn-secondary btn-sm" @click="loadShareQueue()">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 3v6h-6"></path></svg>
+                刷新队列
+              </button>
+              <button class="btn-primary btn-sm" @click="triggerWorker()"
+                      :disabled="!shareQueueHasPending() || workerRunning">
+                <svg class="icon" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true"><path d="M6 4.5v15l13-7.5z"></path></svg>
+                <span x-show="!workerRunning">立即处理队列</span>
+                <span x-show="workerRunning">worker 正在跑…</span>
+              </button>
+            </div>
+          </div>
+
           <div class="table-container">
             <table class="share-queue-table">
+              <colgroup>
+                <col style="width:180px;">
+                <col style="width:80px;">
+                <col style="width:120px;">
+                <col style="width:96px;">
+                <col style="width:190px;">
+                <col style="width:172px;">
+                <col style="width:auto;">
+                <col style="width:140px;">
+              </colgroup>
               <thead>
-                <!-- v1.0.5.15: 加"输出"列, 让用户直接打开 done task 的 output_path -->
-                <tr><th>任务ID</th><th>文章数</th><th>格式</th><th>状态</th><th>进度</th><th>时间</th><th>输出</th><th>操作</th></tr>
+                <tr><th>任务ID</th><th>文章数</th><th>格式</th><th>状态</th><th>进度</th><th>创建时间</th><th>产出产物</th><th>操作</th></tr>
               </thead>
               <tbody>
                 <template x-for="q in shareQueue" :key="q.id">
                   <tr>
-                    <td x-text="q.id" style="font-size:var(--font-13); max-width:10em; overflow:hidden; text-overflow:ellipsis;" :title="q.id"></td>
-                    <td x-text="q.article_count"></td>
+                    <td style="font-size:var(--font-12);" :title="q.id" x-text="q.id"></td>
+                    <td x-text="(q.article_count ?? '—') + ' 篇'"></td>
                     <td x-text="q.format"></td>
                     <td><span class="status-badge" :class="'status-' + q.status" x-text="q.status"></span></td>
-                    <td>
-                      <!-- v1.0.5.17: progress bar (only rendered for
-                           running tasks; pending/done/failed leave
-                           the cell empty so the table doesn't bloat). -->
+                    <td class="cell-progress">
                       <template x-if="q.status === 'running' && q.progress_pct !== null && q.progress_pct !== undefined">
-                        <div style="min-width: 80px;">
-                          <div style="font-size:var(--font-13); margin-bottom: 2px;"
+                        <div style="min-width:120px;">
+                          <div style="font-size:var(--font-12); margin-bottom:2px;"
                                x-text="(q.progress_stage || '?') + ' · ' + q.progress_pct + '%'"></div>
                           <div class="progress-track progress-track-sm">
-                            <div :style="'background:var(--chart-1); height: 100%; width: ' + q.progress_pct + '%; transition: width 0.5s;'"></div>
+                            <div :style="'background:var(--chart-1); height:100%; width:' + q.progress_pct + '%; transition:width 0.5s;'"></div>
                           </div>
                         </div>
                       </template>
+                      <template x-if="q.status === 'done'">
+                        <span class="muted" style="font-size:var(--font-12);">100% 完成</span>
+                      </template>
+                      <template x-if="q.status === 'pending'">
+                        <span class="muted" style="font-size:var(--font-12);">排队等待中</span>
+                      </template>
+                      <template x-if="q.status === 'paused'">
+                        <span class="muted" style="font-size:var(--font-12);"
+                              x-text="'已暂停' + (q.progress_pct ? ' 在 ' + q.progress_pct + '%' : '')"></span>
+                      </template>
                     </td>
-                    <td x-text="formatTime(q.created_at)"></td>
+                    <td style="font-size:var(--font-12);" x-text="formatTime(q.created_at)"></td>
                     <td>
-                      <!-- v1.0.5.15: prefer output_url (web URL via /artifacts/ mount).
-                           Fall back to plain-text output_path if no URL (missing source). -->
                       <template x-if="q.output_url && q.status === 'done'">
                         <a class="link" :class="{'link-blocked': isBlockedUrl(q.output_url)}" :href="safeHref(q.output_url)" target="_blank" rel="noopener noreferrer"
                            x-text="q.output_url.split('/').pop()"
@@ -1267,11 +1323,11 @@
                               x-text="(q.output_path || '').split('/').pop() || '(missing)'"></span>
                       </template>
                       <template x-if="q.status !== 'done'">
-                        <span class="muted" x-text="(q.status === 'failed' || q.status === 'cancelled') ? (q.error || q.status) : '—'"></span>
+                        <span class="muted" style="font-size:var(--font-12);"
+                              x-text="(q.status === 'failed' || q.status === 'cancelled') ? (q.error || q.status) : '—'"></span>
                       </template>
                     </td>
-                    <td style="white-space:nowrap;">
-                      <!-- v1.0.14: pause / resume / cancel -->
+                    <td>
                       <template x-if="q.status === 'pending' || q.status === 'running'">
                         <button class="btn-ghost btn-sm" @click="shareTaskPause(q.id)" title="暂停">暂停</button>
                       </template>
@@ -1279,7 +1335,7 @@
                         <button class="btn-ghost btn-sm" @click="shareTaskResume(q.id)" title="继续/重试">继续</button>
                       </template>
                       <template x-if="['pending','running','paused','failed'].includes(q.status)">
-                        <button class="btn-ghost btn-sm" class="text-danger" @click="shareTaskCancel(q.id)" title="丢弃">丢弃</button>
+                        <button class="btn-ghost btn-sm text-danger" @click="shareTaskCancel(q.id)" title="丢弃">丢弃</button>
                       </template>
                       <template x-if="q.status === 'done' || q.status === 'cancelled'">
                         <span class="muted">—</span>
@@ -1288,7 +1344,7 @@
                   </tr>
                 </template>
                 <tr x-show="shareQueue.length === 0">
-                  <td colspan="8" class="empty-row">暂无数据</td>
+                  <td colspan="8" class="empty-row">暂无分享任务。可在「一键分享」或「自定义分享」中创建。</td>
                 </tr>
               </tbody>
             </table>
@@ -4018,7 +4074,7 @@
   <script src="js/cases.js?v=20260826023"></script>
   <script src="js/stats.js?v=20260827002"></script>
   <script src="js/theme.js?v=20260813019"></script>
-  <script src="js/app.js?v=20261113009"></script>
+  <script src="js/app.js?v=20261113010"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
        GSAP presence, and the scale pop now honours prefers-reduced-motion. -->
