@@ -150,10 +150,14 @@ def create_app() -> FastAPI:
         # SPA fallback: any non-/api/* path that doesn't match a static file
         # → return index.html so client-side router takes over.
         index_html = STATIC_DIR / "index.html"
+        # index.html 必须每次回源校验：它引用的 ?v= 只在新版发布时变，
+        # 若被浏览器启发式缓存（无 Cache-Control 时常见），升级后仍会拿旧
+        # HTML 去引用旧 ?v=，assets 也跟着旧 —— 表现为「已修复但界面没变」。
+        index_headers = {"Cache-Control": "no-cache"}
 
         @app.get("/", include_in_schema=False)
         async def serve_root() -> FileResponse:
-            return FileResponse(str(index_html))
+            return FileResponse(str(index_html), headers=index_headers)
 
         @app.get("/{full_path:path}", include_in_schema=False)
         async def spa_fallback(full_path: str, request: Request) -> Response:
@@ -169,7 +173,7 @@ def create_app() -> FastAPI:
             if candidate is not None:
                 return FileResponse(str(candidate))
             # Otherwise → SPA index.html (client-side router)
-            return FileResponse(str(index_html))
+            return FileResponse(str(index_html), headers=index_headers)
     else:
         # v1.0 fall-back: log a clear warning if static dir missing.
         import logging
