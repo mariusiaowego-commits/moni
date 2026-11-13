@@ -4,6 +4,25 @@
 
 ---
 
+## 已发布: **v1.0.78 — Sprint 44 补丁 + 前端缓存修复** (2026-11-13 · Sprint 43–44 · PR #191 · tag `v1.0.78`)
+
+**合并**: `d376079`（squash，base = `main@f0e7321`）· **测试**: 1739 passed / 2 skipped · **服务**: 8900 重启后 200
+
+Sprint 43（agy · unslop 只读复检，37,388 字符报告）确认 dad 点名的两处 P0：
+顶栏图标在 light 下不可见（`.theme-toggle` 34px 白卡 vs 邻居 28px ghost；moon `fill="none"` + stroke 1.6
+→ 屏显 1.07px；palette 圆点 `r=0.5` → 0.33px）；`/config` L1 在右上（x=875）、L2 在左下（x=120），
+点「大模型设置」横跨 1015px。
+
+Sprint 44 落地：顶栏三图标统一 18px / stroke 1.8，palette 圆点 `r=1.2`，moon path 加
+`fill: oklch(from var(--foreground) l c h / 0.12)`，`.theme-toggle` 并入 `.btn.btn-ghost.btn-sm`（删白卡与阴影）；
+配置页 L1 抽离到标题下单独一行，L2 改 `.subtab-bar` / `.subtab`，两者左边缘同为 x=120。
+缓存修复：`serve_root` / `spa_fallback` 返回 `index.html` 时带 `Cache-Control: no-cache`，
+`main.css` / `app.js` 的 `?v=` `20261113001` → `20261113002`（此前后端改了但浏览器拿旧 HTML，界面看不到变化）。
+
+生产实测（8900，1440×900 light）：顶栏三按钮 `h=28px` / `background=rgba(0,0,0,0)` / `svg width=18` /
+`stroke-width=1.8`；L1 `x=[120,195,279,380,481]`、L2 `x=[120,182]`；`GET /` 返回
+`cache-control: no-cache` 且引用 `?v=20261113002`。
+
 ## 已发布: **v1.0.77 — Web UI 规范化 Phase 1–4** (2026-11-13 · Sprint 39–42 · PR #186 · tag `v1.0.77`)
 
 **合并**: `2f3e22b`（squash，base = `main@53aee12`，已含 v1.0.76 bank_feed）
