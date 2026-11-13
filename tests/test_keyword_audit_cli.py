@@ -26,6 +26,11 @@ def seeded(tmp_path):
     set_db_path(tmp_path / "news.db")
     migrate()
     conn = get_db()
+    # migrate() 会顺带 seed 出 code 侧新增的 tag (041 起有 peer-banks)。
+    # 本文件断言的是**全局** tag/关键词计数, 所以先把库清成「只有本测试
+    # 自己造的两个 tag」, 否则每加一个 seed tag 都会在这里假失败。
+    conn.execute("DELETE FROM source_tags")
+    conn.execute("DELETE FROM tag_definitions")
     conn.execute(
         "INSERT INTO sources (id, name, display_name, source_type, url, "
         "fetch_interval_min, is_active, created_at, updated_at) "

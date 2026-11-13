@@ -142,7 +142,7 @@ def fetch_all_sources() -> dict[str, Any] | None:
 
     # Pull per-source configs from the fetch Scheduler
     fetch_scheduler = FetchScheduler()
-    enabled = list(fetch_scheduler.enabled_sources())
+    enabled = list(fetch_scheduler.batch_sources())
     if not enabled:
         logger.info("[%s] no enabled sources — nothing to do", job_id)
         finished_at = _cst_now().isoformat()
@@ -181,7 +181,9 @@ def fetch_all_sources() -> dict[str, Any] | None:
         fetched = parsed = inserted = parse_errors = 0
         cleaned = filtered = 0
         dropped_blacklist = dropped_whitelist = dropped_tag_filter = 0
+        dropped_global_blacklist = dropped_global_whitelist = 0
         filters_applied = tags_used = deduped = 0
+        global_filters_applied = 0
         error: str | None = None
 
         try:
@@ -212,6 +214,11 @@ def fetch_all_sources() -> dict[str, Any] | None:
             global_filters_applied = result.get("global_filters_applied", 0)
             tags_used = result.get("tags_used", 0)
             error = result.get("error")
+            if error is not None:
+                # fetch() 内部的失败以 error 字段返回, 不抛异常; 不在这里
+                # 计数的话 cron_runs 会把「全部源失败」记成 success=1。
+                error = str(error)
+                sources_failed += 1
 
             # Calculate deduped: articles that were parsed but not inserted
             # and not filtered out (i.e., already existed in DB)
@@ -234,9 +241,10 @@ def fetch_all_sources() -> dict[str, Any] | None:
             logger.warning("[%s] mark_fetched() failed: %s", source_name, exc)
 
         # Record the per-source result under the shared cron_run_rowid
-        if cron_run_rowid and error is None:
-            sources_run += 1
+        if cron_run_rowid:
             total_inserted += inserted
+            if error is None:
+                sources_run += 1
 
         if cron_run_rowid:
             try:

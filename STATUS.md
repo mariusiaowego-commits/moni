@@ -31,6 +31,55 @@ Phase 4（Sprint 42）已完成：1280/1440/1920 × 10 视图 `scrollWidth === c
 全局 `:focus-visible` 2px accent 焦点环；标签 chip 对比度亮/暗最小 11.97:1。
 pytest 1630 passed / 2 skipped。移动端按 dad 决定不做。
 
+## 已发布: **v1.0.76 — 银行同业 agent 管道** (2026-11-12 · PR #187 · tag `v1.0.76`)
+
+**合并**: `b19df86`（squash，base = `main@7375e84`）· **审计**: 两轮独立只读审计
+（BLOCK → 修复 → APPROVE WITH NITS，nits 已收口）· **CI**: 6b73c17 run 43223991792 success
+**生产**: schema 41 已迁移（18 源 / `peer-banks` 19 词 / 绑定 1）· 8900 重启后 200 ·
+`bank_feed` 已在抓取源列表，等首次手动抓取。
+
+汇报里宣称的「同业追踪」此前没有数据支撑：近 90 天 `banking` 1223 篇里只有
+36 篇（2.9%）提到具体银行名，案例库 424 条 100% 来自 mpaypass + 36kr。
+本版加的是一个**以银行为主角**的源，而不是又一批宏观金融稿。
+
+### 做了什么
+
+- **`bank_feed` 源**（`moni/fetch/sources/bank_feed.py`）：只做导入，读
+  `data/bank_feed/*.json`。当天 feed 缺失时**就地调 agent 补跑**
+  （`scripts/bank_bot/run_bot.py`），失败抛 `RuntimeError` 让 job 记 `failed`。
+- **`peer-banks` tag**（同业）+ migration 041（schema 40 → 41）：只放五家行名，
+  不放动作词（OR 闸门没法表达 AND；放动作词等于把闸门拆了）。
+- **agent 两段式**：媒体 RSS/JSON 用 Python 确定性解析；官网栏目 + 公众号交
+  `hermes --profile moni`（= magpie 路由组，与 moni 其他 LLM 调用同一条链路）。
+- **11 个默认目标**（`config/bank_targets.json`）：5 个官网新闻栏目 + 5 个媒体
+  RSS + 1 个媒体 JSON（第一财经）。加信源改 `fetch_config.targets`，零代码。
+- **不新建调度**：`config/sources.yaml` 里 `batch_enabled: false` —— 不进工作日
+  9:10 的 `fetch_all_sources`，也不进 web「一键抓取」；只在抓取管理里对
+  「银行同业」单点「立即抓取」（或 `moni fetch --source bank_feed`）时跑。
+
+### 8903 实测（隔离 DB，2026-11-12）
+
+| 项 | 结果 |
+|---|---|
+| `POST /api/fetch/sources/bank_feed/run` | 200 → job done（fetched 4 / inserted 1；幂等复跑 inserted 0）|
+| bot 产出 | 61 条 / 0 error；`{icbc:14, boc:12, ccb:12, abc:12, psbc:10, bocom:1}` |
+| 入库 | `articles` 63 条，`article_tags` 63 条 `peer-banks`（0 篇零 tag）|
+| tag 命中 | `建设银行/中国建设银行`、`工行/农行`、`工商银行/农业银行`（真实关键词） |
+| `GET /api/articles?tag=peer-banks` | 63 条 |
+| `moni extract cases --source bank_feed --limit 5` | 5 篇 → 6 个 case（subject 如「中国农业银行安徽省分行」） |
+| `moni keyword-audit --source bank_feed` | 63/63 存活，0 丢弃 |
+| 正文完整性 | 63 篇 0 空；61 篇 ≥100 字；官方 58 篇 174–661 字 |
+| 媒体正文 | 导语 <200 字时抓详情页：一财 44/0 字 → 1475/1719 字，媒体 0 条 <100 字 |
+| 失败路径 | bot 脚本缺失 → job `failed`（error 带原因）；`moni fetch --source bank_feed` exit 1 |
+| `pytest tests/` | 1739 passed / 2 skipped（1 例仅沙箱失败：039 worktree） |
+
+耗时：agent 段逐页抓 5 个官网约 12 分钟（单目标上限 240s，总预算 1200s）。
+
+### 为什么 agent 不用「一次调完 5 个官网」
+
+第一版把 5 个官网塞进一次 `hermes -z`，实测 600s 没跑完 → 5 个官网**全丢**，
+只剩媒体 RSS 的 4 条。改成一页一次调用后同样的输入拿到 58 条官网条目（+3 条媒体，共 61）。
+
 ## 进行中: **分享产物 worker 修复** (2026-11-12 · 分支 `feature/v1.0.73-share-maintenance`)
 
 v1.0.42 起 `worker_llm.py` 把 prompt 从 `-z` 后面挪到 argv 末尾，hermes argparse

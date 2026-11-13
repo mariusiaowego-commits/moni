@@ -27,6 +27,10 @@ from moni.fetch.sources.xbot_feed import (
     DEFAULT_SCOPE as XBOT_FEED_DEFAULT_SCOPE,
     DEFAULT_THRESHOLDS as XBOT_FEED_DEFAULT_THRESHOLDS,
 )
+# v1.0.76: bank_feed 同样只认 bank_feed.py 里的 DEFAULT_FETCH_CONFIG。
+from moni.fetch.sources.bank_feed import (
+    DEFAULT_FETCH_CONFIG as BANK_FEED_DEFAULT_FETCH_CONFIG,
+)
 from moni.web.exceptions import (
     BadRequestError,
     ConflictError,
@@ -118,6 +122,9 @@ _FETCH_CONFIG_DEFAULTS: dict[str, dict] = {
     # v1.0.66 审计 B5: 默认值统一引用 moni.fetch.sources.xbot_feed 的
     # DEFAULT_FETCH_CONFIG —— 不再在本文件里抄一遍 (三处抄本会漂移)。
     "xbot_feed": copy.deepcopy(XBOT_FEED_DEFAULT_FETCH_CONFIG),
+    # v1.0.76 / sprint-40: bank_feed — 目标是用户可直接编辑的 fetch_config
+    # 键 (targets)，加信源零代码。
+    "bank_feed": copy.deepcopy(BANK_FEED_DEFAULT_FETCH_CONFIG),
 }
 
 _RETIRED_FETCH_CONFIG_KEYS = {"consecutive_failure_limit"}

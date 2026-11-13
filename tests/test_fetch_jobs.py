@@ -563,6 +563,38 @@ def test_background_thread_writes_terminal_status(tmp_path, monkeypatch):
     _FETCHER_REGISTRY.pop("stub-source", None)
 
 
+def test_worker_marks_job_failed_when_result_carries_error(fresh_db):
+    """fetcher 把失败写进 result["error"] (而不是抛异常) 时, job 必须是 failed。
+
+    否则 UI 会显示绿色 "done" + 0 篇, 和「今天真的没有新闻」长得一样。
+    """
+    from moni.fetch.base import _FETCHER_REGISTRY
+    from moni.web.routes import fetch as fetch_route
+    from moni.web.routes.fetch import FetchJobStore
+
+    class ErrFetcher:
+        source_name = "stub-err"
+        date_from = None
+        date_to = None
+        progress_callback = None
+
+        def run(self):
+            return {
+                "source": "stub-err", "fetched": 0, "parsed": 0, "inserted": 0,
+                "error": "bank-feed: agent bot failed (exit 2)",
+            }
+
+    _FETCHER_REGISTRY["stub-err"] = ErrFetcher
+    try:
+        job_id = FetchJobStore().create("stub-err")
+        fetch_route._run_fetch_job(job_id, "stub-err", None, None, True)
+        job = FetchJobStore().get_raw(job_id)
+        assert job["status"] == "failed"
+        assert "agent bot failed" in job["error"]
+    finally:
+        _FETCHER_REGISTRY.pop("stub-err", None)
+
+
 # ── v1.0.7.6 zombie sweep tests ────────────────────────────────────────────
 
 

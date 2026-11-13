@@ -1157,6 +1157,63 @@ python3 -m moni.db.migrate
 4. **加 filter** (可选): web UI "配置管理 > 关键词过滤"
 5. **测抓取**: `python3 -m moni fetch --source <name>`
 
+### 11.1 特例: 银行同业 (`bank_feed`, v1.0.76)
+
+这个源**不用写代码就能加信源**，因为真正的抓取动作在一个外部 agent 里
+(`scripts/bank_bot/run_bot.py`)，moni 只负责读它产出的 JSON。
+
+**它抓什么**
+
+| 类型 (`kind`) | 覆盖 | 怎么抓 |
+|---|---|---|
+| `official_list` | 中/农/工/建/邮储官网的新闻栏目 | agent 渲染页面 + 抽取（官网是 SPA，选择器写死在代码里迟早坏） |
+| `media_rss` | 未央网 / 东财 / 界面 / FT中文 / 中新经纬 | Python 直接解析 RSS |
+| `media_json` | 第一财经金融频道 | Python 读 JSON 列表（按 `fields` 映射字段） |
+| `wechat_article` | 已知的 `mp.weixin.qq.com` 文章链接 | agent 浏览器渲染正文 |
+
+**怎么用**
+
+1. 配置管理 → 抓取源 → 「银行同业」→ 点「抓取」。
+2. 当天没有 feed 时，抓取会**就地调 agent 跑一轮**（约 1~5 分钟，走
+   `hermes --profile moni` → magpie，和 moni 其他 LLM 调用是同一条链路）。
+3. 抓完的条目进「文章」，tag 是 **同业**（`peer-banks`）；`GET /api/articles?tag=peer-banks` 可直接筛。
+
+**怎么加/换信源（零代码）**
+
+配置管理 → 抓取源 → 银行同业 → 编辑 `fetch_config` 的 `targets`，
+按 `config/bank_targets.json` 的格式加一条：
+
+```json
+{"id": "boc-news", "kind": "official_list", "url": "https://www.boc.cn/aboutboc/bi1/",
+ "bank": "boc", "publisher": "中国银行", "hint": "列表自带日期"}
+```
+
+- `bank` 只能是 `icbc` / `abc` / `boc` / `ccb` / `psbc` / `bocom`。
+- `targets` 留空时用仓库里的 `config/bank_targets.json`（11 个目标）。
+- 改完不需要重启服务，下一次抓取生效。
+
+**几条要知道的行为**
+
+- **默认不参加定时任务**：`config/sources.yaml` 里它有 `batch_enabled: false`，
+  所以工作日 9:10 的全量抓取和 web「一键抓取」都不会带上它；只有抓取管理里
+  对「银行同业」单点「立即抓取」才跑（一次 agent 段约 12 分钟）。想恢复自动跑：
+  把那一行改成 `true` 或删掉。
+
+- **抓不到 ≠ 今天没新闻**：agent 全挂时这次抓取会记 `failed` 并写明原因，
+  不会给你一份「0 条」的假 feed。
+- **媒体条目会自动补正文**：媒体 RSS/JSON 只给导语时（<200 字），bot 会打开
+  详情页抽正文（上限 6000 字，失败就保留导语）。官方栏目的正文由 agent 直接
+  从详情页取，要求 ≥100 字。
+- **部分失败会入库但报错**：官网某一家挂了、媒体正常时，已抓到的条目照常
+  入库，任务记 `failed` 并列出失败目标；30 分钟内不会为同一份不完整 feed
+  再跑一轮 agent（`fetch_config.retry_after_min`，默认 30）。
+- **别删 `peer-banks` 这个 tag / 别解绑它**：删掉 tag 或删掉源与 tag 的绑定后，
+  抓取会报「no tag bound」并拒绝入库 —— 这是故意的，避免制造一批前端筛不到的
+  零 tag 文章。要恢复：`moni db init` 会重新种回 tag 和绑定。
+- 公众号**只能贴已知链接**：搜狗微信有验证码、官微不被搜索引擎索引，
+  所以做不到「自动发现今天某行公众号发了什么」。
+- 正文短于 100 字的条目照样入库（标题+链接有价值），但案例库抽取会跳过它。
+
 ---
 
 ## 12. X 关键词监控 (`xwatch`, v1.0.11 / 三通道 v1.0.12)
