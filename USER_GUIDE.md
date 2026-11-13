@@ -208,9 +208,11 @@ topnav 右侧显示服务状态：
 >   `python3 -m moni.db.migrate`（只跑迁移, 不碰 `sources` 行）。
 
 **新建源**: 点"+ 新建 source" → 填 id / name / url / type / interval → 保存
-**改 tags**: 行内 "改 tags" 按钮 → 多选弹窗
-**停用源**: 不删, is_active 设为 false 即可 (行内"编辑")
-**抓取配置**: bestblogs/bestblog-* 源可点「抓取配置」编辑 max_feeds / max_articles_per_feed 等参数
+**行内操作 (v1.0.77 起为图标)**: 每行四个图标按钮, 悬停显示名称 —
+滑杆 = 抓取配置、标签 = 改 tags、铅笔 = 编辑、垃圾桶 = 删除
+**改 tags**: 点行内标签图标 → 多选弹窗
+**停用源**: 不删, is_active 设为 false 即可 (点行内铅笔图标)
+**抓取配置**: bestblogs/bestblog-* 源可点滑杆图标编辑 max_feeds / max_articles_per_feed 等参数
 
 ### 3.2 业务 tag tab
 
