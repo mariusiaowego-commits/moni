@@ -110,11 +110,12 @@ _status() {
 }
 
 case "${1:-}" in
-    start)  _start  ;;
-    stop)   _stop   ;;
-    status) _status ;;
+    start)    _start  ;;
+    stop)     _stop   ;;
+    restart)  _stop; sleep 0.5; _start ;;
+    status)   _status ;;
     *)
-        echo "Usage: $0 {start|stop|status}  (dev port $PORT)" >&2
+        echo "Usage: $0 {start|stop|restart|status}  (dev port $PORT)" >&2
         exit 1
         ;;
 esac

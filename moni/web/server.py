@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from moni.share import artifacts as share_artifacts
 from moni.web.exceptions import register_exception_handlers
+from moni.web.security import LocalOriginGuard
 
 # Allowed CORS origin — no wildcards
 ALLOWED_ORIGIN = "http://127.0.0.1:8900"
@@ -100,6 +101,11 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # v1.0.66: Host allowlist + Origin check for unsafe methods (CSRF / DNS
+    # rebinding).  Added after CORS so it is the outermost layer and runs
+    # before anything else touches the request.
+    app.add_middleware(LocalOriginGuard)
 
     # Register web-layer exception handlers
     register_exception_handlers(app)
