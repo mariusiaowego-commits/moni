@@ -70,9 +70,9 @@
           <span class="svc-dot" :class="serviceRunning ? 'svc-dot-on' : 'svc-dot-off'"></span>
           <span class="svc-label" x-text="serviceRunning ? (servicePid ? 'PID ' + servicePid : '运行中') : '已停止'"></span>
         </div>
-        <button class="btn btn-ghost btn-sm" @click="restartService()" :disabled="!serviceRunning" title="重启服务">↻</button>
-        <button class="btn btn-ghost btn-sm" @click="openThemeManager()" title="主题管理">🎨</button>
-        <button class="theme-toggle" @click="toggleDark()" :title="isDarkMode ? '切换亮色' : '切换暗色'" x-text="isDarkMode ? '☀️' : '🌙'"></button>
+        <button class="btn btn-ghost btn-sm" @click="restartService()" :disabled="!serviceRunning" title="重启服务" aria-label="重启服务"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg></button>
+        <button class="btn btn-ghost btn-sm" @click="openThemeManager()" title="主题管理" aria-label="主题管理"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"></circle><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"></circle><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"></circle><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"></circle><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"></path></svg></button>
+        <button class="theme-toggle" @click="toggleDark()" :title="isDarkMode ? '切换亮色' : '切换暗色'" :aria-label="isDarkMode ? '切换亮色' : '切换暗色'"><svg x-show="!isDarkMode" class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg><svg x-show="isDarkMode" class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display: none;"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg></button>
       </div>
     </nav>
 
@@ -96,9 +96,9 @@
             <button type="button" class="search-clear"
                     x-show="articlesSearch"
                     @click="articlesSearch = ''; loadArticles()"
-                    title="清空搜索">×</button>
+                    title="清空搜索" aria-label="清空搜索"><svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
             <!-- v1.0.5.12: 搜索 icon (left, visual hint) -->
-            <span class="search-icon" aria-hidden="true">🔍</span>
+            <span class="search-icon" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg></span>
             <!-- v1.0.5.10: source / tag filters — 后端 /api/articles 已支持 ?source= & ?tag= -->
             <!-- v1.0.13 (Sprint 02 — Q3): use onArticlesFilterChange() so changing
                  source/tag from page N resets to page 1 (otherwise the user lands
@@ -148,7 +148,7 @@
               <tr>
                 <!-- v1.0.8.1: Pin 列固定最左, 大按钮, 不依赖操作列
                      (之前 "操作"列里的 pin 按钮太靠右, 不明显) -->
-                <th class="pin-col-head">Pin</th>
+                <th class="pin-col-head" x-show="articlesSubTab === 'all'">Pin</th>
                 <th x-show="articlesSubTab === 'pinned'"><input type="checkbox" :checked="pinnedAllSelectedOnPage()" @change="pinnedToggleAllOnPage($event)"></th>
                 <th>标题</th><th>来源</th><th style="width: 140px; min-width: 140px;">命中标签</th>
                 <th x-show="articlesSubTab === 'pinned'">Pin 时间</th>
@@ -160,7 +160,7 @@
               <template x-for="a in activeArticles" :key="a.id">
                 <tr>
                   <!-- v1.0.8.1: 32px pin button 在最左, 单独列. 点击 GSAP 弹一下. -->
-                  <td class="pin-col">
+                  <td class="pin-col" x-show="articlesSubTab === 'all'">
                     <button class="pin-btn pin-btn-lg"
                             :class="{ 'is-pinned': a.is_pinned }"
                             :data-aid="a.id"
@@ -180,10 +180,8 @@
                          user can preview the rest without opening
                          the modal. -->
                     <span :title="a.title" x-text="truncateTitle(a.title, 150)"></span>
-                    <span class="badge badge-fresh" x-show="a.is_fresh"
-                          data-tooltip="本次抓取新增 (该信源最新一轮)">fresh</span>
-                    <span class="badge badge-new" x-show="isNew(a.created_at)"
-                          data-tooltip="最近 24 小时内抓取">new</span>
+                    <span class="badge badge-new" x-show="a.is_fresh || isNew(a.created_at)"
+                          :title="a.is_fresh ? '本次抓取新增' : '24 小时内抓取'">新</span>
                   </td>
                   <td x-text="a.source"></td>
                   <td class="tags-cell">
@@ -205,7 +203,7 @@
                   <td x-show="articlesSubTab === 'pinned'" x-text="formatTime(a.pinned_at)"></td>
                   <td x-show="articlesSubTab === 'all'" x-text="formatTime(a.published_at || a.fetched_at || a.created_at)"></td>
                   <td x-text="formatTime(a.created_at)"></td>
-                  <td><div class="row-actions"><a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a><button class="btn-danger btn-sm" @click="showDeleteModal(a)">删除</button></div></td>
+                  <td><div class="row-actions"><button class="link-btn" x-show="articlesSubTab === 'pinned'" @click="togglePin(a.id)">取消 Pin</button><a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a><button class="btn-danger" @click="showDeleteModal(a)">删除</button></div></td>
                 </tr>
               </template>
               <tr x-show="activeArticles.length === 0">
@@ -253,8 +251,8 @@
               <button type="button" class="search-clear"
                       x-show="crudSearch"
                       @click="crudSearch = ''; loadCrudArticles()"
-                      title="清空搜索">×</button>
-              <span class="search-icon" aria-hidden="true">🔍</span>
+                      title="清空搜索" aria-label="清空搜索"><svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+              <span class="search-icon" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg></span>
             </div>
             <!-- v1.0.5.11: opens the create form modal.  Backend POST
                  /api/articles was added in v1.0.5.10, this wires the UI. -->
@@ -277,7 +275,7 @@
                   <td class="url-cell"><a class="link" :class="{'link-blocked': isBlockedUrl(a.url)}" :href="safeHref(a.url)" target="_blank" rel="noopener noreferrer" x-text="a.url"></a></td>
                   <td>
                     <div class="row-actions">
-                      <button class="btn-secondary" @click="openCrudForm(a)">编辑</button>
+                      <button class="link-btn" @click="openCrudForm(a)">编辑</button>
                       <button class="btn-danger"    @click="showDeleteModal(a)">删除</button>
                     </div>
                   </td>
@@ -471,15 +469,15 @@
               <details class="fetch-summary-details fetch-all-details">
                 <summary class="fetch-summary-summary">
                   <span class="fetch-summary-title"
-                        x-text="(fetchAllResult?.status === 'done' ? '✅ 全部完成' : '⚠️ 部分失败')
+                        x-text="(fetchAllResult?.status === 'done' ? '全部完成' : '部分失败')
                           + ' · ' + (fetchAllResult?.sources_ok ?? '') + '/' + (fetchAllResult?.sources_total ?? '') + ' 源 · 新增 '
                           + (fetchAllResult?.total_inserted ?? 0) + ' 篇'"></span>
                   <span class="fetch-raw-hint">分源明细 · 点击展开</span>
                 </summary>
                 <div class="fetch-all-summary fetch-all-summary-in-ops">
                   <div class="fa-header">
-                    <span x-show="fetchAllResult?.status === 'done'" class="fa-status-ok">✅ 全部完成</span>
-                    <span x-show="fetchAllResult?.status === 'partial'" class="fa-status-warn">⚠️ 部分失败</span>
+                    <span x-show="fetchAllResult?.status === 'done'" class="fa-status-ok">全部完成</span>
+                    <span x-show="fetchAllResult?.status === 'partial'" class="fa-status-warn">部分失败</span>
                     <span class="fa-stat" x-text="(fetchAllResult?.sources_ok ?? '') + '/' + (fetchAllResult?.sources_total ?? '') + ' 源成功'"></span>
                     <span class="fa-stat" x-text="'新增 ' + (fetchAllResult?.total_inserted ?? 0) + ' 篇'"></span>
                     <span x-show="fetchAllResult?.date_from" class="fa-stat fa-catchup" x-text="'周末补抓: ' + (fetchAllResult?.date_from ?? '') + ' 起'"></span>
@@ -700,10 +698,10 @@
         <div class="modal-content fetch-modal">
           <div class="modal-header">
             <h3>
-              <span x-show="fetchBatchMode">⚡ 全部抓取</span>
+              <span x-show="fetchBatchMode">全部抓取</span>
               <span x-show="!fetchBatchMode">抓取中: <span x-text="fetchProgress?.source || '...'"></span></span>
             </h3>
-            <button class="modal-close" @click="closeFetchProgress()" aria-label="关闭">&times;</button>
+            <button class="modal-close" @click="closeFetchProgress()" aria-label="关闭"><svg class="icon icon-18" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
           </div>
 
           <!-- Particle stage -->
@@ -721,13 +719,13 @@
             <canvas id="particleCanvas"></canvas>
             <!-- v1.0.9.8: feed info above particles -->
             <div id="feedInfoBar" style="position:absolute; top:50px; left:50%; transform:translateX(-50%); text-align:center; z-index:4; pointer-events:none;">
-              <div id="feedName" style="font-size:0.78rem; color:var(--muted-fg); margin-bottom:2px;"></div>
-              <div style="font-size:0.85rem; color:var(--foreground);">
+              <div id="feedName" style="font-size:var(--font-12); color:var(--muted-fg); margin-bottom:2px;"></div>
+              <div style="font-size:var(--font-14); color:var(--foreground);">
                 已抓 <b id="modalArticleCount">0</b> 篇
               </div>
             </div>
             <div class="completion-overlay" id="completionOverlay">
-              <div class="completion-check">✓</div>
+              <div class="completion-check"><svg class="icon icon-24" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></div>
               <div class="completion-text">抓取完成！</div>
               <div class="completion-sub" id="completionSub"></div>
             </div>
@@ -741,21 +739,21 @@
               'dot-failed': fetchProgress?.status === 'failed' || fetchProgress?.status === 'timeout'
             }"></span>
             <span class="fetch-status-text" id="fetchStatusText">抓取中...</span>
-            <span class="muted" style="margin-left:auto; font-size:0.82rem;" x-text="fetchProgress ? `(${fetchProgress.elapsed_seconds}s)` : ''"></span>
+            <span class="muted" style="margin-left:auto; font-size:var(--font-13);" x-text="fetchProgress ? `(${fetchProgress.elapsed_seconds}s)` : ''"></span>
           </div>
 
           <!-- ── Batch mode: source-level progress bar ── -->
           <div x-show="fetchBatchMode" style="margin-bottom:14px;">
-            <div class="muted" style="font-size:12px; margin-bottom:4px;">源进度</div>
+            <div class="muted" style="font-size:var(--font-12); margin-bottom:4px;">源进度</div>
             <div style="background:var(--bg-secondary); border-radius:6px; height:18px; overflow:hidden; position:relative;">
               <div :style="`background:var(--accent); height:100%; width:${fetchBatchPercent}%; transition:width 0.3s ease;`"></div>
-              <div style="position:absolute; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:600;"
+              <div style="position:absolute; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; font-size:var(--font-12); font-weight:600;"
                 x-text="fetchProgress ? `${fetchProgress.done_sources || 0} / ${fetchProgress.total_sources || 0} 源` : '...'"></div>
             </div>
           </div>
 
           <!-- ── Batch mode: current feed ── -->
-          <div x-show="fetchBatchMode" style="font-size:13px; margin-bottom:14px;">
+          <div x-show="fetchBatchMode" style="font-size:var(--font-13); margin-bottom:14px;">
             <div class="muted">当前源: <span x-text="fetchProgress?.current_source || '—'" style="font-family:monospace;"></span></div>
             <div x-show="fetchProgress?.current_feed" class="muted" style="margin-top:2px;">feed: <span x-text="fetchProgress?.current_feed || ''" style="font-family:monospace;"></span></div>
           </div>
@@ -764,14 +762,14 @@
           <div x-show="!fetchBatchMode" style="margin-bottom:14px;">
             <div style="background:var(--bg-secondary); border-radius:6px; height:18px; overflow:hidden; position:relative;">
               <div :style="`background:var(--accent); height:100%; width:${fetchProgressPercent}%; transition:width 0.3s ease;`"></div>
-              <div style="position:absolute; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:600;"
+              <div style="position:absolute; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; font-size:var(--font-12); font-weight:600;"
                 x-text="fetchProgress ? `${fetchProgress.done_feeds || 0} / ${fetchProgress.total_feeds || 0}` : '...'"></div>
             </div>
-            <div class="muted" style="margin-top:8px; font-size:13px;">当前 feed: <span x-text="fetchProgress?.current_feed || '(初始化中)'" style="font-family:monospace;"></span></div>
+            <div class="muted" style="margin-top:8px; font-size:var(--font-13);">当前 feed: <span x-text="fetchProgress?.current_feed || '(初始化中)'" style="font-family:monospace;"></span></div>
           </div>
 
           <!-- Articles counter -->
-          <div style="font-size:13px; display:flex; gap:20px;">
+          <div style="font-size:var(--font-13); display:flex; gap:20px;">
             <span>已抓 <b id="bottomArticleCount" x-text="fetchProgress?.articles_so_far || 0"></b> 篇</span>
             <span class="muted">每 5 秒自动刷新</span>
           </div>
@@ -832,7 +830,6 @@
           <span class="llm-stat"><span class="dot dot-done"></span>完成 <b x-text="llmJobsStats.done"></b></span>
           <span class="llm-stat"><span class="dot dot-failed"></span>失败 <b x-text="llmJobsStats.failed"></b></span>
           <span class="llm-stat"><span class="dot dot-cancelled"></span>取消 <b x-text="llmJobsStats.cancelled"></b></span>
-          <button class="link-btn" @click="loadLlmJobs()">刷新</button>
         </div>
         <table class="data-table">
           <thead>
@@ -918,10 +915,10 @@
               <span x-show="!briefSubmitting" x-text="'用当前 Pin 生成简报 (' + (pinnedTotal || 0) + ')'"></span>
               <span x-show="briefSubmitting">提交中…</span>
             </button>
-            <span class="muted" style="font-size:0.85em;"
+            <span class="muted" style="font-size:var(--font-14);"
                   x-show="(pinnedTotal || 0) === 0">先去文章流 Pin 至少 1 篇</span>
           </div>
-          <p x-show="briefError" class="text-danger" style="margin:10px 0 0; font-size:0.9em;" x-text="briefError"></p>
+          <p x-show="briefError" class="text-danger" style="margin:10px 0 0; font-size:var(--font-14);" x-text="briefError"></p>
 
           <!-- sticky current brief status -->
           <div x-show="activeBriefTask" class="panel-soft">
@@ -930,7 +927,7 @@
               <span class="status-badge" :class="'status-' + (activeBriefTask?.status || '')"
                     x-text="activeBriefTask?.status || ''"></span>
             </div>
-            <div style="font-size:0.85em; margin-top:6px;" class="muted"
+            <div style="font-size:var(--font-14); margin-top:6px;" class="muted"
                  x-text="briefStageLabel(activeBriefTask?.progress_stage) + ' · ' + (activeBriefTask?.progress_pct ?? 0) + '%' + (activeBriefTask?.progress_message ? ' — ' + activeBriefTask.progress_message : '')"></div>
             <div class="progress-track" style="margin-top:8px;"
                  x-show="activeBriefTask && (activeBriefTask.status === 'running' || activeBriefTask.status === 'pending')">
@@ -952,9 +949,9 @@
               <template x-if="activeBriefTask && ['pending','running','paused','failed'].includes(activeBriefTask.status)">
                 <button class="btn-secondary" class="text-danger" @click="shareTaskCancel(activeBriefTask.id)">丢弃</button>
               </template>
-              <span class="muted" style="font-size:0.8em;" x-text="'任务 ' + (activeBriefTask?.id || '')"></span>
+              <span class="muted" style="font-size:var(--font-13);" x-text="'任务 ' + (activeBriefTask?.id || '')"></span>
             </div>
-            <p x-show="activeBriefTask?.error" class="text-danger" style="font-size:0.85em; margin:8px 0 0;"
+            <p x-show="activeBriefTask?.error" class="text-danger" style="font-size:var(--font-14); margin:8px 0 0;"
                x-text="activeBriefTask?.error"></p>
           </div>
         </div>
@@ -974,7 +971,7 @@
             <button class="subtab"
                     :class="{ 'is-active': shareArticleSource === 'all' }"
                     @click="setShareArticleSource('all')">
-              <span class="subtab-icon">📋</span> 全部文章
+              <span class="subtab-icon" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg></span> 全部文章
             </button>
             <button class="subtab"
                     :class="{ 'is-active': shareArticleSource === 'pinned' }"
@@ -1121,9 +1118,9 @@
           <p x-show="selectedArticleIds.length > 0 && shareBBIneligibleCount > 0"
              data-testid="bb-ineligible-hint"
              class="banner-warning">
-            ⚠️ 已选 <strong x-text="shareBBIneligibleCount"></strong> 篇非 bestblogs 源文章，BB 增强仅对 bestblogs / bestblog-podcast / bestblog-x / bestblog-yt 源生效（其他文章会被静默跳过，不消耗 API 额度）。
+            <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px; vertical-align: -2px;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>已选 <strong x-text="shareBBIneligibleCount"></strong> 篇非 bestblogs 源文章，BB 增强仅对 bestblogs / bestblog-podcast / bestblog-x / bestblog-yt 源生效（其他文章会被静默跳过，不消耗 API 额度）。
           </p>
-          <p class="muted" style="font-size: 0.85em; margin-top: 4px;">
+          <p class="muted" style="font-size:var(--font-14); margin-top: 4px;">
             注: 勾选任一增强选项会调用 BestBlogs API（每天 50 次免费额度）。已拉取的文章不会重复调用。
           </p>
         </div>
@@ -1134,8 +1131,8 @@
              exhausted.  Empty input == use the default. -->
         <div class="share-section">
           <details>
-            <summary style="cursor:pointer; color:var(--muted-fg); font-size: 0.9em;">
-              ⚙ 高级选项 (provider / model 覆盖)
+            <summary style="cursor:pointer; color:var(--muted-fg); font-size:var(--font-14);">
+              <svg class="icon icon-14" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px; vertical-align: -2px;"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>高级选项 (provider / model 覆盖)
             </summary>
             <div style="margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap;">
               <label>
@@ -1216,7 +1213,7 @@
               <tbody>
                 <template x-for="q in shareQueue" :key="q.id">
                   <tr>
-                    <td x-text="q.id" style="font-size:0.8em; max-width:10em; overflow:hidden; text-overflow:ellipsis;" :title="q.id"></td>
+                    <td x-text="q.id" style="font-size:var(--font-13); max-width:10em; overflow:hidden; text-overflow:ellipsis;" :title="q.id"></td>
                     <td x-text="q.article_count"></td>
                     <td x-text="q.format"></td>
                     <td><span class="status-badge" :class="'status-' + q.status" x-text="q.status"></span></td>
@@ -1226,7 +1223,7 @@
                            the cell empty so the table doesn't bloat). -->
                       <template x-if="q.status === 'running' && q.progress_pct !== null && q.progress_pct !== undefined">
                         <div style="min-width: 80px;">
-                          <div style="font-size: 0.8em; margin-bottom: 2px;"
+                          <div style="font-size:var(--font-13); margin-bottom: 2px;"
                                x-text="(q.progress_stage || '?') + ' · ' + q.progress_pct + '%'"></div>
                           <div class="progress-track progress-track-sm">
                             <div :style="'background:var(--chart-1); height: 100%; width: ' + q.progress_pct + '%; transition: width 0.5s;'"></div>
@@ -1364,7 +1361,7 @@
         <div class="modal-content" x-show="basketDetail">
           <div class="modal-header">
             <h3>菜篮子详情</h3>
-            <button class="modal-close" @click="basketDetail = null" aria-label="关闭">&times;</button>
+            <button class="modal-close" @click="basketDetail = null" aria-label="关闭"><svg class="icon icon-18" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
           </div>
           <div class="modal-body" x-show="basketDetail">
             <div class="detail-field">
@@ -1403,7 +1400,7 @@
             </div>
             <div class="detail-field">
               <label>原文链接</label>
-              <div><a :class="{'link-btn-blocked': isBlockedUrl(basketDetail?.url)}" :href="safeHref(basketDetail?.url)" target="_blank" rel="noopener noreferrer" class="link-btn">打开原文 ↗</a></div>
+              <div><a :class="{'link-btn-blocked': isBlockedUrl(basketDetail?.url)}" :href="safeHref(basketDetail?.url)" target="_blank" rel="noopener noreferrer" class="link-btn">打开原文<svg class="icon icon-14" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-left: 4px;"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg></a></div>
             </div>
             <div class="detail-field" x-show="basketDetail?.raw_content">
               <label>内容预览</label>
@@ -1584,7 +1581,7 @@
              class="cal-popover">
           <div class="cal-popover-head">
             <div class="cal-popover-date" x-text="calendarPopover.date"></div>
-            <button @click="calendarClosePopover()" class="cal-popover-close" aria-label="关闭">×</button>
+            <button @click="calendarClosePopover()" class="cal-popover-close" aria-label="关闭"><svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
           </div>
           <div class="cal-popover-list">
             <template x-for="evt in calendarEventsForDay(calendarPopover.date)" :key="evt.event_id">
@@ -1660,7 +1657,7 @@
               <template x-for="cs in casesSearchResults" :key="cs.case_id">
                 <div class="case-card" @click="casesOpenDetail(cs)">
                   <button type="button" class="case-card-del" title="删除"
-                          @click.stop="casesDelete(cs.case_id, $event)" aria-label="删除">×</button>
+                          @click.stop="casesDelete(cs.case_id, $event)" aria-label="删除"><svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
                   <div class="case-card-head">
                     <span class="case-id" x-text="cs.case_id"></span>
                     <span class="case-subject" x-text="cs.subject"></span>
@@ -1697,7 +1694,7 @@
                 <template x-for="cs in cases" :key="cs.case_id">
                   <div class="case-card" @click="casesOpenDetail(cs)">
                     <button type="button" class="case-card-del" title="删除"
-                            @click.stop="casesDelete(cs.case_id, $event)" aria-label="删除">×</button>
+                            @click.stop="casesDelete(cs.case_id, $event)" aria-label="删除"><svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
                     <div class="case-card-head">
                       <span class="case-id" x-text="cs.case_id"></span>
                       <span class="case-subject" x-text="cs.subject"></span>
@@ -1777,7 +1774,7 @@
         <!-- 案例详情 modal -->
         <div x-show="casesDetail" x-cloak @click.self="casesCloseDetail()"
              x-transition.opacity.duration.150ms
-             class="modal-backdrop-dim" style="position: fixed; inset: 0; z-index: 9998;">
+             class="modal-backdrop-dim" style="position: fixed; inset: 0; z-index: var(--z-modal);">
           <div x-show="casesDetail" class="case-detail" @click.stop>
             <template x-if="casesDetail">
               <div>
@@ -1795,7 +1792,7 @@
                             :disabled="casesEditBusy" @click="casesSaveEdit()">保存</button>
                     <button type="button" class="btn btn-ghost btn-sm" x-show="casesEditing"
                             :disabled="casesEditBusy" @click="casesCancelEdit()">取消</button>
-                    <button @click="casesCloseDetail()" class="cal-popover-close" aria-label="关闭">×</button>
+                    <button @click="casesCloseDetail()" class="cal-popover-close" aria-label="关闭"><svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
                   </div>
                 </div>
 
@@ -1869,9 +1866,9 @@
                       <span class="case-kw-chip">
                         <span x-text="kw.keyword"></span>
                         <button type="button" x-show="kw.source_type === 'manual_user'"
-                                class="case-kw-x" title="删除标签"
+                                class="case-kw-x" title="删除标签" aria-label="删除标签"
                                 :disabled="casesTagBusy"
-                                @click="casesRemoveTag(kw)">×</button>
+                                @click="casesRemoveTag(kw)"><svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
                       </span>
                     </template>
                     <span class="stats-outcomes-hint" x-show="!casesTags.length">暂无标签</span>
@@ -2018,14 +2015,14 @@
                       <button type="button" class="btn btn-ghost btn-sm"
                               @click="resetExclusions()">一键重置</button>
                       <button type="button" class="btn btn-ghost btn-sm"
-                              aria-label="关闭" @click="closeExcludePanel()">关闭 ✕</button>
+                              aria-label="关闭" @click="closeExcludePanel()">关闭</button>
                     </div>
                   </div>
                   <div class="stats-exclude-selected" x-show="excludedItemCount()">
                     <template x-for="chip in excludedChips()" :key="chip.key">
                       <button type="button" class="stats-exclude-chip is-excluded"
                               @click="removeExclusion(chip)">
-                        <span class="stats-exclude-ban" aria-hidden="true">🚫</span>
+                        <span class="stats-exclude-ban" aria-hidden="true"><svg class="icon icon-14" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m4.9 4.9 14.2 14.2"></path></svg></span>
                         <span x-text="chip.label"></span>
                       </button>
                     </template>
@@ -2056,7 +2053,7 @@
                               :class="{ 'is-excluded': isKeywordExcluded(kw) }"
                               :aria-pressed="isKeywordExcluded(kw)"
                               @click="toggleKeyword(kw)">
-                        <span class="stats-exclude-ban" x-show="isKeywordExcluded(kw)" aria-hidden="true">🚫</span>
+                        <span class="stats-exclude-ban" x-show="isKeywordExcluded(kw)" aria-hidden="true"><svg class="icon icon-14" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m4.9 4.9 14.2 14.2"></path></svg></span>
                         <span x-text="kw"></span>
                       </button>
                     </template>
@@ -2079,7 +2076,7 @@
                                   :class="{ 'is-excluded': isRegionExcluded(group.region) }"
                                   :aria-pressed="isRegionExcluded(group.region)"
                                   @click="toggleRegion(group.region)">
-                            <span class="stats-exclude-ban" x-show="isRegionExcluded(group.region)" aria-hidden="true">🚫</span>
+                            <span class="stats-exclude-ban" x-show="isRegionExcluded(group.region)" aria-hidden="true"><svg class="icon icon-14" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m4.9 4.9 14.2 14.2"></path></svg></span>
                             <span x-text="group.label"></span>
                           </button>
                           <template x-for="c in group.countries" :key="c.code">
@@ -2087,7 +2084,7 @@
                                     :class="{ 'is-excluded': isCountryExcluded(c.code) }"
                                     :aria-pressed="isCountryExcluded(c.code)"
                                     @click="toggleCountry(c.code)">
-                              <span class="stats-exclude-ban" x-show="isCountryExcluded(c.code)" aria-hidden="true">🚫</span>
+                              <span class="stats-exclude-ban" x-show="isCountryExcluded(c.code)" aria-hidden="true"><svg class="icon icon-14" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m4.9 4.9 14.2 14.2"></path></svg></span>
                               <span x-text="c.name"></span>
                             </button>
                           </template>
@@ -2281,11 +2278,11 @@
             </div>
             <div class="stats-module-primary">
               <span x-text="fmt(efficiency.raw?.total_savings_minutes || 0)"></span>
-              <span style="font-size:13px; color: var(--muted-fg)">分钟</span>
+              <span style="font-size:var(--font-13); color: var(--muted-fg)">分钟</span>
             </div>
             <div class="stats-module-row"><span>任务数</span><strong x-text="fmt(efficiency.count || 0)"></strong></div>
             <div class="stats-module-row"><span>口径</span><strong x-text="efficiency.display_label"></strong></div>
-            <div class="stats-module-row"><span>来源</span><strong x-text="efficiency.t0_source" style="font-size:10px"></strong></div>
+            <div class="stats-module-row"><span>来源</span><strong x-text="efficiency.t0_source" style="font-size:var(--font-12)"></strong></div>
           </div>
 
           <!-- v1.0.25: 事实核查 method 分布 (第 6 块) -->
@@ -2454,13 +2451,13 @@
                       <template x-for="t in s.tags" :key="t">
                         <span class="tag-chip" x-text="t"></span>
                       </template>
-                      <button class="link-btn" @click="configEditSourceTags(s)">改 tags</button>
                     </td>
                     <td>
                       <div class="row-actions">
-                        <button class="link-btn" @click="configEditFetchConfig(s)">抓取配置</button>
-                        <button class="btn-link" @click="configEditSource(s)">编辑</button>
-                        <button class="btn-danger" @click="configDeleteSource(s)">删除</button>
+                        <button class="icon-btn" title="抓取配置" aria-label="抓取配置" @click="configEditFetchConfig(s)"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"></line><line x1="10" x2="3" y1="4" y2="4"></line><line x1="21" x2="12" y1="12" y2="12"></line><line x1="8" x2="3" y1="12" y2="12"></line><line x1="21" x2="16" y1="20" y2="20"></line><line x1="12" x2="3" y1="20" y2="20"></line><line x1="14" x2="14" y1="2" y2="6"></line><line x1="8" x2="8" y1="10" y2="14"></line><line x1="16" x2="16" y1="18" y2="22"></line></svg></button>
+                        <button class="icon-btn" title="改 tags" aria-label="改 tags" @click="configEditSourceTags(s)"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"></path><path d="M7 7h.01"></path></svg></button>
+                        <button class="icon-btn" title="编辑" aria-label="编辑" @click="configEditSource(s)"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path><path d="m15 5 4 4"></path></svg></button>
+                        <button class="icon-btn icon-btn-danger" title="删除" aria-label="删除" @click="configDeleteSource(s)"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>
                       </div>
                     </td>
                   </tr>
@@ -2532,7 +2529,7 @@
             <select x-model="configFilterSourceFilter" @change="filterFiltersBySource()"
                     style="margin-left: 12px; padding: 4px 8px;">
               <option value="">所有 source (含全局)</option>
-              <option value="__global__">🌐 全局通用规则 (所有信源)</option>
+              <option value="__global__">全局通用规则 (所有信源)</option>
               <template x-for="s in configSources" :key="s.id">
                 <option :value="s.id" x-text="s.name"></option>
               </template>
@@ -2556,7 +2553,7 @@
                     <td x-text="f.id"></td>
                     <td>
                       <template x-if="f.is_global || f.source_id === '__global__'">
-                        <span class="badge-global">🌐 全局生效</span>
+                        <span class="badge-global">全局生效</span>
                       </template>
                       <template x-if="!f.is_global && f.source_id !== '__global__'">
                         <span x-text="f.source_id"></span>
@@ -2614,7 +2611,7 @@
             </div>
             <div class="surface-muted">
               <div class="muted">可用模型</div>
-              <div style="font-size: 1.4em; font-weight: bold;" x-text="llmGateway?.gateway?.model_count ?? '-'"></div>
+              <div style="font-size:var(--font-24); font-weight: bold;" x-text="llmGateway?.gateway?.model_count ?? '-'"></div>
               <div class="muted">路由组 <span x-text="(llmGateway?.gateway?.groups || []).length"></span> 个</div>
             </div>
             <div class="surface-muted">
@@ -2831,16 +2828,16 @@
             <!-- Summary cards -->
             <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 24px;">
               <div class="surface-muted" style="min-width: 140px;">
-                <div class="muted" style="font-size: 0.85em;">总请求数</div>
-                <div style="font-size: 1.4em; font-weight: bold;" x-text="(llmUsage?.summary?.total_requests ?? 0).toLocaleString()"></div>
+                <div class="muted" style="font-size:var(--font-14);">总请求数</div>
+                <div style="font-size:var(--font-24); font-weight: bold;" x-text="(llmUsage?.summary?.total_requests ?? 0).toLocaleString()"></div>
               </div>
               <div class="surface-muted" style="min-width: 140px;">
-                <div class="muted" style="font-size: 0.85em;">总 Token</div>
-                <div style="font-size: 1.4em; font-weight: bold;" x-text="(llmUsage?.summary?.total_tokens ?? 0).toLocaleString()"></div>
+                <div class="muted" style="font-size:var(--font-14);">总 Token</div>
+                <div style="font-size:var(--font-24); font-weight: bold;" x-text="(llmUsage?.summary?.total_tokens ?? 0).toLocaleString()"></div>
               </div>
               <div class="surface-muted" style="min-width: 140px;">
-                <div class="muted" style="font-size: 0.85em;">总费用 (估)</div>
-                <div style="font-size: 1.4em; font-weight: bold;" x-text="'$' + (llmUsage?.summary?.total_cost ?? 0).toFixed(4)"></div>
+                <div class="muted" style="font-size:var(--font-14);">总费用 (估)</div>
+                <div style="font-size:var(--font-24); font-weight: bold;" x-text="'$' + (llmUsage?.summary?.total_cost ?? 0).toFixed(4)"></div>
               </div>
             </div>
 
@@ -2849,11 +2846,11 @@
             <div x-show="llmUsageGroupBy === 'module'" style="margin-top: 12px;">
               <template x-for="item in (llmUsage?.by_module || [])" :key="item.module || item.label">
                 <div style="display: flex; align-items: center; margin-bottom: 8px; gap: 12px;">
-                  <span style="min-width: 120px; text-align: right; font-size: 0.9em;" x-text="item.module || item.label"></span>
+                  <span style="min-width: 120px; text-align: right; font-size:var(--font-14);" x-text="item.module || item.label"></span>
                   <div class="progress-track" style="flex:1; height:24px; border-radius:4px;">
                     <div :style="'height:100%;border-radius:4px;background:var(--chart-1);width:' + llmBarWidth(item, 'by_module') + '%;min-width:2px;'"></div>
                   </div>
-                  <span style="min-width: 60px; font-size: 0.85em;" x-text="(item.total_tokens ?? item.tokens ?? 0).toLocaleString()"></span>
+                  <span style="min-width: 60px; font-size:var(--font-14);" x-text="(item.total_tokens ?? item.tokens ?? 0).toLocaleString()"></span>
                 </div>
               </template>
               <div x-show="!llmUsage?.by_module || llmUsage.by_module.length === 0" class="muted">暂无数据</div>
@@ -2861,11 +2858,11 @@
             <div x-show="llmUsageGroupBy === 'model'" style="margin-top: 12px;">
               <template x-for="item in (llmUsage?.by_model || [])" :key="item.model || item.label">
                 <div style="display: flex; align-items: center; margin-bottom: 8px; gap: 12px;">
-                  <span style="min-width: 160px; text-align: right; font-size: 0.9em; word-break:break-all;" x-text="item.model || item.label"></span>
+                  <span style="min-width: 160px; text-align: right; font-size:var(--font-14); word-break:break-all;" x-text="item.model || item.label"></span>
                   <div class="progress-track" style="flex:1; height:24px; border-radius:4px;">
                     <div :style="'height:100%;border-radius:4px;background:var(--success);width:' + llmBarWidth(item, 'by_model') + '%;min-width:2px;'"></div>
                   </div>
-                  <span style="min-width: 60px; font-size: 0.85em;" x-text="(item.total_tokens ?? item.tokens ?? 0).toLocaleString()"></span>
+                  <span style="min-width: 60px; font-size:var(--font-14);" x-text="(item.total_tokens ?? item.tokens ?? 0).toLocaleString()"></span>
                 </div>
               </template>
               <div x-show="!llmUsage?.by_model || llmUsage.by_model.length === 0" class="muted">暂无数据</div>
@@ -2873,11 +2870,11 @@
             <div x-show="llmUsageGroupBy === 'date'" style="margin-top: 12px;">
               <template x-for="item in (llmUsage?.by_date || [])" :key="item.date || item.label">
                 <div style="display: flex; align-items: center; margin-bottom: 8px; gap: 12px;">
-                  <span style="min-width: 100px; text-align: right; font-size: 0.9em;" x-text="item.date || item.label"></span>
+                  <span style="min-width: 100px; text-align: right; font-size:var(--font-14);" x-text="item.date || item.label"></span>
                   <div class="progress-track" style="flex:1; height:24px; border-radius:4px;">
                     <div :style="'height:100%;border-radius:4px;background:var(--chart-4);width:' + llmBarWidth(item, 'by_date') + '%;min-width:2px;'"></div>
                   </div>
-                  <span style="min-width: 60px; font-size: 0.85em;" x-text="(item.total_tokens ?? item.tokens ?? 0).toLocaleString()"></span>
+                  <span style="min-width: 60px; font-size:var(--font-14);" x-text="(item.total_tokens ?? item.tokens ?? 0).toLocaleString()"></span>
                 </div>
               </template>
               <div x-show="!llmUsage?.by_date || llmUsage.by_date.length === 0" class="muted">暂无数据</div>
@@ -3024,7 +3021,7 @@
               <span x-html="pinIcon(articleDetail?.is_pinned)"></span>
               <span x-text="articleDetail?.is_pinned ? '已 Pin' : 'Pin'"></span>
             </button>
-            <button class="modal-close" @click="closeArticleDetail()" aria-label="关闭">×</button>
+            <button class="modal-close" @click="closeArticleDetail()" aria-label="关闭"><svg class="icon icon-18" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
           </div>
         </div>
         <div class="modal-body">
@@ -3035,35 +3032,15 @@
             <span class="meta-chip" x-show="articleDetail?.author"><b>作者:</b> <span x-text="articleDetail?.author"></span></span>
           </div>
           <div class="article-content" x-text="articleDetail?.content || '(无内容)'"></div>
-          <div class="article-actions">
-            <button class="btn-primary" @click="generateSummary()" :disabled="summaryLoading">
-              <span x-show="!summaryLoading">生成摘要</span>
-              <span x-show="summaryLoading">生成中...</span>
-            </button>
-            <button class="btn-secondary" @click="generateFactCheck()" :disabled="factCheckLoading">
-              <span x-show="!factCheckLoading">事实核查</span>
-              <span x-show="factCheckLoading">核查中...</span>
-            </button>
-            <!-- v1.0.21: 从当前文章提取同业案例 (F6 UI 触发, sprint 05 遗留补全) -->
-            <button class="btn-secondary" @click="extractCase()" :disabled="caseExtractLoading">
-              <span x-show="!caseExtractLoading">提取案例</span>
-              <span x-show="caseExtractLoading">提取中...</span>
-            </button>
-            <a :class="{'btn-blocked': isBlockedUrl(articleDetail?.url)}" :href="safeHref(articleDetail?.url)" target="_blank" rel="noopener noreferrer" class="btn-secondary">查看原文</a>
-            <button class="btn-secondary" @click="copyArticleUrl()" title="复制原文链接到剪贴板">
-              📋 复制链接
-            </button>
-            <span x-show="copyToast" class="text-success" style="font-size:0.85em; margin-left:4px;">已复制 ✓</span>
-          </div>
           <!-- v1.0.6.8: import full-text for AI analysis (all sources) -->
           <div class="surface-muted" style="margin: 12px 0; padding: 10px;">
             <details>
-              <summary style="cursor:pointer; color:var(--muted-fg); font-size:0.9em;">📥 导入全文（用于 AI 摘要/核查）</summary>
+              <summary style="cursor:pointer; color:var(--muted-fg); font-size:var(--font-14);"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px; vertical-align: -2px;"><path d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M2 15h10"></path><path d="m9 18 3-3-3-3"></path></svg>导入全文（用于 AI 摘要/核查）</summary>
               <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
                 <input type="text" x-model="importFilePath" placeholder="粘贴本地 .md 文件路径"
-                       style="flex:1; font-size:0.85em; padding:6px 8px; border:1px solid var(--border); border-radius:4px;">
-                <button class="btn-primary" @click="importFulltext()" :disabled="importLoading"
-                        style="white-space:nowrap; padding:6px 12px; font-size:0.85em;">
+                       style="flex:1; font-size:var(--font-14); padding:6px 8px; border:1px solid var(--border); border-radius:4px;">
+                <button class="btn-secondary" @click="importFulltext()" :disabled="importLoading"
+                        style="white-space:nowrap; padding:6px 12px; font-size:var(--font-14);">
                   <span x-show="!importLoading">导入</span>
                   <span x-show="importLoading">导入中...</span>
                 </button>
@@ -3078,21 +3055,6 @@
           <div class="summary-box" x-show="articleDetail?.fact_check_conclusion" x-cloak>
             <h4>事实核查结论</h4>
             <p x-text="articleDetail?.fact_check_conclusion"></p>
-          </div>
-          <!-- v1.0.22: 联网核查 + 证据链 (spec 5.1 / 5.2) -->
-          <div class="fact-check-plus-actions">
-            <button class="btn btn-secondary"
-                    @click="generateFactCheck()"
-                    :disabled="factCheckLoading"
-                    x-show="!articleDetail?.has_fact_check">
-              事实核查
-            </button>
-            <button class="btn btn-primary"
-                    @click="enqueueLlmJobFactCheckPlus(articleDetail?.id)"
-                    :disabled="factCheckLoading"
-                    x-show="!articleDetail?.has_web_fact_check">
-              联网核查
-            </button>
           </div>
           <div class="fact-check-evidence" x-show="articleDetail?.has_web_fact_check" x-cloak>
             <details>
@@ -3117,6 +3079,28 @@
               </ol>
             </details>
           </div>
+          <div class="article-actions">
+            <button class="btn-primary" @click="generateSummary()" :disabled="summaryLoading">
+              <span x-show="!summaryLoading">生成摘要</span>
+              <span x-show="summaryLoading">生成中...</span>
+            </button>
+            <button class="btn-secondary" @click="generateFactCheck()" :disabled="factCheckLoading" x-show="!articleDetail?.has_fact_check">
+              <span x-show="!factCheckLoading">事实核查</span>
+              <span x-show="factCheckLoading">核查中...</span>
+            </button>
+            <button class="btn-secondary" @click="enqueueLlmJobFactCheckPlus(articleDetail?.id)" :disabled="factCheckLoading" x-show="!articleDetail?.has_web_fact_check">
+              联网核查
+            </button>
+            <button class="btn-secondary" @click="extractCase()" :disabled="caseExtractLoading">
+              <span x-show="!caseExtractLoading">提取案例</span>
+              <span x-show="caseExtractLoading">提取中...</span>
+            </button>
+            <a :class="{'btn-blocked': isBlockedUrl(articleDetail?.url)}" :href="safeHref(articleDetail?.url)" target="_blank" rel="noopener noreferrer" class="btn-secondary">查看原文</a>
+            <button class="btn-secondary" @click="copyArticleUrl()" title="复制原文链接到剪贴板">
+              <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px;"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>复制链接
+            </button>
+            <span x-show="copyToast" class="text-success" style="font-size:var(--font-14); margin-left:4px;">已复制<svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-left: 2px; vertical-align: -1px;"><path d="M20 6 9 17l-5-5"></path></svg></span>
+          </div>
         </div>
       </div>
     </div>
@@ -3131,7 +3115,7 @@
         <div class="modal-header">
           <h3 x-text="(jobDetail?.task_type === 'summary' ? '摘要' : '事实核查')
                        + ' · ' + (jobDetail?.article_title || jobDetail?.article_id || '')"></h3>
-          <button class="modal-close" @click="closeJobDetail()" aria-label="关闭">×</button>
+          <button class="modal-close" @click="closeJobDetail()" aria-label="关闭"><svg class="icon icon-18" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
         </div>
         <div class="modal-body">
           <div class="article-meta">
@@ -3191,7 +3175,7 @@
           <button class="btn-secondary" @click="copyJobDetail()"
                   x-show="jobDetail?.status === 'done' || jobDetail?.status === 'failed'">
             <span x-show="!jobDetailCopied">复制内容</span>
-            <span x-show="jobDetailCopied">已复制 ✓</span>
+            <span x-show="jobDetailCopied">已复制<svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-left: 2px; vertical-align: -1px;"><path d="M20 6 9 17l-5-5"></path></svg></span>
           </button>
           <button class="btn-secondary" @click="closeJobDetail()">关闭</button>
         </div>
@@ -3209,7 +3193,7 @@
       <div class="modal-content" x-show="shareEstimate">
         <div class="modal-header">
           <h3>确认加入分享队列</h3>
-          <button class="modal-close" @click="cancelShareEstimate()" aria-label="关闭">×</button>
+          <button class="modal-close" @click="cancelShareEstimate()" aria-label="关闭"><svg class="icon icon-18" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
         </div>
         <div class="modal-body">
           <div class="article-meta">
@@ -3254,7 +3238,7 @@
               <b>完成后请到:</b>
               <code x-text="shareEstimate?.artifact_path_template || '—'"></code>
             </p>
-            <p class="muted" style="font-size: 0.85em; margin-top: 8px;">
+            <p class="muted" style="font-size:var(--font-14); margin-top: 8px;">
               注: token / 耗时是粗估, 实际取决于 LLM 输出长度.
               生成后请到「队列状态」表点链接查看.
             </p>
@@ -3262,7 +3246,7 @@
           <div class="summary-box error-text" x-show="shareEstimateError" x-cloak>
             <h4>估算失败</h4>
             <pre class="job-detail-text" x-text="shareEstimateError"></pre>
-            <p class="muted" style="font-size: 0.85em;">
+            <p class="muted" style="font-size:var(--font-14);">
               估算失败时仍可点确认直接入队 (跳过预览).
             </p>
           </div>
@@ -3291,7 +3275,7 @@
           <h3>
             <span x-text="workerModalTitle"></span>
           </h3>
-          <button class="modal-close" @click="closeWorkerModal()" aria-label="关闭">×</button>
+          <button class="modal-close" @click="closeWorkerModal()" aria-label="关闭"><svg class="icon icon-18" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
         </div>
         <div class="modal-body">
           <div class="article-meta" x-show="workerModalResult">
@@ -3311,7 +3295,7 @@
             </span>
             <span class="meta-chip">
               <b>日志路径:</b>
-              <code style="font-size: 0.85em;" x-text="workerModalResult?.log_path"></code>
+              <code style="font-size:var(--font-14);" x-text="workerModalResult?.log_path"></code>
             </span>
           </div>
           <div class="summary-box error-text" x-show="workerModalResult?.error" x-cloak>
@@ -3361,11 +3345,11 @@
                     <button type="button" class="btn btn-secondary btn-sm"
                             :class="{ 'btn-confirmed': configModalTarget.nameConfirmed }"
                             @click="toggleConfirmTagName()">
-                      <span x-text="configModalTarget.nameConfirmed ? '✏️ 修改' : '✓ 确定标识'"></span>
+                      <span x-text="configModalTarget.nameConfirmed ? '修改' : '确定标识'"></span>
                     </button>
                   </template>
                   <template x-if="!!configModalTargetOriginal">
-                    <span class="badge-locked" title="系统主键，已固化不可修改">🔒 已固化</span>
+                    <span class="badge-locked" title="系统主键，已固化不可修改"><svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>已固化</span>
                   </template>
                 </div>
                 <small class="text-danger" x-show="configModalTarget.nameError" x-text="configModalTarget.nameError"></small>
@@ -3430,7 +3414,7 @@
                   <template x-for="(kw, idx) in items" :key="idx">
                     <span class="chip-item">
                       <span class="chip-text" x-text="kw"></span>
-                      <button type="button" class="chip-remove" @click.stop="removeKeyword(idx)" title="删除">×</button>
+                      <button type="button" class="chip-remove" @click.stop="removeKeyword(idx)" title="删除" aria-label="删除"><svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
                     </span>
                   </template>
                   <input type="text"
@@ -3568,7 +3552,7 @@
               <h3>抓取配置 — <span x-text="fetchConfigData.source_name"></span></h3>
             </div>
             <div class="modal-body">
-              <p class="hint" style="margin-bottom:12px; color:var(--muted-fg); font-size:0.9em;">
+              <p class="hint" style="margin-bottom:12px; color:var(--muted-fg); font-size:var(--font-14);">
                 每项显示<strong>中文含义</strong> + 英文 key。保存后立即写入数据库。
               </p>
               <p class="hint" x-show="fetchConfigData.has_custom" class="text-warning">
@@ -3581,7 +3565,7 @@
                     <code class="fetch-config-key" x-text="key"></code>
                     <span class="hint"
                           x-show="fetchConfigData.defaults && fetchConfigData.defaults[key] !== undefined"
-                          style="color:var(--muted-fg); font-size:0.85em;">
+                          style="color:var(--muted-fg); font-size:var(--font-14);">
                       （默认:
                       <span x-text="typeof fetchConfigData.defaults[key] === 'object'
                         ? JSON.stringify(fetchConfigData.defaults[key])
@@ -3617,7 +3601,7 @@
                             :value="fetchConfigTextValue(key)"
                             @change="setFetchConfigTextValue(key, $event.target.value)"
                             placeholder='{"key": "value"}'
-                            style="font-family: ui-monospace, monospace; font-size: 12px;"></textarea>
+                            style="font-family: ui-monospace, monospace; font-size:var(--font-12);"></textarea>
 
                   <!-- plain string -->
                   <input type="text"
@@ -3733,7 +3717,7 @@
                   <small class="muted">选择特定源或全局生效 (全局规则对所有信源生效)</small>
                 </label>
                 <select x-model="configModalTarget.source_id" :disabled="!!configModalTarget.id">
-                  <option value="__global__">🌐 [ 全局通用 (所有信源) ]</option>
+                  <option value="__global__">[ 全局通用 (所有信源) ]</option>
                   <template x-for="s in configSources" :key="s.id">
                     <option :value="s.id" x-text="s.name"></option>
                   </template>
@@ -3741,7 +3725,7 @@
               </div>
               <div class="banner-warning" style="margin-bottom: 16px;"
                    x-show="(configModalTarget.source_id === '__global__' || configModalTarget.is_global) && configModalTarget.mode === 'whitelist'">
-                ⚠️ <strong>全局白名单</strong>将对所有信源生效，未命中的文章将全部被过滤丢弃，请确保关键词覆盖度足够广。
+                <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px; vertical-align: -2px;"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg><strong>全局白名单</strong>将对所有信源生效，未命中的文章将全部被过滤丢弃，请确保关键词覆盖度足够广。
               </div>
               <div class="form-row">
                 <label>模式 mode <span class="required">*</span>
@@ -3773,7 +3757,7 @@
                   <template x-for="(kw, idx) in items" :key="idx">
                     <span class="chip-item">
                       <span class="chip-text" x-text="kw"></span>
-                      <button type="button" class="chip-remove" @click.stop="removeKeyword(idx)" title="删除">×</button>
+                      <button type="button" class="chip-remove" @click.stop="removeKeyword(idx)" title="删除" aria-label="删除"><svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
                     </span>
                   </template>
                   <input type="text"
@@ -3896,7 +3880,7 @@
          @click.self="closeThemeManager()"
          @keydown.escape.window="closeThemeManager()">
       <div class="modal-content" style="max-width:580px;">
-        <h3>🎨 主题管理</h3>
+        <h3>主题管理</h3>
         <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:8px;">
           <button class="theme-tab" :class="{ active: themeTab === 'apply' }" @click="themeTab='apply'">切换主题</button>
           <button class="theme-tab" :class="{ active: themeTab === 'import' }" @click="themeTab='import'">导入主题</button>
@@ -3906,7 +3890,7 @@
             <template x-for="t in themeList" :key="t.name">
               <div class="theme-item" :class="{ active: activeTheme === t.name }" @click="applyTheme(t.name)">
                 <div>
-                  <div class="theme-item-name" x-text="(activeTheme === t.name ? '✓ ' : '') + t.name"></div>
+                  <div class="theme-item-name" x-text="t.name"></div>
                   <div class="theme-item-meta" x-text="Object.keys(t.light).length + ' 个变量' + (t.isDefault ? ' · 内置' : '')"></div>
                   <div class="theme-colors">
                     <div class="theme-dot" :style="'background:' + (t.light['--background'] || 'var(--muted)')"></div>
@@ -3917,20 +3901,20 @@
                   </div>
                 </div>
                 <div style="display:flex;gap:4px;">
-                  <button class="btn btn-ghost btn-sm" x-show="!t.isDefault" @click.stop="deleteTheme(t.name)" title="删除">🗑</button>
+                  <button class="btn btn-ghost btn-sm" x-show="!t.isDefault" @click.stop="deleteTheme(t.name)" title="删除" aria-label="删除"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>
                 </div>
               </div>
             </template>
           </div>
         </div>
         <div x-show="themeTab === 'import'">
-          <p style="font-size:0.85rem;color:var(--muted-fg);margin-bottom:10px;">
+          <p style="font-size:var(--font-14);color:var(--muted-fg);margin-bottom:10px;">
             粘贴 <code style="background:var(--muted);padding:1px 5px;border-radius:3px;">globals.css</code> 内容，自动解析 CSS 变量并保存。
           </p>
           <textarea class="theme-textarea" x-model="themeCssInput" placeholder=":root {\n  --background: ...;\n  ...\n}\n\n.dark { ... }"></textarea>
           <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
             <button class="btn btn-primary" @click="importTheme()">解析并保存</button>
-            <span style="font-size:0.82rem;color:var(--muted-fg);" x-text="themeImportStatus"></span>
+            <span style="font-size:var(--font-13);color:var(--muted-fg);" x-text="themeImportStatus"></span>
           </div>
         </div>
         <div style="margin-top:16px;display:flex;justify-content:flex-end;">

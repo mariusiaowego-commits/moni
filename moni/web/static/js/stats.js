@@ -347,8 +347,8 @@ function statsModule() {
         const pct = items[0].percentage.toFixed(0);
         const label = this.methodLabel(items[0].method);
         centerText =
-          `<text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="20" font-weight="700" fill="#3B82F6">${pct}%</text>` +
-          `<text x="${cx}" y="${cy + 14}" text-anchor="middle" font-size="9" fill="#6B7280">${label}</text>`;
+          `<text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="24" font-weight="700" fill="#3B82F6">${pct}%</text>` +
+          `<text x="${cx}" y="${cy + 14}" text-anchor="middle" font-size="12" fill="#6B7280">${label}</text>`;
       }
       return paths + centerText;
     },

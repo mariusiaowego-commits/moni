@@ -4,6 +4,33 @@
 
 ---
 
+## 进行中: **Web UI 规范化 Phase 1–4 全量完成** (2026-11-12 · Sprint 39–42 · 分支 `feat/web-ui-polish` · PR #186)
+
+UI 体检（agy · unslop skill，62 条 findings：P0×8/P1×29/P2×25）后分 4 个 sprint 落地。
+Sprint 39 只动 CSS 层：新增 `--space-*` / `--radius-*` / `--control-h-*` / `--z-*` / `--chart-*`
+等语义 token，组件规则裸 hex 从 29 处降到 0，`.btn-sm` 归到 `4px 10px / h28`，
+导航项归到 `6px 14px / h36` 并去掉彩色 glow。
+验收：`pytest` 1630 passed / 2 skipped；10 视图亮暗 20 张截图无回归。
+**口径**：移动端不做（PC 专用）；`/fetch` 粒子动效保留。
+后续：Phase 2 按钮与图标、Phase 3 去重与弹窗、Phase 4 PC 视口与对比度。
+
+Phase 2（Sprint 40）已完成：`.link-btn`/`.btn-link` 合并为同一套度量（4px 8px / 28px / 13px），
+行内危险操作降为静默文字态（hover 才出 `--destructive`），`/config` 操作列改 4 个 28px icon-only 按钮
+（sliders / tag / pencil / trash，均带 `aria-label`）；界面 emoji 与字符图标 **25 → 0**，全部换内联 SVG
+（16px / stroke 1.6 / currentColor）。`/config` 表格 30px 横向溢出用 `.url-cell max-width: 240px` 收口。
+验收：pytest 1630 passed / 2 skipped；glyph 扫描 0 命中。
+
+Phase 3（Sprint 41）已完成：pinned 子 tab 下隐藏重复的 Pin 切换列（行内改「取消 Pin」），
+`fresh`+`new` 双徽标合并为单个「新」，删掉大模型任务页第二个「刷新」；
+文章详情弹窗合并重复的「事实核查」，全弹窗仅 1 个 Primary，操作条改为底部 sticky；
+`z-index` 收敛到 `--z-modal(500)` / `--z-toast(1000)`。
+验收：DOM 断言 pinned 态 pin 列 0 可见、每行徽标 ≤1、弹窗 Primary=1、actions `position: sticky`、z=500；pytest 1630 passed / 2 skipped。
+
+Phase 4（Sprint 42）已完成：1280/1440/1920 × 10 视图 `scrollWidth === clientWidth` 30/30；
+可见文本字号从 23 种收敛到 **7 档**（12/13/14/16/18/24/28px，全部走 `--font-*`）；
+全局 `:focus-visible` 2px accent 焦点环；标签 chip 对比度亮/暗最小 11.97:1。
+pytest 1630 passed / 2 skipped。移动端按 dad 决定不做。
+
 ## 已发布: **v1.0.76 — 银行同业 agent 管道** (2026-11-12 · PR #187 · tag `v1.0.76`)
 
 **合并**: `b19df86`（squash，base = `main@7375e84`）· **审计**: 两轮独立只读审计
