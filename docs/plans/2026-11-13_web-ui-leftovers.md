@@ -3,7 +3,8 @@ id: 26111302
 type: plan
 version: v1.0.78
 start_date: 2026-11-13
-status: 进行中
+status: 已完成
+end_date: 2026-11-13
 sprint: "[[sprint-44-web-ui-leftovers-2026-11-13]]"
 ---
 
@@ -34,3 +35,19 @@ sprint: "[[sprint-44-web-ui-leftovers-2026-11-13]]"
 4. `/config` L1/L2 左边缘 `Math.abs(x2-x1) ≤ 2px`
 5. 全站 10 视图 1440 亮/暗截图存 `/private/tmp/ui-audit/after-s44/`，无布局回归
 6. 改动文件 ⊆ `css/main.css` + `index.html`
+
+## 追加（合并前补的缓存修复）
+
+dad 反馈「web 端还没看到变化」：`index.html` 无 `Cache-Control`，浏览器启发式缓存住旧 HTML，
+升级后仍引用旧 `?v=`。本轮同分支追加 `server.py` 的 `serve_root` / `spa_fallback` 返回
+`index.html` 时带 `Cache-Control: no-cache`，并把 `?v=` 提到 `20261113002`。
+
+## 验收结果（2026-11-13）
+
+1. `pytest` → 1739 passed / 2 skipped（`test_039_upgrades_a_db_built_by_old_code` 需在主仓库 `.git`
+   建临时 worktree，沙箱内受限，提权复跑该文件 33 passed）
+2. 生产 8900 实测：三按钮 `h=28px` / `bg=rgba(0,0,0,0)` / `svg width=18` / `stroke=1.8`
+3. 截图 `/private/tmp/ui-audit/prod-s44/nav_light.png`：月牙 + 调色盘清晰可辨
+4. `/config` L1 `x=[120,195,279,380,481]`、L2 `x=[120,182]`，左边缘一致
+5. 全量截图 `/private/tmp/ui-audit/after-s44/`
+6. 改动文件：`css/main.css`、`index.html`、`server.py`（+ 本文档）
