@@ -4578,16 +4578,17 @@ body.has-float-layer .tags-overflow { display: none !important; }
   display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
 }
 .switch-card-title {
+  display: flex; align-items: center; gap: 8px;
   font-size: var(--font-14); font-weight: 600; color: var(--foreground);
   text-align: left;
 }
-.switch-card-tag { display: flex; align-items: center; }
 .switch-card-desc {
   font-size: var(--font-12); color: var(--muted-fg); line-height: 1.5;
   text-align: left;
 }
 .switch-card .mini-tag {
   font-size: var(--font-11); font-weight: 600; padding: 1px 6px;
+  white-space: nowrap;
   border-radius: var(--radius-xs); background: var(--info-muted); color: var(--info-muted-fg);
 }
 .switch-card .mini-tag.warn { background: var(--warning-muted); color: var(--warning-muted-fg); }

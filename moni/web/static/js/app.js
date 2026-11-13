@@ -3330,6 +3330,18 @@ function app() {
     // shareFormat === 'report_png').  Maps 1:1 to the 4 PRD §4
     // approaches.  Default 'baoyu-infographic' (most mature).
     sharePngApproach: 'baoyu-infographic',
+    // v1.0.87: 生图方式选项，每种带一句说明（分段按钮 + 当前项说明同源）
+    sharePngApproachOptions: [
+      { value: 'baoyu-infographic', label: '信息图', desc: '信息图风格，由 baoyu-infographic skill 生成，最成熟稳定。' },
+      { value: 'ljg-card', label: '卡片', desc: '卡片风格，由 ljg-card skill 生成，轻量简洁。' },
+      { value: 'kami', label: '排版', desc: '排版风格，由 kami skill 生成，适合多版式。' },
+      { value: 'direct', label: '直出', desc: '由模型自行撰写生图 prompt 直出，最灵活但不确定性高。' },
+    ],
+    pngApproachDesc() {
+      const cur = this.sharePngApproach;
+      const found = this.sharePngApproachOptions.find(o => o.value === cur);
+      return found ? found.desc : '';
+    },
     // v1.0.5.25: BestBlogs API 增强选项
     shareBBSummarySource: 'moni_ai',  // 'moni_ai' | 'bestblogs' | 'both' | 'none'
     shareBBEnhanceScore: false,

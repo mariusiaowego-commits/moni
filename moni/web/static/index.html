@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261113012">
+  <link rel="stylesheet" href="css/main.css?v=20261113014">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -1132,12 +1132,13 @@
                  style="margin-top:var(--space-4);">
               <div class="share-step-title" style="margin-bottom:var(--space-2);">生图方式</div>
               <div class="segmented-control">
-                <button class="segmented-item" :class="{ 'is-active': sharePngApproach === 'baoyu-infographic' }" @click="sharePngApproach = 'baoyu-infographic'">信息图（推荐）</button>
-                <button class="segmented-item" :class="{ 'is-active': sharePngApproach === 'ljg-card' }" @click="sharePngApproach = 'ljg-card'">卡片</button>
-                <button class="segmented-item" :class="{ 'is-active': sharePngApproach === 'kami' }" @click="sharePngApproach = 'kami'">排版</button>
-                <button class="segmented-item" :class="{ 'is-active': sharePngApproach === 'direct' }" @click="sharePngApproach = 'direct'">直出</button>
+                <template x-for="m in sharePngApproachOptions" :key="m.value">
+                  <button class="segmented-item" :class="{ 'is-active': sharePngApproach === m.value }"
+                          @click="sharePngApproach = m.value"
+                          x-text="m.label + (m.value === 'baoyu-infographic' ? '（推荐）' : '')"></button>
+                </template>
               </div>
-              <small class="muted" style="display:block; margin-top:6px;">baoyu-infographic 最成熟；direct 最灵活但需模型自行撰写生图 prompt。</small>
+              <small class="muted" style="display:block; margin-top:6px;" x-text="pngApproachDesc()"></small>
             </div>
 
             <div x-show="shareFormat === 'info_graphic_png' || shareFormat === 'pdf'"
@@ -1159,9 +1160,8 @@
                       :class="{ 'is-active': shareIncludeAbstract }"
                       @click="shareIncludeAbstract = !shareIncludeAbstract">
                 <span class="switch-card-info">
-                  <span class="switch-card-title">包含 AI 核心摘要</span>
-                  <span class="switch-card-tag"><span class="mini-tag">通用推荐</span></span>
-                  <span class="switch-card-desc">为每篇文章生成一段提炼摘要，作为简报主体内容。</span>
+                  <span class="switch-card-title">提炼内容摘要 <span class="mini-tag">通用推荐</span></span>
+                  <span class="switch-card-desc">为每篇文章生成一段 AI 摘要，作为简报主体内容。</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': shareIncludeAbstract }"></span>
               </button>
@@ -1170,9 +1170,9 @@
                       :disabled="shareBBSummarySource === 'bestblogs'"
                       @click="shareIncludeFactCheck = !shareIncludeFactCheck">
                 <span class="switch-card-info">
-                  <span class="switch-card-title">包含深度事实核查</span>
-                  <span class="switch-card-tag"><span class="mini-tag warn">耗时较长</span></span>
-                  <span class="switch-card-desc">对关键论断做交叉核查，生成可信度标注；BestBlogs 摘要模式下不可用。</span>
+                  <span class="switch-card-title">深度事实核查 <span class="mini-tag warn">耗时较长</span></span>
+                  <span class="switch-card-desc">对关键论断做交叉核查，并标注可信度。</span>
+                  <span class="switch-card-desc" x-show="shareBBSummarySource === 'bestblogs'">当前摘要来源不支持此项，切换为 moni AI 摘要后可用。</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': shareIncludeFactCheck }"></span>
               </button>
@@ -4075,7 +4075,7 @@
   <script src="js/cases.js?v=20260826023"></script>
   <script src="js/stats.js?v=20260827002"></script>
   <script src="js/theme.js?v=20260813019"></script>
-  <script src="js/app.js?v=20261113012"></script>
+  <script src="js/app.js?v=20261113014"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
        GSAP presence, and the scale pop now honours prefers-reduced-motion. -->
