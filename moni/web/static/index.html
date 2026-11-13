@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261113013">
+  <link rel="stylesheet" href="css/main.css?v=20261113014">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -1172,6 +1172,7 @@
                 <span class="switch-card-info">
                   <span class="switch-card-title">深度事实核查 <span class="mini-tag warn">耗时较长</span></span>
                   <span class="switch-card-desc">对关键论断做交叉核查，并标注可信度。</span>
+                  <span class="switch-card-desc" x-show="shareBBSummarySource === 'bestblogs'">当前摘要来源不支持此项，切换为 moni AI 摘要后可用。</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': shareIncludeFactCheck }"></span>
               </button>
@@ -4074,7 +4075,7 @@
   <script src="js/cases.js?v=20260826023"></script>
   <script src="js/stats.js?v=20260827002"></script>
   <script src="js/theme.js?v=20260813019"></script>
-  <script src="js/app.js?v=20261113013"></script>
+  <script src="js/app.js?v=20261113014"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
        GSAP presence, and the scale pop now honours prefers-reduced-motion. -->

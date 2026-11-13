@@ -4588,6 +4588,7 @@ body.has-float-layer .tags-overflow { display: none !important; }
 }
 .switch-card .mini-tag {
   font-size: var(--font-11); font-weight: 600; padding: 1px 6px;
+  white-space: nowrap;
   border-radius: var(--radius-xs); background: var(--info-muted); color: var(--info-muted-fg);
 }
 .switch-card .mini-tag.warn { background: var(--warning-muted); color: var(--warning-muted-fg); }

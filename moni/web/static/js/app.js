@@ -3339,7 +3339,7 @@ function app() {
     ],
     pngApproachDesc() {
       const cur = this.sharePngApproach;
-      const found = (this.sharePngApproachOptions || []).find(o => o.value === cur);
+      const found = this.sharePngApproachOptions.find(o => o.value === cur);
       return found ? found.desc : '';
     },
     // v1.0.5.25: BestBlogs API 增强选项
