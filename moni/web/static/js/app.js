@@ -720,17 +720,28 @@ function app() {
     // v1.0.5.10: name -> {description, keywords} map for hover tooltips
     // on the articles page.  Built from configTags on demand.
     tagTooltipMap: {},
+    // v1.0.84: name -> color，给抓取源/过滤表的 tag chip 上色
+    tagColorMap: {},
+
+    tagChipStyle(name) {
+      const color = this.tagColorMap[name];
+      if (!color) return '';
+      return `--tag-bg: color-mix(in oklab, ${color} 16%, transparent);`
+        + ` --tag-border: color-mix(in oklab, ${color} 36%, transparent);`;
+    },
 
     switchConfigTab(tab) {
       this.configTab = tab || 'sources';
       // Lazy-load data for each config sub-tab
       if (this.configTab === 'sources') {
         this.configLoadSources();
+        this.configLoadTags();   // v1.0.84: 抓取源表格要按 tag 上色
       } else if (this.configTab === 'tags') {
         this.configLoadTags();
       } else if (this.configTab === 'filters') {
         this.configLoadSources();
         this.configLoadFilters();
+        this.configLoadTags();
       } else if (this.configTab === 'llm') {
         if (!this.llmTab) this.llmTab = 'gateway';
         this.loadLlmProviders();
@@ -777,10 +788,13 @@ function app() {
           // v1.0.5.10: refresh the tooltip map so formatTagTooltip()
           // can answer for every visible tag in articles.
           const m = {};
+          const colors = {};
           for (const t of tags) {
             m[t.name] = { description: t.description, keywords: t.keywords || [] };
+            if (t.color) colors[t.name] = t.color;
           }
           this.tagTooltipMap = m;
+          this.tagColorMap = colors;
         })
         .catch(err => { console.error('Failed to load tags:', err); this.configTags = []; });
     },
@@ -879,7 +893,10 @@ function app() {
         this.closeConfigModal();
       }).catch(err => this._notify('error', '保存失败: ' + err.message));
     },
-    configEditSourceTags(source) { this.openConfigModal('sourceTags', source); },
+    configEditSourceTags(source) {
+      this.configLoadTags();
+      this.openConfigModal('sourceTags', source);
+    },
     configSaveSourceTags(sourceId, tagNames) {
       return fetch(`/api/config/sources/${encodeURIComponent(sourceId)}/tags`, {
         method: 'PUT', credentials: 'same-origin',

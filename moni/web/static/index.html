@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261113003">
+  <link rel="stylesheet" href="css/main.css?v=20261113009">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -1227,7 +1227,7 @@
             <span class="muted" x-text="shareQueuePendingCount() + ' 个待处理'"></span>
           </div>
           <div class="table-container">
-            <table>
+            <table class="share-queue-table">
               <thead>
                 <!-- v1.0.5.15: 加"输出"列, 让用户直接打开 done task 的 output_path -->
                 <tr><th>任务ID</th><th>文章数</th><th>格式</th><th>状态</th><th>进度</th><th>时间</th><th>输出</th><th>操作</th></tr>
@@ -2493,7 +2493,7 @@
                     <td class="tags-cell">
                       <div class="tags-flex">
                         <template x-for="t in (s.tags || []).slice(0, 2)" :key="t">
-                          <span class="tag-chip" x-text="t"></span>
+                          <span class="tag-chip" :style="tagChipStyle(t)" x-text="t"></span>
                         </template>
                         <span class="tag-overflow-pill" x-show="(s.tags || []).length > 2" tabindex="0">
                           <span x-text="'+' + ((s.tags || []).length - 2)"></span>
@@ -2501,7 +2501,7 @@
                             <div class="popover-card-title">全部业务标签 (<span x-text="(s.tags || []).length"></span>)</div>
                             <div class="popover-chips">
                               <template x-for="t in s.tags" :key="t">
-                                <span class="popover-chip" x-text="t"></span>
+                                <span class="popover-chip" :style="tagChipStyle(t)" x-text="t"></span>
                               </template>
                             </div>
                           </div>
@@ -3603,9 +3603,10 @@
                   <input type="checkbox" :value="t.name"
                          :checked="configModalTarget.tags?.includes(t.name)"
                          @change="toggleSourceTagInModal(t.name, $event.target.checked)">
-                  <span class="tag-chip" x-text="t.name"></span>
+                  <span class="tag-chip" :style="tagChipStyle(t.name)" x-text="t.name"></span>
                 </label>
               </template>
+              <p class="hint" x-show="configTags.length === 0">暂无 tag，请先在「业务 tag」页签新建。</p>
             </div>
             <div class="modal-footer">
               <button class="btn-secondary" @click="closeConfigModal()">取消</button>
@@ -4008,6 +4009,7 @@
   <!-- v1.0.13: dialog-certainty helpers (must load before app.js) -->
   <script src="js/toast.js?v=1785000000"></script>
   <script src="js/modal.js?v=1785000000"></script>
+  <script src="js/floating.js?v=20261113009"></script>
   <!-- v1.0.47: URL 白名单护栏。必须早于 Alpine 初始化 —— 它是普通 script
        (非 defer), 在文档解析期就执行完, 而 Alpine 是 defer, 解析结束后才跑。
        所以 window.safeHref / window.isSafeUrl 在 Alpine 求值表达式时已就位。 -->
@@ -4016,7 +4018,7 @@
   <script src="js/cases.js?v=20260826023"></script>
   <script src="js/stats.js?v=20260827002"></script>
   <script src="js/theme.js?v=20260813019"></script>
-  <script src="js/app.js?v=20261113003"></script>
+  <script src="js/app.js?v=20261113009"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
        GSAP presence, and the scale pop now honours prefers-reduced-motion. -->

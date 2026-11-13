@@ -63,6 +63,8 @@
   --background: oklch(0.963 0.013 97.4);      /* 纯衣 */
   --foreground: oklch(0.218 0.000 89.9);      /* 玄色 */
   --card: oklch(0.996 0.007 97.3);            /* 雪白 */
+  /* v1.0.84: 弹窗面比纯白雪白柔一档（#FFF 级亮度在浅色页面上刺眼） */
+  --surface-modal: oklch(0.974 0.018 92);
   --card-fg: oklch(0.218 0.000 89.9);         /* 玄色 */
   --muted: oklch(0.928 0.034 84.6);           /* 荔肉白 */
   --muted-fg: oklch(0.486 0.040 87.0);        /* 蟹壳灰 */
@@ -156,6 +158,7 @@
   --background: oklch(0.170 0.004 164.5);     /* 玄黑 */
   --foreground: oklch(0.928 0.034 84.6);      /* 荔肉白 */
   --card: oklch(0.218 0.000 89.9);            /* 玄色 */
+  --surface-modal: oklch(0.238 0.006 89.9);   /* 比卡片略亮，浮起来 */
   --card-fg: oklch(0.928 0.034 84.6);         /* 荔肉白 */
   --row-hover: #241D17;   /* v1.0.45 B07: dark row hover */
   --muted: oklch(0.257 0.030 61.5);           /* 缁 */
@@ -741,8 +744,10 @@ tbody tr:last-child td { border-bottom: none; }
   white-space: nowrap;
   margin: 2px 4px 2px 0;
   transition: background 0.12s, transform 0.1s;
-  /* default background (overridden by inline --tag-bg/--tag-fg) */
-  background: var(--tag-bg, oklch(from var(--chart-2) l c h / 0.12));
+  /* v1.0.84: 每个 tag 用自己的颜色做淡底 + 同色描边，一眼能看出是 tag；
+     没有配色的 tag 退回 accent 淡底。 */
+  background: var(--tag-bg, color-mix(in oklab, var(--accent) 16%, transparent));
+  box-shadow: inset 0 0 0 1px var(--tag-border, transparent);
   color: var(--tag-chip-fg);
 }
 .dark .tag-chip, :root.dark .tag-chip, body.dark .tag-chip { color: var(--tag-chip-fg); }
@@ -832,9 +837,9 @@ section[x-show*="config"] table thead th {
   font-size: var(--font-12, 12px);
   padding: 1px 6px;
   border-radius: var(--radius-xs, 4px);
-  background: var(--muted);
+  background: var(--tag-bg, var(--muted));
   color: var(--foreground);
-  border: 1px solid var(--border);
+  border: 1px solid var(--tag-border, var(--border));
   line-height: 1.4;
   white-space: nowrap;
 }
@@ -1357,7 +1362,7 @@ label { font-size: var(--font-14); }
 }
 .modal-backdrop[style*="display: none"] { opacity: 0; }
 .modal-content {
-  background: var(--card); border: 1px solid var(--border);
+  background: var(--surface-modal); border: 1px solid var(--border);
   border-radius: 16px; padding: 24px;
   width: 90%; max-width: 520px; max-height: 85vh; overflow-y: auto;
   transform: translateY(14px) scale(0.97);
@@ -1380,7 +1385,23 @@ label { font-size: var(--font-14); }
 .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .modal-header h3 { margin-bottom: 0; }
 .modal-body { margin-bottom: 16px; }
-.modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+/* v1.0.84: .modal-content 整体滚动时页脚会被滚出视口（长弹窗的保存按钮看不见），
+   页脚改为吸底并铺满左右/底部内边距，与 .article-actions 同一套做法。 */
+.modal-footer {
+  position: sticky; bottom: -24px;
+  display: flex; justify-content: flex-end; gap: 8px;
+  background: var(--surface-modal);
+  margin: 0 -24px;
+  padding: 12px 24px 16px;
+  border-top: 1px solid var(--border);
+  z-index: 2;
+}
+.modal-content.fetch-modal .modal-footer { bottom: -28px; margin: 0 -32px; padding: 12px 32px 20px; }
+/* 确认弹窗内容短、不存在滚动，保持原有的非吸底样式 */
+.moni-modal-confirm .modal-footer {
+  position: static; bottom: auto; background: transparent;
+  margin: 16px 0 0; padding: 12px 0 0;
+}
 /* v1.0.35.1: modal-footer 自带 gap: 8px, 取消兄弟选择器加的 margin-left 避免叠加到 16px */
 .modal-footer .btn,
 .modal-footer .btn-link,
@@ -4348,3 +4369,38 @@ label { font-size: var(--font-14); }
   text-decoration: none;
   vertical-align: middle;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   v1.0.84: hover 浮层统一挂到 body（position: fixed）
+   .table-container / td 的 overflow 会把绝对定位的 tooltip 裁掉，
+   内容被表格框架切掉。页面内原浮层在 JS 生效后隐藏，改由 #moni-float 渲染。
+   ═══════════════════════════════════════════════════════════════ */
+body.has-float-layer .popover-card,
+body.has-float-layer .tip,
+body.has-float-layer .title-tip,
+body.has-float-layer .tags-overflow { display: none !important; }
+
+#moni-float {
+  position: fixed; z-index: var(--z-toast, 1000);
+  display: none; pointer-events: none;
+  max-width: 360px;
+  background: var(--surface-modal); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 10px 12px;
+  box-shadow: var(--shadow-lg);
+  font-size: var(--font-13); line-height: 1.5; color: var(--card-fg);
+  white-space: normal;
+}
+#moni-float.is-open { display: block; }
+#moni-float .popover-card,
+#moni-float .tip,
+#moni-float .title-tip,
+#moni-float .tags-overflow {
+  display: block !important; position: static !important;
+  width: auto !important; max-width: 340px !important; min-width: 0 !important;
+  background: transparent !important; border: 0 !important;
+  box-shadow: none !important; padding: 0 !important; margin: 0 !important;
+  transform: none !important; z-index: auto !important;
+}
+
+/* 分享队列表头中文曾被拆成竖排（文章数 / 进度），强制一行 */
+.share-queue-table thead th { white-space: nowrap; }
