@@ -2451,3 +2451,16 @@ commit `e593c73`, share copy 同步到 `~/Documents/moni-share/moni-web-showcase
 - commit 链: `6394c6f`(--fg typo) → `cea9e39`(defer) → `ea1a292`(body.dark scope, 失败) → `3353508`(grok fix, 成功). tag `v1.0.35.8`.
 
 share copy: `~/Documents/moni-share/moni-web-showcase.html` (sha256[:16]=`472f6586588366e1`)
+## 已发布: **v1.0.79 — LocalOriginGuard 防 CSRF / DNS-rebinding** (2026-11-13 · PR #171 · tag `v1.0.79`)
+
+**合并**: `4f1acef`（squash，base = `main@a1c1566`）· **测试**: 1743 passed / 2 skipped · **服务**: 8900 生效
+
+中间件 `moni/web/security.py`（纯 ASGI）：Host 白名单（loopback / `testserver` / `MONI_ALLOWED_HOSTS`），
+非 GET/HEAD/OPTIONS 校验 `Sec-Fetch-Site`（须 `same-origin/none`）与 Origin（须匹配 Host），违规 403
+`forbidden_origin`；无 Origin/Sec-Fetch 的 curl/CLI/hermes 直接放行，零前端改动、零 schema 改动。
+背景：该 PR 创建于 2026-11-03（原 v1.0.66 计划，Sprint 27），搁置 10 天后于本轮合并。
+
+实现（8900 实测）：伪造 `Host: evil.com`、伪造 Origin、`Sec-Fetch-Site: cross-site` 均 403；正常 GET、
+同源 POST、静态资源 200。合并前独立核验：本地试合并树全量 pytest 1743 passed / 2 skipped。
+
+## 已发布: **v1.0.78 — Sprint 44 补丁 + 前端缓存修复** (2026-11-13 · Sprint 43–44 · PR #191 · tag `v1.0.78`)
