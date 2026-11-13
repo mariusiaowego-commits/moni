@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261113010">
+  <link rel="stylesheet" href="css/main.css?v=20261113011">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -924,7 +924,6 @@
                   role="tab" @click="shareTab = 'brief'">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
             一键分享
-            <span class="share-tab-hint">默认</span>
           </button>
           <button class="share-tab" :class="{ 'is-active': shareTab === 'custom' }"
                   role="tab" @click="shareTab = 'custom'">
@@ -1159,20 +1158,26 @@
               <button type="button" class="switch-card"
                       :class="{ 'is-active': shareIncludeAbstract }"
                       @click="shareIncludeAbstract = !shareIncludeAbstract">
-                <div>
-                  <h5>包含 AI 核心摘要 <span class="mini-tag">通用推荐</span></h5>
-                  <p>为每篇文章生成一段提炼摘要，作为简报主体内容。</p>
-                </div>
+                <span class="switch-card-info">
+                  <span class="switch-card-title">
+                    包含 AI 核心摘要
+                    <span class="mini-tag">通用推荐</span>
+                  </span>
+                  <span class="switch-card-desc">为每篇文章生成一段提炼摘要，作为简报主体内容。</span>
+                </span>
                 <span class="toggle-switch" :class="{ 'on': shareIncludeAbstract }"></span>
               </button>
               <button type="button" class="switch-card"
                       :class="{ 'is-active': shareIncludeFactCheck }"
                       :disabled="shareBBSummarySource === 'bestblogs'"
                       @click="shareIncludeFactCheck = !shareIncludeFactCheck">
-                <div>
-                  <h5>包含深度事实核查 <span class="mini-tag warn">耗时较长</span></h5>
-                  <p>对关键论断做交叉核查，生成可信度标注；BestBlogs 摘要模式下不可用。</p>
-                </div>
+                <span class="switch-card-info">
+                  <span class="switch-card-title">
+                    包含深度事实核查
+                    <span class="mini-tag warn">耗时较长</span>
+                  </span>
+                  <span class="switch-card-desc">对关键论断做交叉核查，生成可信度标注；BestBlogs 摘要模式下不可用。</span>
+                </span>
                 <span class="toggle-switch" :class="{ 'on': shareIncludeFactCheck }"></span>
               </button>
             </div>
@@ -4074,7 +4079,7 @@
   <script src="js/cases.js?v=20260826023"></script>
   <script src="js/stats.js?v=20260827002"></script>
   <script src="js/theme.js?v=20260813019"></script>
-  <script src="js/app.js?v=20261113010"></script>
+  <script src="js/app.js?v=20261113011"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
        GSAP presence, and the scale pop now honours prefers-reduced-motion. -->
