@@ -1029,6 +1029,7 @@ label { font-size: var(--font-14); }
 .pin-undo-btn:hover { background: oklch(from var(--accent) l c h / 0.15); }
 
 /* v1.0.8: sub-tab buttons (used by the Pin tab in the articles view) */
+.subtab-bar { display: flex; gap: 4px; margin-bottom: 16px; align-items: center; }
 .subtab {
   background: transparent; border: 1px solid transparent;
   padding: 6px 14px; border-radius: 6px;
@@ -1038,7 +1039,8 @@ label { font-size: var(--font-14); }
   transition: color 0.12s, background 0.12s, border-color 0.12s;
 }
 .subtab:hover { color: var(--foreground); background: var(--muted); }
-.subtab.is-active {
+.subtab.is-active,
+.subtab.active {
   color: var(--accent-fg);
   background: var(--accent);
   border-color: var(--accent);
@@ -1537,16 +1539,6 @@ label { font-size: var(--font-14); }
 /* ═══════════════════════════════════════════════════════════════
    Theme Manager
    ═══════════════════════════════════════════════════════════════ */
-.theme-toggle {
-  width: 34px; height: 34px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 8px; border: 1px solid var(--border);
-  background: var(--card); cursor: pointer; font-size: var(--font-14);
-  transition: background 0.15s, transform 0.1s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.3s, box-shadow 0.15s;
-  box-shadow: 0 1px 3px oklch(0 0 0 / 0.05);
-}
-.theme-toggle:hover { background: var(--muted); box-shadow: 0 2px 6px oklch(0 0 0 / 0.08); }
-.theme-toggle:active { transform: scale(0.92); }
 
 .theme-modal .modal-content { max-width: 580px; }
 .theme-textarea {
