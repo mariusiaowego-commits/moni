@@ -3241,8 +3241,8 @@ function app() {
     allArticlesTag: '',
     allArticlesTags: [],
     allArticlesPage: 1,
-    allArticlesPageSize: 50,
-    allArticlesPageSizeOptions: [20, 50, 100, 200],
+    allArticlesPageSize: 24,
+    allArticlesPageSizeOptions: [12, 24, 48, 96],
     allArticlesHasMore: false,
     // v1.0.8: share page article source chip.  'pinned' (default, per
     // user decision 3) shows only article_pins data; 'all' is the
@@ -3339,6 +3339,97 @@ function app() {
     shareInfoGraphicTitle: '同业追踪日报',
     shareQueue: [],
     _sharePollInterval: null,
+    // v1.0.85 (sprint-46): three peer tabs on the share page.
+    shareTab: 'brief',   // 'brief' | 'custom' | 'queue'
+    // One-click brief format cards.  Values MUST stay in sync with
+    // shareFormats / backend FormatEnum — all 7 production formats
+    // are listed (report_png included; the design mock only drew 6).
+    briefFormatCards: [
+      {
+        value: 'html_landing', label: 'HTML 网页', badge: '推荐',
+        desc: '离线独立单页 · 完整图文与折叠交互 · 适合团队内部分享与归档浏览',
+      },
+      {
+        value: 'markdown', label: 'Markdown 文档', badge: '高通用',
+        desc: '纯文本规范文档 · 兼容飞书、Notion 与 GitHub 知识库导入',
+      },
+      {
+        value: 'info_graphic_png', label: '信息图 PNG', badge: '视觉化',
+        desc: '高价值视觉长图 · 提炼金句与数据图表 · 适合即时通讯群发送',
+      },
+      {
+        value: 'report_png', label: '报告 PNG', badge: '单图报告',
+        desc: '单图数据报告 · 关键指标与结论一图概览 · 适合快速传阅',
+      },
+      {
+        value: 'pdf', label: 'PDF 日报', badge: '标准版式',
+        desc: 'A4 标准打印排版 · 含封面与结构化排版 · 适合呈送管理层',
+      },
+      {
+        value: 'rich_text', label: '富媒体文本', badge: '即时交流',
+        desc: '带格式重点高亮 · 富文本可直接粘贴至邮件或钉钉/企微',
+      },
+      {
+        value: 'plain_text', label: '纯文本', badge: '极简',
+        desc: '纯字符紧凑摘要 · 零冗余排版 · 适合快速通读与终端环境阅读',
+      },
+    ],
+
+    shareFormatLabel(value) {
+      const fmt = (this.shareFormats || []).find(f => f.value === value);
+      return fmt ? fmt.label : (value || '');
+    },
+
+    // Queue counters used by the tab badge and the status bar.
+    shareQueueStatusCount(statuses) {
+      return (this.shareQueue || []).filter(q => statuses.includes(q.status)).length;
+    },
+    get shareQueueBadgeCount() {
+      return this.shareQueueStatusCount(['pending', 'running']);
+    },
+    get shareWorkerActive() {
+      return (this.shareQueue || []).some(q => q.status === 'running');
+    },
+
+    get customShareSummary() {
+      const parts = [`已选 ${this.selectedArticleIds.length} 篇`];
+      parts.push(this.shareFormatLabel(this.shareFormat));
+      if (this.shareIncludeAbstract) parts.push('含 AI 摘要');
+      if (this.shareIncludeFactCheck) parts.push('含事实核查');
+      return parts.join(' · ');
+    },
+
+    // Batch actions operate on the visible page of the active source.
+    shareSelectAllOnPage() {
+      const pageIds = (this.shareArticles || []).map(a => a.id);
+      const set = new Set(this.selectedArticleIds);
+      pageIds.forEach(id => set.add(id));
+      this.selectedArticleIds = Array.from(set);
+    },
+    shareClearSelection() {
+      this.selectedArticleIds = [];
+    },
+
+    get shareArticlePage() {
+      return this.shareArticleSource === 'pinned' ? this.pinnedPage : this.allArticlesPage;
+    },
+    get shareArticleHasMore() {
+      return this.shareArticleSource === 'pinned' ? this.pinnedHasMore : this.allArticlesHasMore;
+    },
+    shareArticlePrevPage() {
+      if (this.shareArticleSource === 'pinned') {
+        if (this.pinnedPage > 1) { this.pinnedPage -= 1; this.loadPinnedArticles(); }
+      } else {
+        this.allArticlesPrevPage();
+      }
+    },
+    shareArticleNextPage() {
+      if (this.shareArticleSource === 'pinned') {
+        if (this.pinnedHasMore) { this.pinnedPage += 1; this.loadPinnedArticles(); }
+      } else {
+        this.allArticlesNextPage();
+      }
+    },
 
     loadAllArticles() {
       // v1.0.5.14: source filter + pagination.  Over-fetch one row to
