@@ -2464,3 +2464,23 @@ share copy: `~/Documents/moni-share/moni-web-showcase.html` (sha256[:16]=`472f65
 同源 POST、静态资源 200。合并前独立核验：本地试合并树全量 pytest 1743 passed / 2 skipped。
 
 ## 已发布: **v1.0.78 — Sprint 44 补丁 + 前端缓存修复** (2026-11-13 · Sprint 43–44 · PR #191 · tag `v1.0.78`)
+## 已发布: **v1.0.80 — Sprint 45 标签叠加与按钮散落整改** (2026-11-13 · PR #194 · tag `v1.0.80`)
+
+**合并**: `a84a945`（squash，base = `main@0d61aca`）· **测试**: 1743 passed / 2 skipped · **服务**: 8900 重启后 200
+
+dad 点名「各种标签叠加和按钮乱放」。agy 出 design reference（`/private/tmp/ui-audit/s45/ref/index.html`）后落地：
+`.tags-cell` 的 `font-size:0` + `max-width:calc(100% - 4px)` 让每个 chip 独占一行，`chinese_independent_blogs`
+一行被撑到 **337px**；现改横排 + 单行 ≤2（抓取源）/ ≤3（关键词）+ `+N` 悬停浮层。
+表格改 `table-layout: fixed` + `<colgroup>` 定宽，消除「状态」截成 `启…`、文章时间截成 `2025-03-21 0…`。
+
+列语义化：`所属源→作用范围`、`模式→类型`、`匹配字段→匹配范围`、`关键词→命中关键词`，新增「规则说明」列
+展示数据库**已有但从未展示**的 `notes` 字段（不动 schema；真正的 `name` 字段需 migration 042，dad 决定暂不做）。
+弹窗表单标签同步；抓取配置弹窗补齐 `feed_url` / `*_xpath` / `thresholds` 等此前无 label 的字段。
+
+压层：删 `/config` 8 条孤立「刷新」工具条（`switchConfigTab()` 切页签已自动加载），「新建 xxx」并入标题行，
+`网关/用量统计` 降级为内容区左对齐分段控件。`/articles` 的 `formatTime` 去秒 → `YYYY-MM-DD HH:mm`。
+
+8902 实测：抓取源 18 行全 **44px**、状态列 93px/显示名 174px/规则说明 376px/文章时间 160px 全部 0 截断；
+`/config` chrome **2 层**、内容起始 y=**186px**（改前 298px）；分段控件 `x=120` 与卡片左对齐。
+
+## 已发布: **v1.0.79 — LocalOriginGuard 防 CSRF / DNS-rebinding** (2026-11-13 · PR #171 · tag `v1.0.79`)
