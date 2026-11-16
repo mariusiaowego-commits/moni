@@ -18,7 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 43  # 042 source_author_blocks + 043 reader AI
+_CURRENT_VERSION = 44  # 043 reader AI + 044 orphan rows cleanup
 
 # Migrations <= this version were applied by the old "max(schema_version)"
 # rule, which did not record every intermediate row.  Never re-run them.
@@ -56,6 +56,10 @@ def _run_sql_file(conn: sqlite3.Connection, path: Path) -> None:
     abort subsequent statements.
     """
     raw = path.read_text(encoding="utf-8")
+    # Cleanup migrations may target tables that a hand-built test database
+    # never created.  The file opts in explicitly instead of us swallowing
+    # "no such table" everywhere.
+    allow_missing_tables = "allow-missing-tables" in raw
     sql = re.sub(r"--+.*", "", raw)
     # naive split on ";" doesn't handle BEGIN..END triggers correctly.
     # Try executescript first (handles triggers), fall back to per-stmt on failure.
@@ -75,7 +79,11 @@ def _run_sql_file(conn: sqlite3.Connection, path: Path) -> None:
         try:
             conn.execute(stmt)
         except sqlite3.Error as exc:
-            if "duplicate column" in str(exc).lower():
+            msg = str(exc).lower()
+            if "duplicate column" in msg:
+                pass
+            elif allow_missing_tables and "no such table" in msg:
+                logger.warning("skipping statement, table absent: %s", exc)
                 pass
             else:
                 _rollback_if_needed(conn)
