@@ -4909,9 +4909,6 @@ body.has-float-layer .tags-overflow { display: none !important; }
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: none; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .ai-structured-list > li { animation: none; }
-}
 .reader-body mark.reader-flash {
   background: color-mix(in oklch, var(--accent) 34%, transparent);
   color: inherit;
@@ -5281,4 +5278,5 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
   .ai-orb-cell { animation: none; }
   .ai-orb-cell[data-mid] { opacity: 1; }
   .ai-thought-caret, .cite-chip, .cite-ref { transition: none; }
+  .ai-structured-list > li { animation: none; }
 }
