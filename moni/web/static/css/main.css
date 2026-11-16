@@ -333,6 +333,61 @@ h5, h6 { font-size: var(--font-14); }
 .svc-dot-off { background: var(--muted-fg); }
 .svc-label { white-space: nowrap; }
 
+/* Sprint 52: 顶部服务胶囊 + 悬停 admin 面板 */
+.svc-wrap { position: relative; display: inline-flex; }
+.svc-status {
+  border: 0; font: inherit; text-align: left;
+}
+.svc-panel {
+  display: none;
+  position: absolute; right: 0; top: calc(100% + 8px);
+  width: 320px; padding: 12px 14px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-toast, 1000);
+  font-size: var(--font-13, 13px); color: var(--card-fg);
+  animation: svc-panel-in 0.12s ease both;
+}
+/* 桥接触发器与浮层之间的 8px 空隙，鼠标穿过去不会丢 hover */
+.svc-panel::before {
+  content: ''; position: absolute; left: 0; right: 0; top: -8px; height: 8px;
+}
+.svc-wrap:hover .svc-panel,
+.svc-wrap:focus-within .svc-panel { display: block; }
+.svc-panel-head {
+  display: flex; align-items: center; gap: 6px;
+  font-weight: 600;
+}
+.svc-panel-state { color: var(--foreground); }
+.svc-panel-port {
+  margin-left: auto; color: var(--muted-fg);
+  font-size: var(--font-12, 12px); font-variant-numeric: tabular-nums;
+}
+.svc-panel-sub {
+  margin-top: 3px; color: var(--muted-fg);
+  font-size: var(--font-12, 12px); font-variant-numeric: tabular-nums;
+}
+.svc-rows {
+  display: grid; grid-template-columns: 64px minmax(0, 1fr);
+  gap: 4px 10px; margin: 10px 0 0; padding: 10px 0 0;
+  border-top: 1px solid var(--border);
+}
+.svc-rows dt {
+  color: var(--muted-fg); font-size: var(--font-12, 12px);
+}
+.svc-rows dd {
+  margin: 0; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.svc-dim { color: var(--muted-fg); }
+.svc-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
+@keyframes svc-panel-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
 /* ═══════════════════════════════════════════════════════════════
    Layout
    ═══════════════════════════════════════════════════════════════ */
@@ -5279,4 +5334,5 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
   .ai-orb-cell[data-mid] { opacity: 1; }
   .ai-thought-caret, .cite-chip, .cite-ref { transition: none; }
   .ai-structured-list > li { animation: none; }
+  .svc-panel { animation: none; }
 }
