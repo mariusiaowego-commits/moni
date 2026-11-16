@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261116005">
+  <link rel="stylesheet" href="css/main.css?v=20261116006">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -66,9 +66,45 @@
         <a href="/config"   @click.prevent="navigate('config')"   :class="{ active: currentView === 'config' || currentView === 'llmSettings' || currentView === 'cron' }">配置管理</a>
       </div>
       <div class="topnav-right">
-        <div class="svc-status" @click="loadServiceStatus()" title="点击刷新状态">
-          <span class="svc-dot" :class="serviceRunning ? 'svc-dot-on' : 'svc-dot-off'"></span>
-          <span class="svc-label" x-text="serviceRunning ? (servicePid ? 'PID ' + servicePid : '运行中') : '已停止'"></span>
+        <div class="svc-wrap" @mouseenter="loadServiceInfo()" @focusin="loadServiceInfo()">
+          <button type="button" class="svc-status" @click="loadServiceStatus(); loadServiceInfo()" aria-label="服务状态，悬停查看详情" aria-haspopup="dialog">
+            <span class="svc-dot" :class="serviceRunning ? 'svc-dot-on' : 'svc-dot-off'"></span>
+            <span class="svc-label" x-text="serviceRunning ? (servicePid ? 'PID ' + servicePid : '运行中') : '已停止'"></span>
+          </button>
+          <div class="svc-panel" role="dialog" aria-label="服务运行信息">
+            <div class="svc-panel-head">
+              <span class="svc-dot" :class="serviceRunning ? 'svc-dot-on' : 'svc-dot-off'"></span>
+              <span class="svc-panel-state" x-text="serviceRunning ? '运行中' : '已停止'"></span>
+              <span class="svc-panel-port" x-text="serviceInfo ? serviceInfo.port : '8900'"></span>
+            </div>
+            <div class="svc-panel-sub">
+              <span x-text="serviceInfo && serviceInfo.pid ? 'PID ' + serviceInfo.pid : 'PID —'"></span>
+              <span x-show="serviceInfo && serviceInfo.uptime_sec" x-text="'· 已运行 ' + serviceUptimeLabel()"></span>
+            </div>
+            <dl class="svc-rows">
+              <dt>版本</dt><dd x-text="serviceVersionLabel()"></dd>
+              <dt>分支</dt>
+              <dd>
+                <span x-text="serviceInfo && serviceInfo.branch ? serviceInfo.branch : '—'"></span>
+                <span class="svc-dim" x-show="serviceInfo" x-text="serviceInfo && serviceInfo.worktree_dirty ? ' · 有未提交改动' : ' · 工作区干净'"></span>
+              </dd>
+              <dt>Schema</dt><dd x-text="serviceInfo && serviceInfo.schema_version ? serviceInfo.schema_version : '—'"></dd>
+            </dl>
+            <dl class="svc-rows svc-rows-gap">
+              <dt>数据库</dt>
+              <dd x-text="serviceInfo && serviceInfo.db_name ? serviceInfo.db_name + ' · ' + serviceInfo.db_size_mb + ' MB' : '—'"></dd>
+              <dt>文章</dt><dd x-text="serviceInfo && serviceInfo.articles !== null && serviceInfo.articles !== undefined ? serviceInfo.articles.toLocaleString() + ' 篇' : '—'"></dd>
+              <dt>队列</dt>
+              <dd x-text="serviceInfo ? (serviceInfo.jobs_pending + ' 待处理 / ' + serviceInfo.jobs_running + ' 运行') : '—'"></dd>
+              <dt>模型</dt><dd x-text="serviceInfo && serviceInfo.llm_mode ? serviceInfo.llm_mode : '—'"></dd>
+            </dl>
+            <dl class="svc-rows svc-rows-gap">
+              <dt>最近抓取</dt><dd x-text="serviceInfo && serviceInfo.last_fetch_at ? formatTime(serviceInfo.last_fetch_at) : '—'"></dd>
+            </dl>
+            <div class="svc-actions">
+              <button type="button" class="btn btn-secondary btn-sm" @click="loadServiceStatus(); loadServiceInfo(true)">刷新</button>
+            </div>
+          </div>
         </div>
         <button class="btn btn-ghost btn-sm" @click="restartService()" :disabled="!serviceRunning" title="重启服务" aria-label="重启服务"><svg class="icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg></button>
         <button class="btn btn-ghost btn-sm" @click="openThemeManager()" title="主题管理" aria-label="主题管理"><svg class="icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="6.5" r="1.2" fill="currentColor"></circle><circle cx="17.5" cy="10.5" r="1.2" fill="currentColor"></circle><circle cx="8.5" cy="7.5" r="1.2" fill="currentColor"></circle><circle cx="6.5" cy="12.5" r="1.2" fill="currentColor"></circle><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"></path></svg></button>
@@ -4327,7 +4363,7 @@
   <script src="js/theme.js?v=20260813019"></script>
   <script src="vendor/marked-16.4.2.umd.js?v=20261116001"></script>
   <script src="vendor/dompurify-3.4.17.min.js?v=20261116001"></script>
-  <script src="js/app.js?v=20261116003"></script>
+  <script src="js/app.js?v=20261116006"></script>
   <script src="js/reader.js?v=20261116005"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind

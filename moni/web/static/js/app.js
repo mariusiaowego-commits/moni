@@ -173,6 +173,8 @@ function app() {
     // ── Service control ──
     serviceRunning: false,
     servicePid: null,
+    serviceInfo: null,
+    serviceInfoLoading: false,
 
     loadServiceStatus() {
       fetch('/api/service/status', { credentials: 'same-origin' })
@@ -185,6 +187,35 @@ function app() {
           this.serviceRunning = false;
           this.servicePid = null;
         });
+    },
+
+    loadServiceInfo(force = false) {
+      if (this.serviceInfoLoading) return;
+      this.serviceInfoLoading = true;
+      const url = '/api/service/info' + (force ? '?force=true' : '');
+      fetch(url, { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(d => { this.serviceInfo = d; })
+        .catch(() => {})
+        .finally(() => { this.serviceInfoLoading = false; });
+    },
+
+    serviceVersionLabel() {
+      const info = this.serviceInfo;
+      if (!info) return '—';
+      if (info.version && info.commit) {
+        const ahead = info.commits_ahead ? ` · 领先 ${info.commits_ahead}` : '';
+        return `${info.version} (${info.commit})${ahead}`;
+      }
+      return info.version || info.commit || '—';
+    },
+
+    serviceUptimeLabel() {
+      const sec = this.serviceInfo && this.serviceInfo.uptime_sec;
+      if (!sec) return '';
+      const hours = Math.floor(sec / 3600);
+      const mins = Math.round((sec % 3600) / 60);
+      return hours ? `${hours}h ${mins}m` : `${mins}m`;
     },
 
     async restartService() {
