@@ -144,8 +144,13 @@ def _uptime(pid: int | None) -> float | None:
             return None
 
 
-def _git(*args: str) -> str | None:
-    """Run a read-only git command in the repo root; None when unavailable."""
+def _git(*args: str, allow_empty: bool = False) -> str | None:
+    """Run a read-only git command in the repo root; None when unavailable.
+
+    ``git status --porcelain`` prints nothing on a clean tree, which is a
+    valid answer, not a failure — callers that expect empty output must
+    opt in with ``allow_empty``.
+    """
     try:
         out = subprocess.check_output(
             ["git", *args],
@@ -156,7 +161,10 @@ def _git(*args: str) -> str | None:
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return None
-    return out.strip() or None
+    text = out.strip()
+    if not text and not allow_empty:
+        return None
+    return text
 
 
 _DESCRIBE_RE = re.compile(r"^(?P<tag>.+?)-(?P<ahead>\d+)-g(?P<commit>[0-9a-f]+)$")
@@ -184,7 +192,7 @@ def _code_info() -> dict[str, Any]:
     branch = _git("rev-parse", "--abbrev-ref", "HEAD")
     if branch == "HEAD":
         branch = None
-    dirty_out = _git("status", "--porcelain")
+    dirty_out = _git("status", "--porcelain", allow_empty=True)
     return {
         "version": version,
         "commit": commit,
