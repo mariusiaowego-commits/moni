@@ -490,3 +490,8 @@ def test_reader_list_title_link_and_chat_mark_markup():
     assert "reader-flash" in js
     assert "dataset.quote" in js
     assert "a.cite-chip, a.cite-ref" in js
+    css = (STATIC / "css" / "main.css").read_text(encoding="utf-8")
+    assert "structureListMarkdown" in js
+    assert "structureRenderedLists" in js
+    assert ".ai-structured-list" in css
+    assert ".title-link" in css
