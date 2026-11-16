@@ -120,7 +120,7 @@ def test_migration_029_adds_usage_columns(fresh_db):
     assert "input_tokens" in cols
     assert "output_tokens" in cols
     assert "cost_usd" in cols
-    assert _CURRENT_VERSION == 43  # v1.0.88: 043 reader AI
+    assert _CURRENT_VERSION == 44  # 43 from v1.0.88 on; 44 from v1.0.94
 
 
 # ── worker_llm.parse_usage_file ───────────────────────────────────────────

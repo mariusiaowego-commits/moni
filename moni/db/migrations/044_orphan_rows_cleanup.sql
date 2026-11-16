@@ -1,4 +1,6 @@
 -- Migration 044: 清理历史孤儿行 (sprint-52)
+-- allow-missing-tables: 手搓的精简测试库可能没有 article_keyword_hits；
+-- 缺表时跳过该句，不影响真实库（010 起就有这张表）。
 --
 -- 现象: article_tags 305 行、article_keyword_hits 344 行、llm_jobs 3 行
 --       指向已经不存在的文章。
