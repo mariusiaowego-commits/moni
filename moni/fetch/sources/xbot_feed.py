@@ -155,6 +155,43 @@ DEFAULT_BLACKLISTED_HANDLES: tuple[str, ...] = (
     "HunchoJ01",         # 关键词误命中的噪音号
 )
 
+
+def normalize_handle(raw: object) -> str:
+    """把一个 handle 归一成**唯一**的规范形式 (**全仓唯一实现**)。
+
+    规则: ``strip()`` → ``lstrip("@")`` → ``lower()``。空串返回 ``""``。
+
+    为什么必须只有一份实现 (warden 审计 P2-3):
+    写入侧 (``moni/web/routes/author_blocks.py`` 的 POST / DELETE) 与
+    匹配侧 (``FetcherXbotFeed`` 的黑名单 / 屏蔽名单匹配) 必须走**同一套**
+    归一 —— 否则 dad 手输 ``@JiaMeXyz`` 写进名单, 抓取时却归一成别的形式,
+    就会出现「名单里明明有, 作者却还在入库」的**静默失效**
+    (这种失效极难被发现, 因为名单看起来是对的)。
+    """
+    if raw is None:
+        return ""
+    return str(raw).strip().lstrip("@").lower()
+
+
+def normalize_handles(handles: object) -> set[str]:
+    """把 handle 列表归一成匹配用的规范形式集合。
+
+    接受 ``None`` / 单个 str / list / tuple / set / frozenset;
+    空串与归一后为空的一律丢掉。逐个元素的归一走 :func:`normalize_handle`。
+    """
+    if handles is None:
+        return set()
+    if isinstance(handles, str):
+        handles = [handles]
+    if not isinstance(handles, (list, tuple, set, frozenset)):
+        return set()
+    out: set[str] = set()
+    for h in handles:
+        text = normalize_handle(h)
+        if text:
+            out.add(text)
+    return out
+
 #: ``sources.fetch_config`` 里 xbot_feed 的**唯一**默认值来源。
 #:
 #: v1.0.66 (审计 B5): 同一份默认值原本抄在三处 ——
@@ -1333,25 +1370,14 @@ class FetcherXbotFeed(BaseFetcher):
     def _normalize_handles(handles: object) -> set[str]:
         """把 handle 列表归一成匹配用的规范形式。
 
-        规则 (与既有实现一致, 不改语义): ``strip()`` → ``lstrip("@")`` →
+        规则不变 (与既有实现一致, 不改语义): ``strip()`` → ``lstrip("@")`` →
         ``lower()``。空串直接丢掉。
 
-        放在一处是为了让 **fetch_config 里的存量名单** 与
-        **source_author_blocks 表里的新名单** 走**完全相同**的归一 ——
-        否则 dad 手输 ``@JiaMeXyz`` 与 ``jiamemexyz`` 会变成两条记录。
+        实现委托给模块级的 :func:`normalize_handles` —— **全仓唯一实现**。
+        写入侧 (author_blocks.py) 与匹配侧 (这里) 必须走同一套归一, 否则
+        会出现「名单里明明有, 作者却还在入库」的静默失效 (warden 审计 P2-3)。
         """
-        if handles is None:
-            return set()
-        if isinstance(handles, str):
-            handles = [handles]
-        if not isinstance(handles, (list, tuple, set, frozenset)):
-            return set()
-        out: set[str] = set()
-        for h in handles:
-            text = str(h).strip().lstrip("@").lower()
-            if text:
-                out.add(text)
-        return out
+        return normalize_handles(handles)
 
     def _load_db_blocked_handles(self) -> set[str]:
         """读持久化的作者屏蔽名单 (sprint-38 方案 B)。

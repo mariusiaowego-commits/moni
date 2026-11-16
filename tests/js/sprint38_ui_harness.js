@@ -11,7 +11,11 @@
 const fs = require('fs');
 const path = require('path');
 
-const JS_DIR = '/Users/mt16/dev/moni-worktrees/xbot-author-block-v1.0.75/moni/web/static/js';
+// Resolve the repo's static JS dir relative to THIS file, so the harness works
+// in any checkout (GitHub runner path, a git worktree, or the main checkout).
+// A hardcoded absolute path makes the test pass locally (it reads the local
+// file) while failing on CI with ENOENT — a "green locally / red in CI" trap.
+const JS_DIR = path.resolve(__dirname, '..', '..', 'moni', 'web', 'static', 'js');
 
 function stubEnv() {
   const noop = () => {};

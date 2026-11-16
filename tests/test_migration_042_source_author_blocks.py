@@ -36,7 +36,7 @@ def fresh_db(tmp_path, monkeypatch):
     close_db()
 
 
-def test_current_version_is_41():
+def test_current_version_is_42():
     """AC-18：_CURRENT_VERSION 必须 bump 到 42。"""
     assert _CURRENT_VERSION == 42
 

@@ -165,16 +165,31 @@ def test_modal_js_is_loaded_before_app_js(index_html: str):
 # ── AC-17：确认框文案含 handle + 删除篇数 ──────────────────────────────
 
 def test_confirm_text_mentions_deleted_count(app_js: str):
-    """AC-17：文案要显示「将删除 N 篇已有文章，不可恢复」。"""
-    assert "将删除" in app_js
-    assert "不可恢复" in app_js
+    """AC-17：文案要显示「将删除 N 篇已有文章，不可恢复」。
+
+    断言必须锚在 ``confirmBlockAuthor`` 这一段 —— 用全局子串找「将删除」
+    会撞到 app.js 里**别的**文案，断言就假绿了（warden 变异验证：
+    删掉整句会红，但把 N 写死 / 去掉「不可恢复」都不红）。
+    """
+    region = _block_confirm_region(app_js)
+    assert "将删除" in region, "屏蔽作者的确认框必须说明会删除多少篇文章"
+    assert "不可恢复" in region, (
+        "必须明确告知不可恢复 —— 这是 dad 做不可逆删除决策的依据"
+    )
 
 
 def test_confirm_text_uses_dynamic_handle_and_count(app_js: str):
-    """AC-17：N 和 handle 都是动态的（不是写死的数字）。"""
-    idx = app_js.index("将删除")
-    region = app_js[max(0, idx - 500):idx + 400]
+    """AC-17：N 和 handle 都是动态的（不是写死的数字）。
+
+    N 写死是真实风险：确认框会一直显示一个错误的篇数，而 dad 的确认
+    决策正是基于这个数字（不可逆删除）。所以这条断言必须要求插值
+    ``${existing_count}`` 出现在确认文案里。
+    """
+    region = _block_confirm_region(app_js)
     assert "${" in region, "文案里的 N / handle 必须是模板插值"
+    assert "${existing_count}" in region, (
+        "删除篇数 N 必须用后端返回的 existing_count 动态插值，不能写死"
+    )
 
 
 def test_confirm_handles_zero_count_gracefully(app_js: str):

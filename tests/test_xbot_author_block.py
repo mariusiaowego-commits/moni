@@ -26,6 +26,8 @@ from moni.db.migrate import migrate
 from moni.fetch.sources.xbot_feed import (
     DEFAULT_BLACKLISTED_HANDLES,
     FetcherXbotFeed,
+    normalize_handle,
+    normalize_handles,
 )
 
 _SOURCE_NAME = "xbot_feed"
@@ -321,3 +323,40 @@ def test_blocklist_survives_seed_config(fresh_db):
         (_SOURCE_NAME,),
     ).fetchall()
     assert [r["handle"] for r in rows] == ["jiamemexyz"]
+
+
+# ── warden 审计 P2-3：handle 归一必须全仓只有一份实现 ──────────────────
+
+def test_handle_normalization_has_single_source_of_truth():
+    """写入侧 (author_blocks.py) 与匹配侧 (xbot_feed.py) 必须走同一套归一。
+
+    两处各写一份时, 将来改一处漏一处 → dad 输 ``@JiaMeXyz`` 写进名单,
+    抓取时却归一成别的形式 → 「名单里明明有, 作者却还在入库」的**静默失效**。
+    """
+    from moni.web.routes.author_blocks import _normalize_handle as write_side
+
+    # 写入侧必须**委托**给 xbot_feed 的唯一实现 (不是各写一份)。
+    assert write_side is not None
+    for raw in ("@JiaMeXyz", "jiamemexyz", "  @JiaMeXyz  ", "JIAMEXYZ", None, "", "@"):
+        assert write_side(raw) == normalize_handle(raw), (
+            f"写入侧与匹配侧对 {raw!r} 的归一结果不一致 —— 静默失效风险"
+        )
+        # 匹配侧对同一个输入必须给出同一个 (或空) 规范形式。
+        matched = FetcherXbotFeed._normalize_handles([raw])
+        expected = normalize_handle(raw)
+        assert matched == ({expected} if expected else set())
+
+    # 匹配侧 (静态方法) 必须与模块级唯一实现一致。
+    assert FetcherXbotFeed._normalize_handles(["@A", "b", " @C "]) == normalize_handles(["@A", "b", " @C "])
+    assert FetcherXbotFeed._normalize_handles(["@A", "b", " @C "]) == {"a", "b", "c"}
+
+
+def test_normalize_handles_accepts_common_shapes():
+    """归一函数对 None / 单 str / 各种容器都稳健, 空串被丢掉。"""
+    assert normalize_handles(None) == set()
+    assert normalize_handles("@Solo") == {"solo"}
+    assert normalize_handles(["@A", "", "  ", "b"]) == {"a", "b"}
+    assert normalize_handles(("x", "Y")) == {"x", "y"}
+    assert normalize_handles({"z"}) == {"z"}
+    assert normalize_handles(123) == set()
+    assert normalize_handle(None) == ""

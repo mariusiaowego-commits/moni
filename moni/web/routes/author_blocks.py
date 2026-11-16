@@ -32,7 +32,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from moni.db.connection import get_db
-from moni.fetch.sources.xbot_feed import DEFAULT_BLACKLISTED_HANDLES
+from moni.fetch.sources.xbot_feed import DEFAULT_BLACKLISTED_HANDLES, normalize_handle
 from moni.web.exceptions import BadRequestError, NotFoundError
 
 logger = logging.getLogger(__name__)
@@ -51,15 +51,14 @@ _PUBLISHER_HANDLE_RE = r"@([^)]+)\)"
 
 
 def _normalize_handle(raw: object) -> str:
-    """归一 handle: ``strip`` → ``lstrip("@")`` → ``lower``。
+    """归一 handle —— 委托给 **全仓唯一实现** :func:`normalize_handle`。
 
-    与 ``xbot_feed.py`` 的 ``_normalize_handles`` **同一套规则** —— 否则
-    dad 手输 ``@JiaMeXyz`` 与 ``jiamemexyz`` 会变成两条记录 (AC-5)。
+    写入侧 (这里) 与匹配侧 (``xbot_feed.py`` 的 ``_normalize_handles``)
+    必须走同一套归一, 否则 dad 手输 ``@JiaMeXyz`` 与 ``jiamemexyz``
+    会变成两条记录 (AC-5), 更糟的是「名单里有但屏蔽失效」的静默失效
+    (warden 审计 P2-3)。
     """
-    if raw is None:
-        return ""
-    text = str(raw).strip().lstrip("@").lower()
-    return text
+    return normalize_handle(raw)
 
 
 def _resolve_source(conn: sqlite3.Connection, source_id: str) -> str:
