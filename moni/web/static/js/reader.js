@@ -181,6 +181,38 @@
     return renderMarkdown(value);
   }
 
+  /** Highlight the target paragraph after a citation jump (Sprint 50). */
+  function flashTargetParagraph(target) {
+    if (!target) return;
+    target.classList.remove('reader-flash');
+    void target.offsetWidth;
+    target.classList.add('reader-flash');
+    clearTimeout(flashTargetParagraph._timer);
+    flashTargetParagraph._timer = setTimeout(() => {
+      target.classList.remove('reader-flash');
+    }, 2200);
+  }
+
+  // Citation chips and footer rows are anchors (`#pN`) inside the AI panel.
+  // Intercept the click so the reader pane scrolls to the paragraph and
+  // flashes it — native fragment navigation would only scroll, no highlight.
+  document.addEventListener('click', (event) => {
+    const link = event.target.closest?.('a.cite-chip, a.cite-ref');
+    if (!link) return;
+    const target = document.getElementById(link.getAttribute('href').slice(1));
+    const body = document.querySelector('.reader-body');
+    if (!target || !body || !body.contains(target)) return;
+    event.preventDefault();
+    const scroll = document.querySelector('.reader-scroll');
+    if (scroll) {
+      const top = target.offsetTop - scroll.offsetTop - 16;
+      scroll.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    } else {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    flashTargetParagraph(target);
+  });
+
   /** Parse a `[bank:icbc type:media target:yicai-finance]` marker. */
   function parseBankMeta(text) {
     BANK_RE.lastIndex = 0;

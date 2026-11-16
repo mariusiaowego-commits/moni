@@ -460,3 +460,27 @@ def test_reader_stream_skips_gateway_rejected_flags(monkeypatch):
     # --run-budget; the local watchdog owns the budget instead.
     assert "--run-budget" not in cmd
     assert "--oneshot" in cmd and "stream-json" in cmd
+
+
+def test_article_list_exposes_has_reader_chat(client: TestClient):
+    _article("a1", source="src-a", title="聊过")
+    _article("a2", source="src-a", title="没聊过")
+    created = client.post("/api/reader/conversations", json={"article_id": "a1"})
+    assert created.status_code == 200
+    listed = client.get("/api/articles?limit=20").json()
+    by_id = {item["id"]: item for item in listed}
+    assert by_id["a1"]["has_reader_chat"] is True
+    assert by_id["a2"]["has_reader_chat"] is False
+
+
+def test_reader_list_title_link_and_chat_mark_markup():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert 'class="title-link"' in html
+    assert "@click=\"showArticleDetail(a)\"" in html
+    assert 'class="reader-chat-mark"' in html
+    assert "has_reader_chat" in html
+    assert 'class="title-tip"' in html
+    js = (STATIC / "js" / "reader.js").read_text(encoding="utf-8")
+    assert "flashTargetParagraph" in js
+    assert "reader-flash" in js
+    assert "a.cite-chip, a.cite-ref" in js

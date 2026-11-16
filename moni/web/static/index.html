@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261116002">
+  <link rel="stylesheet" href="css/main.css?v=20261116003">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -213,7 +213,10 @@
                   </td>
                   <td class="title-cell">
                     <div class="title-flex">
-                      <span class="title-text" :title="a.title" x-text="truncateTitle(a.title, 150)"></span>
+                      <button type="button" class="title-link" :title="a.title" @click="showArticleDetail(a)">
+                        <span class="title-text" x-text="truncateTitle(a.title, 150)"></span>
+                      </button>
+                      <span class="title-tip" x-text="a.title"></span>
                       <span class="badge badge-new" x-show="a.is_fresh || isNew(a.created_at)" :title="a.is_fresh ? '本次抓取新增' : '24 小时内抓取'">新</span>
                       <span class="ai-unread-pill" x-show="a.reader_unread" @click.stop="showArticleDetail(a)" title="AI 有新结果，点击查看">
                         <svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"></path></svg>
@@ -246,7 +249,13 @@
                   </td>
                   <td class="tabular-nums nowrap" x-text="formatTime(a.published_at || a.fetched_at || a.created_at)"></td>
                   <td class="tabular-nums nowrap" x-text="formatTime(a.created_at)"></td>
-                  <td style="text-align: right;"><div class="row-actions" style="justify-content: flex-end;"><a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a><button class="btn-danger" @click="showDeleteModal(a)">删除</button></div></td>
+                  <td style="text-align: right;"><div class="row-actions" style="justify-content: flex-end;">
+                    <a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a>
+                    <span class="reader-chat-mark" x-show="a.has_reader_chat" title="有 AI 对话记录">
+                      <svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                    </span>
+                    <button class="btn-danger" @click="showDeleteModal(a)">删除</button>
+                  </div></td>
                 </tr>
               </template>
               <tr x-show="activeArticles.length === 0">
@@ -4318,8 +4327,8 @@
   <script src="js/theme.js?v=20260813019"></script>
   <script src="vendor/marked-16.4.2.umd.js?v=20261116001"></script>
   <script src="vendor/dompurify-3.4.17.min.js?v=20261116001"></script>
-  <script src="js/app.js?v=20261116002"></script>
-  <script src="js/reader.js?v=20261116002"></script>
+  <script src="js/app.js?v=20261116003"></script>
+  <script src="js/reader.js?v=20261116003"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
        GSAP presence, and the scale pop now honours prefers-reduced-motion. -->

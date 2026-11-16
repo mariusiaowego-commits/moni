@@ -99,6 +99,7 @@ def _row_to_article(row: dict[str, Any], fresh_thresholds: dict[str, str] | None
         is_pinned=is_pinned,
         pinned_at=pinned_at_dt,
         reader_unread=bool(row.get("reader_unread") or 0),
+        has_reader_chat=bool(row.get("has_reader_chat") or 0),
         created_at=fetched_at,
         updated_at=fetched_at,
     )
@@ -225,7 +226,9 @@ def list_articles(
                -- boolean check.
                p.pinned_at AS pinned_at,
                EXISTS (SELECT 1 FROM reader_conversations rc
-                       WHERE rc.article_id = a.id AND rc.unread = 1) AS reader_unread
+                       WHERE rc.article_id = a.id AND rc.unread = 1) AS reader_unread,
+               EXISTS (SELECT 1 FROM reader_conversations rc
+                       WHERE rc.article_id = a.id) AS has_reader_chat
         FROM articles a
         LEFT JOIN article_pins p ON p.article_id = a.id
         {where_sql}
