@@ -621,6 +621,14 @@ def test_filter_recent_drops_old_articles(bot):
     assert [r["date"] for r in kept] == ["2026-11-16"]
 
 
+def test_filter_recent_zero_disables_the_window(bot):
+    rows = [
+        {"url": "https://a/1", "title": "x", "date": "2026-11-16"},
+        {"url": "https://a/2", "title": "y", "date": "2022-09-07"},
+    ]
+    assert bot.filter_recent(rows, max_age_days=0) == rows
+
+
 def test_collect_official_static_all_old_returns_empty(bot, monkeypatch):
     """窗口内没有新闻 = 合法的 0 条, 不是解析失败。"""
     html = '<a href="./202209/t20220907_1.html">建设银行2022年的旧新闻</a>'
@@ -775,3 +783,104 @@ def test_main_records_error_when_agent_returns_nothing_after_static_fails(
         "error": "agent returned no items after static fallback",
     }]
     assert [i["id"] for i in payload["items"]] == ["ccb-abc"]
+
+
+def _fallback_targets_file(tmp_path, ids: list[str]):
+    targets = {"targets": [
+        {
+            "id": target_id, "kind": "official_list", "static": True,
+            "url": f"https://www.psbc.com/{target_id}/", "bank": "psbc",
+            "publisher": "中国邮政储蓄银行",
+        }
+        for target_id in ids
+    ] + [{
+        "id": "eastmoney", "kind": "media_rss",
+        "url": "https://rss.example.com/feed.xml", "bank": None,
+        "publisher": "东方财富",
+    }]}
+    path = tmp_path / "targets.json"
+    path.write_text(json.dumps(targets, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def _media_item() -> dict:
+    return {
+        "id": "ccb-abc", "url": "https://news.example.com/a.html",
+        "title": "建设银行发布三季度经营业绩", "text": "正文" * 80,
+        "created_at": "2026-11-16T00:00:00+08:00", "bank": "ccb",
+        "source_type": "media", "publisher": "东方财富",
+        "target_id": "eastmoney",
+    }
+
+
+def test_main_marks_each_fallback_target_when_agent_call_fails(
+    tmp_path, bot, monkeypatch
+):
+    """agent 整段挂掉 (BotError) 时, 每个回退目标都要有 error。"""
+    tfile = _fallback_targets_file(tmp_path, ["psbc-news"])
+    monkeypatch.setattr(
+        bot, "collect_official_static",
+        lambda target, timeout: (_ for _ in ()).throw(bot.TargetError("no links")),
+    )
+    monkeypatch.setattr(bot, "collect_media", lambda target, timeout: [_media_item()])
+    monkeypatch.setattr(
+        bot, "collect_agent",
+        lambda targets, **kw: (_ for _ in ()).throw(bot.BotError("hermes missing")),
+    )
+
+    out = tmp_path / "feed"
+    assert bot.main([
+        "--output-dir", str(out), "--targets", str(tfile), "--date", "2026-11-16",
+    ]) == 0
+    payload = json.loads((out / "latest.json").read_text(encoding="utf-8"))
+    assert {"target": "agent", "error": "hermes missing"} in payload["errors"]
+    assert any(
+        e["target"] == "psbc-news" and "static fallback" in e["error"]
+        for e in payload["errors"]
+    )
+
+
+def test_main_marks_only_the_missing_fallback_target(tmp_path, bot, monkeypatch):
+    """agent 只补回一部分目标时, 只有真正缺的那个进 errors。"""
+    tfile = _fallback_targets_file(tmp_path, ["psbc-news", "boc-news"])
+    monkeypatch.setattr(
+        bot, "collect_official_static",
+        lambda target, timeout: (_ for _ in ()).throw(bot.TargetError("no links")),
+    )
+    monkeypatch.setattr(bot, "collect_media", lambda target, timeout: [_media_item()])
+    monkeypatch.setattr(
+        bot, "collect_agent",
+        lambda targets, **kw: ([{
+            "id": "psbc-abc", "url": "https://www.psbc.com/a.html",
+            "title": "邮储银行发布公告", "text": "正文" * 80,
+            "created_at": "2026-11-12T00:00:00+08:00", "bank": "psbc",
+            "source_type": "official", "publisher": "中国邮政储蓄银行",
+            "target_id": "psbc-news",
+        }], []),
+    )
+
+    out = tmp_path / "feed"
+    assert bot.main([
+        "--output-dir", str(out), "--targets", str(tfile), "--date", "2026-11-16",
+    ]) == 0
+    payload = json.loads((out / "latest.json").read_text(encoding="utf-8"))
+    assert [e["target"] for e in payload["errors"]] == ["boc-news"]
+
+
+def test_main_no_agent_marks_static_failure_as_error(tmp_path, bot, monkeypatch):
+    """--no-agent 时不回退, 静态失败直接进 errors (不依赖 fallbacks)。"""
+    tfile = _fallback_targets_file(tmp_path, ["psbc-news"])
+    monkeypatch.setattr(
+        bot, "collect_official_static",
+        lambda target, timeout: (_ for _ in ()).throw(bot.TargetError("no links")),
+    )
+    monkeypatch.setattr(bot, "collect_media", lambda target, timeout: [_media_item()])
+
+    out = tmp_path / "feed"
+    assert bot.main([
+        "--output-dir", str(out), "--targets", str(tfile),
+        "--date", "2026-11-16", "--no-agent",
+    ]) == 0
+    payload = json.loads((out / "latest.json").read_text(encoding="utf-8"))
+    assert payload["fallbacks"] == []
+    assert payload["errors"] == [{"target": "psbc-news", "error": "no links"}]

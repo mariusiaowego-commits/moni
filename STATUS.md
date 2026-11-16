@@ -41,6 +41,8 @@
     `errors`；批量面板新增 `.fa-row-warn` + `.fa-warn`。
   - 批量写 `cron_runs.success=0`（有 partial 也算没抓全）。
   - `moni.fetch.run()` 把 CLI 的 `force` 落到 `fetcher.force`。
+- 第 2 轮独立审计 **APPROVE WITH NITS**；nits（P1 三条分支、`max_age_days=0`、
+  批量 partial 的 `cron_runs.success` 都没有测试）已于同一 PR 补齐用例。
 
 **实测**
 
@@ -59,7 +61,7 @@
   `bank_feed` 行 class `fa-row-details fa-row-warn`，`.fa-warn` 文本
   `feed 不完整: 1 个目标失败 (psbc-news)`，computed color
   `oklch(0.72 0.14 75)`。
-- 全量测试 **1768 passed / 2 skipped**；沙箱内
+- 全量测试 **1773 passed / 2 skipped**；沙箱内
   `test_migration_039_xbot_feed` 因 `git worktree` 无写 `.git` 权限失败，
   沙箱外单跑 **1 passed**。
 

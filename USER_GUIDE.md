@@ -1192,6 +1192,8 @@ python3 -m moni.db.migrate
 ```
 
 - `bank` 只能是 `icbc` / `abc` / `boc` / `ccb` / `psbc` / `bocom`。
+- `max_age_days`（可选，默认 60）只对 `static: true` 的官网列表生效；设 `0`
+  关掉时效窗口（列表里有什么就取什么）。
 - `targets` 留空时用仓库里的 `config/bank_targets.json`（11 个目标）。
 - 改完不需要重启服务，下一次抓取生效。
 

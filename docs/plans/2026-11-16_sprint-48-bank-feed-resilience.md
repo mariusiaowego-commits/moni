@@ -111,8 +111,24 @@
 
 ### 复测
 
-- 全量测试 **1768 passed / 2 skipped**；沙箱内
+- 全量测试 **1773 passed / 2 skipped**；沙箱内
   `test_migration_039_xbot_feed` 因无写 `.git` 权限失败，沙箱外单跑 **1 passed**。
 - bot `--no-agent`：**26 条 / 0 error**（boc 12 / abc 1 / ccb 7 / psbc 3 / 一财 3），
   最旧 2026-09-24；工行 agent：**6 条 / 136s**，首次 `session_replay_gap` 重试命中。
 - 批量面板 DOM：2 行、source 唯一、`fa-row-warn` + warning 文本可见。
+
+### 第 2 轮独立审计
+
+结论 **APPROVE WITH NITS**：P1 与 5 个 P2 全部确认修掉，无新 P1。Nits 已在同一
+PR 补齐：
+
+- P1 的 `BotError` / 只补回部分目标 / `--no-agent` 三条分支各补一个用例
+  （`test_main_marks_each_fallback_target_when_agent_call_fails` /
+  `..._marks_only_the_missing_fallback_target` /
+  `..._no_agent_marks_static_failure_as_error`）。
+- `filter_recent(max_age_days=0)` 不过滤。
+- 批量只有 partial 时 `cron_runs.success=0`
+  （`test_partial_batch_is_not_recorded_as_success`）。
+
+未处理（旧行为，非本 PR 范围）：`xwatch` / `bestblogs` /
+`chinese_independent_blogs` 的进度回调仍 `except Exception: pass`。
