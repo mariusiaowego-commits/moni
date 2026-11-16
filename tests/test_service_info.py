@@ -80,7 +80,7 @@ def test_info_never_leaks_absolute_db_path(client: TestClient):
 def test_info_degrades_when_git_is_unavailable(client: TestClient, monkeypatch):
     from moni.web.routes import service as svc
 
-    monkeypatch.setattr(svc, "_git", lambda *args: None)
+    monkeypatch.setattr(svc, "_git", lambda *args, **kwargs: None)
     body = client.get("/api/service/info?force=true").json()
     assert body["version"] is None
     assert body["commit"] is None
@@ -90,15 +90,30 @@ def test_info_degrades_when_git_is_unavailable(client: TestClient, monkeypatch):
     assert body["schema_version"] == 44
 
 
+def test_clean_worktree_reports_false_not_null(client: TestClient, monkeypatch):
+    """`git status --porcelain` prints nothing on a clean tree — that is False, not unknown."""
+    from moni.web.routes import service as svc
+
+    def fake_git(*args, allow_empty=False):
+        if args[0] == "status":
+            assert allow_empty, "status --porcelain must opt into empty output"
+            return ""
+        return None
+
+    monkeypatch.setattr(svc, "_git", fake_git)
+    body = client.get("/api/service/info?force=true").json()
+    assert body["worktree_dirty"] is False
+
+
 def test_info_is_cached_and_force_bypasses_it(client: TestClient, monkeypatch):
     from moni.web.routes import service as svc
 
     calls = {"n": 0}
     real_git = svc._git
 
-    def counting_git(*args):
+    def counting_git(*args, **kwargs):
         calls["n"] += 1
-        return real_git(*args)
+        return real_git(*args, **kwargs)
 
     monkeypatch.setattr(svc, "_git", counting_git)
     client.get("/api/service/info?force=true")
