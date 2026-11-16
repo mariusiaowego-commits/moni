@@ -11,15 +11,18 @@
   const ALLOWED_TAGS = [
     'a', 'p', 'br', 'strong', 'em', 'b', 'i', 'code', 'pre', 'ul', 'ol', 'li',
     'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'thead', 'tbody',
-    'tr', 'th', 'td', 'img', 'hr', 'span', 'div', 'del', 'sup', 'sub', 'figure',
-    'figcaption',
+    'tr', 'th', 'td', 'hr', 'span', 'div', 'del', 'sup', 'sub',
   ];
   const ALLOWED_ATTR = [
-    'href', 'src', 'alt', 'title', 'class', 'colspan', 'rowspan', 'target',
+    'href', 'title', 'class', 'colspan', 'rowspan', 'target',
     'rel', 'width', 'height',
   ];
   const FRONTMATTER_RE = /^---\s*\n[\s\S]*?\n---\s*\n?/;
   const BANK_RE = /\[bank:([^\]]+)\]/gi;
+  // Scraped bodies carry third-party images; the reader shows text only so a
+  // hotlinked or misattributed picture can never be republished from moni.
+  const MD_IMAGE_RE = /!\[[^\]]*\]\([^)]*\)/g;
+  const HTML_IMAGE_RE = /<img\b[^>]*>/gi;
 
   function md() {
     if (!window.marked) return null;
@@ -44,12 +47,6 @@
       a.setAttribute('target', '_blank');
       a.setAttribute('rel', 'noopener noreferrer');
     });
-    box.querySelectorAll('img').forEach((img) => {
-      img.setAttribute('loading', 'lazy');
-      img.setAttribute('referrerpolicy', 'no-referrer');
-      img.removeAttribute('width');
-      img.removeAttribute('height');
-    });
     box.querySelectorAll('table').forEach((table) => {
       const wrap = document.createElement('div');
       wrap.className = 'table-scroll';
@@ -69,6 +66,7 @@
     let value = String(text || '');
     value = value.replace(FRONTMATTER_RE, '');
     value = value.replace(BANK_RE, '\n\n<span class="bank-marker">bank:$1</span>\n\n');
+    value = value.replace(MD_IMAGE_RE, '').replace(HTML_IMAGE_RE, '');
     if (!md()) {
       const escaped = value
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -144,7 +142,10 @@
           this.articlesSources = this.articleFacets.sources;
           this.articlesTags = this.articleFacets.tags;
         })
-        .catch((err) => console.error('loadArticleFacets failed:', err));
+        .catch((err) => {
+          this._articleFacetsLoaded = false;
+          console.error('loadArticleFacets failed:', err);
+        });
     },
 
     toggleArticleTag(name) {
@@ -206,13 +207,16 @@
       return params.toString();
     },
 
+    ensureArticleFacets() {
+      if (this._articleFacetsLoaded) return;
+      this._articleFacetsLoaded = true;
+      this.loadArticleFacets();
+      this.readerLoadPrompts();
+      this.readerStartUnreadPoll();
+    },
+
     loadArticles() {
-      if (!this._articleFacetsLoaded) {
-        this._articleFacetsLoaded = true;
-        this.loadArticleFacets();
-        this.readerLoadPrompts();
-        this.readerStartUnreadPoll();
-      }
+      this.ensureArticleFacets();
       const query = this._articleQuery({
         limit: this.articlesPageSize,
         offset: (this.articlesPage - 1) * this.articlesPageSize,
@@ -233,6 +237,9 @@
     },
 
     _loadArticlesWithPaging() {
+      // The articles view calls this on first paint, not loadArticles(),
+      // so the chip facets have to be kicked off from here too.
+      this.ensureArticleFacets();
       const probe = parseInt(this.articlesPageSize, 10) || 50;
       const query = this._articleQuery({
         limit: probe + 1,
@@ -328,6 +335,7 @@
     readerReasoning: 'low',
     readerStreaming: false,
     readerStreamJobId: null,
+    readerStreamMsgId: null,
     readerStreamSource: null,
     readerRendered: '',
     readerProgress: 0,
@@ -477,6 +485,7 @@
       this.readerCloseStream();
       this.readerStreaming = true;
       this.readerStreamJobId = jobId;
+      this.readerStreamMsgId = messageId;
       const source = new EventSource(`/api/reader/jobs/${jobId}/stream`);
       this.readerStreamSource = source;
       const message = () => this.readerMessages.find((m) => m.id === messageId);
@@ -507,6 +516,7 @@
           if (msg) msg.status = 'done';
           this.readerStreaming = false;
           this.readerStreamJobId = null;
+          this.readerStreamMsgId = null;
           this.readerCloseStream();
           this.readerMarkRead();
           this.readerScrollToBottom();
@@ -527,6 +537,7 @@
             msg.error = data.message || '生成失败';
           }
           this.readerStreaming = false;
+          this.readerStreamMsgId = null;
           this.readerCloseStream();
         } catch (e) { /* ignore */ }
       });
@@ -537,6 +548,7 @@
         try { this.readerStreamSource.close(); } catch (e) { /* ignore */ }
       }
       this.readerStreamSource = null;
+      this.readerStreamMsgId = null;
     },
 
     readerStop() {
@@ -549,6 +561,7 @@
         (m) => m.job_id === this.readerStreamJobId && m.role === 'assistant');
       if (active) active.status = 'cancelled';
       this.readerStreaming = false;
+      this.readerStreamMsgId = null;
       this.readerCloseStream();
     },
 
@@ -558,6 +571,14 @@
         method: 'POST',
         credentials: 'same-origin',
       }).catch(() => {});
+    },
+
+    readerCopyMessage(text) {
+      const value = String(text || '');
+      if (!value) return;
+      navigator.clipboard.writeText(value)
+        .then(() => this._notify('info', '已复制回答'))
+        .catch(() => this._notify('error', '复制失败'));
     },
 
     readerScrollToBottom() {

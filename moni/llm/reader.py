@@ -4,7 +4,13 @@ The reader panel deliberately runs stateless one-shot calls:
 
     hermes chat -q <prompt> --oneshot --format stream-json \
         --ignore-rules -t "" --reasoning <level> --source tool \
-        --max-turns 1 --run-budget 180
+        --max-turns 1
+
+The `moni` profile routes through the hermes gateway, which refuses
+`--run-budget` ("Unsupported gateway CLI options", rc=2) and points at
+`agent.run_budget_seconds` in config.yaml instead.  The wall-clock budget is
+therefore enforced here: a watchdog thread kills the process group at
+`timeout`.
 
 Measured on this machine: the default moni profile costs ~21.5k input
 tokens for a one-word reply; `--ignore-rules -t ""` drops that to
@@ -21,6 +27,7 @@ import os
 import re
 import signal
 import subprocess
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -370,8 +377,6 @@ def run_reader_stream(
         "tool",
         "--max-turns",
         "1",
-        "--run-budget",
-        str(timeout),
     ]
     env = os.environ.copy()
     env["HERMES_PROFILE"] = HERMES_PROFILE
@@ -388,6 +393,15 @@ def run_reader_stream(
     if on_start:
         on_start(proc)
 
+    timed_out = threading.Event()
+
+    def _expire() -> None:
+        timed_out.set()
+        _kill_group(proc)
+
+    watchdog = threading.Timer(timeout, _expire)
+    watchdog.daemon = True
+    watchdog.start()
     text_parts: list[str] = []
     usage: dict[str, Any] = {}
     result_text = ""
@@ -418,8 +432,12 @@ def run_reader_stream(
                 }
             elif event_type in {"error", "failure"}:
                 raise ReaderStreamError(event.get("message") or event.get("error") or "hermes error")
-        proc.wait(timeout=5)
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _kill_group(proc)
     finally:
+        watchdog.cancel()
         if proc.poll() is None:
             _kill_group(proc)
         if proc.stderr is not None:
@@ -434,6 +452,8 @@ def run_reader_stream(
     if not text and result_text:
         text = strip_status_footer(result_text)
     if proc.returncode not in (0, None) and not text:
+        if timed_out.is_set():
+            raise ReaderStreamError(f"模型响应超时（{timeout}s），可重试或换更短的 prompt")
         raise ReaderStreamError(f"hermes exited rc={proc.returncode}: {(err or '')[:300]}")
     return {
         "text": text,

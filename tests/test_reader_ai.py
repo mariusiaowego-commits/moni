@@ -363,3 +363,48 @@ def test_frontend_reader_contract():
     assert "readerRunPrompt(prompt)" in js
     assert "this.readerInput = prompt.body" not in js
     assert "getOwnPropertyDescriptors" in app
+    # Scraped bodies are text-only in the reader: no <img> in the allowlist and
+    # Markdown/HTML image syntax stripped before rendering.
+    assert "'img'" not in js
+    assert "MD_IMAGE_RE" in js and "HTML_IMAGE_RE" in js
+    assert "ai-thinking-label" in html and "ai-caret" in html
+    assert "readerCopyMessage" in js
+
+
+def test_reader_stream_skips_gateway_rejected_flags(monkeypatch):
+    from moni.llm import reader
+
+    captured: dict[str, list[str]] = {}
+
+    class FakeStream:
+        def __iter__(self):
+            return iter([
+                '{"type":"text","text":"ok"}',
+                '{"type":"result","text":"ok","tokens":{"input":3,"output":1}}',
+            ])
+
+        def read(self):
+            return ""
+
+    class FakeProc:
+        def __init__(self, cmd, **_kwargs):
+            captured["cmd"] = cmd
+            self.stdout = FakeStream()
+            self.stderr = FakeStream()
+            self.returncode = 0
+
+        def wait(self, timeout=None):
+            return 0
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(reader.subprocess, "Popen", FakeProc)
+    result = reader.run_reader_stream("hi", timeout=5)
+
+    assert result["text"] == "ok"
+    cmd = captured["cmd"]
+    # The moni profile goes through the hermes gateway, which exits rc=2 on
+    # --run-budget; the local watchdog owns the budget instead.
+    assert "--run-budget" not in cmd
+    assert "--oneshot" in cmd and "stream-json" in cmd

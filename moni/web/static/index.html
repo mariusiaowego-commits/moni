@@ -3273,9 +3273,7 @@
             <div class="ai-messages" x-ref="aiMessages">
               <div class="ai-empty" x-show="!readerMessages.length">
                 <svg viewBox="0 0 64 64" width="64" height="64" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 14h30a4 4 0 0 1 4 4v24a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V18a4 4 0 0 1 4-4Z"></path><path d="M20 26h18"></path><path d="M20 33h12"></path><path d="M46 22h6a4 4 0 0 1 4 4v22a4 4 0 0 1-4 4H24"></path></svg>
-                <h4>读到哪里，问到哪里</h4>
-                <p>选中正文里的一段，可以单独问。关键事实，请回原文核对。</p>
-                <blockquote>书犹药也，善读之可以医愚。<cite>—— 刘向</cite></blockquote>
+                <p>选中正文一段可直接对它提问；回答只依据本文。</p>
               </div>
               <template x-for="m in readerMessages" :key="m.id">
                 <div class="ai-msg" :class="'is-' + m.role">
@@ -3283,8 +3281,14 @@
                   <div class="ai-msg-quote" x-show="m.quote_text" x-text="m.quote_text"></div>
                   <div class="ai-msg-body" x-show="m.role === 'user'" x-text="m.content"></div>
                   <div class="ai-msg-body markdown" x-show="m.role === 'assistant'" x-html="readerRenderMarkdown(m.content)"></div>
+                  <span class="ai-caret" x-show="readerStreamMsgId === m.id && m.status !== 'done'" aria-hidden="true"></span>
+                  <div class="ai-thinking" x-show="readerStreamMsgId === m.id && !m.content">
+                    <span class="ai-thinking-label">正在思考</span>
+                  </div>
                   <div class="ai-msg-error" x-show="m.status === 'failed'" x-text="m.error || '生成失败'"></div>
-                  <div class="ai-msg-meta" x-show="m.role === 'assistant' && m.status === 'done'" x-text="'完成'"></div>
+                  <div class="ai-msg-actions" x-show="m.role === 'assistant' && m.status === 'done'">
+                    <button class="ai-msg-act" @click="readerCopyMessage(m.content)">复制</button>
+                  </div>
                 </div>
               </template>
             </div>
