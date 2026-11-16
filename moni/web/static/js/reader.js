@@ -120,6 +120,7 @@
         const link = document.createElement('a');
         link.className = 'cite-chip';
         link.href = '#p' + (hit + 1);
+        link.dataset.quote = quote;
         link.textContent = String(ref + 1);
         link.title = '跳到原文对应段落';
         frag.appendChild(document.createTextNode(part));
@@ -134,6 +135,7 @@
       const row = document.createElement('a');
       row.className = 'cite-ref';
       row.href = '#p' + (ref.index + 1);
+      row.dataset.quote = ref.quote;
       const excerpt = (articleBlocks[ref.index].textContent || '').trim().slice(0, 46);
       row.innerHTML = `<span class="cite-chip">${i + 1}</span>`
         + `<span class="cite-ref-text"></span>`
@@ -180,6 +182,78 @@
     }
     return renderMarkdown(value);
   }
+
+  /** Drop the previous citation mark so only one passage stays lit. */
+  function clearReaderFlash() {
+    document.querySelectorAll('.reader-body .reader-flash').forEach((el) => {
+      if (el.tagName === 'MARK') {
+        const parent = el.parentNode;
+        while (el.firstChild) parent.insertBefore(el.firstChild, el);
+        parent.removeChild(el);
+        parent.normalize();
+      } else {
+        el.classList.remove('reader-flash');
+      }
+    });
+  }
+
+  /** Paint the quoted sentence, or the whole block when the quote spans tags. */
+  function flashQuotedText(target, quote) {
+    clearReaderFlash();
+    const needle = String(quote || '').trim();
+    if (needle) {
+      const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (node) {
+        const idx = node.nodeValue.indexOf(needle);
+        if (idx >= 0) {
+          const range = document.createRange();
+          range.setStart(node, idx);
+          range.setEnd(node, idx + needle.length);
+          const mark = document.createElement('mark');
+          mark.className = 'reader-flash';
+          try {
+            range.surroundContents(mark);
+            return mark;
+          } catch (err) {
+            break;
+          }
+        }
+        node = walker.nextNode();
+      }
+    }
+    target.classList.add('reader-flash');
+    return target;
+  }
+
+  function scrollReaderTo(node) {
+    const scroll = document.querySelector('.reader-scroll');
+    if (!scroll) {
+      node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    const top = scroll.scrollTop
+      + node.getBoundingClientRect().top
+      - scroll.getBoundingClientRect().top
+      - 24;
+    scroll.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  }
+
+  // Citation chips and footer rows are anchors (`#pN`) inside the AI panel.
+  // Keep the existing jump, and leave the quoted sentence highlighted until
+  // the next citation so the landing spot stays obvious.
+  document.addEventListener('click', (event) => {
+    const link = event.target.closest?.('a.cite-chip, a.cite-ref');
+    if (!link) return;
+    const href = link.getAttribute('href') || '';
+    const id = href.startsWith('#') ? href.slice(1) : '';
+    const target = id ? document.getElementById(id) : null;
+    const body = document.querySelector('.reader-body');
+    if (!target || !body || !body.contains(target)) return;
+    event.preventDefault();
+    const marked = flashQuotedText(target, link.dataset.quote || '');
+    scrollReaderTo(marked);
+  });
 
   /** Parse a `[bank:icbc type:media target:yicai-finance]` marker. */
   function parseBankMeta(text) {

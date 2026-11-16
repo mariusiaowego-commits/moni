@@ -59,6 +59,8 @@ class Article(BaseModel):
     # unread assistant reply.  Computed by the list query; False for
     # articles that never entered the AI panel.
     reader_unread: bool = False
+    # Sprint 50: true when the article has any reader AI conversation.
+    has_reader_chat: bool = False
     created_at: datetime
     updated_at: datetime
 

@@ -201,6 +201,10 @@ def list_pinned_articles(
         SELECT a.id, a.title, a.url, a.source, a.publisher, a.published_at,
                a.raw_content, a.summary, a.fetched_at,
                p.pinned_at AS pinned_at,
+               EXISTS (SELECT 1 FROM reader_conversations rc
+                       WHERE rc.article_id = a.id AND rc.unread = 1) AS reader_unread,
+               EXISTS (SELECT 1 FROM reader_conversations rc
+                       WHERE rc.article_id = a.id) AS has_reader_chat,
                (SELECT GROUP_CONCAT(
                   CASE WHEN td.color IS NULL OR td.color = ''
                        THEN CASE WHEN td.display_name IS NULL OR td.display_name = ''
