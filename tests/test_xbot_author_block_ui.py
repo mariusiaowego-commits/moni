@@ -124,6 +124,65 @@ def _block_confirm_region(app_js: str) -> str:
     return app_js[idx:end]
 
 
+def _confirm_msg_statement(app_js: str) -> str:
+    """取 ``confirmBlockAuthor`` 里 ``const msg = ...;`` **这一句**的原文。
+
+    为什么不能直接在 region 里找文案: region 含方法体的 ``//`` 注释, 而
+    注释里也出现了「不可恢复」字样 (app.js:1210 的注释) —— 直接在 region
+    里找「不可恢复」会被**注释**满足, 于是把真文案里的措辞删掉测试也不红
+    (warden 复审 P2 残留)。同理 region 里别的 ``${...}`` 插值会满足
+    ``assert "${" in region``, 让「handle 写死」也测不出来。
+
+    所以这里只取**一句**语句 —— 语句里没有注释, 且文案就在模板字符串中。
+    """
+    region = _block_confirm_region(app_js)
+    idx = region.find("const msg = ")
+    assert idx != -1, "confirmBlockAuthor 里找不到 `const msg = ...`"
+
+    # 扫到**模板字符串之外**的第一个分号 = 这句的结束 (模板里可能有分号)。
+    i = idx
+    in_tpl = False
+    while i < len(region):
+        ch = region[i]
+        if in_tpl and ch == "\\":
+            i += 2
+            continue
+        if ch == "`":
+            in_tpl = not in_tpl
+        elif ch == ";" and not in_tpl:
+            break
+        i += 1
+    assert i < len(region), "找不到 `const msg = ...` 的结束分号"
+    return region[idx:i]
+
+
+def _confirm_msg_text(app_js: str) -> str:
+    """取确认框文案里**反引号模板字符串**的内容 (dad 在弹窗里真正看到的字)。
+
+    只认模板字符串 —— 注释里的字样一律不算数。
+    """
+    stmt = _confirm_msg_statement(app_js)
+    out: list[str] = []
+    buf: list[str] = []
+    in_tpl = False
+    i = 0
+    while i < len(stmt):
+        ch = stmt[i]
+        if in_tpl and ch == "\\":
+            buf.append(stmt[i:i + 2])
+            i += 2
+            continue
+        if ch == "`":
+            if in_tpl:
+                out.append("".join(buf))
+                buf = []
+            in_tpl = not in_tpl
+        elif in_tpl:
+            buf.append(ch)
+        i += 1
+    return "\n".join(out)
+
+
 def test_confirm_reuses_existing_modal_helper(app_js: str):
     """AC-14：用现成的 window.moniModal.confirm（modal.js:223）。
 
@@ -167,13 +226,13 @@ def test_modal_js_is_loaded_before_app_js(index_html: str):
 def test_confirm_text_mentions_deleted_count(app_js: str):
     """AC-17：文案要显示「将删除 N 篇已有文章，不可恢复」。
 
-    断言必须锚在 ``confirmBlockAuthor`` 这一段 —— 用全局子串找「将删除」
-    会撞到 app.js 里**别的**文案，断言就假绿了（warden 变异验证：
-    删掉整句会红，但把 N 写死 / 去掉「不可恢复」都不红）。
+    断言只认**模板字符串**里的字 (dad 在弹窗里真正看到的字), 不认注释 ——
+    方法体的注释里也写着「不可恢复」, 若拿整个 region 去匹配, 把真文案里的
+    措辞删掉测试也不会红 (warden 复审 P2 残留)。
     """
-    region = _block_confirm_region(app_js)
-    assert "将删除" in region, "屏蔽作者的确认框必须说明会删除多少篇文章"
-    assert "不可恢复" in region, (
+    text = _confirm_msg_text(app_js)
+    assert "将删除" in text, "屏蔽作者的确认框必须说明会删除多少篇文章"
+    assert "不可恢复" in text, (
         "必须明确告知不可恢复 —— 这是 dad 做不可逆删除决策的依据"
     )
 
@@ -182,25 +241,35 @@ def test_confirm_text_uses_dynamic_handle_and_count(app_js: str):
     """AC-17：N 和 handle 都是动态的（不是写死的数字）。
 
     N 写死是真实风险：确认框会一直显示一个错误的篇数，而 dad 的确认
-    决策正是基于这个数字（不可逆删除）。所以这条断言必须要求插值
-    ``${existing_count}`` 出现在确认文案里。
+    决策正是基于这个数字（不可逆删除）。所以必须要求插值
+    ``${existing_count}`` 出现在**确认文案**里。
+
+    handle 同理: 文案里必须插值 ``${handle}`` —— 若被写死成某个字面量,
+    确认框会显示错误的作者名 (dad 就是在核对这个名字才点的确认)。
     """
-    region = _block_confirm_region(app_js)
-    assert "${" in region, "文案里的 N / handle 必须是模板插值"
-    assert "${existing_count}" in region, (
+    text = _confirm_msg_text(app_js)
+    assert "${existing_count}" in text, (
         "删除篇数 N 必须用后端返回的 existing_count 动态插值，不能写死"
+    )
+    assert "${handle}" in text, (
+        "作者 handle 必须是 ${handle} 动态插值，不能写死成字面量"
     )
 
 
 def test_confirm_handles_zero_count_gracefully(app_js: str):
     """AC-17：N = 0 时文案不能误导（不能说「将删除 0 篇…不可恢复」吓人）。
 
-    断言必须锚在屏蔽作者的确认流程上 —— 不能用「没有 / 0 篇」这种
-    全局子串去撞 app.js 里无关的文案（那会假绿）。
+    断言锚在 ``const msg = ...`` 这一句的**代码**上 —— 用「没有 / 0 篇」
+    这种全局子串去撞 app.js 里无关的文案会假绿。
     """
-    region = _block_confirm_region(app_js)
-    assert "existing_count" in region or "existingCount" in region, \
+    stmt = _confirm_msg_statement(app_js)
+    assert "existing_count" in stmt or "existingCount" in stmt, \
         "确认流程要拿到删除篇数 N 才能决定文案"
+    # N = 0 必须走**另一个分支**, 且措辞是「暂无已有文章」而不是
+    # 「将删除 0 篇…不可恢复」(后者吓人且误导)。
+    assert "暂无已有文章" in _confirm_msg_text(app_js), (
+        "N = 0 时必须有单独的温和措辞，不能显示「将删除 0 篇…不可恢复」"
+    )
 
 
 # ── AC-9：名单管理在 X-bot 配置区 ───────────────────────────────────────
