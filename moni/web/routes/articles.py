@@ -266,6 +266,7 @@ def article_facets() -> dict[str, Any]:
         SELECT at.tag_name AS name, COUNT(*) AS count,
                td.display_name AS display_name, td.color AS color
         FROM article_tags at
+        JOIN articles a ON a.id = at.article_id
         LEFT JOIN tag_definitions td ON td.name = at.tag_name
         GROUP BY at.tag_name
         ORDER BY count DESC, name ASC

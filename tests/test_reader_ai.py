@@ -135,6 +135,46 @@ def test_article_filters_sort_and_total(client: TestClient):
     assert bank["count"] == 2
 
 
+def test_facets_skip_tag_rows_without_article(client: TestClient):
+    """删除文章会留下 article_tags 孤儿行；chip 计数不能把它们算进去。"""
+    from moni.db.connection import get_db
+
+    _article("a1", source="src-a", title="Alpha")
+    _tag("a1", "银行")
+    conn = get_db()
+    # Production deletes ran with FK enforcement off and left such rows behind.
+    conn.execute("PRAGMA foreign_keys = OFF")
+    _tag("gone", "银行")
+    conn.execute("PRAGMA foreign_keys = ON")
+
+    assert conn.execute(
+        "SELECT COUNT(*) FROM article_tags WHERE tag_name = '银行'"
+    ).fetchone()[0] == 2
+
+    facets = client.get("/api/articles/facets").json()
+    bank = next(row for row in facets["tags"] if row["name"] == "银行")
+    listed = client.get("/api/articles?tags=银行")
+    assert bank["count"] == 1
+    assert bank["count"] == int(listed.headers["x-total-count"])
+
+
+def test_prompt_pills_keep_manager_button_outside_the_scroller():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    row = html[html.index('<div class="ai-pills-row">'):]
+    scroller_end = row.index("</div>", row.index('<div class="ai-pills">'))
+    assert "ai-pill-more" not in row[:scroller_end]
+    assert "ai-pill-more" in row[scroller_end:]
+
+
+def test_image_only_article_gets_a_hint():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert "readerBodyEmpty" in html
+    assert "这篇原文以图片为主" in html
+    js = (STATIC / "js" / "reader.js").read_text(encoding="utf-8")
+    assert "plainTextLength" in js
+    assert "readerBodyEmpty" in js
+
+
 def test_bulk_delete_removes_article_and_reader_rows(client: TestClient):
     from moni.db.connection import get_db
 

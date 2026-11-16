@@ -33,6 +33,13 @@
 
   let articleBlocks = [];
 
+  /** Readable text left after rendering: used to flag image-only articles. */
+  function plainTextLength(html) {
+    const box = document.createElement('div');
+    box.innerHTML = html;
+    return (box.textContent || '').replace(/\s+/g, '').length;
+  }
+
   function md() {
     if (!window.marked) return null;
     if (!window.__moniMarkedReady) {
@@ -454,6 +461,7 @@
     readerRawOpen: false,
     readerImportOpen: false,
     readerRendered: '',
+    readerBodyEmpty: false,
     readerProgress: 0,
     readerSelectionVisible: false,
     readerSelectionPos: '',
@@ -477,6 +485,7 @@
         .then((data) => {
           this.articleDetail = data;
           this.readerRendered = renderArticle(data.content || '');
+          this.readerBodyEmpty = plainTextLength(this.readerRendered) < 80;
           this.readerBankParts = parseBankMeta(data.content || '');
           this.readerLoadPrompts();
           this.readerLoadConversation();
@@ -487,6 +496,7 @@
     closeArticleDetail() {
       this.readerCloseStream();
       this.articleDetail = null;
+      this.readerBodyEmpty = false;
       this.readerBankParts = [];
       this.readerRawOpen = false;
       this.readerImportOpen = false;

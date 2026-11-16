@@ -4832,6 +4832,10 @@ body.has-float-layer .tags-overflow { display: none !important; }
   max-width: 72ch; margin: 0 auto; color: var(--foreground);
   font-size: 17px; line-height: 1.85; word-break: break-word;
 }
+.reader-body-thin {
+  max-width: 72ch; margin: 8px auto 0; color: var(--muted-fg);
+  font-size: var(--font-13); line-height: 1.7;
+}
 .reader-body h1, .reader-body h2, .reader-body h3, .reader-body h4 {
   line-height: 1.35; margin: 1.4em 0 0.55em; font-weight: 620;
 }
@@ -5013,7 +5017,8 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
 .ai-quote-label { flex-shrink: 0; color: var(--muted-fg); }
 .ai-quote-text { flex: 1; max-height: 72px; overflow: auto; line-height: 1.45; }
 .ai-quote-remove { border: 0; background: transparent; color: var(--muted-fg); cursor: pointer; font-size: 14px; line-height: 1; }
-.ai-pills { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: none; }
+.ai-pills-row { display: flex; align-items: flex-start; gap: 4px; padding-bottom: 6px; }
+.ai-pills { display: flex; flex: 1; min-width: 0; gap: 4px; overflow-x: auto; scrollbar-width: none; }
 .ai-pills::-webkit-scrollbar { display: none; }
 .ai-pill {
   flex-shrink: 0; height: 26px; padding: 0 9px; border-radius: 999px;
