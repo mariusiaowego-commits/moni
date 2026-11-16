@@ -529,6 +529,24 @@ def filter_recent(
     return [row for row in rows if date.fromisoformat(row["date"]) >= cutoff]
 
 
+def item_is_recent(
+    item: dict[str, Any], *, max_age_days: int, today: date | None = None
+) -> bool:
+    """规范化 item 是否落在时效窗口内。
+
+    用来在合并后统一约束 **agent 与媒体** 条目 —— 官网静态列表在解析阶段
+    就按窗口截过, 但工行 agent 会把栏目里大半年前的旧闻一起交回来。
+    没有日期的条目不参与判断 (无从比较, 保留)。
+    """
+    if max_age_days <= 0:
+        return True
+    try:
+        day = date.fromisoformat(str(item.get("created_at") or "")[:10])
+    except ValueError:
+        return True
+    return day >= (today or date.today()) - timedelta(days=max_age_days)
+
+
 def collect_official_static(target: dict[str, Any], *, timeout: float) -> list[dict[str, Any]]:
     """官网栏目: 列表页确定性解析 + 详情页正文, 不调模型。"""
     html = _decode_html(_http_get(target["url"], timeout))
@@ -1076,6 +1094,25 @@ def main(argv: list[str] | None = None) -> int:
             )
 
     merged = merge_items(agent_items, media_items, static_items)
+    # 时效窗口对三类条目一视同仁: 静态列表已在解析阶段截过, 这里兜住
+    # agent (工行栏目常带大半年前的旧闻) 与媒体源的旧稿。
+    windows = {t["id"]: _max_age_days(t) for t in targets}
+    recent = [
+        item for item in merged
+        if item_is_recent(
+            item,
+            max_age_days=windows.get(str(item.get("target_id") or ""),
+                                      DEFAULT_MAX_AGE_DAYS),
+        )
+    ]
+    if len(recent) < len(merged):
+        print(
+            f"[bank_bot] dropped {len(merged) - len(recent)} item(s) outside "
+            "the freshness window",
+            file=sys.stderr,
+        )
+    merged = recent
+
     items: list[dict[str, Any]] = []
     problems: list[str] = []
     for idx, item in enumerate(merged):

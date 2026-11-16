@@ -1,5 +1,5 @@
 {
-  "_comment": "银行同业信源目标清单 (sprint-40 / v1.0.76)。用户可在 /config → 银行同业 → fetch_config.targets 里覆盖本文件, 改完下一个抓取周期生效, 不需要改代码。kind 四种: official_list (官网新闻栏目, 由 agent 渲染+抽取) / media_rss (标准 RSS, Python 直接解析) / media_json (JSON 列表接口, 按 fields 映射) / wechat_article (已知 mp.weixin.qq.com 链接, 由 agent 浏览器渲染)。 static=true 表示列表页可确定性解析(失败自动回退 agent); 工行是 JS 渲染, 保持 false。 max_age_days 可选, 默认 60, 控制官网列表时效窗口 (0 = 不过滤旧稿)。",
+  "_comment": "银行同业信源目标清单 (sprint-40 / v1.0.76)。用户可在 /config → 银行同业 → fetch_config.targets 里覆盖本文件, 改完下一个抓取周期生效, 不需要改代码。kind 四种: official_list (官网新闻栏目, 由 agent 渲染+抽取) / media_rss (标准 RSS, Python 直接解析) / media_json (JSON 列表接口, 按 fields 映射) / wechat_article (已知 mp.weixin.qq.com 链接, 由 agent 浏览器渲染)。 static=true 表示列表页可确定性解析(失败自动回退 agent); 工行是 JS 渲染, 保持 false。 max_age_days 可选, 默认 60, 对该目标所有条目生效(含 agent 与媒体), 0 = 不过滤旧稿。",
   "version": 1,
   "updated_at": "2026-11-16",
   "targets": [

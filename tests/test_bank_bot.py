@@ -629,6 +629,71 @@ def test_filter_recent_zero_disables_the_window(bot):
     assert bot.filter_recent(rows, max_age_days=0) == rows
 
 
+def test_item_is_recent_handles_edges(bot):
+    today = bot.date(2026, 11, 16)
+    recent = {"created_at": "2026-11-10T09:00:00+08:00"}
+    stale = {"created_at": "2026-01-27T09:00:00+08:00"}
+    assert bot.item_is_recent(recent, max_age_days=60, today=today)
+    assert not bot.item_is_recent(stale, max_age_days=60, today=today)
+    assert bot.item_is_recent(stale, max_age_days=0, today=today)
+    # 没有日期就无从比较, 保留
+    assert bot.item_is_recent({"created_at": None}, max_age_days=60, today=today)
+
+
+def test_main_drops_old_agent_items(tmp_path, bot, monkeypatch):
+    """工行 agent 常把栏目里大半年前的旧闻一起交回来, 必须按窗口过滤。"""
+    targets = {"targets": [
+        {"id": "icbc-news", "kind": "official_list", "static": False,
+         "url": "https://www.icbc.com.cn/column/x.html", "bank": "icbc",
+         "publisher": "中国工商银行"},
+        {"id": "eastmoney", "kind": "media_rss",
+         "url": "https://rss.example.com/feed.xml", "publisher": "东方财富"},
+    ]}
+    tfile = tmp_path / "targets.json"
+    tfile.write_text(json.dumps(targets, ensure_ascii=False), encoding="utf-8")
+
+    def _row(item_id: str, day: str) -> dict:
+        return {
+            "id": item_id, "url": f"https://www.icbc.com.cn/{item_id}.html",
+            "title": "工商银行发布经营数据", "text": "正文" * 80,
+            "created_at": f"{day}T09:00:00+08:00", "bank": "icbc",
+            "source_type": "official", "publisher": "中国工商银行",
+            "target_id": "icbc-news",
+        }
+
+    monkeypatch.setattr(bot, "collect_agent", lambda targets, **kw: (
+        [_row("fresh", "2026-11-10"), _row("stale", "2026-01-27")], []
+    ))
+    monkeypatch.setattr(bot, "collect_media", lambda target, timeout: [])
+
+    out = tmp_path / "feed"
+    assert bot.main([
+        "--output-dir", str(out), "--targets", str(tfile), "--date", "2026-11-16",
+    ]) == 0
+    payload = json.loads((out / "latest.json").read_text(encoding="utf-8"))
+    assert [i["url"].rsplit("/", 1)[-1] for i in payload["items"]] == ["fresh.html"]
+
+
+def test_main_drops_old_media_items(tmp_path, bot, monkeypatch):
+    """媒体源偶尔也会带旧稿, 同一窗口口径要一致。"""
+    tfile = _fallback_targets_file(tmp_path, [])
+    old = dict(
+        _media_item(),
+        id="ccb-old", url="https://news.example.com/old.html",
+        created_at="2025-01-01T00:00:00+08:00",
+    )
+    monkeypatch.setattr(
+        bot, "collect_media", lambda target, timeout: [old, _media_item()]
+    )
+
+    out = tmp_path / "feed"
+    assert bot.main([
+        "--output-dir", str(out), "--targets", str(tfile), "--date", "2026-11-16",
+    ]) == 0
+    payload = json.loads((out / "latest.json").read_text(encoding="utf-8"))
+    assert len(payload["items"]) == 1
+
+
 def test_collect_official_static_all_old_returns_empty(bot, monkeypatch):
     """窗口内没有新闻 = 合法的 0 条, 不是解析失败。"""
     html = '<a href="./202209/t20220907_1.html">建设银行2022年的旧新闻</a>'
