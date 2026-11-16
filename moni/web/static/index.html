@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261116001">
+  <link rel="stylesheet" href="css/main.css?v=20261116002">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -3198,6 +3198,7 @@
             <div class="reader-scroll" @scroll="readerUpdateProgress($event)" @mouseup="readerHandleSelection($event)">
               <div class="reader-progress"><span :style="'width:' + readerProgress + '%'"></span></div>
               <article class="reader-body" x-ref="readerBody" x-html="readerArticleHtml()"></article>
+              <p class="reader-body-thin" x-show="readerBodyEmpty" x-cloak>这篇原文以图片为主，正文没有可读文字。</p>
 
               <div class="summary-box" x-show="articleDetail?.summary" x-cloak>
                 <h4>摘要</h4>
@@ -3340,10 +3341,12 @@
                 <span class="ai-quote-text" x-text="readerQuote"></span>
                 <button class="ai-quote-remove" @click="readerQuote = ''" aria-label="移除引用">×</button>
               </div>
-              <div class="ai-pills">
-                <template x-for="p in readerPrompts" :key="p.id">
-                  <button class="ai-pill" @click="readerRunPrompt(p)" :disabled="readerStreaming" x-text="p.name"></button>
-                </template>
+              <div class="ai-pills-row">
+                <div class="ai-pills">
+                  <template x-for="p in readerPrompts" :key="p.id">
+                    <button class="ai-pill" @click="readerRunPrompt(p)" :disabled="readerStreaming" x-text="p.name"></button>
+                  </template>
+                </div>
                 <button class="ai-pill ai-pill-more" @click="readerOpenPromptManager()" aria-label="管理 Prompt">⋯</button>
               </div>
               <textarea class="ai-input" x-model="readerInput" @keydown.enter="readerEnter($event)" rows="2" placeholder="基于正文提问，Enter 发送，Shift+Enter 换行"></textarea>
@@ -4315,8 +4318,8 @@
   <script src="js/theme.js?v=20260813019"></script>
   <script src="vendor/marked-16.4.2.umd.js?v=20261116001"></script>
   <script src="vendor/dompurify-3.4.17.min.js?v=20261116001"></script>
-  <script src="js/app.js?v=20261116001"></script>
-  <script src="js/reader.js?v=20261116001"></script>
+  <script src="js/app.js?v=20261116002"></script>
+  <script src="js/reader.js?v=20261116002"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
        GSAP presence, and the scale pop now honours prefers-reduced-motion. -->

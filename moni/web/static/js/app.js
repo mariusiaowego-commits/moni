@@ -3430,6 +3430,7 @@ function app() {
               this.articleDetail = article;
               if (typeof this.readerRenderArticle === 'function') {
                 this.readerRendered = this.readerRenderArticle(article.content || '');
+                this.readerBodyEmpty = false;
               }
             });
         })
