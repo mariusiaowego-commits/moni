@@ -8,9 +8,11 @@
 
 分支 `feat/articles-reading-ai`，尚未合并、未打 tag、未重启 8900。
 
-测试：`pytest` 1752 passed / 2 skipped。另有 2 条未跑：`test_039_upgrades_a_db_built_by_old_code` 要在 `.git/worktrees` 建目录，沙箱不允许；`test_showcase_demo_origin_keeps_artifacts_safe_but_blocks_javascript` 因当前 venv 没有 Pillow 在 import 阶段失败，与这次改动无关。
+测试：`pytest` 1753 passed / 2 skipped / 2 failed。2 条失败均与本次改动无关：`test_039_upgrades_a_db_built_by_old_code` 要在 `.git/worktrees` 建目录，沙箱不允许；`test_showcase_demo_origin_keeps_artifacts_safe_but_blocks_javascript` 因当前 venv 没有 Pillow 在 import 阶段失败。
 
 文章查阅改为：正文按 Markdown 渲染；标签芯片 + 信源多选；全部列表可批量硬删除（上限 200）。详情右侧是一次性 `hermes chat --oneshot` 对话，不新建 profile、不累积 hermes session。2 万字以内整篇送入；更长的文章，整篇任务分段读完再合并，选区提问只带相关段落，追问带开头、结尾和相关段。每次提问写入 `llm_jobs.task_type=reader_chat`。关闭详情后任务继续，完成后列表出现「AI 有新结果」。
+
+`moni` profile 走 hermes gateway，`--run-budget` 会被拒（rc=2，`Unsupported gateway CLI options`），超时改由本地看门狗杀进程组；`--format stream-json` 仍是逐块 `text` 事件，SSE 按增量下发。正文渲染剔除 Markdown/HTML 图片（只留文字），避免转载抓取图片。
 
 Schema 043（042 留给尚未进 main 的 xbot 作者屏蔽）。`migrate()` 会补跑已记录版本之后缺席的迁移，避免 043 先落地时把 042 跳过。
 
