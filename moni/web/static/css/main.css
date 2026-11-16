@@ -1345,6 +1345,106 @@ label { font-size: var(--font-14); }
     flex: 1 1 40%;
   }
 }
+
+/* v1.0.88 (sprint-38): 「屏蔽作者」按钮 + 已屏蔽作者名单管理
+ *
+ * 视觉规范 (agy UI 建议):
+ *   * 幽灵微型按钮 —— 无底色, 靠 --muted-fg 低调存在, hover 转 --destructive;
+ *   * 杜绝写死 HEX —— 全部走主题变量, 深色模式靠 --destructive 保持对比度;
+ *   * 特异度同 sprint-35: 通用 `input[type="text"]` 是 (0,1,1), 会压过
+ *     (0,1,0) 的类选择器 → 名单输入框一律带 `.fetch-config-xbot` 前缀。
+ */
+.author-block-btn {
+  margin-left: 8px;
+  padding: 2px 6px;
+  font-size: 0.78em;
+  line-height: 1.4;
+  color: var(--muted-fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.author-block-btn:hover {
+  color: var(--destructive);
+  background: oklch(from var(--destructive) l c h / 0.12);
+  border-color: var(--destructive);
+}
+.author-block-btn:focus-visible {
+  outline: 2px solid var(--destructive);
+  outline-offset: 1px;
+}
+.fetch-config-blocklist {
+  margin-top: 1rem;
+}
+.fetch-config-blocklist-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 10px;
+}
+.blocklist-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 8px;
+  font-size: 0.8em;
+  color: var(--foreground);
+  background: var(--muted);
+  border-radius: 4px;
+}
+.blocklist-remove {
+  padding: 0 4px;
+  font-size: 1em;
+  line-height: 1;
+  color: var(--muted-fg);
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.blocklist-remove:hover {
+  color: var(--destructive);
+}
+.fetch-config-blocklist-builtin {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin: 8px 0;
+  font-size: 0.8em;
+}
+.blocklist-builtin {
+  padding: 1px 5px;
+  font-size: 0.92em;
+  color: var(--muted-fg);
+  background: var(--muted);
+  border-radius: 3px;
+}
+.fetch-config-blocklist-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.fetch-config-xbot .fetch-config-blocklist-input {
+  flex: 1 1 160px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  font-size: 0.85em;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--foreground);
+}
+@media (max-width: 480px) {
+  .fetch-config-xbot .fetch-config-blocklist-input {
+    flex: 1 1 100%;
+  }
+}
 .form-row label small.muted {
   display: block;
   font-weight: 400;

@@ -90,7 +90,7 @@ def _links(conn) -> list[str]:
 # ── 版本 ────────────────────────────────────────────────────────────────
 
 def test_version_constant_is_current():
-    assert _CURRENT_VERSION == 41
+    assert _CURRENT_VERSION == 42
 
 
 # ── 升级路径 ────────────────────────────────────────────────────────────
@@ -229,7 +229,7 @@ def test_041_fresh_db_via_migrate(unseeded_db):
     version = unseeded_db.execute(
         "SELECT COALESCE(MAX(version), 0) FROM schema_version"
     ).fetchone()[0]
-    assert version == 41
+    assert version == 42
     assert _row(unseeded_db) is not None
     assert _tag(unseeded_db) is not None
     assert _links(unseeded_db) == [TAG]

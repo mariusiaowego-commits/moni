@@ -127,6 +127,26 @@ pytest 1630 passed / 2 skipped。移动端按 dad 决定不做。
 第一版把 5 个官网塞进一次 `hermes -z`，实测 600s 没跑完 → 5 个官网**全丢**，
 只剩媒体 RSS 的 4 条。改成一页一次调用后同样的输入拿到 58 条官网条目（+3 条媒体，共 61）。
 
+## 进行中: **X-bot 精选「屏蔽作者」** (2026-11-12 · 分支 `feat/xbot-author-block-v1.0.88`)
+
+在 X-bot 精选（`xbot_feed`）的文章详情弹窗里，按 `@handle` 一键屏蔽作者。
+被屏蔽的作者以后不再入库；旧文章**物理删除**（不可恢复，屏蔽前确认框显示
+「将删除 N 篇已有文章, 不可恢复」）。名单管理放在 X-bot 抓取配置区，与
+`fetch_config` 完全解耦（独立表 `source_author_blocks` + migration 042）。
+
+**dad 的四条决定**（15:04 GO IMPL + 16:02 认可 warden 4 项口径）：
+存储用独立表 / 旧文物理删除 / 只对 `xbot_feed` 生效且 `author_blocked`
+单独计数 / 名单管理放配置区。
+
+**UI 复审**（agy，w52:p8）：r1 判 FAIL（1 个 P0 首页首点屏蔽报错 + 1 个 P1
+焦点丢失 + 1 个 P2 深色对比度）→ 三项全修 → **r2 判 PASS**（P0/P1/P2 各 0，
+6 项回归无回退）。详见 `docs/plans/2026-11-12_xbot-author-block.md`。
+
+**验证**：sprint-38 专项 77 passed；全量 1708 passed / 2 skipped（连续两轮绿）。
+**未 commit / 未 push**；生产 8900 与预览 8902 均未重启，prod DB 零改动。
+
+---
+
 ## 进行中: **分享产物 worker 修复** (2026-11-12 · 分支 `feature/v1.0.73-share-maintenance`)
 
 v1.0.42 起 `worker_llm.py` 把 prompt 从 `-z` 后面挪到 argv 末尾，hermes argparse
