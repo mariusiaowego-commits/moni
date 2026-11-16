@@ -237,6 +237,39 @@ class FetchJobStore:
             },
         )
 
+    def mark_partial(
+        self,
+        job_id: str,
+        result: dict[str, Any],
+        warning: str,
+        handle: leases.LeaseHandle | None = None,
+    ) -> bool:
+        """部分成功: 有数据入库, 但有目标/子步骤失败 (v1.0.88)。
+
+        与 ``mark_failed`` 的区别只在语义: 数据已经进库, 前端要显示
+        「已入库 N 篇 · 缺口原因」而不是「失败 · 0 篇」。
+        """
+        if handle is None:
+            self._atomic_update(
+                job_id,
+                status="partial",
+                finished_at=_now_iso(),
+                error=warning[:2000],
+                result_json=json.dumps(result, ensure_ascii=False, default=str),
+                current_feed=None,
+            )
+            return True
+        return leases.finish(
+            handle,
+            status="partial",
+            extra_fields={
+                "finished_at": _now_iso(),
+                "error": warning[:2000],
+                "result_json": json.dumps(result, ensure_ascii=False, default=str),
+                "current_feed": None,
+            },
+        )
+
     def mark_failed(
         self,
         job_id: str,
@@ -450,6 +483,7 @@ class FetchJobStore:
         total_sources = len(jobs)
         done_sources = 0
         failed_sources = 0
+        partial_sources = 0
         total_feeds = 0
         done_feeds = 0
         articles_so_far = 0
@@ -461,11 +495,12 @@ class FetchJobStore:
 
         for j in jobs:
             st = j.get("status", "")
-            if st in ("done", "timeout", "stale"):
+            if st == "done":
                 done_sources += 1
-                if st != "done":
-                    failed_sources += 1
-            elif st == "failed":
+            elif st == "partial":
+                done_sources += 1
+                partial_sources += 1
+            elif st in ("failed", "timeout", "stale"):
                 done_sources += 1
                 failed_sources += 1
 
@@ -483,15 +518,17 @@ class FetchJobStore:
                     current_source = j.get("source")
                     current_feed = cf
 
-            if st == "done" and j.get("result"):
+            if st in ("done", "partial") and j.get("result"):
+                # partial 的结果自带 ``warning`` 字段; 不要再往 errors 里塞
+                # 一份 —— 前端按 source 拼两行会撞 key, 同一源出现两次。
                 results.append(j["result"])
-            elif st in ("failed", "timeout", "stale") and j.get("error"):
+            elif st in ("failed", "timeout", "stale", "partial") and j.get("error"):
                 errors.append({"source": j.get("source", "?"), "error": j["error"]})
 
         # Determine batch status
         if done_sources < total_sources:
             status = "running"
-        elif failed_sources == 0:
+        elif failed_sources == 0 and partial_sources == 0:
             status = "done"
         elif failed_sources == total_sources:
             status = "failed"
@@ -504,6 +541,7 @@ class FetchJobStore:
             "total_sources": total_sources,
             "done_sources": done_sources,
             "failed_sources": failed_sources,
+            "partial_sources": partial_sources,
             "total_feeds": total_feeds,
             "done_feeds": done_feeds,
             "articles_so_far": articles_so_far,

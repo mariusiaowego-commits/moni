@@ -2481,10 +2481,12 @@ label { font-size: var(--font-14); }
 }
 .fa-row-ok { background: oklch(from var(--success) l c h / 0.12); }
 .fa-row-err { background: oklch(from var(--destructive) l c h / 0.12); }
+.fa-row-warn { background: oklch(from var(--warning) l c h / 0.12); }
 .fa-src { font-weight: 600; min-width: 120px; }
 .fa-metrics { color: var(--foreground); }
 .fa-metrics b { color: var(--accent); }
 .fa-err { color: var(--destructive); font-size: var(--font-13); }
+.fa-warn { color: var(--warning); font-size: var(--font-13); }
 
 /* ═══════════════════════════════════════════════════════════════
    Pagination

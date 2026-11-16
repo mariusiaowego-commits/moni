@@ -95,6 +95,8 @@ DEFAULT_FETCH_CONFIG: dict[str, Any] = {
     # agent (bot) 超时秒数 —— 媒体段 ~10s, agent 段预算 1200s, 留余量
     "bot_timeout_sec": 1500,
     # 当天 feed 有目标失败时, 隔多久才重跑 agent 补齐 (避免连点两次烧两轮)
+    # 带 errors 的当天 feed 过了这个窗口才会重新调 agent 补齐。
+    # 手动点击不走这个窗口 (base.force), 见 _should_run_bot。
     "retry_after_min": 30,
     # 抓到没有今天的 feed 时, 是否就地调 agent 补跑
     "bot_enabled": True,
@@ -204,6 +206,10 @@ class FetcherBankFeed(BaseFetcher):
         self._inserted_ok = False
         self._today_errors: list[dict[str, Any]] = []
         self._bot_error = ""
+        self._progress_total = 0
+        self._progress_inserted = 0
+        self._progress_done = 0
+        self._today_items = 0
 
     # ── config ────────────────────────────────────────────────────────────
     def _load_config(self) -> dict[str, Any]:
@@ -331,11 +337,14 @@ class FetcherBankFeed(BaseFetcher):
         return (datetime.now(timezone.utc) - stamp).total_seconds() / 60
 
     def _should_run_bot(self, cfg: dict[str, Any]) -> bool:
-        """今天的 feed 缺失 → 跑; 有失败 → 过了冷却窗口再跑。"""
+        """今天的 feed 缺失 → 跑; 有失败 → 手动点击或过冷却窗口再跑。"""
         if not self._today_feed_exists():
             return True
         if self._feed_is_fresh():
             return False
+        if getattr(self, "force", False):
+            # 用户点了「立即抓取」—— 明确要求补跑失败目标, 不受冷却限制。
+            return True
         age = self._feed_age_minutes()
         if age is None:
             return True
@@ -534,6 +543,7 @@ class FetcherBankFeed(BaseFetcher):
             items, feed_errors = loaded
             if path.stem == today:
                 self._today_errors = feed_errors
+                self._today_items = len(items)
             for item in items:
                 key = str(item.get("id") or "").strip() or str(
                     item.get("url") or ""
@@ -553,7 +563,19 @@ class FetcherBankFeed(BaseFetcher):
             "[bank-feed] %d feed file(s) → %d new raw item(s) (%d already imported)",
             len(files), len(raws), skipped_already,
         )
+        self._progress_total = len(raws)
+        self._progress_inserted = 0
+        self._progress_done = 0
+        self._report_progress(
+            total_feeds=len(raws),
+            done_feeds=0,
+            articles_so_far=0,
+            current_feed=f"bank_feed {self._today_feed_name()}",
+        )
         return raws
+
+    def _today_feed_name(self) -> str:
+        return f"{date.today().isoformat()}.json"
 
     def parse(self, raw: dict[str, Any]) -> dict[str, Any] | None:
         """把一条 feed item 映射成 moni 的规范 article dict。"""
@@ -613,6 +635,19 @@ class FetcherBankFeed(BaseFetcher):
         }
 
     # ── helpers ───────────────────────────────────────────────────────────
+    def _report_progress(self, **fields: Any) -> None:
+        """把进度报给 fetch_jobs; 回调异常不能影响抓取本身。"""
+        if self.progress_callback is None:
+            return
+        try:
+            self.progress_callback(**fields)
+        except TimeoutError:
+            # web 端用 TimeoutError 中止超时抓取, 吞掉它会让已经超时的
+            # 任务继续跑完才被标 timeout。
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[bank-feed] progress callback failed: %s", exc)
+
     @staticmethod
     def _url_exists(url: str) -> bool:
         if not url:
@@ -659,6 +694,12 @@ class FetcherBankFeed(BaseFetcher):
             )
         inserted = super().dedupe_insert(articles, keyword_hits)
         self._inserted_ok = True
+        self._progress_done += len(articles)
+        self._progress_inserted += inserted
+        self._report_progress(
+            done_feeds=self._progress_done,
+            articles_so_far=self._progress_inserted,
+        )
         # 只记**确实在库里**的 item: 基类对单条 INSERT 异常只 warning,
         # 先记账会把没入库的条目永久标成已导入。
         for art in articles:
@@ -704,7 +745,16 @@ class FetcherBankFeed(BaseFetcher):
                     f"feed 不完整: {len(self._today_errors)} 个目标失败 ({failed})"
                 )
             if problems:
-                result["error"] = "; ".join(problems)
+                text = "; ".join(problems)
+                # 「今天有数据」比「本轮新插了几条」更能说明这次抓取有效:
+                # 同一天点第二次时 inserted 自然是 0, 但库里的文章是真的。
+                if int(result.get("inserted") or 0) > 0 or self._today_items > 0:
+                    result["warning"] = text
+                    result["failed_targets"] = sorted({
+                        str(e.get("target") or "?") for e in self._today_errors
+                    })
+                else:
+                    result["error"] = text
         return result
 
     def _flush_state(self) -> None:

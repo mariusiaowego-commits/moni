@@ -10,10 +10,16 @@
 
 1. **确定性段** (``media_rss`` / ``media_json`` 目标): 纯 Python 拉 RSS /
    JSON 列表 → 按银行主体词筛 → 产出候选条目。不烧模型、不猜。
+   ``official_list`` 目标可标 ``"static": true`` —— 列表页是普通 HTML 时
+   直接解析锚点 + URL 日期, 详情页取正文; 解析不出条目再回退 agent。
+   (工行栏目是 JS 渲染, 实测拿不到条目, 配置里保持 ``static: false``。)
 2. **agent 段** (``official_list`` / ``wechat_article`` 目标): 交给
    ``hermes --profile moni`` 的浏览器 / 搜索能力去渲染官网栏目和公众号
    正文, 产出严格 JSON。moni 侧不持任何模型凭证 —— 这一跳和 moni 现有
    的 LLM 链路是同一条 (hermes → magpie)。
+
+agent 调用只对**瞬时故障** (``session_replay_gap`` / 超时 / 连接断) 重试
+一次 —— 网关偶发断流不该让一整个信源当天缺口。
 
 为什么不写死选择器
 ------------------
@@ -48,7 +54,7 @@ import sys
 import tempfile
 import time
 import xml.etree.ElementTree as ET
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html import unescape
 from pathlib import Path
@@ -98,6 +104,11 @@ BANK_ALIASES: dict[str, dict[str, Any]] = {
 #: 单个目标最多取多少条
 DEFAULT_MAX_ITEMS = 12
 
+#: 官网列表的时效窗口 (天)。栏目里常混着几年前的图片列表块, 只按日期
+#: 倒序截断会把 2022 年的旧稿当成「最新 12 条」写进当天 feed。
+#: 0 = 不过滤。
+DEFAULT_MAX_AGE_DAYS = 60
+
 #: 正文低于这个字数的条目仍然入库, 但会被案例库抽取跳过。只做记录。
 MIN_USEFUL_TEXT = 100
 
@@ -109,6 +120,21 @@ DETAIL_MAX_CHARS = 6000
 DETAIL_TIMEOUT = 12.0
 #: 详情页里属于导航/版权/引导的段落, 直接丢掉。
 _BOILERPLATE = ("扫一扫", "微信", "分享到", "责任编辑", "免责声明", "版权声明", "登录后")
+
+#: agent 瞬时故障重试: 总尝试次数与退避秒数。
+AGENT_ATTEMPTS = 2
+AGENT_RETRY_BACKOFF = 5.0
+#: 只有这些错误值得重试 —— 其余 (参数错、解析失败) 重试也只是烧时间。
+_TRANSIENT_AGENT_RE = re.compile(
+    r"session_replay_gap|timed out|Connection reset|Broken pipe|"
+    r"ECONNRESET|EOF occurred|RemoteProtocolError|Connection aborted",
+    re.I,
+)
+
+#: 官网栏目里混着的非新闻条目 (公告/招标/招聘/牌价)。
+_TITLE_SKIP = (
+    "招标", "中标", "采购", "招聘", "竞价", "利率表", "外汇牌价", "信息披露",
+)
 
 ITEM_FIELDS = ("id", "url", "title", "bank", "source_type", "publisher")
 
@@ -242,10 +268,24 @@ def normalize_targets(raw: list[Any]) -> list[dict[str, Any]]:
             "bank": bank,
             "publisher": str(entry.get("publisher") or "").strip() or target_id,
             "max_items": int(entry.get("max_items") or DEFAULT_MAX_ITEMS),
+            "max_age_days": _max_age_days(entry),
         })
     if not targets:
         raise BotError("no usable targets")
     return targets
+
+
+def _max_age_days(entry: dict[str, Any]) -> int:
+    """官网列表的时效窗口; 缺省 60 天, 显式 0 = 不过滤。"""
+    raw = entry.get("max_age_days")
+    if raw is None:
+        return DEFAULT_MAX_AGE_DAYS
+    try:
+        return max(int(raw), 0)
+    except (TypeError, ValueError) as exc:
+        raise BotError(
+            f"target {entry.get('id')}: max_age_days must be an integer, got {raw!r}"
+        ) from exc
 
 
 # ── 确定性段: media_rss / media_json ───────────────────────────────────────
@@ -255,23 +295,39 @@ def _http_get(url: str, timeout: float) -> bytes:
         import httpx
     except ImportError as exc:  # pragma: no cover - httpx 是 moni 的硬依赖
         raise TargetError(f"httpx unavailable: {exc}") from exc
-    try:
-        resp = httpx.get(
-            url,
-            timeout=timeout,
-            follow_redirects=True,
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 "
-                    "(compatible; moni-bank-bot/1.0)"
-                )
-            },
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 "
+            "(compatible; moni-bank-bot/1.0)"
         )
+    }
+    try:
+        resp = httpx.get(url, timeout=timeout, follow_redirects=True, headers=headers)
     except Exception as exc:  # noqa: BLE001 — httpx 异常层级不稳定
-        raise TargetError(f"GET failed: {exc}") from exc
+        # 少数银行站 (group.ccb.cn) 还在用老式 TLS 重协商, OpenSSL 3 默认拒绝。
+        # 只对这一个错误开定向放行, 不做全局降级。
+        if "UNSAFE_LEGACY_RENEGOTIATION_DISABLED" not in str(exc):
+            raise TargetError(f"GET failed: {exc}") from exc
+        try:
+            resp = httpx.get(
+                url, timeout=timeout, follow_redirects=True, headers=headers,
+                verify=_legacy_tls_context(),
+            )
+        except Exception as retry_exc:  # noqa: BLE001
+            raise TargetError(f"GET failed (legacy TLS retry): {retry_exc}") from retry_exc
     if resp.status_code != 200:
         raise TargetError(f"GET {url} -> HTTP {resp.status_code}")
     return resp.content
+
+
+def _legacy_tls_context():
+    """允许 legacy renegotiation 的 SSLContext (仅用于个别银行老站点)。"""
+    import ssl
+
+    ctx = ssl.create_default_context()
+    ctx.options |= getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
+    return ctx
 
 
 def _localname(tag: str) -> str:
@@ -398,6 +454,131 @@ def collect_media(target: dict[str, Any], *, timeout: float) -> list[dict[str, A
     return items[: target["max_items"]]
 
 
+_ANCHOR_RE = re.compile(r"""(?is)<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a>""")
+
+#: URL 里可读出的发布日期: /202611/t20261112_123.html 与 /chn/2026-11/16/article_x.shtml
+_URL_DATE_RES = (
+    re.compile(r"t(20\d{2})(\d{2})(\d{2})[_\.]"),
+    re.compile(r"/(20\d{2})-(\d{2})/(\d{2})/"),
+)
+
+
+def _decode_html(payload: bytes) -> str:
+    """官网 HTML 编码混杂 (UTF-8 / GB18030), 按序尝试。"""
+    for enc in ("utf-8", "gb18030"):
+        try:
+            return payload.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return payload.decode("utf-8", "ignore")
+
+
+def date_from_url(url: str) -> str | None:
+    """从详情页 URL 提取发布日期 (YYYY-MM-DD); 提不到返回 None。"""
+    for pattern in _URL_DATE_RES:
+        match = pattern.search(url or "")
+        if not match:
+            continue
+        year, month, day = match.groups()
+        try:
+            return date(int(year), int(month), int(day)).isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def parse_static_list(html: str, base_url: str, *, max_items: int) -> list[dict[str, str]]:
+    """静态列表页 → [{url, title, date}], 同域、去重、按日期倒序。
+
+    只认 URL 里能读出日期的链接 —— 官网列表页混着大量导航链接,
+    放进来就是假条目。
+    """
+    from urllib.parse import urljoin, urlparse
+
+    host = urlparse(base_url).netloc
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for href, inner in _ANCHOR_RE.findall(html or ""):
+        href = unescape(href).strip()
+        if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
+            continue
+        url = urljoin(base_url, href)
+        if urlparse(url).netloc != host:
+            continue
+        title = re.sub(r"\s+", " ", _strip_html(inner)).strip()
+        if len(title) < 8 or url in seen:
+            continue
+        if any(mark in title for mark in _TITLE_SKIP):
+            continue
+        day = date_from_url(url)
+        if not day:
+            continue
+        seen.add(url)
+        rows.append({"url": url, "title": title, "date": day})
+    rows.sort(key=lambda row: row["date"], reverse=True)
+    return rows[:max_items]
+
+
+def filter_recent(
+    rows: list[dict[str, str]], *, max_age_days: int, today: date | None = None
+) -> list[dict[str, str]]:
+    """只保留最近 ``max_age_days`` 天的条目 (0 = 不过滤)。"""
+    if max_age_days <= 0:
+        return rows
+    cutoff = (today or date.today()) - timedelta(days=max_age_days)
+    return [row for row in rows if date.fromisoformat(row["date"]) >= cutoff]
+
+
+def collect_official_static(target: dict[str, Any], *, timeout: float) -> list[dict[str, Any]]:
+    """官网栏目: 列表页确定性解析 + 详情页正文, 不调模型。"""
+    html = _decode_html(_http_get(target["url"], timeout))
+    rows = parse_static_list(html, target["url"], max_items=int(target["max_items"]))
+    if not rows:
+        raise TargetError("static parser found no dated article links")
+    max_age_days = target.get("max_age_days")
+    if max_age_days is None:
+        max_age_days = DEFAULT_MAX_AGE_DAYS
+    max_age_days = int(max_age_days)
+    rows = filter_recent(rows, max_age_days=max_age_days)
+    if not rows:
+        # 列表能解析、但全是旧稿: 这是「窗口内没有新闻」, 不是解析失败。
+        print(
+            f"[bank_bot] {target['id']}: no article within {max_age_days} day(s)",
+            file=sys.stderr,
+        )
+        return []
+
+    items: list[dict[str, Any]] = []
+    with_body = 0
+    for row in rows:
+        detail = fetch_detail_text(row["url"], timeout=timeout)
+        if len(detail) >= MIN_USEFUL_TEXT:
+            with_body += 1
+        items.append({
+            "id": make_item_id(target["bank"], row["url"]),
+            "url": row["url"],
+            "title": row["title"],
+            # 详情页取不到时用标题兜底: 空正文的条目在 moni 侧只剩元数据。
+            "text": detail or row["title"],
+            "created_at": _parse_date(row["date"]),
+            "bank": target["bank"],
+            "source_type": "official",
+            "publisher": target["publisher"],
+            "target_id": target["id"],
+        })
+    if items and not with_body:
+        # 全站详情页都拿不到正文 (WAF / 改版 / 编码) —— 只剩标题的条目没有
+        # 情报价值, 交给 agent 重取, 别把空壳当成功。
+        raise TargetError(f"detail pages yielded no body text ({len(items)} row(s))")
+    if with_body < len(items):
+        print(
+            f"[bank_bot] {target['id']}: {len(items) - with_body}/"
+            f"{len(items)} row(s) without body text (title fallback)",
+            file=sys.stderr,
+        )
+    return items
+
+
 def extract_article_text(html: str) -> str:
     """从详情页 HTML 里取正文段落 (确定性, 不调模型)。"""
     body = re.sub(
@@ -419,7 +600,7 @@ def extract_article_text(html: str) -> str:
 def fetch_detail_text(url: str, *, timeout: float) -> str:
     """抓详情页正文; 失败返回空串 (导语仍然是有效内容)。"""
     try:
-        html = _http_get(url, min(timeout, DETAIL_TIMEOUT)).decode("utf-8", "ignore")
+        html = _decode_html(_http_get(url, min(timeout, DETAIL_TIMEOUT)))
     except (TargetError, UnicodeError, OSError):
         return ""
     return extract_article_text(html)
@@ -488,6 +669,24 @@ def call_agent(prompt: str, *, timeout: int, profile: str) -> str:
     return stdout or ""
 
 
+def call_agent_with_retry(prompt: str, *, timeout: int, profile: str) -> str:
+    """瞬时故障重试; 非瞬时错误立刻抛, 不浪费第二次调用。"""
+    for attempt in range(1, AGENT_ATTEMPTS + 1):
+        try:
+            return call_agent(prompt, timeout=timeout, profile=profile)
+        except TargetError as exc:
+            transient = bool(_TRANSIENT_AGENT_RE.search(str(exc)))
+            if attempt >= AGENT_ATTEMPTS or not transient:
+                raise
+            print(
+                f"[bank_bot] agent transient failure "
+                f"(attempt {attempt}/{AGENT_ATTEMPTS}): {exc} — retrying",
+                file=sys.stderr,
+            )
+            time.sleep(AGENT_RETRY_BACKOFF)
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
 def _kill_group(pid: int, grace: float = 5.0) -> None:
     for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
@@ -550,7 +749,7 @@ def collect_agent(
         started = time.monotonic()
         try:
             rows = parse_agent_json(
-                call_agent(
+                call_agent_with_retry(
                     _target_prompt(target, today),
                     timeout=per_call,
                     profile=profile,
@@ -674,7 +873,8 @@ def merge_items(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def build_payload(today: str, items: list[dict[str, Any]],
-                  errors: list[dict[str, str]], targets_total: int) -> dict[str, Any]:
+                  errors: list[dict[str, str]], targets_total: int,
+                  fallbacks: list[dict[str, str]] | None = None) -> dict[str, Any]:
     counts: dict[str, int] = {}
     for item in items:
         counts[item["bank"]] = counts.get(item["bank"], 0) + 1
@@ -685,6 +885,8 @@ def build_payload(today: str, items: list[dict[str, Any]],
         "targets_total": targets_total,
         "counts_by_bank": counts,
         "errors": errors,
+        # 静态解析失败后回退 agent 的目标 — 只是留痕, 不算错误。
+        "fallbacks": fallbacks or [],
         "items": items,
     }
 
@@ -728,7 +930,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--agent-budget", type=int, default=1200)
     parser.add_argument("--profile", default=os.environ.get("MONI_HERMES_PROFILE", "moni"))
     parser.add_argument("--no-agent", action="store_true",
-                        help="只跑确定性段 (media_rss/media_json)")
+                        help="只跑确定性段 (media_rss/media_json + static 官网), "
+                             "不调 agent、也不做静态失败回退")
     parser.add_argument("--validate", action="store_true",
                         help="校验 --output-dir 下已有的 feed")
     return parser
@@ -786,12 +989,20 @@ def main(argv: list[str] | None = None) -> int:
         return 3
 
     media_targets = [t for t in targets if t["kind"] in ("media_rss", "media_json")]
-    agent_targets = [
+    # 官网栏目里标了 static 的先走确定性解析, 失败再回退 agent (工行是
+    # JS 渲染, 配置里 static: false, 直接进 agent 段)。
+    static_targets = [
         t for t in targets
-        if t["kind"] in ("official_list", "wechat_article") and not args.no_agent
+        if t["kind"] == "official_list" and t.get("static", False)
+    ]
+    explicit_agent_targets = [
+        t for t in targets
+        if t["kind"] == "wechat_article"
+        or (t["kind"] == "official_list" and not t.get("static", False))
     ]
 
     errors: list[dict[str, str]] = []
+    fallbacks: list[dict[str, str]] = []
     media_items: list[dict[str, Any]] = []
     for target in media_targets:
         try:
@@ -803,6 +1014,30 @@ def main(argv: list[str] | None = None) -> int:
         media_items.extend(found)
         print(f"[bank_bot] {target['id']}: {len(found)} item(s)")
 
+    static_items: list[dict[str, Any]] = []
+    fallback_targets: list[dict[str, Any]] = []
+    for target in static_targets:
+        try:
+            found = collect_official_static(target, timeout=args.http_timeout)
+        except TargetError as exc:
+            if args.no_agent:
+                errors.append({"target": target["id"], "error": str(exc)})
+                print(f"[bank_bot] {target['id']}: {exc}", file=sys.stderr)
+                continue
+            print(
+                f"[bank_bot] {target['id']}: static failed ({exc}) "
+                "— falling back to agent",
+                file=sys.stderr,
+            )
+            fallbacks.append({"target": target["id"], "reason": str(exc)})
+            fallback_targets.append(target)
+            continue
+        static_items.extend(found)
+        print(f"[bank_bot] {target['id']}: {len(found)} item(s) [static]")
+
+    agent_targets = (
+        [] if args.no_agent else explicit_agent_targets + fallback_targets
+    )
     agent_items: list[dict[str, Any]] = []
     if agent_targets:
         try:
@@ -819,7 +1054,28 @@ def main(argv: list[str] | None = None) -> int:
             errors.append({"target": "agent", "error": str(exc)})
             print(f"[bank_bot] agent: {exc}", file=sys.stderr)
 
-    merged = merge_items(agent_items, media_items)
+    # 静态解析失败 → 回退 agent 的目标, 如果 agent 也交回 0 条, 这个缺口
+    # 必须记进 errors: 只留在 fallbacks 里的话, feed 会被当成「今天已完整」,
+    # 连手动点击也不会补跑 (bank_feed._feed_is_fresh 只看 errors)。
+    if fallback_targets:
+        reported = {e.get("target") for e in errors}
+        produced = {it.get("target_id") for it in agent_items}
+        empty = [
+            t for t in fallback_targets
+            if t["id"] not in produced and t["id"] not in reported
+        ]
+        for target in empty:
+            errors.append({
+                "target": target["id"],
+                "error": "agent returned no items after static fallback",
+            })
+            print(
+                f"[bank_bot] {target['id']}: agent returned no items after "
+                "static fallback",
+                file=sys.stderr,
+            )
+
+    merged = merge_items(agent_items, media_items, static_items)
     items: list[dict[str, Any]] = []
     problems: list[str] = []
     for idx, item in enumerate(merged):
@@ -844,7 +1100,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    payload = build_payload(args.date, items, errors, len(targets))
+    payload = build_payload(args.date, items, errors, len(targets), fallbacks)
     path = write_feed(output_dir, payload)
     short_text = sum(1 for it in items if len(it.get("text") or "") < MIN_USEFUL_TEXT)
     print(

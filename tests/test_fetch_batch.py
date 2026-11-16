@@ -52,6 +52,19 @@ class _PartialErrorFetcher(_OkFetcher):
         }
 
 
+class _PartialWarningFetcher(_OkFetcher):
+    """模仿 bank_feed：有入库 + 目标缺口 ``warning`` → partial。"""
+
+    source_name = "warn_a"
+
+    def run(self, dry_run: bool = False):
+        return {
+            "source": self.source_name,
+            "fetched": 3, "parsed": 3, "inserted": 2, "parse_errors": 0,
+            "warning": "feed 不完整: 1 个目标失败 (psbc-news)",
+        }
+
+
 @pytest.fixture
 def fresh_db(tmp_path):
     set_db_path(tmp_path / "news.db")
@@ -136,6 +149,32 @@ def test_successful_batch_closes_every_row(fresh_db, monkeypatch):
 
     jobs = _jobs_by_source()
     assert jobs["ok_a"]["status"] == "done"
+    assert jobs["ok_b"]["status"] == "done"
+
+
+def test_partial_batch_is_not_recorded_as_success(fresh_db, monkeypatch):
+    """只有 partial 的批次不能记 success=1 —— 否则调度成功率把缺口算成健康。"""
+    monkeypatch.setitem(fetch_base._FETCHER_REGISTRY, "warn_a", _PartialWarningFetcher)
+    monkeypatch.setitem(fetch_base._FETCHER_REGISTRY, "ok_b", _OkFetcher2)
+
+    store = FetchJobStore()
+    batch_id = "batch-partial"
+    job_ids = _queue(store, batch_id, ["warn_a", "ok_b"])
+    enabled = [{"source_name": "warn_a"}, {"source_name": "ok_b"}]
+
+    fetch_routes._run_batch_job(
+        batch_id, enabled, None, "2026-11-06T00:00:00+08:00", job_ids
+    )
+
+    cron = get_db().execute(
+        "SELECT success, sources_run, error FROM cron_runs"
+    ).fetchone()
+    assert cron["success"] == 0
+    assert cron["sources_run"] == 2
+    assert "partial" in cron["error"]
+
+    jobs = _jobs_by_source()
+    assert jobs["warn_a"]["status"] == "partial"
     assert jobs["ok_b"]["status"] == "done"
 
 

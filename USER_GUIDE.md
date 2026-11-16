@@ -1175,7 +1175,7 @@ python3 -m moni.db.migrate
 4. **加 filter** (可选): web UI "配置管理 > 关键词过滤"
 5. **测抓取**: `python3 -m moni fetch --source <name>`
 
-### 11.1 特例: 银行同业 (`bank_feed`, v1.0.76)
+### 11.1 特例: 银行同业 (`bank_feed`, v1.0.76 / v1.0.88)
 
 这个源**不用写代码就能加信源**，因为真正的抓取动作在一个外部 agent 里
 (`scripts/bank_bot/run_bot.py`)，moni 只负责读它产出的 JSON。
@@ -1184,7 +1184,7 @@ python3 -m moni.db.migrate
 
 | 类型 (`kind`) | 覆盖 | 怎么抓 |
 |---|---|---|
-| `official_list` | 中/农/工/建/邮储官网的新闻栏目 | agent 渲染页面 + 抽取（官网是 SPA，选择器写死在代码里迟早坏） |
+| `official_list` | 中/农/工/建/邮储官网的新闻栏目 | 标 `"static": true` 的走**确定性解析**（列表页锚点 + URL 日期 + 详情页正文，秒级）；解析不出条目自动回退 agent。工行是 JS 渲染，保持 `static: false` 走 agent |
 | `media_rss` | 未央网 / 东财 / 界面 / FT中文 / 中新经纬 | Python 直接解析 RSS |
 | `media_json` | 第一财经金融频道 | Python 读 JSON 列表（按 `fields` 映射字段） |
 | `wechat_article` | 已知的 `mp.weixin.qq.com` 文章链接 | agent 浏览器渲染正文 |
@@ -1192,8 +1192,9 @@ python3 -m moni.db.migrate
 **怎么用**
 
 1. 配置管理 → 抓取源 → 「银行同业」→ 点「抓取」。
-2. 当天没有 feed 时，抓取会**就地调 agent 跑一轮**（约 1~5 分钟，走
-   `hermes --profile moni` → magpie，和 moni 其他 LLM 调用是同一条链路）。
+2. 当天没有 feed 时，抓取会**就地跑一轮 bot**：确定性段（4 个静态官网 +
+   媒体）通常 20 秒内完成；工行 / 公众号才走 agent
+   （`hermes --profile moni` → magpie，和 moni 其他 LLM 调用是同一条链路）。
 3. 抓完的条目进「文章」，tag 是 **同业**（`peer-banks`）；`GET /api/articles?tag=peer-banks` 可直接筛。
 
 **怎么加/换信源（零代码）**
@@ -1207,6 +1208,8 @@ python3 -m moni.db.migrate
 ```
 
 - `bank` 只能是 `icbc` / `abc` / `boc` / `ccb` / `psbc` / `bocom`。
+- `max_age_days`（可选，默认 60）只对 `static: true` 的官网列表生效；设 `0`
+  关掉时效窗口（列表里有什么就取什么）。
 - `targets` 留空时用仓库里的 `config/bank_targets.json`（11 个目标）。
 - 改完不需要重启服务，下一次抓取生效。
 
@@ -1214,17 +1217,32 @@ python3 -m moni.db.migrate
 
 - **默认不参加定时任务**：`config/sources.yaml` 里它有 `batch_enabled: false`，
   所以工作日 9:10 的全量抓取和 web「一键抓取」都不会带上它；只有抓取管理里
-  对「银行同业」单点「立即抓取」才跑（一次 agent 段约 12 分钟）。想恢复自动跑：
+  对「银行同业」单点「立即抓取」才跑（确定性段约 20 秒，工行 agent 段另计）。想恢复自动跑：
   把那一行改成 `true` 或删掉。
 
-- **抓不到 ≠ 今天没新闻**：agent 全挂时这次抓取会记 `failed` 并写明原因，
-  不会给你一份「0 条」的假 feed。
+- **抓不到 ≠ 今天没新闻**：今天完全没数据时才记 `failed`；有数据但有目标
+  失败记 **`partial`（部分完成）**，弹窗显示「已入库 N 篇 · 缺口原因」，
+  不再出现「失败 · 0 篇」。
+- **手动点击不受冷却限制**：点「立即抓取」会立刻补跑失败目标；
+  `retry_after_min`（默认 30 分钟）只约束非手动触发。
+- **agent 瞬时故障自动重试一次**：`session_replay_gap` / 超时 / 连接断这类
+  网关瞬断不会再让某个官网当天缺口（非瞬时错误不重试）。
 - **媒体条目会自动补正文**：媒体 RSS/JSON 只给导语时（<200 字），bot 会打开
   详情页抽正文（上限 6000 字，失败就保留导语）。官方栏目的正文由 agent 直接
   从详情页取，要求 ≥100 字。
-- **部分失败会入库但报错**：官网某一家挂了、媒体正常时，已抓到的条目照常
-  入库，任务记 `failed` 并列出失败目标；30 分钟内不会为同一份不完整 feed
-  再跑一轮 agent（`fetch_config.retry_after_min`，默认 30）。
+- **部分失败会入库并标 partial**：官网某一家挂了、其余正常时，已抓到的条目
+  照常入库，任务记 `partial` 并列出失败目标。
+- **官网列表只看近 60 天**：静态解析按 `max_age_days`（默认 60，配置里可改，
+  设 0 关闭）过滤旧稿 —— 栏目里混着的 2022/2025 年条目不会再当「最新」入库。
+  窗口内确实没有新闻时返回 0 条，不算抓取失败。
+- **详情页拿不到正文会回退 agent**：静态解析出的条目如果整页都抽不到正文
+  （站点改版 / WAF / 编码不对），这家会改用 agent 重取，不把「只有标题」的
+  空壳当抓取成功。
+- **失败目标会写进当天 feed 的 `errors`**：即使静态解析失败后回退了 agent、
+  agent 也没交回任何条目，这个目标仍记为缺口 —— 当天 feed 因此不算「已完整」，
+  过冷却窗口（或再点一次「立即抓取」）会补跑。
+- **批量结果里 partial 的源只出现一行**：黄色底 + 行内 warning 文本，
+  不再同时出现在失败列表里。
 - **别删 `peer-banks` 这个 tag / 别解绑它**：删掉 tag 或删掉源与 tag 的绑定后，
   抓取会报「no tag bound」并拒绝入库 —— 这是故意的，避免制造一批前端筛不到的
   零 tag 文章。要恢复：`moni db init` 会重新种回 tag 和绑定。

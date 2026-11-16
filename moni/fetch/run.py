@@ -184,6 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     # Print per-source summary
     for result in results:
         err = f"  ERROR: {result['error']}" if result.get("error") else ""
+        warn = f"  WARN: {result['warning']}" if result.get("warning") else ""
         dry_tag = " [dry-run]" if args.dry_run else ""
         print(
             f"  [{result.get('source')}]{dry_tag}  "
@@ -191,6 +192,7 @@ def main(argv: list[str] | None = None) -> int:
             f"inserted={result.get('inserted', 0)}  "
             f"parse_errors={result.get('parse_errors', 0)}"
             + (f"  {err}" if err else "")
+            + warn
         )
 
     n_sources_ran = len(results)
@@ -214,6 +216,11 @@ def main(argv: list[str] | None = None) -> int:
         names = ", ".join(str(r.get("source")) for r in failed[:5])
         print(f"\nFAILED: {len(failed)} source(s) — {names}")
         return 1
+
+    partial = [r for r in results if r.get("warning")]
+    if partial:
+        names = ", ".join(str(r.get("source")) for r in partial[:5])
+        print(f"\nPARTIAL: {len(partial)} source(s) — {names}")
 
     return 0
 
