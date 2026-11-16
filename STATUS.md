@@ -4,6 +4,44 @@
 
 ---
 
+## 分支待清理（记录于 2026-11-16，下次收尾再删）
+
+| 分支 | 状态 | 依据 |
+|---|---|---|
+| `feature/v1.0.88-bank-feed-resilience` | 已合并，可删 | PR #208 squash `1cd6b92`，tag `v1.0.89` |
+| `docs/v1.0.89-relabel` | 已合并，可删 | PR #209 squash `fcd3d18` |
+| `feat/xbot-author-block-v1.0.75` | 已合并，可删（含 worktree `~/dev/moni-worktrees/xbot-author-block-v1.0.75`） | PR #206 squash `fa651fb`，tag `v1.0.88` |
+| `feat/bank-peer-source-plan` | PR 已关闭，可删 | PR #185 CLOSED，内容已被 v1.0.89 覆盖 |
+| `feat/articles-reading-ai` | **勿删，在开发** | PR #207 OPEN（Sprint 47，版本号需避开已占用的 v1.0.88/89/90） |
+| `feat/contest-finals-2611` / `feat/showcase-demo-2611` | **勿删，未合并** | 无 PR |
+
+删分支前按惯例先 `gh pr view <n>` 确认 MERGED / CLOSED，再逐条报给 dad；不批量 `git branch -D`。
+
+---
+
+## 进行中: **v1.0.90 — 60 天时效窗口覆盖 agent / 媒体条目** (2026-11-16 · PR #210)
+
+**触发**: v1.0.89 上线后在生产 dry-run，当天 feed 40 条里有工行 agent 交回的
+2026-01-27 旧闻 —— 60 天窗口此前只作用在 `static: true` 的官网列表。
+
+**改动**
+
+- `item_is_recent()` + 合并后统一过滤：按每个目标的 `max_age_days`
+  （默认 60，0 = 关闭）约束 **agent 与媒体**条目；没有日期的条目不参与判断
+  （无从比较，保留）；被丢弃条数打到 stderr。
+- 静态解析阶段仍先过滤（省详情页请求），合并后二次过滤保证三类条目同一口径。
+- 测试：`item_is_recent` 边界（窗口内/外、0 关闭、无日期）、agent 旧稿被丢、
+  媒体旧稿被丢。
+- 文档：`USER_GUIDE` §11.1、`config/bank_targets.json` 注释改为
+  「对全部条目生效」。窗口内一条都没有时 bot 以 2 退出、不写 feed。
+- 媒体旧稿测试核对剩下的是新稿 URL，不只断言条数。
+- 独立审计 **APPROVE WITH NITS**（无 P1）；断言强度与文档口径已在本 PR 修掉。
+
+**验证**: 全量 **1856 passed / 2 skipped**（沙箱内 039 worktree 1 例失败，
+沙箱外 passed）。尚未 tag、未部署。
+
+---
+
 ## 已发布: **v1.0.89 — bank_feed 可靠性（重试 / 部分成功 / 官网确定性解析）** (2026-11-16 · Sprint 48 · PR #208 · tag `v1.0.89`)
 
 **合并**: squash `1cd6b92`（叠在 `fa651fb` / v1.0.88 #206 之上）· **测试**: 合并后全量 1853 passed / 2 skipped
