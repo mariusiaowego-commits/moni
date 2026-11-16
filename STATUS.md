@@ -14,6 +14,10 @@ PR #207 把文章查阅、筛选与文内 AI 合进 `main` 后，生产验收又
 
 **测试**: `pytest tests/test_reader_ai.py` 15 passed（新增 3 条：孤儿标签计数、胶囊行结构、纯图提示）。
 
+**发布**: squash `a928a23` · tag `v1.0.91` · 8900 已重启（PID 45987，root 200，schema 43）。
+生产实测 facets：banking 2695 / ai-fintech 2196 / wechat 1177（修前 2701 / 2413 / 1252）；
+纯图文章《派评》出现「这篇原文以图片为主」提示；1280 宽下 ⋯ 右边界 1203，不再被裁。
+
 ---
 
 ## 分支待清理（记录于 2026-11-16，下次收尾再删）
@@ -24,7 +28,7 @@ PR #207 把文章查阅、筛选与文内 AI 合进 `main` 后，生产验收又
 | `docs/v1.0.89-relabel` | 已合并，可删 | PR #209 squash `fcd3d18` |
 | `feat/xbot-author-block-v1.0.75` | 已合并，可删（含 worktree `~/dev/moni-worktrees/xbot-author-block-v1.0.75`） | PR #206 squash `fa651fb`，tag `v1.0.88` |
 | `feat/bank-peer-source-plan` | PR 已关闭，可删 | PR #185 CLOSED，内容已被 v1.0.89 覆盖 |
-| `feat/articles-reading-ai` | **勿删，在开发** | PR #207 OPEN；已合入 main 至 v1.0.90，版本号仍待分配 |
+| `feat/articles-reading-ai` | 已合并，可删 | PR #207 squash `c0ba194`（v1.0.91 功能本体） |
 | `feat/contest-finals-2611` / `feat/showcase-demo-2611` | **勿删，未合并** | 无 PR |
 
 删分支前按惯例先 `gh pr view <n>` 确认 MERGED / CLOSED，再逐条报给 dad；不批量 `git branch -D`。
