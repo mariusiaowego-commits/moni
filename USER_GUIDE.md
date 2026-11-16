@@ -1175,7 +1175,7 @@ python3 -m moni.db.migrate
 4. **加 filter** (可选): web UI "配置管理 > 关键词过滤"
 5. **测抓取**: `python3 -m moni fetch --source <name>`
 
-### 11.1 特例: 银行同业 (`bank_feed`, v1.0.76 / v1.0.88)
+### 11.1 特例: 银行同业 (`bank_feed`, v1.0.76 / v1.0.89)
 
 这个源**不用写代码就能加信源**，因为真正的抓取动作在一个外部 agent 里
 (`scripts/bank_bot/run_bot.py`)，moni 只负责读它产出的 JSON。
