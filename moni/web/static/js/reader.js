@@ -23,6 +23,15 @@
   // hotlinked or misattributed picture can never be republished from moni.
   const MD_IMAGE_RE = /!\[[^\]]*\]\([^)]*\)/g;
   const HTML_IMAGE_RE = /<img\b[^>]*>/gi;
+  // AI answers quote the article with 「」. Those quotes become citation
+  // chips that point at the paragraph holding the same text, so a claim can
+  // be checked against the source instead of being taken on trust.
+  const QUOTE_SPLIT_RE = /(「[^」]{4,160}」)/g;
+  const BLOCK_SELECTOR = 'p, li, h2, h3, h4, blockquote';
+  const YES_RE = /^(✓|✔|√|是|支持)$/;
+  const NO_RE = /^(✗|✘|×|✕|否|不支持)$/;
+
+  let articleBlocks = [];
 
   function md() {
     if (!window.marked) return null;
@@ -48,6 +57,12 @@
       a.setAttribute('rel', 'noopener noreferrer');
     });
     box.querySelectorAll('table').forEach((table) => {
+      table.classList.add('ai-table');
+      table.querySelectorAll('td, th').forEach((cell) => {
+        const text = cell.textContent.trim();
+        if (YES_RE.test(text)) cell.classList.add('is-yes');
+        else if (NO_RE.test(text)) cell.classList.add('is-no');
+      });
       const wrap = document.createElement('div');
       wrap.className = 'table-scroll';
       table.parentNode.insertBefore(wrap, table);
@@ -56,10 +71,93 @@
     return box.innerHTML;
   }
 
+  /** Number every block in the rendered article so quotes can link to it. */
+  function indexArticleBlocks(root) {
+    articleBlocks = Array.from(root.querySelectorAll(BLOCK_SELECTOR));
+    articleBlocks.forEach((el, i) => { el.id = 'p' + (i + 1); });
+  }
+
+  /**
+   * Turn 「…」 in an assistant answer into numbered citation chips and append
+   * a source footer. A quote only gets a chip when the article body actually
+   * contains that text; unmatched quotes stay as plain text.
+   */
+  function addCitations(html) {
+    if (!articleBlocks.length || !html.includes('「')) return html;
+    const holder = document.createElement('div');
+    holder.innerHTML = html;
+    const refs = [];
+    const walker = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach((node) => {
+      const value = node.nodeValue || '';
+      if (!value.includes('「')) return;
+      const parts = value.split(QUOTE_SPLIT_RE);
+      if (parts.length === 1) return;
+      const frag = document.createDocumentFragment();
+      parts.forEach((part) => {
+        const quote = part.slice(1, -1);
+        const hit = part.startsWith('「')
+          ? articleBlocks.findIndex((el) => (el.textContent || '').includes(quote))
+          : -1;
+        if (hit < 0) {
+          frag.appendChild(document.createTextNode(part));
+          return;
+        }
+        let ref = refs.findIndex((r) => r.index === hit);
+        if (ref < 0) {
+          refs.push({ index: hit, quote });
+          ref = refs.length - 1;
+        }
+        const link = document.createElement('a');
+        link.className = 'cite-chip';
+        link.href = '#p' + (hit + 1);
+        link.textContent = String(ref + 1);
+        link.title = '跳到原文对应段落';
+        frag.appendChild(document.createTextNode(part));
+        frag.appendChild(link);
+      });
+      node.parentNode.replaceChild(frag, node);
+    });
+    if (!refs.length) return html;
+    const footer = document.createElement('div');
+    footer.className = 'cite-footer';
+    refs.forEach((ref, i) => {
+      const row = document.createElement('a');
+      row.className = 'cite-ref';
+      row.href = '#p' + (ref.index + 1);
+      const excerpt = (articleBlocks[ref.index].textContent || '').trim().slice(0, 46);
+      row.innerHTML = `<span class="cite-chip">${i + 1}</span>`
+        + `<span class="cite-ref-text"></span>`
+        + `<span class="cite-ref-pos"></span>`;
+      row.querySelector('.cite-ref-text').textContent = excerpt;
+      row.querySelector('.cite-ref-pos').textContent = `段落 ${ref.index + 1}`;
+      footer.appendChild(row);
+    });
+    holder.appendChild(footer);
+    return holder.innerHTML;
+  }
+
   function renderMarkdown(text) {
     const parser = md();
     if (!parser) return '';
-    return sanitize(parser.parse(String(text || '')));
+    return sanitize(parser.parse(normalizeTables(String(text || ''))));
+  }
+
+  /**
+   * GFM needs a blank line before a table, and a table row has to start the
+   * line. Answers often glue the first row onto the previous sentence
+   * (`…结论。| 层级 | 说明 |`), which would otherwise render as literal pipes.
+   */
+  function normalizeTables(text) {
+    return text.split('\n').map((line) => {
+      if (line.trimStart().startsWith('|')) return line;
+      const pipes = (line.match(/\|/g) || []).length;
+      if (pipes < 3 || !line.trimEnd().endsWith('|')) return line;
+      const cut = line.indexOf('|');
+      return cut > 0 ? line.slice(0, cut).trimEnd() + '\n\n' + line.slice(cut) : line;
+    }).join('\n');
   }
 
   function renderArticle(text) {
@@ -470,6 +568,8 @@
           job_id: data.job_id,
           status: 'pending',
           reasoning: this.readerReasoning,
+          mode: this.readerContextLabel,
+          startedAt: performance.now(),
         });
         this.readerInput = '';
         this.readerQuote = '';
@@ -489,12 +589,15 @@
       const source = new EventSource(`/api/reader/jobs/${jobId}/stream`);
       this.readerStreamSource = source;
       const message = () => this.readerMessages.find((m) => m.id === messageId);
+      const resumed = message();
+      if (resumed && !resumed.startedAt) resumed.startedAt = performance.now();
 
       source.addEventListener('snapshot', (ev) => {
         try {
           const data = JSON.parse(ev.data);
           const msg = message();
           if (msg) {
+            msg._pending = '';
             msg.content = data.content || '';
             msg.status = data.status || 'streaming';
           }
@@ -505,7 +608,7 @@
         try {
           const data = JSON.parse(ev.data);
           const msg = message();
-          if (msg) msg.content += data.text || '';
+          if (msg) this.readerPushDelta(msg, data.text || '');
           this.readerScrollToBottom();
         } catch (e) { /* ignore */ }
       });
@@ -513,7 +616,11 @@
         try {
           const data = JSON.parse(ev.data);
           const msg = message();
-          if (msg) msg.status = 'done';
+          if (msg) {
+            this.readerFlushDelta(msg);
+            msg.status = 'done';
+            msg.outputTokens = data.output_tokens || 0;
+          }
           this.readerStreaming = false;
           this.readerStreamJobId = null;
           this.readerStreamMsgId = null;
@@ -533,6 +640,7 @@
           const data = JSON.parse(ev.data);
           const msg = message();
           if (msg) {
+            this.readerFlushDelta(msg);
             msg.status = data.status || 'failed';
             msg.error = data.message || '生成失败';
           }
@@ -549,6 +657,36 @@
       }
       this.readerStreamSource = null;
       this.readerStreamMsgId = null;
+    },
+
+    // SSE delivers 40–80 character bursts; revealing them a few characters at
+    // a time keeps the answer reading as typing rather than as jumps.
+    readerPushDelta(msg, text) {
+      msg._pending = (msg._pending || '') + text;
+      if (!msg.thoughtMs && msg.startedAt) {
+        msg.thoughtMs = Math.max(0, performance.now() - msg.startedAt);
+      }
+      if (msg._typing) return;
+      msg._typing = true;
+      const step = () => {
+        if (!msg._pending) {
+          msg._typing = false;
+          return;
+        }
+        msg.content = (msg.content || '') + msg._pending.slice(0, 3);
+        msg._pending = msg._pending.slice(3);
+        this.readerScrollToBottom();
+        setTimeout(step, 12);
+      };
+      step();
+    },
+
+    readerFlushDelta(msg) {
+      if (msg._pending) {
+        msg.content = (msg.content || '') + msg._pending;
+        msg._pending = '';
+      }
+      msg._typing = false;
     },
 
     readerStop() {
@@ -626,11 +764,17 @@
     },
 
     readerArticleHtml() {
+      // x-html writes the string after this getter returns; index the blocks
+      // once the browser has them so citation chips can resolve.
+      queueMicrotask(() => {
+        const body = document.querySelector('.reader-body');
+        if (body) indexArticleBlocks(body);
+      });
       return this.readerRendered || '';
     },
 
     readerRenderMarkdown(text) {
-      return renderMarkdown(text);
+      return addCitations(renderMarkdown(text));
     },
 
     readerRenderArticle(text) {

@@ -3282,9 +3282,32 @@
                   <div class="ai-msg-body" x-show="m.role === 'user'" x-text="m.content"></div>
                   <div class="ai-msg-body markdown" x-show="m.role === 'assistant'" x-html="readerRenderMarkdown(m.content)"></div>
                   <span class="ai-caret" x-show="readerStreamMsgId === m.id && m.status !== 'done'" aria-hidden="true"></span>
-                  <div class="ai-thinking" x-show="readerStreamMsgId === m.id && !m.content">
+                  <div class="ai-thinking" x-show="readerStreamMsgId === m.id && !m.content && m.status !== 'failed'">
+                    <span class="ai-orb" aria-hidden="true">
+                      <span class="ai-orb-lattice">
+                        <span class="ai-orb-cell" style="left:0;top:0;animation-delay:-810ms"></span>
+                        <span class="ai-orb-cell" style="left:6px;top:0;animation-delay:-290ms"></span>
+                        <span class="ai-orb-cell" style="left:12px;top:0;animation-delay:0ms"></span>
+                        <span class="ai-orb-cell" style="left:0;top:6px;animation-delay:-290ms"></span>
+                        <span class="ai-orb-cell" data-mid style="left:6px;top:6px;animation-delay:-180ms"></span>
+                        <span class="ai-orb-cell" style="left:12px;top:6px;animation-delay:-290ms"></span>
+                        <span class="ai-orb-cell" style="left:0;top:12px;animation-delay:0ms"></span>
+                        <span class="ai-orb-cell" style="left:6px;top:12px;animation-delay:-290ms"></span>
+                        <span class="ai-orb-cell" style="left:12px;top:12px;animation-delay:0ms"></span>
+                      </span>
+                    </span>
                     <span class="ai-thinking-label">正在思考</span>
                   </div>
+                  <button class="ai-thought" x-show="m.thoughtMs" @click="m.thoughtOpen = !m.thoughtOpen" :aria-expanded="m.thoughtOpen">
+                    <span>思考 <span x-text="((m.thoughtMs || 0) / 1000).toFixed(1)"></span>s</span>
+                    <span class="ai-thought-caret" :class="{ 'is-open': m.thoughtOpen }" aria-hidden="true">▸</span>
+                  </button>
+                  <dl class="ai-thought-body" x-show="m.thoughtMs && m.thoughtOpen">
+                    <div><dt>强度</dt><dd x-text="m.reasoning || '低'"></dd></div>
+                    <div><dt>模式</dt><dd x-text="m.mode || '全文'"></dd></div>
+                    <div><dt>首字</dt><dd x-text="((m.thoughtMs || 0) / 1000).toFixed(1) + 's'"></dd></div>
+                    <div x-show="m.outputTokens"><dt>输出</dt><dd x-text="(m.outputTokens || 0) + ' tokens'"></dd></div>
+                  </dl>
                   <div class="ai-msg-error" x-show="m.status === 'failed'" x-text="m.error || '生成失败'"></div>
                   <div class="ai-msg-actions" x-show="m.role === 'assistant' && m.status === 'done'">
                     <button class="ai-msg-act" @click="readerCopyMessage(m.content)">复制</button>

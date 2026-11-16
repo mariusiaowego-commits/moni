@@ -351,6 +351,7 @@ def test_reader_lease_does_not_take_summary_jobs():
 def test_frontend_reader_contract():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     js = (STATIC / "js" / "reader.js").read_text(encoding="utf-8")
+    css = (STATIC / "css" / "main.css").read_text(encoding="utf-8")
     app = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
     assert 'src="js/reader.js' in html
     assert 'class="reader-body"' in html
@@ -369,6 +370,13 @@ def test_frontend_reader_contract():
     assert "MD_IMAGE_RE" in js and "HTML_IMAGE_RE" in js
     assert "ai-thinking-label" in html and "ai-caret" in html
     assert "readerCopyMessage" in js
+    # AICSS ports: orb (thinking), thought fold (thinking+reasoning),
+    # citation chips, and the shared table shell.
+    assert "ai-orb-cell" in html and "ai-orb-wave" in css
+    assert "ai-thought-body" in html and "ai-thought" in css
+    assert "cite-chip" in js and ".cite-footer" in css
+    assert "normalizeTables" in js and "ai-table" in js
+    assert "readerPushDelta" in js and "readerFlushDelta" in js
 
 
 def test_reader_stream_skips_gateway_rejected_flags(monkeypatch):

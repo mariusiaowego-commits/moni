@@ -4735,11 +4735,21 @@ body.has-float-layer .tags-overflow { display: none !important; }
   background: var(--muted); overflow: auto; font-size: 13px; line-height: 1.6;
 }
 .reader-body pre code { padding: 0; background: transparent; }
-.reader-body img { max-width: 100%; height: auto; border-radius: var(--radius-md); margin: 0.6em 0; }
 .reader-body a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
-.reader-body table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 14px; }
-.reader-body th, .reader-body td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; }
-.reader-body th { background: var(--muted); font-weight: 600; }
+.reader-body table, .ai-table {
+  border-collapse: separate; border-spacing: 0; width: 100%; margin: 1em 0;
+  font-size: 13px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+}
+.reader-body th, .reader-body td,
+.ai-table th, .ai-table td {
+  padding: 9px 12px; text-align: left; border: 0;
+  border-bottom: 1px solid var(--border); border-right: 1px solid var(--border);
+}
+.reader-body th, .ai-table th { background: var(--muted); color: var(--muted-fg); font-weight: 500; }
+.reader-body tr:last-child td, .ai-table tr:last-child td { border-bottom: 0; }
+.reader-body tr > *:last-child, .ai-table tr > *:last-child { border-right: 0; }
+.reader-body td.is-yes, .ai-table td.is-yes { color: var(--success); }
+.reader-body td.is-no, .ai-table td.is-no { color: var(--muted-fg); }
 .table-scroll { overflow-x: auto; max-width: 100%; }
 .bank-marker {
   display: inline-block; padding: 1px 6px; border-radius: 4px;
@@ -4817,8 +4827,60 @@ body.has-float-layer .tags-overflow { display: none !important; }
 .ai-caret {
   display: inline-block; width: 2px; height: 1em; margin-left: 2px;
   background: var(--accent); vertical-align: -0.15em;
-  animation: ai-caret-blink 1s steps(2, start) infinite;
+  /* Steady while text is still arriving; it is removed once the answer is done. */
+  animation: none;
 }
+.ai-orb { position: relative; display: inline-block; width: 20px; height: 20px; flex: none; color: var(--accent); }
+.ai-orb-lattice {
+  position: absolute; left: 0; top: 0; width: 28px; height: 28px;
+  transform-origin: 0 0;
+  /* Authored on a 28px stage, scaled to the 20px box. */
+  transform: scale(0.714) translate(6.5px, 6.5px);
+}
+.ai-orb-cell {
+  position: absolute; width: 3px; height: 3px; border-radius: 50%;
+  background: currentColor; opacity: 0.14;
+  animation: ai-orb-wave 1.7s cubic-bezier(0.66, 0, 0.34, 1) infinite both;
+}
+@keyframes ai-orb-wave {
+  0% { opacity: 0.14; transform: scale(1); }
+  28% { opacity: 1; transform: scale(1.18); }
+  56%, 100% { opacity: 0.14; transform: scale(1); }
+}
+.ai-thought {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 4px;
+  padding: 0; border: 0; background: transparent; cursor: pointer;
+  color: var(--muted-fg); font: inherit; font-size: var(--font-12);
+}
+.ai-thought:hover { color: var(--foreground); }
+.ai-thought-caret { display: inline-block; transition: transform 0.15s ease; }
+.ai-thought-caret.is-open { transform: rotate(90deg); }
+.ai-thought-body {
+  margin: 2px 0 0; padding: 6px 8px; display: grid; gap: 2px;
+  border-left: 2px solid var(--border); font-size: var(--font-12); color: var(--muted-fg);
+}
+.ai-thought-body > div { display: flex; gap: 8px; }
+.ai-thought-body dt { min-width: 28px; }
+.ai-thought-body dd { margin: 0; color: var(--foreground); }
+.cite-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 12px; height: 12px; padding: 0 3px; margin: 0 2px;
+  border-radius: 4px; background: var(--muted); color: var(--muted-fg);
+  font-size: 9px; font-weight: 600; line-height: 1; vertical-align: 5.5px;
+  text-decoration: none;
+}
+a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, var(--accent) 18%, var(--muted)); }
+.cite-footer {
+  display: flex; flex-direction: column; gap: 4px;
+  margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border);
+}
+.cite-ref {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  color: var(--muted-fg); font-size: var(--font-12); text-decoration: none;
+}
+.cite-ref-text { color: var(--foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cite-ref-pos { flex: none; }
+.cite-ref:hover .cite-ref-text { text-decoration: underline; }
 .ai-msg-actions { display: flex; gap: 10px; opacity: 0; transition: opacity 0.15s ease; }
 .ai-msg:hover .ai-msg-actions, .ai-msg:focus-within .ai-msg-actions { opacity: 1; }
 .ai-msg-act {
@@ -4982,4 +5044,7 @@ body.has-float-layer .tags-overflow { display: none !important; }
   .ai-thinking-label { animation: none; color: var(--muted-fg); background: none; }
   .ai-caret { animation: none; }
   .ai-msg-actions { opacity: 1; transition: none; }
+  .ai-orb-cell { animation: none; }
+  .ai-orb-cell[data-mid] { opacity: 1; }
+  .ai-thought-caret, .cite-chip, .cite-ref { transition: none; }
 }
