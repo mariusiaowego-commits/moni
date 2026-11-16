@@ -471,6 +471,11 @@ def test_article_list_exposes_has_reader_chat(client: TestClient):
     by_id = {item["id"]: item for item in listed}
     assert by_id["a1"]["has_reader_chat"] is True
     assert by_id["a2"]["has_reader_chat"] is False
+    pinned = client.post("/api/articles/a1/pin?on=true")
+    assert pinned.status_code == 200
+    pinned_row = client.get("/api/articles/pinned").json()["items"][0]
+    assert pinned_row["id"] == "a1"
+    assert pinned_row["has_reader_chat"] is True
 
 
 def test_reader_list_title_link_and_chat_mark_markup():
@@ -481,6 +486,7 @@ def test_reader_list_title_link_and_chat_mark_markup():
     assert "has_reader_chat" in html
     assert 'class="title-tip"' in html
     js = (STATIC / "js" / "reader.js").read_text(encoding="utf-8")
-    assert "flashTargetParagraph" in js
+    assert "flashQuotedText" in js
     assert "reader-flash" in js
+    assert "dataset.quote" in js
     assert "a.cite-chip, a.cite-ref" in js

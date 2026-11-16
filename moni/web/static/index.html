@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261116003">
+  <link rel="stylesheet" href="css/main.css?v=20261116004">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -185,12 +185,12 @@
             <colgroup>
               <col style="width: 40px;">
               <col style="width: 44px;" x-show="articlesSubTab === 'all'">
-              <col style="width: 360px;">
+              <col style="width: 328px;">
               <col style="width: 110px;">
               <col style="width: 150px;">
               <col style="width: 140px;">
               <col style="width: 140px;">
-              <col style="width: 100px;">
+              <col style="width: 132px;">
             </colgroup>
             <thead>
               <tr>
@@ -213,7 +213,7 @@
                   </td>
                   <td class="title-cell">
                     <div class="title-flex">
-                      <button type="button" class="title-link" :title="a.title" @click="showArticleDetail(a)">
+                      <button type="button" class="title-link" @click="showArticleDetail(a)">
                         <span class="title-text" x-text="truncateTitle(a.title, 150)"></span>
                       </button>
                       <span class="title-tip" x-text="a.title"></span>
@@ -4328,7 +4328,7 @@
   <script src="vendor/marked-16.4.2.umd.js?v=20261116001"></script>
   <script src="vendor/dompurify-3.4.17.min.js?v=20261116001"></script>
   <script src="js/app.js?v=20261116003"></script>
-  <script src="js/reader.js?v=20261116003"></script>
+  <script src="js/reader.js?v=20261116004"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
        GSAP presence, and the scale pop now honours prefers-reduced-motion. -->
