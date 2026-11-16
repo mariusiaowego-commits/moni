@@ -4698,6 +4698,7 @@ body.has-float-layer .tags-overflow { display: none !important; }
 .reader-head-actions .modal-close { position: static; }
 .reader-expand-btn { color: var(--muted-fg); }
 .reader-split { display: grid; grid-template-columns: minmax(0, 1fr) 390px; min-height: 0; flex: 1; }
+.reader-split { column-gap: 12px; padding: 12px 12px 0; }
 .reader-pane {
   position: relative; background: var(--card);
 }
@@ -4776,7 +4777,8 @@ body.has-float-layer .tags-overflow { display: none !important; }
 .reader-copied { font-size: var(--font-13); }
 .ai-pane {
   display: flex; flex-direction: column; min-height: 0;
-  border-left: 1px solid var(--border); background: var(--card);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--card); overflow: hidden;
 }
 .ai-head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -4897,7 +4899,7 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
 .ai-msg-act:hover { color: var(--foreground); }
 @keyframes ai-shimmer { to { background-position: -240% 0; } }
 @keyframes ai-caret-blink { to { opacity: 0; } }
-.ai-composer { background: var(--muted); padding: 10px 12px 12px; }
+.ai-composer { border-top: 1px solid var(--border); background: var(--card); padding: 10px 12px 12px; }
 .ai-quote-card {
   display: flex; gap: 8px; align-items: flex-start; margin-bottom: 8px;
   padding: 7px 8px; border-left: 3px solid var(--accent);
@@ -4925,6 +4927,38 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
 }
 .ai-composer-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .ai-hint { font-size: var(--font-12); color: var(--muted-fg); }
+.reader-scroll,
+.reader-sticky-bar,
+.ai-messages,
+.ai-composer {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--muted-fg) 35%, transparent) transparent;
+}
+.reader-scroll::-webkit-scrollbar,
+.reader-sticky-bar::-webkit-scrollbar,
+.ai-messages::-webkit-scrollbar,
+.ai-composer::-webkit-scrollbar {
+  width: 6px; height: 6px;
+}
+.reader-scroll::-webkit-scrollbar-thumb,
+.reader-sticky-bar::-webkit-scrollbar-thumb,
+.ai-messages::-webkit-scrollbar-thumb,
+.ai-composer::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--muted-fg) 35%, transparent);
+  border-radius: 999px;
+}
+.reader-scroll::-webkit-scrollbar-thumb:hover,
+.reader-sticky-bar::-webkit-scrollbar-thumb:hover,
+.ai-messages::-webkit-scrollbar-thumb:hover,
+.ai-composer::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklch, var(--muted-fg) 55%, transparent);
+}
+.reader-scroll::-webkit-scrollbar-track,
+.reader-sticky-bar::-webkit-scrollbar-track,
+.ai-messages::-webkit-scrollbar-track,
+.ai-composer::-webkit-scrollbar-track {
+  background: transparent;
+}
 .reader-selection-bar {
   position: fixed; z-index: 800; padding: 4px;
   background: var(--foreground); border-radius: var(--radius-sm);
