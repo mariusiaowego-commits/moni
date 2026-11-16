@@ -776,6 +776,19 @@ def test_progress_callback_reports_counts(fresh_db):
     assert seen[-1]["done_feeds"] == 2
 
 
+def test_progress_callback_timeout_is_not_swallowed(fresh_db):
+    """web 端靠 TimeoutError 中止超时抓取; 吞掉它会让超时任务跑完才算数。"""
+    _write_feed(fresh_db, [_item(1)])
+    fetcher = _fetcher()
+
+    def _raise(**kw):
+        raise TimeoutError("Fetch exceeded 1s timeout")
+
+    fetcher.progress_callback = _raise
+    with pytest.raises(TimeoutError, match="Fetch exceeded"):
+        fetcher.run()
+
+
 def test_force_retries_within_cooldown(fresh_db, monkeypatch):
     """手动点击「立即抓取」必须绕开冷却, 否则用户再点一次只会读到旧 feed。"""
     now = datetime.now(timezone.utc).isoformat()

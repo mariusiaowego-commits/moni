@@ -28,17 +28,40 @@
   boc / abchina / ccb / psbc 四个官网（列表锚点 + URL 日期 + 详情页正文），
   ccb 老站点定向放行 legacy TLS；静态失败自动回退 agent 并在 feed `fallbacks`
   留痕；工行保持 agent（JS 渲染）。
+- **审计修复（独立 audit BLOCK → 第 2 轮）**：
+  - P1：静态解析失败回退 agent、agent 又交回 0 条时，把该目标写进 `errors`
+    （此前只写 `fallbacks`，`_feed_is_fresh()` 看不到缺口，手动点击也不补跑）。
+  - 详情页取不到正文（WAF / 改版 / 编码）→ `TargetError` 回退 agent；
+    详情页解码改走 `_decode_html`（UTF-8 / GB18030）。
+  - 官网列表加时效窗口 `max_age_days`（默认 60 天，0 = 关闭），剔除
+    2022/2025 旧稿；窗口内无新闻 = 合法 0 条，不算解析失败。
+  - `_report_progress` 不再吞 `TimeoutError`；`base.run()` 让它穿透到 web 端
+    timeout 收尾。
+  - `get_batch()` 的 partial 只进 `results`（带 `warning`），不再重复塞
+    `errors`；批量面板新增 `.fa-row-warn` + `.fa-warn`。
+  - 批量写 `cron_runs.success=0`（有 partial 也算没抓全）。
+  - `moni.fetch.run()` 把 CLI 的 `force` 落到 `fetcher.force`。
 
 **实测**
 
-- bot `--no-agent` 全量：**49 条 / 0 error / ~20s**（此前 agent 段约 12 分钟）；
-  boc 12 / abc 12 / ccb 12 / psbc 10 / 一财 3；正文中位数 1120 字。
+- bot `--no-agent` 全量：**26 条 / 0 error / 17–24s**（此前 agent 段约 12 分钟）；
+  boc 12 / abc 1 / ccb 7 / psbc 3 / 一财 3；正文最短 529 字；最旧条目
+  2026-09-24（全部落在 60 天窗口内）。相比加窗口前的 49 条，剔除的是
+  ccb 2 条 2022-09-07、abc 11 条 2025 年旧稿。
+- 工行 agent 单跑：**6 条 / 136s**；首次调用 `session_replay_gap`，
+  重试 1 次后成功（P1 重试在真实链路上命中）。
 - 隔离环境 8902 端到端：故意塞一个坏目标 → job **`partial`**，
   `articles_so_far=12`、`inserted=12`、warning 列出 `dead-rss`。
 - 浏览器（Playwright）实测弹窗：状态「部分完成」、顶部/底部均「12 篇」、
   警告条 class `fr-error banner-warning`、完成摘要
   `12 篇 · 用时 9s · feed 不完整: 1 个目标失败 (dead-rss)`。
-- 全量测试 **1761 passed / 2 skipped**。
+- 批量面板 DOM（隔离 8902 + 注入 partial 结果）：2 行、source 唯一，
+  `bank_feed` 行 class `fa-row-details fa-row-warn`，`.fa-warn` 文本
+  `feed 不完整: 1 个目标失败 (psbc-news)`，computed color
+  `oklch(0.72 0.14 75)`。
+- 全量测试 **1768 passed / 2 skipped**；沙箱内
+  `test_migration_039_xbot_feed` 因 `git worktree` 无写 `.git` 权限失败，
+  沙箱外单跑 **1 passed**。
 
 ---
 

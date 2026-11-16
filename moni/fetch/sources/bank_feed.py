@@ -641,6 +641,10 @@ class FetcherBankFeed(BaseFetcher):
             return
         try:
             self.progress_callback(**fields)
+        except TimeoutError:
+            # web 端用 TimeoutError 中止超时抓取, 吞掉它会让已经超时的
+            # 任务继续跑完才被标 timeout。
+            raise
         except Exception as exc:  # noqa: BLE001
             logger.debug("[bank-feed] progress callback failed: %s", exc)
 

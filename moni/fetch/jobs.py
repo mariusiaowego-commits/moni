@@ -519,10 +519,10 @@ class FetchJobStore:
                     current_feed = cf
 
             if st in ("done", "partial") and j.get("result"):
+                # partial 的结果自带 ``warning`` 字段; 不要再往 errors 里塞
+                # 一份 —— 前端按 source 拼两行会撞 key, 同一源出现两次。
                 results.append(j["result"])
-            elif st in ("failed", "timeout", "stale") and j.get("error"):
-                errors.append({"source": j.get("source", "?"), "error": j["error"]})
-            if st == "partial" and j.get("error"):
+            elif st in ("failed", "timeout", "stale", "partial") and j.get("error"):
                 errors.append({"source": j.get("source", "?"), "error": j["error"]})
 
         # Determine batch status

@@ -1080,7 +1080,11 @@ def _run_batch_job_inner(
         # stay recorded as a success.
         # Update cron_runs with final totals
         finished_at = datetime.now(CST).isoformat()
-        success = 1 if (sources_failed == 0 and not aborted) else 0
+        # partial 也是「这一轮没抓全」, 不能记成功 —— 否则调度器的成功率
+        # 统计会把缺口算成健康。
+        success = 1 if (
+            sources_failed == 0 and sources_partial == 0 and not aborted
+        ) else 0
         if aborted:
             error = f"批次中断（已执行 {attempted}/{len(enabled)} 个信源）"
         elif sources_failed:

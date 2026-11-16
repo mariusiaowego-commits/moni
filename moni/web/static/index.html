@@ -506,7 +506,7 @@
                   </div>
                   <div class="fa-grid">
                     <template x-for="r in (fetchAllResult?.results || [])" :key="r.source">
-                      <details class="fa-row-details" :class="r.error ? 'fa-row-err' : 'fa-row-ok'">
+                      <details class="fa-row-details" :class="r.error ? 'fa-row-err' : (r.warning ? 'fa-row-warn' : 'fa-row-ok')">
                         <summary class="fa-row-summary">
                           <span class="fa-src" x-text="r.source"></span>
                           <span x-show="!r.error" class="fa-metrics">
@@ -516,6 +516,7 @@
                             过滤 <span x-text="(r.dropped_blacklist||0) + (r.dropped_whitelist||0) + (r.dropped_tag_filter||0)"></span>
                           </span>
                           <span x-show="r.error" class="fa-err" x-text="r.error"></span>
+                          <span x-show="!r.error && r.warning" class="fa-warn" x-text="r.warning"></span>
                         </summary>
                         <div class="fa-row-body" x-show="!r.error">
                           <div class="fa-row-kv"><span>拉取</span><b x-text="(r.fetched || 0) + ' 条'"></b></div>
@@ -832,6 +833,7 @@
                   <span x-text="r.source || '?'"></span>:
                   <span x-show="!r.error"> 拉取 <b x-text="r.fetched || 0"></b> → 入库 <b x-text="r.inserted || 0"></b></span>
                   <span x-show="r.error" class="fr-error" x-text="r.error"></span>
+                  <span x-show="!r.error && r.warning" class="fa-warn" x-text="r.warning"></span>
                 </div>
               </template>
             </div>

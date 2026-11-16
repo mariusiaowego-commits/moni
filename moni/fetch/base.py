@@ -166,6 +166,10 @@ class BaseFetcher(ABC):
         raw_articles: list[dict[str, Any]] = []
         try:
             raw_articles = self.fetch()
+        except TimeoutError:
+            # TimeoutError 是控制流 (web 端进度回调用它中止超时抓取),
+            # 不能被当成普通抓取错误吞掉 —— 上层要按 timeout 收尾。
+            raise
         except Exception as exc:
             logger.error("[%s] fetch() raised %s: %s", source, type(exc).__name__, exc)
             stats = _merge_stats(getattr(self, "_chunk_stats", {}), {

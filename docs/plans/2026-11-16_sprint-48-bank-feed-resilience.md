@@ -84,3 +84,35 @@
 /usr/local/bin/python3 scripts/bank_bot/run_bot.py \
   --output-dir /private/tmp/moni-v1088/data/bank_feed --date 2026-11-16
 ```
+
+## 第 2 轮：独立审计 → BLOCK → 修复
+
+独立只读审计（HEAD `7160999`，merge-base `d7e6680`）结论 **BLOCK**：1 个 P1 + 5 个 P2。
+
+### P1（已修）
+
+静态解析失败 → 回退 agent → agent 正常返回 `[]`：该目标只写进 `fallbacks`，
+`bank_feed._feed_is_fresh()` 只看 `errors`，于是当天 feed 被判「已完整」，
+连手动点击也不补跑。修复：`main()` 在回退目标既无产出、又不在 `errors` 里时补
+`{"target": id, "error": "agent returned no items after static fallback"}`。
+
+### P2（已修）
+
+1. 详情页失败/空正文用标题顶上仍算静态成功 → 整站无正文时抛 `TargetError`
+   回退 agent；详情页解码改走 `_decode_html`（UTF-8 → GB18030）。
+2. 列表只按日期截 `max_items`、无时效窗口 → 新增 `max_age_days`
+   （默认 60 天，0 = 关闭）；窗口内 0 条返回空列表，不算解析失败。
+3. `_report_progress` 吞掉 `TimeoutError` → 重新抛出；`base.run()` 让它穿透到
+   web 端 timeout 收尾。
+4. `get_batch()` 把 partial 同时放进 `results` 和 `errors` → 只进 `results`
+   （带 `warning`）；前端补 `.fa-row-warn` / `.fa-warn`。
+5. `moni.fetch.run()` 的 CLI `force` 没落到 `fetcher.force` → 已赋值。
+   另：批量 `cron_runs.success` 在只有 partial 时也记 0。
+
+### 复测
+
+- 全量测试 **1768 passed / 2 skipped**；沙箱内
+  `test_migration_039_xbot_feed` 因无写 `.git` 权限失败，沙箱外单跑 **1 passed**。
+- bot `--no-agent`：**26 条 / 0 error**（boc 12 / abc 1 / ccb 7 / psbc 3 / 一财 3），
+  最旧 2026-09-24；工行 agent：**6 条 / 136s**，首次 `session_replay_gap` 重试命中。
+- 批量面板 DOM：2 行、source 唯一、`fa-row-warn` + warning 文本可见。

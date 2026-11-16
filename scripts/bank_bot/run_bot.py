@@ -54,7 +54,7 @@ import sys
 import tempfile
 import time
 import xml.etree.ElementTree as ET
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html import unescape
 from pathlib import Path
@@ -103,6 +103,11 @@ BANK_ALIASES: dict[str, dict[str, Any]] = {
 
 #: 单个目标最多取多少条
 DEFAULT_MAX_ITEMS = 12
+
+#: 官网列表的时效窗口 (天)。栏目里常混着几年前的图片列表块, 只按日期
+#: 倒序截断会把 2022 年的旧稿当成「最新 12 条」写进当天 feed。
+#: 0 = 不过滤。
+DEFAULT_MAX_AGE_DAYS = 60
 
 #: 正文低于这个字数的条目仍然入库, 但会被案例库抽取跳过。只做记录。
 MIN_USEFUL_TEXT = 100
@@ -263,10 +268,24 @@ def normalize_targets(raw: list[Any]) -> list[dict[str, Any]]:
             "bank": bank,
             "publisher": str(entry.get("publisher") or "").strip() or target_id,
             "max_items": int(entry.get("max_items") or DEFAULT_MAX_ITEMS),
+            "max_age_days": _max_age_days(entry),
         })
     if not targets:
         raise BotError("no usable targets")
     return targets
+
+
+def _max_age_days(entry: dict[str, Any]) -> int:
+    """官网列表的时效窗口; 缺省 60 天, 显式 0 = 不过滤。"""
+    raw = entry.get("max_age_days")
+    if raw is None:
+        return DEFAULT_MAX_AGE_DAYS
+    try:
+        return max(int(raw), 0)
+    except (TypeError, ValueError) as exc:
+        raise BotError(
+            f"target {entry.get('id')}: max_age_days must be an integer, got {raw!r}"
+        ) from exc
 
 
 # ── 确定性段: media_rss / media_json ───────────────────────────────────────
@@ -500,16 +519,41 @@ def parse_static_list(html: str, base_url: str, *, max_items: int) -> list[dict[
     return rows[:max_items]
 
 
+def filter_recent(
+    rows: list[dict[str, str]], *, max_age_days: int, today: date | None = None
+) -> list[dict[str, str]]:
+    """只保留最近 ``max_age_days`` 天的条目 (0 = 不过滤)。"""
+    if max_age_days <= 0:
+        return rows
+    cutoff = (today or date.today()) - timedelta(days=max_age_days)
+    return [row for row in rows if date.fromisoformat(row["date"]) >= cutoff]
+
+
 def collect_official_static(target: dict[str, Any], *, timeout: float) -> list[dict[str, Any]]:
     """官网栏目: 列表页确定性解析 + 详情页正文, 不调模型。"""
     html = _decode_html(_http_get(target["url"], timeout))
     rows = parse_static_list(html, target["url"], max_items=int(target["max_items"]))
     if not rows:
         raise TargetError("static parser found no dated article links")
+    max_age_days = target.get("max_age_days")
+    if max_age_days is None:
+        max_age_days = DEFAULT_MAX_AGE_DAYS
+    max_age_days = int(max_age_days)
+    rows = filter_recent(rows, max_age_days=max_age_days)
+    if not rows:
+        # 列表能解析、但全是旧稿: 这是「窗口内没有新闻」, 不是解析失败。
+        print(
+            f"[bank_bot] {target['id']}: no article within {max_age_days} day(s)",
+            file=sys.stderr,
+        )
+        return []
 
     items: list[dict[str, Any]] = []
+    with_body = 0
     for row in rows:
         detail = fetch_detail_text(row["url"], timeout=timeout)
+        if len(detail) >= MIN_USEFUL_TEXT:
+            with_body += 1
         items.append({
             "id": make_item_id(target["bank"], row["url"]),
             "url": row["url"],
@@ -522,6 +566,16 @@ def collect_official_static(target: dict[str, Any], *, timeout: float) -> list[d
             "publisher": target["publisher"],
             "target_id": target["id"],
         })
+    if items and not with_body:
+        # 全站详情页都拿不到正文 (WAF / 改版 / 编码) —— 只剩标题的条目没有
+        # 情报价值, 交给 agent 重取, 别把空壳当成功。
+        raise TargetError(f"detail pages yielded no body text ({len(items)} row(s))")
+    if with_body < len(items):
+        print(
+            f"[bank_bot] {target['id']}: {len(items) - with_body}/"
+            f"{len(items)} row(s) without body text (title fallback)",
+            file=sys.stderr,
+        )
     return items
 
 
@@ -546,7 +600,7 @@ def extract_article_text(html: str) -> str:
 def fetch_detail_text(url: str, *, timeout: float) -> str:
     """抓详情页正文; 失败返回空串 (导语仍然是有效内容)。"""
     try:
-        html = _http_get(url, min(timeout, DETAIL_TIMEOUT)).decode("utf-8", "ignore")
+        html = _decode_html(_http_get(url, min(timeout, DETAIL_TIMEOUT)))
     except (TargetError, UnicodeError, OSError):
         return ""
     return extract_article_text(html)
@@ -999,6 +1053,27 @@ def main(argv: list[str] | None = None) -> int:
         except BotError as exc:
             errors.append({"target": "agent", "error": str(exc)})
             print(f"[bank_bot] agent: {exc}", file=sys.stderr)
+
+    # 静态解析失败 → 回退 agent 的目标, 如果 agent 也交回 0 条, 这个缺口
+    # 必须记进 errors: 只留在 fallbacks 里的话, feed 会被当成「今天已完整」,
+    # 连手动点击也不会补跑 (bank_feed._feed_is_fresh 只看 errors)。
+    if fallback_targets:
+        reported = {e.get("target") for e in errors}
+        produced = {it.get("target_id") for it in agent_items}
+        empty = [
+            t for t in fallback_targets
+            if t["id"] not in produced and t["id"] not in reported
+        ]
+        for target in empty:
+            errors.append({
+                "target": target["id"],
+                "error": "agent returned no items after static fallback",
+            })
+            print(
+                f"[bank_bot] {target['id']}: agent returned no items after "
+                "static fallback",
+                file=sys.stderr,
+            )
 
     merged = merge_items(agent_items, media_items, static_items)
     items: list[dict[str, Any]] = []

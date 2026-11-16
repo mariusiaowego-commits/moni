@@ -138,6 +138,23 @@ class TestFetchJobStore:
         assert batch["status"] == "partial"
         assert batch["failed_sources"] == 0
 
+    def test_get_batch_partial_row_not_duplicated_in_errors(self, fresh_db):
+        """partial 的源只出现在 results 里; 再塞一份 errors 会让前端撞 key。"""
+        store = FetchJobStore()
+        part = store.create("bank_feed", batch_id="b3")
+        store.mark_partial(
+            part,
+            {"source": "bank_feed", "inserted": 2, "warning": "feed 不完整"},
+            "feed 不完整",
+        )
+
+        batch = store.get_batch("b3")
+        sources = [r.get("source") for r in batch["results"]] + [
+            e.get("source") for e in batch["errors"]
+        ]
+        assert sources.count("bank_feed") == 1
+        assert batch["results"][0]["warning"] == "feed 不完整"
+
     def test_mark_timeout_persists_with_default_message(self, fresh_db):
         store = FetchJobStore()
         job_id = store.create("36kr_rss")
@@ -891,3 +908,34 @@ def test_background_thread_db_swapped_or_table_dropped_does_not_crash_thread(tmp
     finally:
         close_db()
         set_db_path(orig_path)
+
+
+def test_run_passes_force_to_fetcher(fresh_db, monkeypatch):
+    """CLI --source 的 force 必须先落到 fetcher.force, 才能绕开源级冷却。
+
+    bank_feed 的「今天 feed 已完整 / 冷却窗口」判定读的是 ``self.force``;
+    只在调度器层绕开的话, 手动 CLI 抓取仍会读到旧 feed。
+    """
+    from moni.fetch import _FETCHER_REGISTRY
+    # 注意: ``moni.fetch.run`` 这个属性会被同名子模块覆盖, 必须用别名
+    from moni.fetch import run_fetcher
+    from moni.fetch.scheduler import Scheduler
+
+    class _FakeFetcher:
+        force = False
+        date_from = None
+        date_to = None
+
+        @property
+        def source_name(self):
+            return "fake-force"
+
+        def run(self, dry_run: bool = False):
+            return {"source": self.source_name, "force": self.force}
+
+    monkeypatch.setitem(_FETCHER_REGISTRY, "fake-force", _FakeFetcher)
+    monkeypatch.setattr(Scheduler, "should_fetch", lambda self, name: True)
+    monkeypatch.setattr(Scheduler, "mark_fetched", lambda self, name: None)
+
+    assert run_fetcher("fake-force", force=True)["force"] is True
+    assert run_fetcher("fake-force", force=False)["force"] is False

@@ -608,6 +608,59 @@ def test_collect_official_static_empty_list_raises(bot, monkeypatch):
         bot.collect_official_static(target, timeout=5)
 
 
+def test_filter_recent_drops_old_articles(bot):
+    """列表里的 2022 年旧稿不能当成「最新」写进当天 feed。"""
+    rows = [
+        {"url": "https://a/1", "title": "x", "date": "2026-11-16"},
+        {"url": "https://a/2", "title": "y", "date": "2025-10-01"},
+        {"url": "https://a/3", "title": "z", "date": "2022-09-07"},
+    ]
+    kept = bot.filter_recent(
+        rows, max_age_days=60, today=bot.date(2026, 11, 16)
+    )
+    assert [r["date"] for r in kept] == ["2026-11-16"]
+
+
+def test_collect_official_static_all_old_returns_empty(bot, monkeypatch):
+    """窗口内没有新闻 = 合法的 0 条, 不是解析失败。"""
+    html = '<a href="./202209/t20220907_1.html">建设银行2022年的旧新闻</a>'
+    monkeypatch.setattr(bot, "_http_get", lambda url, timeout: html.encode("utf-8"))
+    target = {
+        "id": "ccb-news", "kind": "official_list", "url": "https://www.ccb.com/n/",
+        "bank": "ccb", "publisher": "中国建设银行", "max_items": 5,
+        "max_age_days": 60,
+    }
+    assert bot.collect_official_static(target, timeout=5) == []
+
+
+def test_collect_official_static_without_body_text_raises(bot, monkeypatch):
+    """详情页全空 (WAF/改版) 只剩标题 → 交给 agent, 不算静态成功。"""
+    html = '<a href="./202611/t20261112_1.html">邮储银行发布2026年三季度经营业绩</a>'
+    monkeypatch.setattr(bot, "_http_get", lambda url, timeout: html.encode("utf-8"))
+    monkeypatch.setattr(bot, "fetch_detail_text", lambda url, timeout: "")
+    target = {
+        "id": "psbc-news", "kind": "official_list", "url": "https://www.psbc.com/x/",
+        "bank": "psbc", "publisher": "中国邮政储蓄银行", "max_items": 5,
+    }
+    with pytest.raises(bot.TargetError, match="no body text"):
+        bot.collect_official_static(target, timeout=5)
+
+
+def test_fetch_detail_text_decodes_gb18030(bot, monkeypatch):
+    """详情页编码不一定是 UTF-8; 直接 utf-8/ignore 会把正文变成空白。"""
+    body = (
+        "<html><body>" + "".join(
+            f"<p>建设银行发布第{i}项经营数据，服务实体经济。</p>"
+            for i in range(5)
+        ) + "</body></html>"
+    )
+    monkeypatch.setattr(
+        bot, "_http_get", lambda url, timeout: body.encode("gb18030")
+    )
+    text = bot.fetch_detail_text("https://www.ccb.com/a.html", timeout=5)
+    assert "建设银行发布第0项经营数据" in text
+
+
 # ── v1.0.88: agent 瞬时失败重试 ────────────────────────────────────────────
 
 def test_call_agent_with_retry_retries_transient(bot, monkeypatch):
@@ -670,3 +723,55 @@ def test_main_falls_back_to_agent_when_static_fails(tmp_path, bot, monkeypatch):
     payload = json.loads((out / "latest.json").read_text(encoding="utf-8"))
     assert payload["fallbacks"] == [{"target": "psbc-news", "reason": "no links"}]
     assert [i["id"] for i in payload["items"]] == ["psbc-abc"]
+
+
+def test_main_records_error_when_agent_returns_nothing_after_static_fails(
+    tmp_path, bot, monkeypatch
+):
+    """静态 0 条 + agent 0 条 = 当天缺口, 必须进 errors。
+
+    只写进 ``fallbacks`` 的话, ``bank_feed._feed_is_fresh()`` 看不到失败,
+    当天 feed 会被当成完整, 手动点击也不会补跑。
+    """
+    targets = {"targets": [
+        {
+            "id": "psbc-news", "kind": "official_list", "static": True,
+            "url": "https://www.psbc.com/x/", "bank": "psbc",
+            "publisher": "中国邮政储蓄银行",
+        },
+        {
+            "id": "eastmoney", "kind": "media_rss",
+            "url": "https://rss.example.com/feed.xml", "bank": None,
+            "publisher": "东方财富",
+        },
+    ]}
+    tfile = tmp_path / "targets.json"
+    tfile.write_text(json.dumps(targets, ensure_ascii=False), encoding="utf-8")
+
+    monkeypatch.setattr(
+        bot, "collect_official_static",
+        lambda target, timeout: (_ for _ in ()).throw(bot.TargetError("no links")),
+    )
+    monkeypatch.setattr(
+        bot, "collect_media",
+        lambda target, timeout: [{
+            "id": "ccb-abc", "url": "https://news.example.com/a.html",
+            "title": "建设银行发布三季度经营业绩", "text": "正文" * 80,
+            "created_at": "2026-11-16T00:00:00+08:00", "bank": "ccb",
+            "source_type": "media", "publisher": "东方财富",
+            "target_id": "eastmoney",
+        }],
+    )
+    monkeypatch.setattr(bot, "collect_agent", lambda targets, **kw: ([], []))
+
+    out = tmp_path / "feed"
+    assert bot.main([
+        "--output-dir", str(out), "--targets", str(tfile), "--date", "2026-11-16",
+    ]) == 0
+    payload = json.loads((out / "latest.json").read_text(encoding="utf-8"))
+    assert payload["fallbacks"] == [{"target": "psbc-news", "reason": "no links"}]
+    assert payload["errors"] == [{
+        "target": "psbc-news",
+        "error": "agent returned no items after static fallback",
+    }]
+    assert [i["id"] for i in payload["items"]] == ["ccb-abc"]
