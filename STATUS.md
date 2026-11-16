@@ -14,6 +14,8 @@
 
 `moni` profile 走 hermes gateway，`--run-budget` 会被拒（rc=2，`Unsupported gateway CLI options`），超时改由本地看门狗杀进程组；`--format stream-json` 仍是逐块 `text` 事件，SSE 按增量下发。正文渲染剔除 Markdown/HTML 图片（只留文字），避免转载抓取图片。
 
+AI 面板交互按 AICSS 免费组件移植（手写 Alpine + CSS，未粘源码）：`thinking-state` 微光 + `orbs` 9 点 lattice（S1 相位）做等待态；`streaming-text` 3 字/12ms 逐字上屏、光标常亮；`thinking-reasoning` 折成「思考 N.Ns」，展开是强度/模式/首字/输出（hermes stream-json 只有 system/text/tool_use/tool_result/result，没有 reasoning 事件，所以没有推理正文可展）；`inline-citations` 把回答里的「」引文对到正文段落，生成上标 chip + 段落页脚；`data-table` / `comparison-table` 统一 12px 圆角表格壳，✓/✗ 上色。
+
 Schema 043（042 留给尚未进 main 的 xbot 作者屏蔽）。`migrate()` 会补跑已记录版本之后缺席的迁移，避免 043 先落地时把 042 跳过。
 
 ---
