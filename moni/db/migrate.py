@@ -18,7 +18,13 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 41  # v1.0.76: bank_feed 源 + peer-banks tag (041)
+_CURRENT_VERSION = 43  # v1.0.88: reader AI (042 reserved for xbot author blocks)
+
+# Migrations <= this version were applied by the old "max(schema_version)"
+# rule, which did not record every intermediate row.  Never re-run them.
+# Versions above it (042 was developed in parallel) may be missing even
+# when MAX(schema_version) is already higher; those holes still apply.
+_HOLE_FILL_AFTER = 41
 
 
 def _rollback_if_needed(conn: sqlite3.Connection) -> None:
@@ -75,50 +81,83 @@ def _run_sql_file(conn: sqlite3.Connection, path: Path) -> None:
                 raise
 
 
+
+def migration_should_apply(version: int, applied: int, recorded: set[int]) -> bool:
+    """Whether a migration file still needs to run.
+
+    Historical databases only stored the highest version, so versions
+    <= 41 that have no row are treated as already applied.  A later
+    file such as 042 must still run if 043 landed first.
+    """
+    if version in recorded:
+        return False
+    if version <= applied and version <= _HOLE_FILL_AFTER:
+        return False
+    return True
+
+
+def _recorded_versions(conn: sqlite3.Connection) -> set[int]:
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'"
+    ).fetchone()
+    if row is None:
+        return set()
+    return {
+        int(r[0])
+        for r in conn.execute("SELECT version FROM schema_version").fetchall()
+    }
+
+
 def migrate() -> None:
     """Run pending migrations.
 
     Applies schema.sql (v1 base schema) then any pending incremental migrations
-    in migrations/ directory.
+    in migrations/ directory.  A post-041 file that is absent from
+    schema_version still runs after a higher version has been recorded, so
+    parallel migrations (042 developed beside 043) are not skipped.
     """
     migrations_dir = Path(__file__).parent / "migrations"
     conn = get_db()
     applied = current_version(conn)
+    recorded = _recorded_versions(conn)
 
-    if applied >= _CURRENT_VERSION:
-        print(f"DB schema already at version {applied}, nothing to migrate.")
-        return
-
-    # 1. Base schema (always re-runs safely due to IF NOT EXISTS guards)
-    schema_path = Path(__file__).parent / "schema.sql"
-    print(f"Applying base schema from {schema_path.name} ...")
-    _run_sql_file(conn, schema_path)
-
-    # 2. Incremental migrations
+    pending: list[tuple[int, Path]] = []
     for mig_file in sorted(migrations_dir.glob("*.sql")):
-        mig_name = mig_file.stem  # e.g. "003_llm_tables"
-        # Extract version from prefix (e.g. "003" -> 3)
+        mig_name = mig_file.stem
         try:
             mig_version = int(mig_name.split("_")[0])
         except (ValueError, IndexError):
             print(f"  Skipping {mig_file.name} (cannot parse version prefix)")
             continue
+        if migration_should_apply(mig_version, applied, recorded):
+            pending.append((mig_version, mig_file))
 
-        if mig_version <= applied:
-            continue  # already applied
+    if not pending and applied >= _CURRENT_VERSION:
+        print(f"DB schema already at version {applied}, nothing to migrate.")
+        return
 
+    schema_path = Path(__file__).parent / "schema.sql"
+    print(f"Applying base schema from {schema_path.name} ...")
+    _run_sql_file(conn, schema_path)
+
+    now = datetime.now(timezone.utc).isoformat()
+    for mig_version, mig_file in pending:
         print(f"Applying migration {mig_file.name} (v{applied} → v{mig_version}) ...")
         _run_sql_file(conn, mig_file)
-        applied = mig_version
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (?, ?)",
+            (mig_version, now),
+        )
+        conn.commit()
+        recorded.add(mig_version)
+        applied = max(applied, mig_version)
 
-    # 3. Record final version (idempotent — migration files may also INSERT)
-    now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         "INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (?, ?)",
         (_CURRENT_VERSION, now),
     )
     conn.commit()
-    print(f"Migration complete. schema_version = {_CURRENT_VERSION}")
+    print(f"Migration complete. schema_version = {current_version(conn)}")
 
 
 if __name__ == "__main__":

@@ -191,7 +191,7 @@ def test_cleanup_log_records_real_normalization(v35_db):
 
 def test_version_constant_is_current():
     # 036 is a historical migration; the constant tracks the latest file.
-    assert _CURRENT_VERSION == 41
+    assert _CURRENT_VERSION == 43
 
 
 def test_failed_migration_rolls_back_and_connection_is_usable(v35_db, tmp_path):

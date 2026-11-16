@@ -71,6 +71,8 @@ def acquire(
     owner: str | None = None,
     heartbeat_interval_sec: int = DEFAULT_HEARTBEAT_INTERVAL_SEC,
     grace_sec: int = DEFAULT_GRACE_SEC,
+    task_types: tuple[str, ...] | None = None,
+    exclude_task_types: tuple[str, ...] | None = None,
 ) -> LeaseHandle | None:
     """认领一张表中任意 status='running' 但心跳已过期的行。
 
@@ -92,9 +94,21 @@ def acquire(
     """
     if table not in _LEASE_TABLES:
         raise ValueError(f"table {table!r} not in lease whitelist")
+    if (task_types or exclude_task_types) and table != "llm_jobs":
+        raise ValueError("task filters are only supported for llm_jobs")
     owner = owner or uuid.uuid4().hex
     conn = get_db()
     grace_sql = f"-{grace_sec} seconds"
+    task_clause = ""
+    task_params: list[str] = []
+    if task_types:
+        placeholders = ",".join("?" for _ in task_types)
+        task_clause += f" AND task_type IN ({placeholders})"
+        task_params.extend(task_types)
+    if exclude_task_types:
+        placeholders = ",".join("?" for _ in exclude_task_types)
+        task_clause += f" AND task_type NOT IN ({placeholders})"
+        task_params.extend(exclude_task_types)
     row = conn.execute(
         f"""
         UPDATE {table}
@@ -105,17 +119,18 @@ def acquire(
             started_at = COALESCE(started_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
         WHERE id = (
             SELECT id FROM {table}
-            WHERE (status = 'pending')
+            WHERE ((status = 'pending')
                OR (status = 'running' AND (
                     lease_heartbeat_at IS NULL
                     OR lease_heartbeat_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)
-               ))
+               )))
+               {task_clause}
             ORDER BY started_at ASC
             LIMIT 1
         )
         RETURNING id, fence
         """,
-        (owner, grace_sql),
+        (owner, grace_sql, *task_params),
     ).fetchone()
     conn.commit()
     if row is None:

@@ -89,154 +89,176 @@
           </div>
           <div class="search-box">
             <input type="text" x-model="articlesSearch"
-                   @input.debounce.300ms="loadArticles()"
-                   @keydown.enter.prevent="loadArticles()"
+                   @input.debounce.300ms="onArticlesFilterChange()"
+                   @keydown.enter.prevent="onArticlesFilterChange()"
                    placeholder="搜索关键字...">
-            <!-- v1.0.5.12: clear (×) button — only shows when there's text -->
             <button type="button" class="search-clear"
                     x-show="articlesSearch"
-                    @click="articlesSearch = ''; loadArticles()"
+                    @click="articlesSearch = ''; onArticlesFilterChange()"
                     title="清空搜索" aria-label="清空搜索"><svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
-            <!-- v1.0.5.12: 搜索 icon (left, visual hint) -->
             <span class="search-icon" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg></span>
-            <!-- v1.0.5.10: source / tag filters — 后端 /api/articles 已支持 ?source= & ?tag= -->
-            <!-- v1.0.13 (Sprint 02 — Q3): use onArticlesFilterChange() so changing
-                 source/tag from page N resets to page 1 (otherwise the user lands
-                 on an empty list because the new filter has fewer pages). -->
-            <select x-model="articlesSource" @change="onArticlesFilterChange()"
-                    title="按来源筛选"
-                    class="filter-select">
-              <option value="">所有来源</option>
-              <template x-for="s in (articlesSources || [])" :key="s.id">
-                <option :value="s.name" x-text="s.display_name || s.name"></option>
-              </template>
-            </select>
-            <select x-model="articlesTag" @change="onArticlesFilterChange()"
-                    title="按分类筛选"
-                    class="filter-select">
-              <option value="">所有分类</option>
-              <template x-for="t in (articlesTags || [])" :key="t.name">
-                <option :value="t.name" x-text="t.name"></option>
-              </template>
+          </div>
+        </div>
+
+        <div class="articles-filter-card">
+          <div class="articles-filter-tags">
+            <button class="tag-filter-chip"
+                    :class="{ 'is-active': articleTagsSelected.length === 0 }"
+                    @click="clearArticleTags()">全部</button>
+            <template x-for="t in (articleFacets.tags || [])" :key="t.name">
+              <button class="tag-filter-chip"
+                      :class="{ 'is-active': articleTagsSelected.includes(t.name) }"
+                      :style="t.color ? '--tag-color:' + t.color : ''"
+                      @click="toggleArticleTag(t.name)"
+                      :title="(t.display_name || t.name) + ' · ' + t.count + ' 篇'">
+                <span x-text="t.display_name || t.name"></span>
+                <span class="tag-filter-count" x-text="t.count"></span>
+              </button>
+            </template>
+            <span class="tag-mode-switch" x-show="articleTagsSelected.length > 1">
+              <button :class="{ 'is-active': articleTagMode === 'or' }" @click="setArticleTagMode('or')">任一</button>
+              <button :class="{ 'is-active': articleTagMode === 'and' }" @click="setArticleTagMode('and')">全部</button>
+            </span>
+          </div>
+          <div class="articles-filter-row">
+            <div class="source-filter-wrap">
+              <button class="filter-pill" @click="articleSourceOpen = !articleSourceOpen">
+                <svg class="icon icon-14" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M7 12h10"></path><path d="M10 18h4"></path></svg>
+                <span x-text="articleSourcesSelected.length ? '来源 ' + articleSourcesSelected.length : '全部信源'"></span>
+              </button>
+              <div class="source-popover" x-show="articleSourceOpen" x-cloak @click.outside="articleSourceOpen = false">
+                <input class="source-search" x-model="articleSourceQuery" placeholder="搜索信源">
+                <div class="source-list">
+                  <template x-for="s in filteredArticleSources" :key="s.name">
+                    <label class="source-option">
+                      <input type="checkbox" :checked="articleSourcesSelected.includes(s.name)"
+                             @change="toggleArticleSource(s.name, $event.target.checked)">
+                      <span x-text="s.display_name || s.name"></span>
+                      <em x-text="s.count"></em>
+                    </label>
+                  </template>
+                  <div class="source-empty" x-show="filteredArticleSources.length === 0">没有匹配信源</div>
+                </div>
+                <div class="source-popover-foot">
+                  <button class="link-btn" @click="selectAllArticleSources()">全选</button>
+                  <button class="link-btn" @click="clearArticleSources()">清空</button>
+                  <span style="flex:1"></span>
+                  <button class="btn btn-secondary btn-sm" @click="articleSourceOpen = false">完成</button>
+                </div>
+              </div>
+            </div>
+            <template x-for="name in articleSourcesSelected" :key="name">
+              <button class="active-filter-chip" @click="toggleArticleSource(name, false)">
+                <span x-text="sourceLabel(name)"></span>
+                <span aria-hidden="true">×</span>
+              </button>
+            </template>
+            <button class="link-btn filter-clear" x-show="articleFilterCount > 0" @click="clearArticleFilters()">清除筛选</button>
+            <span class="filter-total" x-text="'共 ' + articlesTotal + ' 篇'"></span>
+            <span style="flex:1"></span>
+            <select class="filter-select" x-model="articlesSort" @change="onArticlesFilterChange()" title="排序">
+              <option value="fetched_at_desc">入库时间</option>
+              <option value="published_at_desc">原文时间</option>
+              <option value="title_asc">标题 A-Z</option>
             </select>
           </div>
         </div>
-        <!-- v1.0.8: 子 tab — 在文章查阅页内切换 [全部] / [Pin (N)] -->
+
         <div class="subtab-bar" style="display: flex; gap: 4px; margin: 12px 0;">
-          <button class="subtab"
-                  :class="{ 'is-active': articlesSubTab === 'all' }"
-                  @click="setArticlesSubTab('all')">全部</button>
-          <button class="subtab"
-                  :class="{ 'is-active': articlesSubTab === 'pinned' }"
-                  @click="setArticlesSubTab('pinned')">
+          <button class="subtab" :class="{ 'is-active': articlesSubTab === 'all' }" @click="setArticlesSubTab('all')">全部</button>
+          <button class="subtab" :class="{ 'is-active': articlesSubTab === 'pinned' }" @click="setArticlesSubTab('pinned')">
             <span x-html="pinIcon(true)"></span> Pin (<span x-text="pinnedCount"></span>)
           </button>
         </div>
-        <!-- v1.0.8: 批量操作栏 — 仅 Pin tab 显示.  选中 N 篇时激活 unpin. -->
-        <div class="bulk-bar"
-             x-show="articlesSubTab === 'pinned' && pinnedSelectedIds.length > 0"
-             style="display: flex; gap: 12px; align-items: center; padding: 8px 12px; background: oklch(from var(--accent) l c h / 0.08); border-radius: 6px; margin-bottom: 8px;">
-          <span class="muted">已选 <b x-text="pinnedSelectedIds.length"></b> 篇</span>
-          <button class="btn-secondary" @click="pinnedSelectAll()">全选当前页</button>
-          <button class="btn-secondary" @click="pinnedSelectNone()">清空选择</button>
+
+        <div class="bulk-bar" x-show="articlesSubTab === 'all' ? articleSelectedIds.length > 0 : pinnedSelectedIds.length > 0">
+          <span class="muted">已选 <b x-text="articlesSubTab === 'all' ? articleSelectedIds.length : pinnedSelectedIds.length"></b> 篇</span>
+          <button class="btn-secondary" @click="articlesSubTab === 'all' ? articleSelectAllOnPage() : pinnedSelectAll()">全选当前页</button>
+          <button class="btn-secondary" @click="articlesSubTab === 'all' ? articleClearSelection() : pinnedSelectNone()">清空选择</button>
           <span style="flex: 1"></span>
-          <button class="btn-danger" @click="bulkUnpin()">批量 unpin</button>
+          <button class="btn-danger" x-show="articlesSubTab === 'all'" @click="openArticleBulkDelete()">批量删除</button>
+          <button class="btn-danger" x-show="articlesSubTab === 'pinned'" @click="bulkUnpin()">批量 unpin</button>
         </div>
+
         <div class="table-container">
           <table class="articles-table" style="table-layout: fixed; width: 100%;">
             <colgroup>
-                <col style="width: 44px;" x-show="articlesSubTab === 'all'">
-                <col style="width: 44px;" x-show="articlesSubTab === 'pinned'">
-                <col style="width: 420px;">
-                <col style="width: 120px;">
-                <col style="width: 170px;">
-                <col style="width: 155px;" x-show="articlesSubTab === 'pinned'">
-                <col style="width: 155px;" x-show="articlesSubTab === 'all'">
-                <col style="width: 155px;">
-                <col style="width: 120px;">
-              </colgroup>
-              <thead>
+              <col style="width: 40px;">
+              <col style="width: 44px;" x-show="articlesSubTab === 'all'">
+              <col style="width: 360px;">
+              <col style="width: 110px;">
+              <col style="width: 150px;">
+              <col style="width: 140px;">
+              <col style="width: 140px;">
+              <col style="width: 100px;">
+            </colgroup>
+            <thead>
+              <tr>
+                <th><input type="checkbox" :checked="articlesSubTab === 'all' ? articleAllSelectedOnPage() : pinnedAllSelectedOnPage()" @change="articlesSubTab === 'all' ? articleToggleAllOnPage($event) : pinnedToggleAllOnPage($event)"></th>
+                <th class="pin-col-head" x-show="articlesSubTab === 'all'">Pin</th>
+                <th>标题</th><th>来源</th><th>命中标签</th><th>原文时间</th><th>抓取时间</th><th style="text-align: right;">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="a in activeArticles" :key="a.id">
                 <tr>
-                  <!-- v1.0.8.1: Pin 列放最左侧, 与批量勾选列互斥显示
-                      (之前 "操作"列里的 pin 按钮太靠右, 不明显) -->
-                  <th class="pin-col-head" x-show="articlesSubTab === 'all'">Pin</th>
-                  <th x-show="articlesSubTab === 'pinned'"><input type="checkbox" :checked="pinnedAllSelectedOnPage()" @change="pinnedToggleAllOnPage($event)"></th>
-                  <th>标题</th><th>来源</th><th>命中标签</th>
-                  <th x-show="articlesSubTab === 'pinned'">Pin 时间</th>
-                  <th x-show="articlesSubTab === 'all'">原文时间</th>
-                  <th>抓取时间</th><th style="text-align: right;">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <template x-for="a in activeArticles" :key="a.id">
-                  <tr>
-                    <!-- v1.0.8.1: 32px pin button 在最左, 单独列. 点击 GSAP 弹一下. -->
-                    <td class="pin-col" x-show="articlesSubTab === 'all'">
-                      <button class="pin-btn pin-btn-lg"
-                              :class="{ 'is-pinned': a.is_pinned }"
-                              :data-aid="a.id"
-                              @click="togglePin(a.id)"
-                              :title="a.is_pinned ? '取消 Pin' : 'Pin 这篇文章'">
-                        <span x-html="pinIcon(a.is_pinned)"></span>
-                      </button>
-                    </td>
-                    <td x-show="articlesSubTab === 'pinned'">
-                      <input type="checkbox" :value="a.id" x-model="pinnedSelectedIds">
-                    </td>
-                    <td class="title-cell">
-                      <div class="title-flex">
-                        <span class="title-text" :title="a.title" x-text="truncateTitle(a.title, 150)"></span>
-                        <span class="badge badge-new" x-show="a.is_fresh || isNew(a.created_at)"
-                              :title="a.is_fresh ? '本次抓取新增' : '24 小时内抓取'">新</span>
-                      </div>
-                    </td>
-                    <td class="nowrap" :title="a.source" x-text="a.source"></td>
-                    <td class="tags-cell">
-                      <div class="tags-flex">
-                        <template x-for="tagObj in (a.tags || []).slice(0, 2)" :key="tagObj.name">
-                          <span class="tag-chip-wrap">
-                            <span class="tag-chip"
-                                  :class="{ 'tag-chip-no-color': !tagObj?.color }"
-                                  :style="tagObj?.color
-                                    ? '--tag-bg: ' + tagObj.color + '1A; --tag-fg: ' + tagObj.color + ';'
-                                    : ''"
-                                  tabindex="0"
-                                  x-text="tagObj ? (tagObj.display_name || tagObj.name) : tagName"></span>
-                            <span class="tip" x-text="formatTagTooltip(tagObj ? tagObj.name : tagName, tagObj?.keyword_hits || [])"></span>
-                          </span>
-                        </template>
-                        <span class="tag-overflow-pill" x-show="(a.tags || []).length > 2" tabindex="0">
-                          <span x-text="'+' + ((a.tags || []).length - 2)"></span>
-                          <div class="popover-card">
-                            <div class="popover-card-title">全部标签 (<span x-text="(a.tags || []).length"></span>)</div>
-                            <div class="popover-chips">
-                              <template x-for="tagObj in a.tags" :key="tagObj.name">
-                                <span class="popover-chip"
-                                      :style="tagObj?.color ? '--tag-bg: ' + tagObj.color + '1A; --tag-fg: ' + tagObj.color + ';' : ''"
-                                      x-text="tagObj ? (tagObj.display_name || tagObj.name) : ''"></span>
-                              </template>
-                            </div>
-                          </div>
+                  <td>
+                    <input type="checkbox" x-show="articlesSubTab === 'all'" :value="a.id" x-model="articleSelectedIds">
+                    <input type="checkbox" x-show="articlesSubTab === 'pinned'" :value="a.id" x-model="pinnedSelectedIds">
+                  </td>
+                  <td class="pin-col" x-show="articlesSubTab === 'all'">
+                    <button class="pin-btn pin-btn-lg" :class="{ 'is-pinned': a.is_pinned }" :data-aid="a.id" @click="togglePin(a.id)" :title="a.is_pinned ? '取消 Pin' : 'Pin 这篇文章'">
+                      <span x-html="pinIcon(a.is_pinned)"></span>
+                    </button>
+                  </td>
+                  <td class="title-cell">
+                    <div class="title-flex">
+                      <span class="title-text" :title="a.title" x-text="truncateTitle(a.title, 150)"></span>
+                      <span class="badge badge-new" x-show="a.is_fresh || isNew(a.created_at)" :title="a.is_fresh ? '本次抓取新增' : '24 小时内抓取'">新</span>
+                      <span class="ai-unread-pill" x-show="a.reader_unread" @click.stop="showArticleDetail(a)" title="AI 有新结果，点击查看">
+                        <svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"></path></svg>
+                        AI 有新结果
+                      </span>
+                    </div>
+                  </td>
+                  <td class="nowrap" :title="a.source" x-text="a.source"></td>
+                  <td class="tags-cell">
+                    <div class="tags-flex">
+                      <template x-for="tagObj in (a.tags || []).slice(0, 2)" :key="tagObj.name">
+                        <span class="tag-chip-wrap">
+                          <span class="tag-chip" :class="{ 'tag-chip-no-color': !tagObj?.color }" :style="tagObj?.color ? '--tag-bg: ' + tagObj.color + '1A; --tag-fg: ' + tagObj.color + ';' : ''" tabindex="0" x-text="tagObj ? (tagObj.display_name || tagObj.name) : ''"></span>
+                          <span class="tip" x-text="formatTagTooltip(tagObj ? tagObj.name : '', tagObj?.keyword_hits || [])"></span>
                         </span>
-                      </div>
-                      <span x-show="!a.tags || a.tags.length === 0" class="muted">-</span>
-                    </td>
-                    <td class="tabular-nums nowrap" x-show="articlesSubTab === 'pinned'" x-text="formatTime(a.pinned_at)"></td>
-                    <td class="tabular-nums nowrap" x-show="articlesSubTab === 'all'" x-text="formatTime(a.published_at || a.fetched_at || a.created_at)"></td>
-                    <td class="tabular-nums nowrap" x-text="formatTime(a.created_at)"></td>
-                    <td style="text-align: right;"><div class="row-actions" style="justify-content: flex-end;"><a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a><button class="btn-danger" @click="showDeleteModal(a)">删除</button></div></td>
-                  </tr>
-                </template>
+                      </template>
+                      <span class="tag-overflow-pill" x-show="(a.tags || []).length > 2" tabindex="0">
+                        <span x-text="'+' + ((a.tags || []).length - 2)"></span>
+                        <div class="popover-card">
+                          <div class="popover-card-title">全部标签 (<span x-text="(a.tags || []).length"></span>)</div>
+                          <div class="popover-chips">
+                            <template x-for="tagObj in a.tags" :key="tagObj.name">
+                              <span class="popover-chip" :style="tagObj?.color ? '--tag-bg: ' + tagObj.color + '1A; --tag-fg: ' + tagObj.color + ';' : ''" x-text="tagObj ? (tagObj.display_name || tagObj.name) : ''"></span>
+                            </template>
+                          </div>
+                        </div>
+                      </span>
+                    </div>
+                    <span x-show="!a.tags || a.tags.length === 0" class="muted">-</span>
+                  </td>
+                  <td class="tabular-nums nowrap" x-text="formatTime(a.published_at || a.fetched_at || a.created_at)"></td>
+                  <td class="tabular-nums nowrap" x-text="formatTime(a.created_at)"></td>
+                  <td style="text-align: right;"><div class="row-actions" style="justify-content: flex-end;"><a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a><button class="btn-danger" @click="showDeleteModal(a)">删除</button></div></td>
+                </tr>
+              </template>
               <tr x-show="activeArticles.length === 0">
                 <td colspan="8" class="empty-row">
                   <span x-show="articlesSubTab === 'pinned'">还没有 pin 任何文章。点击列表最左的 Pin 按钮开始收集。</span>
-                  <span x-show="articlesSubTab === 'all'">暂无数据</span>
+                  <span x-show="articlesSubTab === 'all'">没有匹配的文章，试试清除筛选。</span>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <!-- Pagination controls -->
+
         <div class="pagination-bar">
           <div class="pagination-left">
             <label class="pagination-label">
@@ -247,7 +269,7 @@
                 </template>
               </select>
             </label>
-            <span class="pagination-info" x-text="'第 ' + articlesPage + ' 页'"></span>
+            <span class="pagination-info" x-text="'第 ' + articlesPage + ' 页' + (articlesTotal ? ' · 共 ' + articlesTotal + ' 篇' : '')"></span>
           </div>
           <div class="pagination-right">
             <button class="btn btn-secondary btn-sm" @click="articlesPrevPage()" :disabled="articlesPage <= 1">上一页</button>
@@ -875,7 +897,7 @@
                   <span class="badge" :class="llmJobStatusBadge(job.status).cls"
                         x-text="llmJobStatusBadge(job.status).label"></span>
                 </td>
-                <td x-text="job.task_type === 'summary' ? '摘要' : '事实核查'"></td>
+                <td x-text="llmJobTypeLabel(job)"></td>
                 <td>
                   <!-- v1.0.35.14: 点击文章标题 → 打开文章详情 modal (不跳转) -->
                   <a class="link" href="#" @click.prevent="showArticleDetail({ id: job.article_id })"
@@ -3131,102 +3153,219 @@
       </div>
     </div>
 
-    <!-- ══ Article detail modal ════════════════════════════════ -->
-    <div class="modal-backdrop" x-show="articleDetail" x-cloak @click.self="closeArticleDetail()" @keydown.escape.window="closeArticleDetail()">
-      <div class="modal-content" x-show="articleDetail">
-        <div class="modal-header">
-          <h3 x-text="articleDetail?.title"></h3>
-          <div style="display: flex; gap: 8px; align-items: center;">
-            <!-- v1.0.8: pin toggle in the article detail modal.  Same
-                 SVG icon as the list view, just a bigger button. -->
-            <button class="pin-btn pin-btn-lg"
-                    :class="{ 'is-pinned': articleDetail?.is_pinned }"
-                    :data-aid="articleDetail?.id"
-                    @click="togglePin(articleDetail?.id)"
-                    :title="articleDetail?.is_pinned ? '取消 Pin' : 'Pin 这篇文章'">
+    <!-- ══ Article detail + reader AI (Sprint 47) ══════════════ -->
+    <div class="modal-backdrop reader-backdrop" x-show="articleDetail" x-cloak
+         @click.self="closeArticleDetail()" @keydown.escape.window="closeArticleDetail()">
+      <div class="reader-modal" x-show="articleDetail" :class="{ 'is-expanded': readerExpanded }">
+        <header class="reader-head">
+          <div class="reader-head-main">
+            <h3 x-text="articleDetail?.title"></h3>
+            <div class="article-meta">
+              <span class="meta-chip"><b>来源:</b> <span x-text="articleDetail?.source"></span></span>
+              <span class="meta-chip"><b>抓取:</b> <span x-text="formatTime(articleDetail?.created_at)"></span></span>
+              <span class="meta-chip" x-show="articleDetail?.published_at"><b>原文:</b> <span x-text="formatTime(articleDetail?.published_at)"></span></span>
+              <span class="meta-chip" x-show="articleDetail?.author"><b>作者:</b> <span x-text="articleDetail?.author"></span></span>
+            </div>
+          </div>
+          <div class="reader-head-actions">
+            <button class="pin-btn pin-btn-lg" :class="{ 'is-pinned': articleDetail?.is_pinned }" :data-aid="articleDetail?.id" @click="togglePin(articleDetail?.id)" :title="articleDetail?.is_pinned ? '取消 Pin' : 'Pin 这篇文章'">
               <span x-html="pinIcon(articleDetail?.is_pinned)"></span>
               <span x-text="articleDetail?.is_pinned ? '已 Pin' : 'Pin'"></span>
             </button>
+            <a :class="{'btn-blocked': isBlockedUrl(articleDetail?.url)}" :href="safeHref(articleDetail?.url)" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">原文</a>
+            <button class="btn btn-ghost btn-sm reader-expand-btn" @click="readerExpanded = !readerExpanded" :title="readerExpanded ? '还原' : '放大'">
+              <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path><path d="M3 16v3a2 2 0 0 0 2 2h3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path></svg>
+            </button>
             <button class="modal-close" @click="closeArticleDetail()" aria-label="关闭"><svg class="icon icon-18" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
           </div>
+        </header>
+
+        <div class="reader-mobile-tabs">
+          <button :class="{ 'is-active': readerMobileTab === 'read' }" @click="readerMobileTab = 'read'">正文</button>
+          <button :class="{ 'is-active': readerMobileTab === 'ai' }" @click="readerMobileTab = 'ai'">对话</button>
+        </div>
+
+        <div class="reader-split" :class="'mobile-' + readerMobileTab">
+          <main class="reader-pane" @scroll="readerUpdateProgress($event)" @mouseup="readerHandleSelection($event)">
+            <div class="reader-progress"><span :style="'width:' + readerProgress + '%'"></span></div>
+            <article class="reader-body" x-ref="readerBody" x-html="readerArticleHtml()"></article>
+            <details class="reader-raw">
+              <summary>查看原始文本</summary>
+              <pre x-text="articleDetail?.content || '(无内容)'"></pre>
+            </details>
+
+            <div class="surface-muted reader-import">
+              <details>
+                <summary>导入全文（用于 AI 摘要/核查）</summary>
+                <div class="reader-import-row">
+                  <input type="text" x-model="importFilePath" placeholder="粘贴本地 .md 文件路径">
+                  <button class="btn btn-secondary btn-sm" @click="importFulltext()" :disabled="importLoading">
+                    <span x-show="!importLoading">导入</span>
+                    <span x-show="importLoading">导入中...</span>
+                  </button>
+                </div>
+                <small class="muted">用 Obsidian Web Clipper 抓取原文后，粘贴 .md 文件路径</small>
+              </details>
+            </div>
+
+            <div class="summary-box" x-show="articleDetail?.summary" x-cloak>
+              <h4>摘要</h4>
+              <p x-text="articleDetail?.summary"></p>
+            </div>
+            <div class="summary-box" x-show="articleDetail?.fact_check_conclusion" x-cloak>
+              <h4>事实核查结论</h4>
+              <p x-text="articleDetail?.fact_check_conclusion"></p>
+            </div>
+            <div class="fact-check-evidence" x-show="articleDetail?.has_web_fact_check" x-cloak>
+              <details>
+                <summary>
+                  <span class="badge web_search">联网核查</span>
+                  <span x-text="articleDetail?.fact_check_conclusion"></span>
+                  <small x-text="articleDetail?.fact_checked_at"></small>
+                </summary>
+                <ol class="evidence-list">
+                  <template x-for="(e, idx) in articleEvidenceList" :key="idx">
+                    <li class="evidence-item">
+                      <div class="evidence-query" x-text="e.query"></div>
+                      <a class="evidence-url" :class="{'link-blocked': isBlockedUrl(e.url)}" :href="safeHref(e.url)" target="_blank" rel="noopener noreferrer" x-text="e.url"></a>
+                      <div class="evidence-snippet" x-text="e.snippet"></div>
+                      <div class="evidence-meta"><span x-text="e.domain"></span><span x-text="e.fetched_at"></span><span x-text="e.model"></span></div>
+                    </li>
+                  </template>
+                </ol>
+              </details>
+            </div>
+
+            <div class="reader-actions">
+              <button class="btn btn-primary" @click="generateSummary()" :disabled="summaryLoading">
+                <span x-show="!summaryLoading">生成摘要</span><span x-show="summaryLoading">生成中...</span>
+              </button>
+              <button class="btn btn-secondary" @click="generateFactCheck()" :disabled="factCheckLoading" x-show="!articleDetail?.has_fact_check">
+                <span x-show="!factCheckLoading">事实核查</span><span x-show="factCheckLoading">核查中...</span>
+              </button>
+              <button class="btn btn-secondary" @click="enqueueLlmJobFactCheckPlus(articleDetail?.id)" :disabled="factCheckLoading" x-show="!articleDetail?.has_web_fact_check">联网核查</button>
+              <button class="btn btn-secondary" @click="extractCase()" :disabled="caseExtractLoading">
+                <span x-show="!caseExtractLoading">提取案例</span><span x-show="caseExtractLoading">提取中...</span>
+              </button>
+              <button class="btn btn-secondary" @click="copyArticleUrl()" title="复制原文链接">复制链接</button>
+              <span x-show="copyToast" class="text-success reader-copied">已复制</span>
+            </div>
+          </main>
+
+          <aside class="ai-pane">
+            <header class="ai-head">
+              <div class="ai-title">
+                <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"></path><path d="M5 19h4"></path></svg>
+                <span>AI 对话</span>
+                <span class="ai-context-badge" x-text="readerContextLabel" :title="readerContextTitle"></span>
+              </div>
+              <div class="ai-head-actions">
+                <select class="ai-reasoning" x-model="readerReasoning" title="思考程度">
+                  <option value="none">不思考</option>
+                  <option value="low">低</option>
+                  <option value="medium">中</option>
+                  <option value="high">高</option>
+                </select>
+                <button class="btn btn-ghost btn-sm" @click="readerOpenPromptManager()" title="Prompt 管理" aria-label="Prompt 管理">⋯</button>
+              </div>
+            </header>
+
+            <div class="ai-messages" x-ref="aiMessages">
+              <div class="ai-empty" x-show="!readerMessages.length">
+                <svg viewBox="0 0 64 64" width="64" height="64" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 14h30a4 4 0 0 1 4 4v24a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V18a4 4 0 0 1 4-4Z"></path><path d="M20 26h18"></path><path d="M20 33h12"></path><path d="M46 22h6a4 4 0 0 1 4 4v22a4 4 0 0 1-4 4H24"></path></svg>
+                <h4>读到哪里，问到哪里</h4>
+                <p>选中正文里的一段，可以单独问。关键事实，请回原文核对。</p>
+                <blockquote>书犹药也，善读之可以医愚。<cite>—— 刘向</cite></blockquote>
+              </div>
+              <template x-for="m in readerMessages" :key="m.id">
+                <div class="ai-msg" :class="'is-' + m.role">
+                  <div class="ai-msg-role" x-text="m.role === 'user' ? '你' : 'AI'"></div>
+                  <div class="ai-msg-quote" x-show="m.quote_text" x-text="m.quote_text"></div>
+                  <div class="ai-msg-body" x-show="m.role === 'user'" x-text="m.content"></div>
+                  <div class="ai-msg-body markdown" x-show="m.role === 'assistant'" x-html="readerRenderMarkdown(m.content)"></div>
+                  <div class="ai-msg-error" x-show="m.status === 'failed'" x-text="m.error || '生成失败'"></div>
+                  <div class="ai-msg-meta" x-show="m.role === 'assistant' && m.status === 'done'" x-text="'完成'"></div>
+                </div>
+              </template>
+            </div>
+
+            <div class="ai-composer">
+              <div class="ai-quote-card" x-show="readerQuote">
+                <span class="ai-quote-label">选中文本</span>
+                <span class="ai-quote-text" x-text="readerQuote"></span>
+                <button class="ai-quote-remove" @click="readerQuote = ''" aria-label="移除引用">×</button>
+              </div>
+              <div class="ai-pills">
+                <template x-for="p in readerPrompts" :key="p.id">
+                  <button class="ai-pill" @click="readerRunPrompt(p)" :disabled="readerStreaming" x-text="p.name"></button>
+                </template>
+                <button class="ai-pill ai-pill-more" @click="readerOpenPromptManager()" aria-label="管理 Prompt">⋯</button>
+              </div>
+              <textarea class="ai-input" x-model="readerInput" @keydown.enter="readerEnter($event)" rows="2" placeholder="基于正文提问，Enter 发送，Shift+Enter 换行"></textarea>
+              <div class="ai-composer-foot">
+                <span class="ai-hint" x-text="readerStreaming ? '正在生成…' : '回答仅基于本文'"></span>
+                <span style="flex:1"></span>
+                <button class="btn btn-secondary btn-sm" x-show="readerStreaming" @click="readerStop()">停止</button>
+                <button class="btn btn-primary btn-sm" x-show="!readerStreaming" @click="readerSend()" :disabled="!readerInput.trim()">发送</button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+
+    <div class="reader-selection-bar" x-show="readerSelectionVisible" :style="readerSelectionPos" x-cloak>
+      <button class="btn btn-primary btn-sm" @mousedown.prevent="readerQuoteSelection()">问 AI</button>
+    </div>
+
+    <!-- Prompt manager -->
+    <div class="modal-backdrop" x-show="readerPromptManagerOpen" x-cloak @click.self="readerPromptManagerOpen = false" @keydown.escape.window="readerPromptManagerOpen = false">
+      <div class="modal-content modal-content-wide reader-prompt-modal">
+        <div class="modal-header">
+          <h3>常用提示词</h3>
+          <button class="modal-close" @click="readerPromptManagerOpen = false" aria-label="关闭">×</button>
         </div>
         <div class="modal-body">
-          <div class="article-meta">
-            <span class="meta-chip"><b>来源:</b> <span x-text="articleDetail?.source"></span></span>
-            <span class="meta-chip"><b>抓取时间:</b> <span x-text="formatTime(articleDetail?.created_at)"></span></span>
-            <span class="meta-chip" x-show="articleDetail?.published_at"><b>原文时间:</b> <span x-text="formatTime(articleDetail?.published_at)"></span></span>
-            <span class="meta-chip" x-show="articleDetail?.author"><b>作者:</b> <span x-text="articleDetail?.author"></span></span>
+          <div class="reader-prompt-form">
+            <label>名称<input x-model="readerPromptForm.name" maxlength="40" placeholder="例如：总结要点"></label>
+            <label>提示词<textarea x-model="readerPromptForm.body" maxlength="4000" rows="3" placeholder="写给 AI 的完整提示词"></textarea></label>
+            <div class="reader-prompt-form-actions">
+              <button class="btn btn-secondary btn-sm" @click="readerResetPromptForm()">新建</button>
+              <button class="btn btn-primary btn-sm" @click="readerSavePrompt()" x-text="readerPromptForm.id ? '保存' : '添加'"></button>
+              <button class="link-btn" @click="readerRestorePrompts()">恢复默认</button>
+            </div>
           </div>
-          <div class="article-content" x-text="articleDetail?.content || '(无内容)'"></div>
-          <!-- v1.0.6.8: import full-text for AI analysis (all sources) -->
-          <div class="surface-muted" style="margin: 12px 0; padding: 10px;">
-            <details>
-              <summary style="cursor:pointer; color:var(--muted-fg); font-size:var(--font-14);"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px; vertical-align: -2px;"><path d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M2 15h10"></path><path d="m9 18 3-3-3-3"></path></svg>导入全文（用于 AI 摘要/核查）</summary>
-              <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
-                <input type="text" x-model="importFilePath" placeholder="粘贴本地 .md 文件路径"
-                       style="flex:1; font-size:var(--font-14); padding:6px 8px; border:1px solid var(--border); border-radius:4px;">
-                <button class="btn-secondary" @click="importFulltext()" :disabled="importLoading"
-                        style="white-space:nowrap; padding:6px 12px; font-size:var(--font-14);">
-                  <span x-show="!importLoading">导入</span>
-                  <span x-show="importLoading">导入中...</span>
-                </button>
+          <input class="reader-prompt-search" x-model="readerPromptQuery" placeholder="搜索提示词">
+          <div class="reader-prompt-list">
+            <template x-for="p in filteredReaderPrompts" :key="p.id">
+              <div class="reader-prompt-item">
+                <div class="reader-prompt-item-main">
+                  <strong x-text="p.name"></strong>
+                  <p x-text="p.body"></p>
+                </div>
+                <div class="reader-prompt-item-actions">
+                  <button class="link-btn" @click="readerUsePrompt(p)">使用</button>
+                  <button class="link-btn" @click="readerEditPrompt(p)">编辑</button>
+                  <button class="link-btn danger" @click="readerDeletePrompt(p)" :disabled="p.is_builtin">删除</button>
+                </div>
               </div>
-              <small class="muted" style="display:block; margin-top:4px;">用 Obsidian Web Clipper 抓取原文后，粘贴 .md 文件路径</small>
-            </details>
+            </template>
           </div>
-          <div class="summary-box" x-show="articleDetail?.summary" x-cloak>
-            <h4>摘要</h4>
-            <p x-text="articleDetail?.summary"></p>
-          </div>
-          <div class="summary-box" x-show="articleDetail?.fact_check_conclusion" x-cloak>
-            <h4>事实核查结论</h4>
-            <p x-text="articleDetail?.fact_check_conclusion"></p>
-          </div>
-          <div class="fact-check-evidence" x-show="articleDetail?.has_web_fact_check" x-cloak>
-            <details>
-              <summary>
-                <span class="badge web_search">联网核查</span>
-                <span x-text="articleDetail?.fact_check_conclusion"></span>
-                <small x-text="articleDetail?.fact_checked_at"></small>
-              </summary>
-              <ol class="evidence-list">
-                <template x-for="(e, idx) in articleEvidenceList" :key="idx">
-                  <li class="evidence-item">
-                    <div class="evidence-query" x-text="e.query"></div>
-                    <a class="evidence-url" :class="{'link-blocked': isBlockedUrl(e.url)}" :href="safeHref(e.url)" target="_blank" rel="noopener noreferrer" x-text="e.url"></a>
-                    <div class="evidence-snippet" x-text="e.snippet"></div>
-                    <div class="evidence-meta">
-                      <span x-text="e.domain"></span>
-                      <span x-text="e.fetched_at"></span>
-                      <span x-text="e.model"></span>
-                    </div>
-                  </li>
-                </template>
-              </ol>
-            </details>
-          </div>
-          <div class="article-actions">
-            <button class="btn-primary" @click="generateSummary()" :disabled="summaryLoading">
-              <span x-show="!summaryLoading">生成摘要</span>
-              <span x-show="summaryLoading">生成中...</span>
-            </button>
-            <button class="btn-secondary" @click="generateFactCheck()" :disabled="factCheckLoading" x-show="!articleDetail?.has_fact_check">
-              <span x-show="!factCheckLoading">事实核查</span>
-              <span x-show="factCheckLoading">核查中...</span>
-            </button>
-            <button class="btn-secondary" @click="enqueueLlmJobFactCheckPlus(articleDetail?.id)" :disabled="factCheckLoading" x-show="!articleDetail?.has_web_fact_check">
-              联网核查
-            </button>
-            <button class="btn-secondary" @click="extractCase()" :disabled="caseExtractLoading">
-              <span x-show="!caseExtractLoading">提取案例</span>
-              <span x-show="caseExtractLoading">提取中...</span>
-            </button>
-            <a :class="{'btn-blocked': isBlockedUrl(articleDetail?.url)}" :href="safeHref(articleDetail?.url)" target="_blank" rel="noopener noreferrer" class="btn-secondary">查看原文</a>
-            <button class="btn-secondary" @click="copyArticleUrl()" title="复制原文链接到剪贴板">
-              <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 4px;"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>复制链接
-            </button>
-            <span x-show="copyToast" class="text-success" style="font-size:var(--font-14); margin-left:4px;">已复制<svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-left: 2px; vertical-align: -1px;"><path d="M20 6 9 17l-5-5"></path></svg></span>
-          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bulk delete confirmation -->
+    <div class="modal-backdrop" x-show="articleBulkDeleteOpen" x-cloak @click.self="articleBulkDeleteOpen = false" @keydown.escape.window="articleBulkDeleteOpen = false">
+      <div class="modal-content moni-modal-confirm">
+        <div class="modal-header"><h3>批量删除文章</h3><button class="modal-close" @click="articleBulkDeleteOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-body">
+          <p>将永久删除 <b x-text="articleSelectedIds.length"></b> 篇文章，无法恢复。</p>
+          <p class="muted" x-text="articleBulkDeletePreview"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" @click="articleBulkDeleteOpen = false">取消</button>
+          <button class="btn btn-danger" @click="confirmArticleBulkDelete()">删除</button>
         </div>
       </div>
     </div>
@@ -3239,8 +3378,7 @@
          @keydown.escape.window="closeJobDetail()">
       <div class="modal-content modal-content-wide" x-show="jobDetail">
         <div class="modal-header">
-          <h3 x-text="(jobDetail?.task_type === 'summary' ? '摘要' : '事实核查')
-                       + ' · ' + (jobDetail?.article_title || jobDetail?.article_id || '')"></h3>
+          <h3 x-text="llmJobTypeLabel(jobDetail) + ' · ' + (jobDetail?.article_title || jobDetail?.article_id || '')"></h3>
           <button class="modal-close" @click="closeJobDetail()" aria-label="关闭"><svg class="icon icon-18" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
         </div>
         <div class="modal-body">
@@ -4075,7 +4213,10 @@
   <script src="js/cases.js?v=20260826023"></script>
   <script src="js/stats.js?v=20260827002"></script>
   <script src="js/theme.js?v=20260813019"></script>
-  <script src="js/app.js?v=20261113014"></script>
+  <script src="vendor/marked-16.4.2.umd.js?v=20261116001"></script>
+  <script src="vendor/dompurify-3.4.17.min.js?v=20261116001"></script>
+  <script src="js/app.js?v=20261116001"></script>
+  <script src="js/reader.js?v=20261116001"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
        GSAP presence, and the scale pop now honours prefers-reduced-motion. -->

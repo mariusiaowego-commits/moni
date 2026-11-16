@@ -34,7 +34,7 @@ def v39_db(tmp_path):
 def test_040_sets_profile_by_default(v39_db):
     assert _mode(v39_db) is None
     migrate()
-    assert _CURRENT_VERSION == 41
+    assert _CURRENT_VERSION == 43
     assert _mode(get_db()) == "profile"
 
 

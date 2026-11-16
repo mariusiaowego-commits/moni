@@ -26,6 +26,7 @@ from moni.web.routes.llm_jobs import router as llm_jobs_router
 # the literal path "/pinned" wins over the catch-all "/{article_id}".
 # FastAPI matches in registration order for ambiguous routes.
 from moni.web.routes.pins import router as pins_router
+from moni.web.routes.reader import router as reader_router
 from moni.web.routes.service import router as service_router
 from moni.web.routes.share import router as share_router
 from moni.web.routes.stats import router as stats_router  # v1.0.19: W1 量化看板
@@ -46,6 +47,7 @@ _routers: list[APIRouter] = [
     fetch_router,
     llm_jobs_router,
     llm_router,
+    reader_router,
     service_router,
     share_router,
     stats_router,  # v1.0.19: W1 量化看板 (MOA 4 视角拍板 A+A+A+A+A+(A+补丁))

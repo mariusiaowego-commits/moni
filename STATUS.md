@@ -4,6 +4,18 @@
 
 ---
 
+## 进行中: **v1.0.88 — 文章查阅阅读 / 筛选 / AI 对话** (2026-11-16 · Sprint 47)
+
+分支 `feat/articles-reading-ai`，尚未合并、未打 tag、未重启 8900。
+
+测试：`pytest` 1752 passed / 2 skipped。另有 2 条未跑：`test_039_upgrades_a_db_built_by_old_code` 要在 `.git/worktrees` 建目录，沙箱不允许；`test_showcase_demo_origin_keeps_artifacts_safe_but_blocks_javascript` 因当前 venv 没有 Pillow 在 import 阶段失败，与这次改动无关。
+
+文章查阅改为：正文按 Markdown 渲染；标签芯片 + 信源多选；全部列表可批量硬删除（上限 200）。详情右侧是一次性 `hermes chat --oneshot` 对话，不新建 profile、不累积 hermes session。2 万字以内整篇送入；更长的文章，整篇任务分段读完再合并，选区提问只带相关段落，追问带开头、结尾和相关段。每次提问写入 `llm_jobs.task_type=reader_chat`。关闭详情后任务继续，完成后列表出现「AI 有新结果」。
+
+Schema 043（042 留给尚未进 main 的 xbot 作者屏蔽）。`migrate()` 会补跑已记录版本之后缺席的迁移，避免 043 先落地时把 042 跳过。
+
+---
+
 ## 补丁: **v1.0.87 — 生图方式说明 + 提炼卡文案** (2026-11-13 · Sprint 46 · PR #204 · tag `v1.0.87`)
 
 **合并**: squash（base = `main@9f4e586` / v1.0.86）· **测试**: 前端红线 92 passed

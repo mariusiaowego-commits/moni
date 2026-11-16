@@ -98,7 +98,7 @@ HTML_SINKS = ("x-html",)
 #: ⚠️ 必须是**整表达式全匹配**, 不是"包含" —— 审计第三轮实测
 #: ``:src="getSourceIcon(s.name) + row.evil_url"`` 在子串语义下会
 #: 整条豁免, 而 Alpine 求值后就是一个可加载的 javascript: URL。
-ALLOWED_UNGUARDED_SINK_CALLS = ("getSourceIcon", "pinIcon", "methodPieSvg")
+ALLOWED_UNGUARDED_SINK_CALLS = ("getSourceIcon", "pinIcon", "methodPieSvg", "readerArticleHtml", "readerRenderMarkdown")
 
 #: 属性绑定扫描器 —— 同时吃双引号 / 单引号 / 跨行值。
 #:

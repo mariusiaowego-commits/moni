@@ -135,7 +135,7 @@ function keywordChipEditor() {
 }
 
 function app() {
-  return {
+  const api = {
     // ── Theme engine (from theme.js) ──
     ...themeMixin(),
 
@@ -3181,9 +3181,19 @@ function app() {
       })
         .then(r => r.json().then(d => r.ok ? d : Promise.reject(d)))
         .then(data => {
-          this.articleDetail = { ...this.articleDetail, content: data.content_preview };
+          const articleId = this.articleDetail.id;
           this._notify('success', `全文导入成功，${data.char_count} 字`);
           this.importFilePath = '';
+          // content_preview is only 500 chars. Refetch so the reader
+          // renders the imported article, not the preview stub.
+          return fetch(`/api/articles/${articleId}`, { credentials: 'same-origin' })
+            .then(r => r.json())
+            .then(article => {
+              this.articleDetail = article;
+              if (typeof this.readerRenderArticle === 'function') {
+                this.readerRendered = this.readerRenderArticle(article.content || '');
+              }
+            });
         })
         .catch(err => { this._notify('error', '导入失败: ' + (err.message || err.detail || '未知错误')); })
         .finally(() => { this.importLoading = false; });
@@ -5184,4 +5194,13 @@ function app() {
         .catch(err => this._notify('error', '保存设置失败: ' + err.message));
     },
   };
+  if (window.moniReader) {
+    // Object.assign evaluates getters once. Copy descriptors so
+    // articleFilterCount / filteredArticleSources stay live.
+    const descriptors = Object.getOwnPropertyDescriptors(window.moniReader);
+    for (const key of Object.keys(descriptors)) {
+      Object.defineProperty(api, key, descriptors[key]);
+    }
+  }
+  return api;
 }

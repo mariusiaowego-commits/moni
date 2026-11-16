@@ -258,7 +258,14 @@ def _process_one_pending() -> bool:
         )
 
     # 2. v1.0.42: atomic lease acquire. No more SELECT-then-UPDATE race.
-    handle = leases.acquire("llm_jobs", grace_sec=90)
+    # Sprint 47: reader_chat runs have their own worker and must never be
+    # claimed here — a 2-minute streaming reply would block the summary /
+    # fact-check queue behind it.
+    handle = leases.acquire(
+        "llm_jobs",
+        grace_sec=90,
+        exclude_task_types=("reader_chat",),
+    )
     if handle is None:
         return False
 
