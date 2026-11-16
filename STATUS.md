@@ -52,17 +52,19 @@ PR #207 把文章查阅、筛选与文内 AI 合进 `main` 后，生产验收又
 
 ---
 
-## 分支待清理（记录于 2026-11-16，下次收尾再删）
+## 分支待清理（2026-11-16 核对：远端仅剩 `main` 与下表第一条）
 
-| 分支 | 状态 | 依据 |
-|---|---|---|
-| `feature/v1.0.88-bank-feed-resilience` | 已合并，可删 | PR #208 squash `1cd6b92`，tag `v1.0.89` |
-| `docs/v1.0.89-relabel` | 已合并，可删 | PR #209 squash `fcd3d18` |
-| `feat/xbot-author-block-v1.0.75` | 已合并，可删（含 worktree `~/dev/moni-worktrees/xbot-author-block-v1.0.75`） | PR #206 squash `fa651fb`，tag `v1.0.88` |
-| `feat/bank-peer-source-plan` | PR 已关闭，可删 | PR #185 CLOSED，内容已被 v1.0.89 覆盖 |
-| `feat/articles-reading-ai` | 已合并，可删 | PR #207 squash `c0ba194`（v1.0.91 功能本体） |
-| `feat/contest-finals-2611` / `feat/showcase-demo-2611` | **勿删，未合并** | 无 PR |
+| 分支 | 位置 | 状态 | 依据 |
+|---|---|---|---|
+| `feat/bank-peer-source-plan` | 本地 + 远端 | PR 已关闭，可删 | PR #185 CLOSED，内容已被 v1.0.89 覆盖 |
+| `feat/articles-chat-highlights` | 仅本地 | 已合并，可删 | PR #214 squash `cc80b4b`，tag `v1.0.92` |
+| `feat/articles-title-ellipsis-structure-answer` | 仅本地（worktree `.codex/worktrees/4ffa/moni`） | 已合并，可删；先挪走 worktree | PR #216 squash `e104fbb`，tag `v1.0.93` |
+| `feat/contest-finals-2611` | 本地（worktree `.codex/worktrees/2f0d/moni`） | **勿删，未合并** | 无 PR |
+| `feat/showcase-demo-2611` | 仅本地 | **勿删，未合并** | 无 PR |
+| `feat/xbot-git-retry-v1.0.94` | 本地（worktree `dev/moni-worktrees/xbot-git-retry-v1.0.93`） | **勿动，别人的活** | 另一 agent 在跑 |
 
+上表已删掉四条早已不存在的分支：`feature/v1.0.88-bank-feed-resilience`、`docs/v1.0.89-relabel`、
+`feat/xbot-author-block-v1.0.75`、`feat/articles-reading-ai`。
 删分支前按惯例先 `gh pr view <n>` 确认 MERGED / CLOSED，再逐条报给 dad；不批量 `git branch -D`。
 
 ---

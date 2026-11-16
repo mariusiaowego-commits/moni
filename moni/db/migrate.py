@@ -18,7 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 43  # 042 source_author_blocks + 043 reader AI
+_CURRENT_VERSION = 44  # 043 reader AI + 044 orphan rows cleanup
 
 # Migrations <= this version were applied by the old "max(schema_version)"
 # rule, which did not record every intermediate row.  Never re-run them.
