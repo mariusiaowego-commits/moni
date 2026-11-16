@@ -691,7 +691,7 @@ def test_main_drops_old_media_items(tmp_path, bot, monkeypatch):
         "--output-dir", str(out), "--targets", str(tfile), "--date", "2026-11-16",
     ]) == 0
     payload = json.loads((out / "latest.json").read_text(encoding="utf-8"))
-    assert len(payload["items"]) == 1
+    assert [i["url"] for i in payload["items"]] == ["https://news.example.com/a.html"]
 
 
 def test_collect_official_static_all_old_returns_empty(bot, monkeypatch):
