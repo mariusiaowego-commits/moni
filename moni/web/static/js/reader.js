@@ -183,6 +183,61 @@
     return renderMarkdown(value);
   }
 
+  /**
+   * Sprint 51: hermes 的 bullet 回答常挤成一整行（"1. … 2. …"），
+   * marked 把它渲染成一段文字。这里在序号前插换行让 marked 生成真实 <ol>。
+   * 只在「序号前是句末/引号/空白」时切，避免拆断引文或百分比数字。
+   */
+  function structureListMarkdown(text) {
+    const value = String(text || '');
+    if (value.includes('\n')) return value;
+    const re = /(\d{1,2})\.\s+/g;
+    const cuts = [];
+    let m;
+    while ((m = re.exec(value))) {
+      const i = m.index;
+      if (i > 0) {
+        const prev = value[i - 1];
+        if (/[\u3002\uff01\uff1f\uff1b\uff1a\u201c\u201d\u2018\u2019\u300d\u300f\uff09)\s\n]/.test(prev)) {
+          cuts.push(i);
+        }
+      }
+      if (cuts.length >= 19) break;
+    }
+    if (cuts.length < 2) return value;
+    let out = '';
+    let prev = 0;
+    for (const cut of cuts) {
+      out += value.slice(prev, cut) + '\n';
+      prev = cut;
+    }
+    return out + value.slice(prev);
+  }
+
+  /**
+   * 把渲染出的顶层 <ol>/<ul> 标成 .ai-structured-list，并去掉 li 里
+   * 自带的 "1. " 字面序号，避免与 CSS 徽标重复。
+   */
+  function structureRenderedLists(html) {
+    const holder = document.createElement('div');
+    holder.innerHTML = html;
+    holder.querySelectorAll('ol, ul').forEach((list) => {
+      const lis = list.querySelectorAll(':scope > li');
+      if (lis.length < 2) return;
+      if (list.closest('li')) return;
+      list.classList.add('ai-structured-list');
+      if (list.tagName === 'OL') {
+        lis.forEach((li) => {
+          const first = li.firstChild;
+          if (first && first.nodeType === Node.TEXT_NODE) {
+            first.nodeValue = first.nodeValue.replace(/^\s*\d{1,2}\.\s*/, '');
+          }
+        });
+      }
+    });
+    return holder.innerHTML;
+  }
+
   /** Drop the previous citation mark so only one passage stays lit. */
   function clearReaderFlash() {
     document.querySelectorAll('.reader-body .reader-flash').forEach((el) => {
@@ -880,7 +935,9 @@
     },
 
     readerRenderMarkdown(text) {
-      return addCitations(renderMarkdown(text));
+      let html = renderMarkdown(structureListMarkdown(text));
+      html = structureRenderedLists(html);
+      return addCitations(html);
     },
 
     readerRenderArticle(text) {
