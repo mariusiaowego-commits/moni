@@ -163,7 +163,8 @@
   function renderArticle(text) {
     let value = String(text || '');
     value = value.replace(FRONTMATTER_RE, '');
-    value = value.replace(BANK_RE, '\n\n<span class="bank-marker">bank:$1</span>\n\n');
+    // The bank metadata line lives in the sticky bar, not in the body.
+    value = value.replace(BANK_RE, '');
     value = value.replace(MD_IMAGE_RE, '').replace(HTML_IMAGE_RE, '');
     if (!md()) {
       const escaped = value
@@ -171,6 +172,20 @@
       return escaped.split(/\n{2,}/).map((p) => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
     }
     return renderMarkdown(value);
+  }
+
+  /** Parse a `[bank:icbc type:media target:yicai-finance]` marker. */
+  function parseBankMeta(text) {
+    BANK_RE.lastIndex = 0;
+    const match = BANK_RE.exec(String(text || ''));
+    if (!match) return [];
+    const parts = [];
+    for (const token of match[1].split(/\s+/).filter(Boolean)) {
+      const idx = token.indexOf(':');
+      if (idx > 0) parts.push({ k: token.slice(0, idx), v: token.slice(idx + 1) });
+      else parts.push({ k: 'bank', v: token });
+    }
+    return parts;
   }
 
   window.moniReader = {
@@ -435,6 +450,9 @@
     readerStreamJobId: null,
     readerStreamMsgId: null,
     readerStreamSource: null,
+    readerBankParts: [],
+    readerRawOpen: false,
+    readerImportOpen: false,
     readerRendered: '',
     readerProgress: 0,
     readerSelectionVisible: false,
@@ -459,6 +477,7 @@
         .then((data) => {
           this.articleDetail = data;
           this.readerRendered = renderArticle(data.content || '');
+          this.readerBankParts = parseBankMeta(data.content || '');
           this.readerLoadPrompts();
           this.readerLoadConversation();
         })
@@ -468,6 +487,9 @@
     closeArticleDetail() {
       this.readerCloseStream();
       this.articleDetail = null;
+      this.readerBankParts = [];
+      this.readerRawOpen = false;
+      this.readerImportOpen = false;
       this.readerSelectionVisible = false;
       this.summaryLoading = false;
       this.factCheckLoading = false;

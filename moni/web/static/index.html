@@ -3186,17 +3186,66 @@
         </div>
 
         <div class="reader-split" :class="'mobile-' + readerMobileTab">
-          <main class="reader-pane" @scroll="readerUpdateProgress($event)" @mouseup="readerHandleSelection($event)">
-            <div class="reader-progress"><span :style="'width:' + readerProgress + '%'"></span></div>
-            <article class="reader-body" x-ref="readerBody" x-html="readerArticleHtml()"></article>
-            <details class="reader-raw">
-              <summary>查看原始文本</summary>
-              <pre x-text="articleDetail?.content || '(无内容)'"></pre>
-            </details>
+          <main class="reader-pane reader-pane-split">
+            <div class="reader-scroll" @scroll="readerUpdateProgress($event)" @mouseup="readerHandleSelection($event)">
+              <div class="reader-progress"><span :style="'width:' + readerProgress + '%'"></span></div>
+              <article class="reader-body" x-ref="readerBody" x-html="readerArticleHtml()"></article>
 
-            <div class="surface-muted reader-import">
-              <details>
-                <summary>导入全文（用于 AI 摘要/核查）</summary>
+              <div class="summary-box" x-show="articleDetail?.summary" x-cloak>
+                <h4>摘要</h4>
+                <p x-text="articleDetail?.summary"></p>
+              </div>
+              <div class="summary-box" x-show="articleDetail?.fact_check_conclusion" x-cloak>
+                <h4>事实核查结论</h4>
+                <p x-text="articleDetail?.fact_check_conclusion"></p>
+              </div>
+              <div class="fact-check-evidence" x-show="articleDetail?.has_web_fact_check" x-cloak>
+                <details>
+                  <summary>
+                    <span class="badge web_search">联网核查</span>
+                    <span x-text="articleDetail?.fact_check_conclusion"></span>
+                    <small x-text="articleDetail?.fact_checked_at"></small>
+                  </summary>
+                  <ol class="evidence-list">
+                    <template x-for="(e, idx) in articleEvidenceList" :key="idx">
+                      <li class="evidence-item">
+                        <div class="evidence-query" x-text="e.query"></div>
+                        <a class="evidence-url" :class="{'link-blocked': isBlockedUrl(e.url)}" :href="safeHref(e.url)" target="_blank" rel="noopener noreferrer" x-text="e.url"></a>
+                        <div class="evidence-snippet" x-text="e.snippet"></div>
+                        <div class="evidence-meta"><span x-text="e.domain"></span><span x-text="e.fetched_at"></span><span x-text="e.model"></span></div>
+                      </li>
+                    </template>
+                  </ol>
+                </details>
+              </div>
+            </div>
+
+            <div class="reader-sticky-bar">
+              <div class="reader-dock-actions">
+                <button class="btn btn-primary btn-sm" @click="generateSummary()" :disabled="summaryLoading">
+                  <span x-show="!summaryLoading">生成摘要</span><span x-show="summaryLoading">生成中...</span>
+                </button>
+                <button class="btn btn-secondary btn-sm" @click="generateFactCheck()" :disabled="factCheckLoading" x-show="!articleDetail?.has_fact_check">
+                  <span x-show="!factCheckLoading">事实核查</span><span x-show="factCheckLoading">核查中...</span>
+                </button>
+                <button class="btn btn-secondary btn-sm" @click="enqueueLlmJobFactCheckPlus(articleDetail?.id)" :disabled="factCheckLoading" x-show="!articleDetail?.has_web_fact_check">联网核查</button>
+                <button class="btn btn-secondary btn-sm" @click="extractCase()" :disabled="caseExtractLoading">
+                  <span x-show="!caseExtractLoading">提取案例</span><span x-show="caseExtractLoading">提取中...</span>
+                </button>
+                <button class="btn btn-secondary btn-sm" @click="copyArticleUrl()" title="复制原文链接">复制链接</button>
+                <span x-show="copyToast" class="text-success reader-copied">已复制</span>
+              </div>
+              <div class="reader-dock-meta">
+                <p class="reader-bank" x-show="readerBankParts.length">
+                  <template x-for="(b, i) in readerBankParts" :key="i">
+                    <span><em x-text="b.k"></em> <b x-text="b.v"></b></span>
+                  </template>
+                </p>
+                <button class="btn btn-ghost btn-sm" @click="readerRawOpen = !readerRawOpen" :title="readerRawOpen ? '收起原始文本' : '查看原始文本'">查看原始文本</button>
+                <button class="btn btn-ghost btn-sm" @click="readerImportOpen = !readerImportOpen" :title="readerImportOpen ? '收起导入' : '导入全文'">导入全文</button>
+              </div>
+              <pre class="reader-raw" x-show="readerRawOpen" x-text="articleDetail?.content || '(无内容)'"></pre>
+              <div class="reader-import" x-show="readerImportOpen">
                 <div class="reader-import-row">
                   <input type="text" x-model="importFilePath" placeholder="粘贴本地 .md 文件路径">
                   <button class="btn btn-secondary btn-sm" @click="importFulltext()" :disabled="importLoading">
@@ -3205,50 +3254,7 @@
                   </button>
                 </div>
                 <small class="muted">用 Obsidian Web Clipper 抓取原文后，粘贴 .md 文件路径</small>
-              </details>
-            </div>
-
-            <div class="summary-box" x-show="articleDetail?.summary" x-cloak>
-              <h4>摘要</h4>
-              <p x-text="articleDetail?.summary"></p>
-            </div>
-            <div class="summary-box" x-show="articleDetail?.fact_check_conclusion" x-cloak>
-              <h4>事实核查结论</h4>
-              <p x-text="articleDetail?.fact_check_conclusion"></p>
-            </div>
-            <div class="fact-check-evidence" x-show="articleDetail?.has_web_fact_check" x-cloak>
-              <details>
-                <summary>
-                  <span class="badge web_search">联网核查</span>
-                  <span x-text="articleDetail?.fact_check_conclusion"></span>
-                  <small x-text="articleDetail?.fact_checked_at"></small>
-                </summary>
-                <ol class="evidence-list">
-                  <template x-for="(e, idx) in articleEvidenceList" :key="idx">
-                    <li class="evidence-item">
-                      <div class="evidence-query" x-text="e.query"></div>
-                      <a class="evidence-url" :class="{'link-blocked': isBlockedUrl(e.url)}" :href="safeHref(e.url)" target="_blank" rel="noopener noreferrer" x-text="e.url"></a>
-                      <div class="evidence-snippet" x-text="e.snippet"></div>
-                      <div class="evidence-meta"><span x-text="e.domain"></span><span x-text="e.fetched_at"></span><span x-text="e.model"></span></div>
-                    </li>
-                  </template>
-                </ol>
-              </details>
-            </div>
-
-            <div class="reader-actions">
-              <button class="btn btn-primary" @click="generateSummary()" :disabled="summaryLoading">
-                <span x-show="!summaryLoading">生成摘要</span><span x-show="summaryLoading">生成中...</span>
-              </button>
-              <button class="btn btn-secondary" @click="generateFactCheck()" :disabled="factCheckLoading" x-show="!articleDetail?.has_fact_check">
-                <span x-show="!factCheckLoading">事实核查</span><span x-show="factCheckLoading">核查中...</span>
-              </button>
-              <button class="btn btn-secondary" @click="enqueueLlmJobFactCheckPlus(articleDetail?.id)" :disabled="factCheckLoading" x-show="!articleDetail?.has_web_fact_check">联网核查</button>
-              <button class="btn btn-secondary" @click="extractCase()" :disabled="caseExtractLoading">
-                <span x-show="!caseExtractLoading">提取案例</span><span x-show="caseExtractLoading">提取中...</span>
-              </button>
-              <button class="btn btn-secondary" @click="copyArticleUrl()" title="复制原文链接">复制链接</button>
-              <span x-show="copyToast" class="text-success reader-copied">已复制</span>
+              </div>
             </div>
           </main>
 

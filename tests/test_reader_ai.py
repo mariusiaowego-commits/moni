@@ -355,6 +355,10 @@ def test_frontend_reader_contract():
     app = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
     assert 'src="js/reader.js' in html
     assert 'class="reader-body"' in html
+    assert 'class="reader-scroll"' in html
+    assert 'class="reader-sticky-bar"' in html
+    assert 'class="reader-dock-actions"' in html
+    assert "readerBankParts" in js and "parseBankMeta" in js
     assert 'x-html="readerArticleHtml()"' in html
     assert 'x-model="articlesSource"' not in html
     assert 'x-model="articlesTag"' not in html
