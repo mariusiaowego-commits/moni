@@ -66,6 +66,9 @@ def run(
 
     fetcher_cls = _FETCHER_REGISTRY[source_name]
     fetcher = fetcher_cls()
+    # ``force`` 也要传给 fetcher: bank_feed 用它绕开「今天 feed 已完整」
+    # 的判断 (CLI 的 --force 只绕过调度器是不够的)。
+    fetcher.force = bool(force)
     fetcher.date_from = date_from
     fetcher.date_to = date_to
     result = fetcher.run(dry_run=dry_run)

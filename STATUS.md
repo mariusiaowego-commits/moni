@@ -4,19 +4,118 @@
 
 ---
 
-## 进行中: **v1.0.88 — 文章查阅阅读 / 筛选 / AI 对话** (2026-11-16 · Sprint 47)
+## 分支待清理（记录于 2026-11-16，下次收尾再删）
 
-分支 `feat/articles-reading-ai`，尚未合并、未打 tag、未重启 8900。
+| 分支 | 状态 | 依据 |
+|---|---|---|
+| `feature/v1.0.88-bank-feed-resilience` | 已合并，可删 | PR #208 squash `1cd6b92`，tag `v1.0.89` |
+| `docs/v1.0.89-relabel` | 已合并，可删 | PR #209 squash `fcd3d18` |
+| `feat/xbot-author-block-v1.0.75` | 已合并，可删（含 worktree `~/dev/moni-worktrees/xbot-author-block-v1.0.75`） | PR #206 squash `fa651fb`，tag `v1.0.88` |
+| `feat/bank-peer-source-plan` | PR 已关闭，可删 | PR #185 CLOSED，内容已被 v1.0.89 覆盖 |
+| `feat/articles-reading-ai` | **勿删，在开发** | PR #207 OPEN；已合入 main 至 v1.0.90，版本号仍待分配 |
+| `feat/contest-finals-2611` / `feat/showcase-demo-2611` | **勿删，未合并** | 无 PR |
 
-测试：`pytest` 1753 passed / 2 skipped / 2 failed。2 条失败均与本次改动无关：`test_039_upgrades_a_db_built_by_old_code` 要在 `.git/worktrees` 建目录，沙箱不允许；`test_showcase_demo_origin_keeps_artifacts_safe_but_blocks_javascript` 因当前 venv 没有 Pillow 在 import 阶段失败。
+删分支前按惯例先 `gh pr view <n>` 确认 MERGED / CLOSED，再逐条报给 dad；不批量 `git branch -D`。
 
-文章查阅改为：正文按 Markdown 渲染；标签芯片 + 信源多选；全部列表可批量硬删除（上限 200）。详情右侧是一次性 `hermes chat --oneshot` 对话，不新建 profile、不累积 hermes session。2 万字以内整篇送入；更长的文章，整篇任务分段读完再合并，选区提问只带相关段落，追问带开头、结尾和相关段。每次提问写入 `llm_jobs.task_type=reader_chat`。关闭详情后任务继续，完成后列表出现「AI 有新结果」。
+---
 
-`moni` profile 走 hermes gateway，`--run-budget` 会被拒（rc=2，`Unsupported gateway CLI options`），超时改由本地看门狗杀进程组；`--format stream-json` 仍是逐块 `text` 事件，SSE 按增量下发。正文渲染剔除 Markdown/HTML 图片（只留文字），避免转载抓取图片。
+## 进行中: **文章查阅阅读 / 筛选 / AI 对话** (2026-11-16 · Sprint 47 · PR #207)
 
-AI 面板交互按 AICSS 免费组件移植（手写 Alpine + CSS，未粘源码）：`thinking-state` 微光 + `orbs` 9 点 lattice（S1 相位）做等待态；`streaming-text` 3 字/12ms 逐字上屏、光标常亮；`thinking-reasoning` 折成「思考 N.Ns」，展开是强度/模式/首字/输出（hermes stream-json 只有 system/text/tool_use/tool_result/result，没有 reasoning 事件，所以没有推理正文可展）；`inline-citations` 把回答里的「」引文对到正文段落，生成上标 chip + 段落页脚；`data-table` / `comparison-table` 统一 12px 圆角表格壳，✓/✗ 上色。
+分支 `feat/articles-reading-ai`。开发起点是 v1.0.87（`d7e6680`），未包含当时还在别的分支上的提交。2026-11-16 已把 `origin/main` 后到的 5 个提交合进来：#206 v1.0.88、#208/#209 v1.0.89、#210/#211 v1.0.90。v1.0.88/89/90 已被占用，本功能尚未打 tag、未重启 8900。
 
-Schema 043（042 留给尚未进 main 的 xbot 作者屏蔽）。`migrate()` 会补跑已记录版本之后缺席的迁移，避免 043 先落地时把 042 跳过。
+文章查阅：正文按 Markdown 渲染，剔除图片；标签芯片 + 信源多选；全部列表可批量硬删除（上限 200）。详情右侧是一次性 `hermes chat --oneshot` 对话，不新建 profile、不累积 hermes session。2 万字以内整篇送入；更长的文章分段读完再合并。每次提问写入 `llm_jobs.task_type=reader_chat`。关闭详情后任务继续，完成后列表出现「AI 有新结果」。
+
+`moni` profile 走 hermes gateway，`--run-budget` 会被拒，超时由本地看门狗杀进程组。AI 面板按 AICSS 手写：orb 等待态、3 字/12ms 逐字上屏、思考折叠、引文 chip、12px 圆角表格。详情弹窗左右卡片对齐，动作按钮在左栏底部吸条。xbot「屏蔽作者」按钮留在作者芯片上。
+
+Schema：042（作者屏蔽，已在 main）+ 043（reader AI）。`_CURRENT_VERSION = 43`。`migrate()` 会补跑 41 之后缺席的迁移，避免并行版本互相跳过。
+
+## 已发布: **v1.0.90 — 60 天时效窗口覆盖 agent / 媒体条目** (2026-11-16 · PR #210 · tag `v1.0.90`)
+
+**触发**: v1.0.89 上线后在生产 dry-run，当天 feed 40 条里有工行 agent 交回的
+2026-01-27 旧闻 —— 60 天窗口此前只作用在 `static: true` 的官网列表。
+
+**改动**
+
+- `item_is_recent()` + 合并后统一过滤：按每个目标的 `max_age_days`
+  （默认 60，0 = 关闭）约束 **agent 与媒体**条目；没有日期的条目不参与判断
+  （无从比较，保留）；被丢弃条数打到 stderr。
+- 静态解析阶段仍先过滤（省详情页请求），合并后二次过滤保证三类条目同一口径。
+- 测试：`item_is_recent` 边界（窗口内/外、0 关闭、无日期）、agent 旧稿被丢、
+  媒体旧稿被丢。
+- 文档：`USER_GUIDE` §11.1、`config/bank_targets.json` 注释改为
+  「对全部条目生效」。窗口内一条都没有时 bot 以 2 退出、不写 feed。
+- 媒体旧稿测试核对剩下的是新稿 URL，不只断言条数。
+- 独立审计 **APPROVE WITH NITS**（无 P1）；断言强度与文档口径已在本 PR 修掉。
+
+**发布**: squash `c9d55b8` · tag `v1.0.90` · schema 仍 42 · 8900 已重启（root 200）。
+bot 实跑 `/private/tmp/bank-feed-v1090`：**29 条 / 0 error**，丢掉 11 条窗口外旧稿；
+最旧 2026-09-24，早于 cutoff（2026-09-17）的 0 条。工行 agent 12 条里留下 5 条。
+
+---
+
+## 已发布: **v1.0.89 — bank_feed 可靠性（重试 / 部分成功 / 官网确定性解析）** (2026-11-16 · Sprint 48 · PR #208 · tag `v1.0.89`)
+
+**合并**: squash `1cd6b92`（叠在 `fa651fb` / v1.0.88 #206 之上）· **测试**: 合并后全量 1853 passed / 2 skipped
+（沙箱内 039 worktree 1 例失败，沙箱外 passed）· **部署**: 8900 已重启，schema 42
+
+**触发**: 11-16 生产点「抓取 bank_feed」显示「失败 · 已抓 0 篇 · 0/0」，
+底部 `feed 不完整: 1 个目标失败 (psbc-news)`；库里其实已入库 19 篇。
+
+**根因**: `psbc-news` 的 agent 调用报 `session_replay_gap`（hermes 网关事件流
+瞬断，11-13 同一错误落在 `boc-news`）；目标级失败被当成整轮 failed；
+`articles_so_far` 没有上报；30 分钟冷却让「再点一次」直接读旧 feed。
+
+**改动**
+
+- **P1 重试**：`call_agent_with_retry()` 只对瞬时错误（`session_replay_gap` /
+  `timed out` / 连接断）重试 1 次，非瞬时错误立即抛；每目标独立调用，
+  重试天然只覆盖失败目标。
+- **P2 部分成功**：`mark_partial()` + `fetch_jobs.status='partial'`；
+  `bank_feed.run()` 有数据时把目标缺口写 `warning`（0 数据仍 `error`，fail-closed）；
+  `bank_feed` 上报 `progress_callback`（total/done/articles）；批次聚合区分
+  `partial_sources`；CLI 打 `WARN` / `PARTIAL`；手动点击（`base.force`）绕开
+  `retry_after_min` 冷却。前端单任务终态接受 `partial`，弹窗显示
+  「部分完成 · N 篇 · 缺口」，警告条用 `banner-warning`。
+- **P3 确定性解析**：`parse_static_list()` / `collect_official_static()` 解析
+  boc / abchina / ccb / psbc 四个官网（列表锚点 + URL 日期 + 详情页正文），
+  ccb 老站点定向放行 legacy TLS；静态失败自动回退 agent 并在 feed `fallbacks`
+  留痕；工行保持 agent（JS 渲染）。
+- **审计修复（独立 audit BLOCK → 第 2 轮）**：
+  - P1：静态解析失败回退 agent、agent 又交回 0 条时，把该目标写进 `errors`
+    （此前只写 `fallbacks`，`_feed_is_fresh()` 看不到缺口，手动点击也不补跑）。
+  - 详情页取不到正文（WAF / 改版 / 编码）→ `TargetError` 回退 agent；
+    详情页解码改走 `_decode_html`（UTF-8 / GB18030）。
+  - 官网列表加时效窗口 `max_age_days`（默认 60 天，0 = 关闭），剔除
+    2022/2025 旧稿；窗口内无新闻 = 合法 0 条，不算解析失败。
+  - `_report_progress` 不再吞 `TimeoutError`；`base.run()` 让它穿透到 web 端
+    timeout 收尾。
+  - `get_batch()` 的 partial 只进 `results`（带 `warning`），不再重复塞
+    `errors`；批量面板新增 `.fa-row-warn` + `.fa-warn`。
+  - 批量写 `cron_runs.success=0`（有 partial 也算没抓全）。
+  - `moni.fetch.run()` 把 CLI 的 `force` 落到 `fetcher.force`。
+- 第 2 轮独立审计 **APPROVE WITH NITS**；nits（P1 三条分支、`max_age_days=0`、
+  批量 partial 的 `cron_runs.success` 都没有测试）已于同一 PR 补齐用例。
+
+**实测**
+
+- bot `--no-agent` 全量：**26 条 / 0 error / 17–24s**（此前 agent 段约 12 分钟）；
+  boc 12 / abc 1 / ccb 7 / psbc 3 / 一财 3；正文最短 529 字；最旧条目
+  2026-09-24（全部落在 60 天窗口内）。相比加窗口前的 49 条，剔除的是
+  ccb 2 条 2022-09-07、abc 11 条 2025 年旧稿。
+- 工行 agent 单跑：**6 条 / 136s**；首次调用 `session_replay_gap`，
+  重试 1 次后成功（P1 重试在真实链路上命中）。
+- 隔离环境 8902 端到端：故意塞一个坏目标 → job **`partial`**，
+  `articles_so_far=12`、`inserted=12`、warning 列出 `dead-rss`。
+- 浏览器（Playwright）实测弹窗：状态「部分完成」、顶部/底部均「12 篇」、
+  警告条 class `fr-error banner-warning`、完成摘要
+  `12 篇 · 用时 9s · feed 不完整: 1 个目标失败 (dead-rss)`。
+- 批量面板 DOM（隔离 8902 + 注入 partial 结果）：2 行、source 唯一，
+  `bank_feed` 行 class `fa-row-details fa-row-warn`，`.fa-warn` 文本
+  `feed 不完整: 1 个目标失败 (psbc-news)`，computed color
+  `oklch(0.72 0.14 75)`。
+- 全量测试 **1773 passed / 2 skipped**；沙箱内
+  `test_migration_039_xbot_feed` 因 `git worktree` 无写 `.git` 权限失败，
+  沙箱外单跑 **1 passed**。
 
 ---
 
@@ -142,6 +241,43 @@ pytest 1630 passed / 2 skipped。移动端按 dad 决定不做。
 
 第一版把 5 个官网塞进一次 `hermes -z`，实测 600s 没跑完 → 5 个官网**全丢**，
 只剩媒体 RSS 的 4 条。改成一页一次调用后同样的输入拿到 58 条官网条目（+3 条媒体，共 61）。
+
+## 进行中: **X-bot 精选「屏蔽作者」** (2026-11-12 · 分支 `feat/xbot-author-block-v1.0.75` · PR #206)
+
+在 X-bot 精选（`xbot_feed`）的文章详情弹窗里，按 `@handle` 一键屏蔽作者。
+被屏蔽的作者以后不再入库；旧文章**物理删除**（不可恢复，屏蔽前确认框显示
+「将删除 N 篇已有文章, 不可恢复」）。名单管理放在 X-bot 抓取配置区，与
+`fetch_config` 完全解耦（独立表 `source_author_blocks` + migration 042）。
+
+**dad 的四条决定**（15:04 GO IMPL + 16:02 认可 warden 4 项口径）：
+存储用独立表 / 旧文物理删除 / 只对 `xbot_feed` 生效且 `author_blocked`
+单独计数 / 名单管理放配置区。
+
+**同步上游 main（2026-11-16）**：合入 upstream 21 个 commit（至 `d7e6680`），
+迁移号 041 → **042**（上游已占 041 = bank_feed），`_CURRENT_VERSION` 41 → **42**，
+发布版本 v1.0.75 → **v1.0.88**（实时 tags 最新 v1.0.87；v1.0.75 从未发布过）。
+上游 v1.0.77 已用主题 token `var(--fg-strong)` 修好同一个深色对比度问题 →
+本 sprint 丢弃自带的 `.dark` 覆盖，采用上游体系，P2 断言改写为「断言解算后对比度」。
+
+**UI 复审**（agy，w52:p8）：r1 判 FAIL（1 个 P0 首页首点屏蔽报错 + 1 个 P1
+焦点丢失 + 1 个 P2 深色对比度）→ 三项全修 → r2 判 PASS → **r3 判 PASS**
+（合入上游后定向复审，P0/P1/P2 各 0，4 项回归无回退；深色 15.75:1 / 浅色 16.54:1 实测）。
+详见 `docs/plans/2026-11-12_xbot-author-block.md`。
+
+**warden 审计**：round 1 判 FAIL（P0=0 / P1=1 / P2=3）—— P1 是 node harness
+硬编码本地绝对路径导致 **CI 红灯**（本机绿、CI 必挂的假绿）；3 项 P2 是
+确认框文案断言强度不足 / 函数名与断言值矛盾 / handle 归一化两处各写一份。
+**4 项全部已修**（commit `a69f3e1`），CI run `43799900478` 最终 **success**。
+round 2 复审判 **PASS**（P0=0 / P1=0），仅余 1 项 P2 残留：确认框文案断言
+的区域含 `//` 注释，注释里的「不可恢复」会满足断言 → 已改为只认
+`const msg = ...;` 这一句的**模板字符串**（5 个变异全部咬住，含此前测不出的
+「去掉不可恢复措辞」与「handle 写死」）。
+
+**验证**：sprint-38 专项 79 passed；全量 **1823 passed / 2 skipped / 0 failed**
+（本地与 CI 条数一致）。**已合并** squash `fa651fb`（PR #206）→ tag **`v1.0.88`**
+→ 部署 8900，`_CURRENT_VERSION` 41 → 42（migration 042 已应用到生产库）。
+
+---
 
 ## 进行中: **分享产物 worker 修复** (2026-11-12 · 分支 `feature/v1.0.73-share-maintenance`)
 

@@ -564,7 +564,7 @@ def _write_partial_feed(data_dir: Path, items, errors,
     (feed_dir / "latest.json").write_text(body, encoding="utf-8")
 
 
-def test_partial_feed_imports_items_and_reports_error(fresh_db):
+def test_partial_feed_imports_items_and_reports_warning(fresh_db):
     """媒体成功、官网全挂: 已抓到的要入库, 但任务必须报「不完整」。"""
     conn = get_db()
     _set_fetch_config(conn, {"bot_enabled": False})
@@ -577,8 +577,46 @@ def test_partial_feed_imports_items_and_reports_error(fresh_db):
     )
     result = _fetcher().run()
     assert result["inserted"] == 1
+    # v1.0.88: 有入库 → 降级为 warning, 由 web 端记 partial;
+    # 记 error 会让前端显示「失败 · 0 篇」, 与库里事实相反。
+    assert not result.get("error")
+    assert "feed 不完整" in result["warning"]
+    assert "icbc" in result["warning"]
+    assert result["failed_targets"] == ["boc", "icbc"]
+
+
+def test_partial_feed_without_articles_still_fails(fresh_db):
+    """feed 一条都没有 + 目标失败 = 真失败, 不能降级成 partial。"""
+    conn = get_db()
+    _set_fetch_config(conn, {"bot_enabled": False})
+    now = datetime.now(timezone.utc).isoformat()
+    _write_partial_feed(
+        fresh_db,
+        [],
+        [{"target": "icbc", "error": "timeout"}],
+        generated_at=now,
+    )
+    result = _fetcher().run()
+    assert result["inserted"] == 0
+    assert not result.get("warning")
     assert "feed 不完整" in result["error"]
-    assert "icbc" in result["error"]
+
+
+def test_feed_with_items_but_all_filtered_is_partial(fresh_db):
+    """闸门把条目全挡掉不是错误: feed 有数据就算 partial。"""
+    conn = get_db()
+    _set_fetch_config(conn, {"bot_enabled": False})
+    now = datetime.now(timezone.utc).isoformat()
+    _write_partial_feed(
+        fresh_db,
+        [_item(1, title="与银行无关的标题", text="与银行无关的纯占位正文。")],
+        [{"target": "icbc", "error": "timeout"}],
+        generated_at=now,
+    )
+    result = _fetcher().run()
+    assert result["inserted"] == 0
+    assert result["warning"]
+    assert not result.get("error")
 
 
 def test_partial_feed_is_not_fresh_and_triggers_retry(fresh_db, monkeypatch):
@@ -675,8 +713,9 @@ def test_bot_retry_failure_still_imports_existing_partial_feed(fresh_db, monkeyp
     monkeypatch.setattr(subprocess, "Popen", _fake_popen(1, "", "agent exploded"))
     result = _fetcher().run()
     assert result["inserted"] == 1
-    assert "agent 补跑失败" in result["error"]
-    assert "feed 不完整" in result["error"]
+    assert "agent 补跑失败" in result["warning"]
+    assert "feed 不完整" in result["warning"]
+    assert not result.get("error")
 
 
 def test_insert_failure_is_not_a_green_success(fresh_db):
@@ -720,3 +759,82 @@ def test_binding_deleted_between_fetch_and_insert_is_refused(fresh_db):
     with pytest.raises(RuntimeError, match="tag binding disappeared"):
         f.dedupe_insert([art], [])
     assert conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0] == 0
+
+
+def test_progress_callback_reports_counts(fresh_db):
+    """v1.0.88: 进度要上报, 否则前端永远显示「已抓 0 篇」。"""
+    _write_feed(fresh_db, [_item(1), _item(2)])
+    fetcher = _fetcher()
+    seen: list[dict] = []
+    fetcher.progress_callback = lambda **kw: seen.append(kw)
+
+    result = fetcher.run()
+
+    assert result["inserted"] == 2
+    assert seen and seen[0]["total_feeds"] == 2
+    assert seen[-1]["articles_so_far"] == 2
+    assert seen[-1]["done_feeds"] == 2
+
+
+def test_progress_callback_timeout_is_not_swallowed(fresh_db):
+    """web 端靠 TimeoutError 中止超时抓取; 吞掉它会让超时任务跑完才算数。"""
+    _write_feed(fresh_db, [_item(1)])
+    fetcher = _fetcher()
+
+    def _raise(**kw):
+        raise TimeoutError("Fetch exceeded 1s timeout")
+
+    fetcher.progress_callback = _raise
+    with pytest.raises(TimeoutError, match="Fetch exceeded"):
+        fetcher.run()
+
+
+def test_force_retries_within_cooldown(fresh_db, monkeypatch):
+    """手动点击「立即抓取」必须绕开冷却, 否则用户再点一次只会读到旧 feed。"""
+    now = datetime.now(timezone.utc).isoformat()
+    _write_partial_feed(
+        fresh_db, [_item(1)], [{"target": "boc", "error": "403"}],
+        generated_at=now,
+    )
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        subprocess, "Popen",
+        _fake_popen(0, on_start=lambda cmd, kw: calls.append(cmd)),
+    )
+    fetcher = _fetcher()
+    fetcher.force = True
+    fetcher.fetch()
+    assert calls, "manual trigger must re-run the bot despite the cooldown"
+
+
+def test_cooldown_skips_bot_on_scheduled_path(fresh_db, monkeypatch):
+    """非手动触发时, 刚失败过的 feed 在冷却窗口内不重跑 (避免打爆站点)。"""
+    now = datetime.now(timezone.utc).isoformat()
+    _write_partial_feed(
+        fresh_db, [_item(1)], [{"target": "boc", "error": "403"}],
+        generated_at=now,
+    )
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        subprocess, "Popen",
+        _fake_popen(0, on_start=lambda cmd, kw: calls.append(cmd)),
+    )
+    _fetcher().fetch()
+    assert not calls
+
+
+def test_partial_feed_second_run_still_warns_without_new_items(fresh_db):
+    """同一天点第二次: 本轮 0 新增, 但今天 feed 有数据 → 仍是 partial 而非失败。"""
+    conn = get_db()
+    _set_fetch_config(conn, {"bot_enabled": False})
+    now = datetime.now(timezone.utc).isoformat()
+    _write_partial_feed(
+        fresh_db, [_item(1)], [{"target": "boc", "error": "403"}],
+        generated_at=now,
+    )
+    first = _fetcher().run()
+    assert first["inserted"] == 1 and first["warning"]
+
+    second = _fetcher().run()
+    assert second["inserted"] == 0
+    assert second["warning"] and not second.get("error")

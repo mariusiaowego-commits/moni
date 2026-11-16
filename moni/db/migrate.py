@@ -18,12 +18,13 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 43  # v1.0.88: reader AI (042 reserved for xbot author blocks)
+_CURRENT_VERSION = 43  # 042 source_author_blocks + 043 reader AI
 
 # Migrations <= this version were applied by the old "max(schema_version)"
 # rule, which did not record every intermediate row.  Never re-run them.
-# Versions above it (042 was developed in parallel) may be missing even
-# when MAX(schema_version) is already higher; those holes still apply.
+# Versions above it (042 landed on main while 043 was in development) may
+# be missing even when MAX(schema_version) is already higher; those holes
+# still apply.
 _HOLE_FILL_AFTER = 41
 
 

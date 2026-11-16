@@ -546,6 +546,13 @@ function app() {
     fetchConfigData: { source_id: '', source_name: '', merged: {}, defaults: {}, has_custom: false },
     // v1.0.71 (sprint-35): X-bot 精选的 scope 信息 (来源徽标 / 串联说明)。
     fetchConfigScopeInfo: null,
+    // v1.0.88 (sprint-38): 作者屏蔽名单 (独立表 source_author_blocks)。
+    //   builtin_handles —— 内置只读黑名单 (刷量/营销/灰产号), 不可删;
+    //   blocked_authors —— dad 自己屏蔽的, 可撤销。
+    // 名单走**独立 REST 端点**, 与 fetch_config 完全解耦 (改门槛不影响名单)。
+    blockedAuthors: { source_id: '', builtin_handles: [], blocked_authors: [] },
+    blockedAuthorNewHandle: '',
+    blockedAuthorNewName: '',
 
     // v1.0.12.2: Chinese labels + hints for fetch_config keys (and fallback).
     // Keep key as English for API; UI shows zh + description.
@@ -1069,8 +1076,11 @@ function app() {
           if (data.source_name === 'xbot_feed') {
             this.fetchConfigScopeInfo = null;
             this.configLoadScope(data.source_id);
+            // v1.0.88 (sprint-38): 顺带拉作者屏蔽名单 (独立端点, 名单管理区)
+            this.configLoadBlockedAuthors(data.source_id);
           } else {
             this.fetchConfigScopeInfo = null;
+            this.blockedAuthors = { source_id: '', builtin_handles: [], blocked_authors: [] };
           }
         })
         .catch(err => this._notify('error', '加载抓取配置失败: ' + err.message));
@@ -1095,6 +1105,204 @@ function app() {
         this.configLoadSources();
         this.closeConfigModal();
       }).catch(err => this._notify('error', '保存抓取配置失败: ' + err.message));
+    },
+
+    // ── 作者屏蔽名单 (v1.0.88 sprint-38) ─────────────────────────────
+    //   走**独立 REST 端点** (不是 fetch_config PUT) —— 名单是 dad 的
+    //   个人运营资产, 与信源配置解耦, 且不受 seed-config 整行覆盖影响。
+    configLoadBlockedAuthors(sourceId) {
+      if (!sourceId) return Promise.resolve(null);
+      const sid = encodeURIComponent(sourceId);
+      return fetch(`/api/config/sources/${sid}/blocked-authors`, { credentials: 'same-origin' })
+        .then(r => { if (!r.ok) throw new Error('加载屏蔽名单失败'); return r.json(); })
+        .then(data => {
+          this.blockedAuthors = {
+            source_id: data.source_id,
+            builtin_handles: data.builtin_handles || [],
+            blocked_authors: data.blocked_authors || [],
+          };
+          return data;
+        })
+        .catch(err => {
+          console.error('Failed to load blocked authors:', err);
+          this.blockedAuthors = { source_id: '', builtin_handles: [], blocked_authors: [] };
+          return null;
+        });
+    },
+
+    configUnblockAuthor(handle) {
+      const sourceId = this.blockedAuthors.source_id || (this.fetchConfigData || {}).source_id;
+      if (!sourceId || !handle) return;
+      const sid = encodeURIComponent(sourceId);
+      fetch(`/api/config/sources/${sid}/blocked-authors/${encodeURIComponent(handle)}`, {
+        method: 'DELETE', credentials: 'same-origin',
+      }).then(r => {
+        if (!r.ok) return r.text().then(t => { throw new Error(t || `HTTP ${r.status}`); });
+        return r.json();
+      }).then(() => {
+        this._notify('success', `已解除屏蔽 @${handle}`);
+        this.configLoadBlockedAuthors(sourceId);
+      }).catch(err => this._notify('error', '解除屏蔽失败: ' + err.message));
+    },
+
+    configAddBlockedAuthor() {
+      const sourceId = this.blockedAuthors.source_id || (this.fetchConfigData || {}).source_id;
+      const handle = (this.blockedAuthorNewHandle || '').trim();
+      if (!sourceId || !handle) return;
+      const sid = encodeURIComponent(sourceId);
+      fetch(`/api/config/sources/${sid}/blocked-authors`, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ handle, display_name: (this.blockedAuthorNewName || '').trim() }),
+      }).then(r => {
+        if (!r.ok) return r.text().then(t => { throw new Error(t || `HTTP ${r.status}`); });
+        return r.json();
+      }).then(data => {
+        this.blockedAuthorNewHandle = '';
+        this.blockedAuthorNewName = '';
+        this._notify('success', `已屏蔽 @${data.handle}`);
+        this.configLoadBlockedAuthors(sourceId);
+      }).catch(err => this._notify('error', '屏蔽失败: ' + err.message));
+    },
+
+    // ── 详情弹窗: 屏蔽当前文章作者 (v1.0.88 sprint-38) ────────────────
+    //   从 articleDetail.author ("Name (@handle)") 反解 handle —— 只认
+    //   handle, display name 不参与匹配 (会变; handle 稳定)。
+    parseAuthorHandle(author) {
+      if (!author) return '';
+      const m = /@([^)]+)\)/.exec(String(author));
+      return m ? m[1].trim() : '';
+    },
+
+    // 只有 xbot_feed 的文章才有 handle 可屏蔽 (其它源的 publisher 是公众号名,
+    // 没有 handle) —— 非 xbot 直接**隐藏**按钮, 不置灰 (agy 建议)。
+    canBlockCurrentAuthor() {
+      const d = this.articleDetail;
+      if (!d) return false;
+      if (d.source !== 'xbot_feed') return false;
+      return !!this.parseAuthorHandle(d.author);
+    },
+
+    async confirmBlockAuthor(evt) {
+      const d = this.articleDetail;
+      if (!d) return;
+      const handle = this.parseAuthorHandle(d.author);
+      if (!handle) {
+        this._notify('error', '这篇文章没有可屏蔽的作者 handle');
+        return;
+      }
+      // 暂存触发元素 (P1 a11y 焦点还原用)。
+      //
+      // 优先用事件的 currentTarget —— **`document.activeElement` 不可靠**:
+      // Safari 点击 <button> 不会给它焦点 (macOS 上尤其如此), 那样存到的
+      // 就是 <body>, 还原等于没还原。currentTarget 一定是那个按钮。
+      // 拿不到事件时退回 activeElement (排除 body)。
+      const triggerBtn = (evt && evt.currentTarget)
+        || (document.activeElement && document.activeElement !== document.body
+            ? document.activeElement : null);
+      const sourceId = this._xbotSourceId();
+      if (!sourceId) {
+        this._notify('error', '找不到 X-bot 精选信源');
+        return;
+      }
+
+      // 先数一下该作者已有多少篇 —— dad 的决定: 旧文章**物理删除**,
+      // 不可恢复 → 确认框必须显示篇数 (AC-17)。
+      //
+      // 必须问**后端**要这个数 (GET ?handle=xxx 返回 existing_count):
+      // 前端的 this.articles 只是**当前页** (默认 50 条), 用它数会少算。
+      let existing_count = 0;
+      try {
+        const resp = await fetch(
+          `/api/config/sources/${encodeURIComponent(sourceId)}/blocked-authors`
+          + `?handle=${encodeURIComponent(handle)}`,
+          { credentials: 'same-origin' });
+        if (resp.ok) {
+          const data = await resp.json();
+          existing_count = Number(data.existing_count || 0);
+          this.blockedAuthors = {
+            source_id: data.source_id,
+            builtin_handles: data.builtin_handles || [],
+            blocked_authors: data.blocked_authors || [],
+          };
+        }
+      } catch (e) { /* 计数拿不到就按 0 处理, 不阻断流程 */ }
+
+      const msg = existing_count > 0
+        ? `屏蔽后, 该作者 (@${handle}) 后续的文章将不再入库 X-bot 精选。\n`
+          + `将删除 ${existing_count} 篇已有文章, 不可恢复。`
+        : `屏蔽后, 该作者 (@${handle}) 后续的文章将不再入库 X-bot 精选。\n`
+          + `该作者暂无已有文章。`;
+
+      // 复用现成的 moniModal.confirm (modal.js:223) —— 不自建第二套弹窗,
+      // 保留既有的 a11y (role=alertdialog / aria-modal / focus trap / Esc)。
+      //
+      // ⚠️ P1 修复 (agy UI review r1, 2026-11-12): `moniModal.confirm` 关闭时
+      // **不还原焦点** (它只 removeChild 弹窗, 焦点就掉回 <body>) →
+      // Esc / 取消之后键盘用户的 Tab 动线断掉, 触发按钮拿不回焦点。
+      // triggerBtn 在函数开头已暂存, 这里关闭后还原。
+      const ok = await moniModal.confirm(msg, {
+        title: `确认屏蔽作者 @${handle}?`,
+        okLabel: '确认屏蔽',
+        cancelLabel: '取消',
+        danger: true,
+      });
+      if (!ok) {
+        // 取消 (Esc / 点「取消」) → 焦点还给触发按钮。
+        if (triggerBtn && typeof triggerBtn.focus === 'function') {
+          try { triggerBtn.focus(); } catch (e) { /* swallow */ }
+        }
+        return;
+      }
+
+      try {
+        const resp = await fetch(
+          `/api/config/sources/${encodeURIComponent(sourceId)}/blocked-authors`,
+          {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ handle, display_name: (d.author || '').split('(')[0].trim() }),
+          });
+        if (!resp.ok) {
+          const txt = await resp.text();
+          throw new Error(txt || `HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        this._notify('success', `已屏蔽作者 @${data.handle}`);
+        // 关掉详情弹窗 + 刷新列表 (文章已被物理删除)。
+        this.closeArticleDetail();
+        this.loadAll();
+        this.configLoadBlockedAuthors(sourceId);
+      } catch (err) {
+        this._notify('error', '屏蔽失败: ' + err.message);
+      }
+    },
+
+    // X-bot 精选的 source id (从已加载的信源列表里找)。
+    //
+    // ⚠️ P0 修复 (agy UI review r1, 2026-11-12): 之前这里只查 `configSources`
+    // (配置管理 Tab 懒加载) 与 `fetchConfigData` (抓取配置弹窗打开过才有)。
+    // **首页 (默认文章查阅视图) 两个都是空的** → 返回 '' → 前置检查直接
+    // 报「找不到 X-bot 精选信源」, 普通用户首次点击 100% 中断。
+    //
+    // 兜底顺序:
+    //   1. `configSources` —— 配置管理页加载过
+    //   2. `sources`        —— 抓取页加载过 (与 configSources 是不同列表)
+    //   3. `fetchConfigData` —— 抓取配置弹窗打开过
+    //   4. **常量兜底** `src-xbot-feed` —— migration 039 / seed_config.py
+    //      固化的 id (三处一致, 见下方注释), 保证首页首点就能用。
+    //
+    // 为什么常量兜底是安全的: `sources.id` 是**主键**, `SourceUpdate` 不含
+    // id 字段 (改不了); migration 039 与 seed_config.py 都写死
+    // 'src-xbot-feed', 生产库实测也是这个值。
+    _xbotSourceId() {
+      const sources = this.configSources || this.sources || [];
+      const hit = sources.find(s => s && s.name === 'xbot_feed');
+      if (hit && hit.id) return hit.id;
+      const fd = this.fetchConfigData || {};
+      if (fd.source_name === 'xbot_feed' && fd.source_id) return fd.source_id;
+      // 确定性兜底 —— 见上方注释。
+      return 'src-xbot-feed';
     },
 
     // ── Filters CRUD ───────────────────────────────────────────────
@@ -1712,6 +1920,22 @@ function app() {
         }
       }
 
+      // v1.0.88 (sprint-38): 作者屏蔽丢弃 —— **独立**于上面「门槛过滤」。
+      //
+      // 为什么单列一行: 门槛是「内容不达标」(可调参数的产物), 作者屏蔽是
+      // 「这个作者我不要了」(作者级永久黑名单) —— 两套心智模型, 混在一起
+      // 会让「为什么少了 N 条」无法归因 (AC-8 / AC-19)。
+      const authorBlocked = d.author_blocked ?? 0;
+      if (authorBlocked > 0) {
+        lines.push({ type: 'section', text: '作者屏蔽' });
+        lines.push({
+          type: 'item',
+          label: '屏蔽丢弃',
+          value: `丢弃 ${authorBlocked} 条`,
+          detail: '命中已屏蔽作者，未入库',
+        });
+      }
+
       return lines;
     },
     // v1.0.5.24: date-range modal for bestblogs
@@ -1912,6 +2136,8 @@ function app() {
 
           // terminal batch
           this.fetchingAll = false;
+        // 终态补一次计数: 快任务可能一次轮询就到终态, 动画没机会跑到最终值。
+        this._animateArticleCount(data.articles_so_far || 0);
           const allResults = [
             ...(data.results || []),
             ...(data.errors || []).map(e => ({ source: e.source, error: e.error })),
@@ -1920,8 +2146,9 @@ function app() {
           this.setFetchAllResult({
             status: data.status === 'failed' ? 'partial' : data.status,
             sources_total: data.total_sources,
-            sources_ok: data.total_sources - (data.failed_sources || 0),
+            sources_ok: data.total_sources - (data.failed_sources || 0) - (data.partial_sources || 0),
             sources_failed: data.failed_sources || 0,
+            sources_partial: data.partial_sources || 0,
             total_inserted: totalInserted,
             results: allResults,
           });
@@ -1929,7 +2156,11 @@ function app() {
             this._finishFetchAnimation(true);
             const labelMap = { done: '完成', partial: '部分完成', failed: '失败' };
             this._flipStatus(labelMap[data.status] || data.status);
-            this._showCompletion(`${data.total_sources || 0} 个源 · 新增 ${totalInserted} 篇 · 用时 ${data.elapsed_seconds || 0}s`);
+            const partialNote = data.partial_sources ? ` · ${data.partial_sources} 源部分完成` : '';
+            this._showCompletion(
+              `${data.total_sources || 0} 个源 · 新增 ${totalInserted} 篇 · 用时 ${data.elapsed_seconds || 0}s${partialNote}`,
+              data.status === 'partial' ? '部分完成' : '抓取完成！',
+            );
           }
           if (data.status === 'done' || data.status === 'partial') this.loadSources();
           this._scheduleTaskLinger(t, data.status);
@@ -1953,7 +2184,7 @@ function app() {
         });
         this._upsertFetchTask({ ...t });
 
-        const terminal = ['done', 'failed', 'timeout', 'stale', 'cancelled'].includes(data.status);
+        const terminal = ['done', 'partial', 'failed', 'timeout', 'stale', 'cancelled'].includes(data.status);
         if (!terminal) {
           if (this.fetchProgressModal && this.fetchProgress?.id === t.id && this.fetchBatchMode === false) {
             this._updateFeedInfo(data.source || t.source || '', data.current_feed || '');
@@ -1964,21 +2195,26 @@ function app() {
         }
 
         if (this.fetchProgressModal && this.fetchProgress?.id === t.id) {
+          this._animateArticleCount(data.articles_so_far || 0);
           this._finishFetchAnimation(data.status !== 'done');
-          const labelMap = { done: '完成', failed: '失败', timeout: '超时', stale: '已中止' };
+          const labelMap = { done: '完成', partial: '部分完成', failed: '失败', timeout: '超时', stale: '已中止' };
           this._flipStatus(labelMap[data.status] || data.status);
-          if (data.status === 'done') {
+          if (data.status === 'done' || data.status === 'partial') {
             const r2 = data.result || {};
-            const summary = `${r2.inserted || 0} 篇 · 用时 ${data.elapsed_seconds || 0}s`;
+            const gap = data.status === 'partial' ? ` · ${data.error || '部分目标失败'}` : '';
+            const summary = `${r2.inserted || 0} 篇 · 用时 ${data.elapsed_seconds || 0}s${gap}`;
             this._suckIntoMoni();
-            this._showCompletion(summary);
+            this._showCompletion(
+              summary,
+              data.status === 'partial' ? '部分完成' : '抓取完成！',
+            );
             this.loadSources();
           }
-        } else if (data.status === 'done' || data.status === 'failed') {
+        } else if (data.status === 'done' || data.status === 'partial' || data.status === 'failed') {
           this.loadSources();
         }
         // surface last single result into result panel（默认折叠）
-        if (data.status === 'done' && data.result) {
+        if ((data.status === 'done' || data.status === 'partial') && data.result) {
           const text = typeof data.result === 'string'
             ? data.result
             : JSON.stringify(data.result, null, 2);
@@ -3090,10 +3326,12 @@ function app() {
       });
     },
 
-    _showCompletion(summary) {
+    _showCompletion(summary, label = '抓取完成！') {
       const overlay = document.getElementById('completionOverlay');
       const sub = document.getElementById('completionSub');
       if (!overlay) return;
+      const title = overlay.querySelector('.completion-text');
+      if (title) title.textContent = label;
       if (sub && summary) sub.textContent = summary;
       overlay.classList.add('show');
     },

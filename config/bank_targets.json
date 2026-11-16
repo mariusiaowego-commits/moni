@@ -1,7 +1,7 @@
 {
-  "_comment": "银行同业信源目标清单 (sprint-40 / v1.0.76)。用户可在 /config → 银行同业 → fetch_config.targets 里覆盖本文件, 改完下一个抓取周期生效, 不需要改代码。kind 三种: official_list (官网新闻栏目, 由 agent 渲染+抽取) / media_rss (标准 RSS, Python 直接解析) / media_json (JSON 列表接口, 按 fields 映射) / wechat_article (已知 mp.weixin.qq.com 链接, 由 agent 浏览器渲染)。",
+  "_comment": "银行同业信源目标清单 (sprint-40 / v1.0.76)。用户可在 /config → 银行同业 → fetch_config.targets 里覆盖本文件, 改完下一个抓取周期生效, 不需要改代码。kind 四种: official_list (官网新闻栏目, 由 agent 渲染+抽取) / media_rss (标准 RSS, Python 直接解析) / media_json (JSON 列表接口, 按 fields 映射) / wechat_article (已知 mp.weixin.qq.com 链接, 由 agent 浏览器渲染)。 static=true 表示列表页可确定性解析(失败自动回退 agent); 工行是 JS 渲染, 保持 false。 max_age_days 可选, 默认 60, 对该目标所有条目生效(含 agent 与媒体), 0 = 不过滤旧稿。",
   "version": 1,
-  "updated_at": "2026-11-12",
+  "updated_at": "2026-11-16",
   "targets": [
     {
       "id": "boc-news",
@@ -9,7 +9,8 @@
       "url": "https://www.boc.cn/aboutboc/bi1/",
       "bank": "boc",
       "publisher": "中国银行",
-      "hint": "中行「中行动态」栏目, 列表自带日期, 一页约 20 条"
+      "hint": "中行「中行动态」栏目, 列表自带日期, 一页约 20 条",
+      "static": true
     },
     {
       "id": "abc-news",
@@ -17,7 +18,8 @@
       "url": "https://www.abchina.com/cn/AboutABC/nonghzx/NewsCenter/",
       "bank": "abc",
       "publisher": "中国农业银行",
-      "hint": "农行「新闻中心」, 链接形如 /cn/AboutABC/nonghzx/NewsCenter/YYYYMM/tYYYYMMDD_xxxxxxx.htm"
+      "hint": "农行「新闻中心」, 链接形如 /cn/AboutABC/nonghzx/NewsCenter/YYYYMM/tYYYYMMDD_xxxxxxx.htm",
+      "static": true
     },
     {
       "id": "icbc-news",
@@ -25,7 +27,8 @@
       "url": "https://www.icbc.com.cn/column/1438058319654043683.html",
       "bank": "icbc",
       "publisher": "中国工商银行",
-      "hint": "工行「工行快讯」列表, 列表页无日期, 需进详情页取发布时间"
+      "hint": "工行「工行快讯」列表, 列表页无日期, 需进详情页取发布时间",
+      "static": false
     },
     {
       "id": "ccb-news",
@@ -33,7 +36,8 @@
       "url": "https://group.ccb.cn/chn/ccbtoday/indexv3.shtml",
       "bank": "ccb",
       "publisher": "中国建设银行",
-      "hint": "建行「今日建行」, 列表自带日期"
+      "hint": "建行「今日建行」, 列表自带日期",
+      "static": true
     },
     {
       "id": "psbc-news",
@@ -41,7 +45,8 @@
       "url": "https://www.psbc.com/cn/gyyc/ycfm/ycdt/",
       "bank": "psbc",
       "publisher": "中国邮政储蓄银行",
-      "hint": "邮储「邮储动态」, 链接形如 /cn/gyyc/ycfm/ycdt/YYYYMM/tYYYYMMDD_xxxxxx.html"
+      "hint": "邮储「邮储动态」, 链接形如 /cn/gyyc/ycfm/ycdt/YYYYMM/tYYYYMMDD_xxxxxx.html",
+      "static": true
     },
     {
       "id": "weiyangx",
