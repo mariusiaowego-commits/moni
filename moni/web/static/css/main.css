@@ -4698,7 +4698,7 @@ body.has-float-layer .tags-overflow { display: none !important; }
 .reader-head-actions .modal-close { position: static; }
 .reader-expand-btn { color: var(--muted-fg); }
 .reader-split { display: grid; grid-template-columns: minmax(0, 1fr) 390px; min-height: 0; flex: 1; }
-.reader-split { column-gap: 12px; padding: 12px 12px 0; }
+.reader-split { column-gap: 12px; padding: 12px; }
 .reader-pane {
   position: relative; background: var(--card);
   border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden;
