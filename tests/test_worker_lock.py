@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+import re
 import signal
 import sqlite3
 import subprocess
@@ -36,6 +37,32 @@ if str(REPO_ROOT) not in sys.path:
 from moni.share import worker as sw
 
 WORKER_SCRIPT = REPO_ROOT / "scripts" / "default_worker.sh"
+
+
+def _watchdog_grace_seconds() -> float:
+    """从 worker 脚本里读出看门狗的 grace 秒数 (默认 0.8)。
+
+    `_stop_child_group()` 用 `sleep <grace>` + SIGKILL 去收拾**忽略 TERM**
+    的子进程 → TERM 到退出的耗时**下界**就是这个 grace。
+
+    测试的 TERM 预算必须由它推导, 不能写死 —— 两处数字一旦漂移
+    (比如有人把 grace 调大), 写死的预算就会变成假红 (见
+    test_sigterm_kills_blocking_child_that_ignores_term 的注释)。
+
+    解析不到就退回 0.8 (当前脚本里的值), 不让测试因为脚本格式变动而崩。
+    """
+    try:
+        src = WORKER_SCRIPT.read_text(encoding="utf-8")
+    except OSError:
+        return 0.8
+    # 只认看门狗那一处 —— 脚本里现在**只有**这一处 `sleep <数字>`, 但
+    # 以后有人在别处加个 sleep 的话, 宽泛的正则会取错值 → 预算算错。
+    # 所以锚在 `kill -KILL` 之前的那段 watch dog 块上。
+    m = re.search(r"sleep\s+([0-9]+(?:\.[0-9]+)?)\s*\n\s*kill\s+-KILL", src)
+    if m:
+        return float(m.group(1))
+    m = re.search(r"sleep\s+([0-9]+(?:\.[0-9]+)?)", src)
+    return float(m.group(1)) if m else 0.8
 
 @pytest.fixture
 def queue_dir(monkeypatch, tmp_path):
@@ -610,10 +637,43 @@ def test_sigterm_kills_blocking_child_that_ignores_term(tmp_path):
             proc.wait(timeout=5)
 
     assert rc == 143, f"expected 143, got {rc}"
-    assert elapsed < 1.0, f"worker exceeded 1s TERM budget: {elapsed:.2f}s"
+    # TERM 预算: 不能写死一个数字。
+    #
+    # worker 的 `_stop_child_group()` 里的看门狗是 `sleep <grace>` 之后才
+    # SIGKILL 那个**忽略 TERM** 的子进程 —— 所以 TERM→退出的**下界**就是
+    # 这个 grace 值。原先这里写死 `elapsed < 1.0`, 而 grace 是 0.8 → 只剩
+    # 0.2s 余量: 机器一忙 (CI runner / 全量并发跑), 调度抖动就能把实测推到
+    # 1.03s → 假红。
+    #
+    # 这个 flake 与业务逻辑无关 (2026-11-12 sprint-38 全量回归里实测:
+    # 单跑 10 次 0 失败, 全量并发跑时偶发), 但它会**卡住 CI**。
+    # 修法: 预算从 worker 脚本里的真实 grace 值推导, 留 1.0s 余量 ——
+    # 这样以后有人调 grace, 预算自动跟着走, 不会再漂移。
+    grace = _watchdog_grace_seconds()
+    budget = grace + 1.0
+    assert elapsed < budget, (
+        f"worker exceeded {budget:.1f}s TERM budget "
+        f"(watchdog grace={grace:.1f}s): {elapsed:.2f}s"
+    )
     with pytest.raises(ProcessLookupError):
         os.kill(child_pid, 0)
     assert _lock_is_free(lock_file)
+
+
+def test_watchdog_grace_is_parsed_from_worker_script():
+    """TERM 预算必须跟着 worker 脚本的真实 grace 走, 不能写死。
+
+    背景: 看门狗 `sleep <grace>` 决定了 TERM→退出的耗时下界。测试里若写死
+    一个预算 (原先是 1.0s), 而 grace 是 0.8 → 只剩 0.2s 余量, 机器一忙就
+    假红 (2026-11-12 sprint-38 全量回归实测 1.03s)。现在预算由 grace 推导,
+    这条用例守住「推导本身正确」。
+    """
+    grace = _watchdog_grace_seconds()
+    assert grace > 0, f"看门狗 grace 解析失败或非法: {grace}"
+    # 脚本里的实际值 —— 变了这条用例会提醒同步 (而不是让预算悄悄漂移)
+    assert grace == 0.8, f"worker 看门狗 grace 变成了 {grace}, 请同步这条用例"
+    # 预算 = grace + 余量, 必须明显大于 grace 本身 (余量用于吸收调度抖动)
+    assert grace + 1.0 > grace + 0.5
 
 
 def test_empty_queue_reports_nothing_to_do_20_times(queue_dir, monkeypatch):

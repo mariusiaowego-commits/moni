@@ -155,6 +155,43 @@ DEFAULT_BLACKLISTED_HANDLES: tuple[str, ...] = (
     "HunchoJ01",         # 关键词误命中的噪音号
 )
 
+
+def normalize_handle(raw: object) -> str:
+    """把一个 handle 归一成**唯一**的规范形式 (**全仓唯一实现**)。
+
+    规则: ``strip()`` → ``lstrip("@")`` → ``lower()``。空串返回 ``""``。
+
+    为什么必须只有一份实现 (warden 审计 P2-3):
+    写入侧 (``moni/web/routes/author_blocks.py`` 的 POST / DELETE) 与
+    匹配侧 (``FetcherXbotFeed`` 的黑名单 / 屏蔽名单匹配) 必须走**同一套**
+    归一 —— 否则 dad 手输 ``@JiaMeXyz`` 写进名单, 抓取时却归一成别的形式,
+    就会出现「名单里明明有, 作者却还在入库」的**静默失效**
+    (这种失效极难被发现, 因为名单看起来是对的)。
+    """
+    if raw is None:
+        return ""
+    return str(raw).strip().lstrip("@").lower()
+
+
+def normalize_handles(handles: object) -> set[str]:
+    """把 handle 列表归一成匹配用的规范形式集合。
+
+    接受 ``None`` / 单个 str / list / tuple / set / frozenset;
+    空串与归一后为空的一律丢掉。逐个元素的归一走 :func:`normalize_handle`。
+    """
+    if handles is None:
+        return set()
+    if isinstance(handles, str):
+        handles = [handles]
+    if not isinstance(handles, (list, tuple, set, frozenset)):
+        return set()
+    out: set[str] = set()
+    for h in handles:
+        text = normalize_handle(h)
+        if text:
+            out.add(text)
+    return out
+
 #: ``sources.fetch_config`` 里 xbot_feed 的**唯一**默认值来源。
 #:
 #: v1.0.66 (审计 B5): 同一份默认值原本抄在三处 ——
@@ -569,6 +606,16 @@ class FetcherXbotFeed(BaseFetcher):
         self._thresholds: dict[str, Any] = {}
         self._threshold_drops: dict[str, int] = {}
         self._threshold_missing: dict[str, int] = {}
+        # sprint-38: 作者屏蔽丢弃计数 —— **标量 int** (不是 dict)。
+        #
+        # 为什么是标量: 门槛计数是「按 topic × 原因」的 dict (一个作者可能
+        # 同时出现在 wechat 与 xcircle 两个 topic 下, 用 dict 会把同一条
+        # raw 拆成两项)。而作者屏蔽是**作者级**事件 —— dad 的心智模型是
+        # 「这个人我不要了」, 与「门槛调太严了」是两回事 (AC-19)。
+        #
+        # **不并入** threshold_dropped / threshold_missing (AC-8): 混在一起
+        # 会让 sprint-35 已验收的计数口径失真, 也无法归因。
+        self._author_blocked: int = 0
 
     # ── config ────────────────────────────────────────────────────────────
     def _load_config(self) -> dict[str, Any]:
@@ -941,9 +988,12 @@ class FetcherXbotFeed(BaseFetcher):
             logger.debug("[xbot-feed] item missing id+url — skipping")
             return None
 
-        # handle 黑名单 (刷量 / 营销 / 灰产号)
+        # handle 黑名单 (刷量 / 营销 / 灰产号 + dad 手动屏蔽的作者)
         if handle and handle.lower() in self._blacklist:
             logger.debug("[xbot-feed] blacklisted handle %s — skipping", handle)
+            # sprint-38: 独立计数 (标量 int), **不并入** threshold_dropped
+            # —— 「门槛不达标」与「这个作者我不要了」是两套心智模型 (AC-8)。
+            self._author_blocked += 1
             return None
 
         # topic → 候选 tag → 关键词闸门 (B1)。
@@ -1191,6 +1241,13 @@ class FetcherXbotFeed(BaseFetcher):
         result["threshold_dropped"] = sum(self._threshold_drops.values())
         result["threshold_dropped_by"] = dict(self._threshold_drops)
         result["threshold_missing_by"] = dict(self._threshold_missing)
+        # sprint-38: 作者屏蔽丢弃独立计数 (标量) —— 与上面三个门槛字段
+        # **彼此独立、互不包含** (AC-8 / AC-19)。前端结果面板单列一行。
+        result["author_blocked"] = self._author_blocked
+        if self._author_blocked:
+            logger.info(
+                "[xbot-feed] author-blocked dropped %d item(s)", self._author_blocked,
+            )
         if self._threshold_drops:
             logger.info(
                 "[xbot-feed] threshold dropped %d item(s): %s",
@@ -1309,6 +1366,48 @@ class FetcherXbotFeed(BaseFetcher):
     # _cfg / _inserted_ok / _pending_state / _round_ids 都是**实例**属性,
     # 在 __init__ 里初始化 —— 绝不放在类体上共享 (见 B3)。
 
+    @staticmethod
+    def _normalize_handles(handles: object) -> set[str]:
+        """把 handle 列表归一成匹配用的规范形式。
+
+        规则不变 (与既有实现一致, 不改语义): ``strip()`` → ``lstrip("@")`` →
+        ``lower()``。空串直接丢掉。
+
+        实现委托给模块级的 :func:`normalize_handles` —— **全仓唯一实现**。
+        写入侧 (author_blocks.py) 与匹配侧 (这里) 必须走同一套归一, 否则
+        会出现「名单里明明有, 作者却还在入库」的静默失效 (warden 审计 P2-3)。
+        """
+        return normalize_handles(handles)
+
+    def _load_db_blocked_handles(self) -> set[str]:
+        """读持久化的作者屏蔽名单 (sprint-38 方案 B)。
+
+        来源表 ``source_author_blocks`` 的列存 ``source_name`` (不是
+        ``sources.id``) —— 因为 fetcher 只有类属性
+        ``source_name = "xbot_feed"``, 没有 ``self.source_id``
+        (warden AC-15)。
+
+        **DB 访问必须函数内延迟 import** ``get_db`` —— 模块级 import 会
+        相对导入成环 (既有先例: ``_load_config`` / ``_metrics_summary`` /
+        ``_is_url_exists_globally`` 都是这么写的, AC-16)。
+
+        读不到表 (老库还没 migrate) 时**静默降级**成空集合: 名单读不到
+        不该让整轮抓取失败 —— 内置黑名单仍然生效。
+        """
+        try:
+            from ...db.connection import get_db
+
+            rows = get_db().execute(
+                "SELECT handle FROM source_author_blocks WHERE source_name = ?",
+                (self.source_name,),
+            ).fetchall()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[xbot-feed] cannot read source_author_blocks: %s", exc
+            )
+            return set()
+        return self._normalize_handles([r[0] for r in rows])
+
     def _prepare(self, cfg: dict[str, Any]) -> None:
         """Cache the effective config for this round."""
         self._cfg = cfg
@@ -1317,8 +1416,18 @@ class FetcherXbotFeed(BaseFetcher):
             handles = DEFAULT_BLACKLISTED_HANDLES
         if isinstance(handles, str):
             handles = [handles]
+        # sprint-38: 名单 = 内置/存量 fetch_config **并集** 持久化名单表。
+        #
+        # 三份来源合并 (都归一成 strip / 去 @ / 小写):
+        #   1. fetch_config.blacklisted_handles —— 内置 5 个号 + 用户手填的
+        #      (存量行为, 必须保留 —— AC-10 回归);
+        #   2. source_author_blocks 表 —— dad 在详情弹窗里点的「屏蔽作者」
+        #      (方案 B: 独立表, **不受 seed 覆盖**, AC-3);
+        #   3. DEFAULT_BLACKLISTED_HANDLES —— 兜底 (只在 fetch_config 完全
+        #      没有这个键时才是上面那份, 见上)。
         self._blacklist = frozenset(
-            str(h).strip().lstrip("@").lower() for h in handles if str(h).strip()
+            self._normalize_handles(handles)
+            | self._load_db_blocked_handles()
         )
         self._skip_existing_urls = bool(cfg.get("skip_existing_urls", True))
         # sprint-35: 门槛表 (独立常量, 方案 A) —— 没配就用默认值 (全 0 = 不设限)。
@@ -1330,3 +1439,5 @@ class FetcherXbotFeed(BaseFetcher):
         # 每轮的计数从头开始 (同一个 fetcher 实例可能被复用)。
         self._threshold_drops = {}
         self._threshold_missing = {}
+        # sprint-38: 作者屏蔽计数同样每轮重置 (生命周期同门槛计数)。
+        self._author_blocked = 0

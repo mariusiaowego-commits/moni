@@ -127,6 +127,43 @@ pytest 1630 passed / 2 skipped。移动端按 dad 决定不做。
 第一版把 5 个官网塞进一次 `hermes -z`，实测 600s 没跑完 → 5 个官网**全丢**，
 只剩媒体 RSS 的 4 条。改成一页一次调用后同样的输入拿到 58 条官网条目（+3 条媒体，共 61）。
 
+## 进行中: **X-bot 精选「屏蔽作者」** (2026-11-12 · 分支 `feat/xbot-author-block-v1.0.75` · PR #206)
+
+在 X-bot 精选（`xbot_feed`）的文章详情弹窗里，按 `@handle` 一键屏蔽作者。
+被屏蔽的作者以后不再入库；旧文章**物理删除**（不可恢复，屏蔽前确认框显示
+「将删除 N 篇已有文章, 不可恢复」）。名单管理放在 X-bot 抓取配置区，与
+`fetch_config` 完全解耦（独立表 `source_author_blocks` + migration 042）。
+
+**dad 的四条决定**（15:04 GO IMPL + 16:02 认可 warden 4 项口径）：
+存储用独立表 / 旧文物理删除 / 只对 `xbot_feed` 生效且 `author_blocked`
+单独计数 / 名单管理放配置区。
+
+**同步上游 main（2026-11-16）**：合入 upstream 21 个 commit（至 `d7e6680`），
+迁移号 041 → **042**（上游已占 041 = bank_feed），`_CURRENT_VERSION` 41 → **42**，
+发布版本 v1.0.75 → **v1.0.88**（实时 tags 最新 v1.0.87；v1.0.75 从未发布过）。
+上游 v1.0.77 已用主题 token `var(--fg-strong)` 修好同一个深色对比度问题 →
+本 sprint 丢弃自带的 `.dark` 覆盖，采用上游体系，P2 断言改写为「断言解算后对比度」。
+
+**UI 复审**（agy，w52:p8）：r1 判 FAIL（1 个 P0 首页首点屏蔽报错 + 1 个 P1
+焦点丢失 + 1 个 P2 深色对比度）→ 三项全修 → r2 判 PASS → **r3 判 PASS**
+（合入上游后定向复审，P0/P1/P2 各 0，4 项回归无回退；深色 15.75:1 / 浅色 16.54:1 实测）。
+详见 `docs/plans/2026-11-12_xbot-author-block.md`。
+
+**warden 审计**：round 1 判 FAIL（P0=0 / P1=1 / P2=3）—— P1 是 node harness
+硬编码本地绝对路径导致 **CI 红灯**（本机绿、CI 必挂的假绿）；3 项 P2 是
+确认框文案断言强度不足 / 函数名与断言值矛盾 / handle 归一化两处各写一份。
+**4 项全部已修**（commit `a69f3e1`），CI run `43799900478` 最终 **success**。
+round 2 复审判 **PASS**（P0=0 / P1=0），仅余 1 项 P2 残留：确认框文案断言
+的区域含 `//` 注释，注释里的「不可恢复」会满足断言 → 已改为只认
+`const msg = ...;` 这一句的**模板字符串**（5 个变异全部咬住，含此前测不出的
+「去掉不可恢复措辞」与「handle 写死」）。
+
+**验证**：sprint-38 专项 79 passed；全量 **1823 passed / 2 skipped / 0 failed**
+（本地与 CI 条数一致）。**已 commit / 已 push / 已开 PR #206**；
+未 merge / 未 tag / 未部署；生产 8900 与预览 8902 均未重启，prod DB 零改动。
+
+---
+
 ## 进行中: **分享产物 worker 修复** (2026-11-12 · 分支 `feature/v1.0.73-share-maintenance`)
 
 v1.0.42 起 `worker_llm.py` 把 prompt 从 `-z` 后面挪到 argv 末尾，hermes argparse
