@@ -4,6 +4,44 @@
 
 ---
 
+## 补丁: **v1.0.88 — bank_feed 可靠性（重试 / 部分成功 / 官网确定性解析）** (2026-11-16 · Sprint 48)
+
+**触发**: 11-16 生产点「抓取 bank_feed」显示「失败 · 已抓 0 篇 · 0/0」，
+底部 `feed 不完整: 1 个目标失败 (psbc-news)`；库里其实已入库 19 篇。
+
+**根因**: `psbc-news` 的 agent 调用报 `session_replay_gap`（hermes 网关事件流
+瞬断，11-13 同一错误落在 `boc-news`）；目标级失败被当成整轮 failed；
+`articles_so_far` 没有上报；30 分钟冷却让「再点一次」直接读旧 feed。
+
+**改动**
+
+- **P1 重试**：`call_agent_with_retry()` 只对瞬时错误（`session_replay_gap` /
+  `timed out` / 连接断）重试 1 次，非瞬时错误立即抛；每目标独立调用，
+  重试天然只覆盖失败目标。
+- **P2 部分成功**：`mark_partial()` + `fetch_jobs.status='partial'`；
+  `bank_feed.run()` 有数据时把目标缺口写 `warning`（0 数据仍 `error`，fail-closed）；
+  `bank_feed` 上报 `progress_callback`（total/done/articles）；批次聚合区分
+  `partial_sources`；CLI 打 `WARN` / `PARTIAL`；手动点击（`base.force`）绕开
+  `retry_after_min` 冷却。前端单任务终态接受 `partial`，弹窗显示
+  「部分完成 · N 篇 · 缺口」，警告条用 `banner-warning`。
+- **P3 确定性解析**：`parse_static_list()` / `collect_official_static()` 解析
+  boc / abchina / ccb / psbc 四个官网（列表锚点 + URL 日期 + 详情页正文），
+  ccb 老站点定向放行 legacy TLS；静态失败自动回退 agent 并在 feed `fallbacks`
+  留痕；工行保持 agent（JS 渲染）。
+
+**实测**
+
+- bot `--no-agent` 全量：**49 条 / 0 error / ~20s**（此前 agent 段约 12 分钟）；
+  boc 12 / abc 12 / ccb 12 / psbc 10 / 一财 3；正文中位数 1120 字。
+- 隔离环境 8902 端到端：故意塞一个坏目标 → job **`partial`**，
+  `articles_so_far=12`、`inserted=12`、warning 列出 `dead-rss`。
+- 浏览器（Playwright）实测弹窗：状态「部分完成」、顶部/底部均「12 篇」、
+  警告条 class `fr-error banner-warning`、完成摘要
+  `12 篇 · 用时 9s · feed 不完整: 1 个目标失败 (dead-rss)`。
+- 全量测试 **1761 passed / 2 skipped**。
+
+---
+
 ## 补丁: **v1.0.87 — 生图方式说明 + 提炼卡文案** (2026-11-13 · Sprint 46 · PR #204 · tag `v1.0.87`)
 
 **合并**: squash（base = `main@9f4e586` / v1.0.86）· **测试**: 前端红线 92 passed

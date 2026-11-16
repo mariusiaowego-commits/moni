@@ -457,6 +457,7 @@ def _run_fetch_job(
             return
 
         fetcher = _FETCHER_REGISTRY[source_name]()
+        fetcher.force = bool(force)
         if date_from:
             fetcher.date_from = date_from
         if date_to:
@@ -514,6 +515,12 @@ def _run_fetch_job(
         # failed job — otherwise the UI shows a green "done" with 0 articles.
         if result.get("error"):
             jobs.mark_failed(job_id, str(result["error"]), handle=handle)
+            return
+
+        # 有数据入库但有目标/子步骤失败 → partial, 别把已入库的成果
+        # 显示成「失败 · 0 篇」(v1.0.88)。
+        if result.get("warning"):
+            jobs.mark_partial(job_id, result, str(result["warning"]), handle=handle)
             return
 
         jobs.mark_done(job_id, result, handle=handle)
@@ -928,6 +935,7 @@ def _run_batch_job_inner(
 
     total_inserted = 0
     sources_failed = 0
+    sources_partial = 0
     attempted = 0
     aborted = False
 
@@ -1006,6 +1014,11 @@ def _run_batch_job_inner(
                 if result.get("error"):
                     jobs.mark_failed(job_id, str(result["error"]), handle=handle)
                     sources_failed += 1
+                elif result.get("warning"):
+                    jobs.mark_partial(
+                        job_id, result, str(result["warning"]), handle=handle
+                    )
+                    sources_partial += 1
                 else:
                     jobs.mark_done(job_id, result, handle=handle)
 
@@ -1072,6 +1085,8 @@ def _run_batch_job_inner(
             error = f"批次中断（已执行 {attempted}/{len(enabled)} 个信源）"
         elif sources_failed:
             error = f"{sources_failed} source(s) failed"
+        elif sources_partial:
+            error = f"{sources_partial} source(s) partial"
         else:
             error = None
         sources_run = attempted if aborted else len(enabled) - sources_failed

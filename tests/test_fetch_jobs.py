@@ -93,6 +93,51 @@ class TestFetchJobStore:
         assert "ConnectionError" in job["error"]
         assert job["finished_at"] is not None
 
+    def test_mark_partial_keeps_inserted_count_and_warning(self, fresh_db):
+        """v1.0.88: 有入库但有目标失败 → partial, 不是 failed。"""
+        store = FetchJobStore()
+        job_id = store.create("bank_feed")
+        store.update_progress(job_id, articles_so_far=19)
+        result = {
+            "source": "bank_feed",
+            "inserted": 19,
+            "warning": "feed 不完整: 1 个目标失败 (psbc-news)",
+        }
+        store.mark_partial(job_id, result, result["warning"])
+
+        job = store.get(job_id)
+        assert job["status"] == "partial"
+        assert job["result"] == result
+        assert "psbc-news" in job["error"]
+        assert job["articles_so_far"] == 19
+        assert store.has_running() is False
+
+    def test_get_batch_reports_partial_sources(self, fresh_db):
+        store = FetchJobStore()
+        ok = store.create("a", batch_id="b1")
+        part = store.create("b", batch_id="b1")
+        bad = store.create("c", batch_id="b1")
+        store.mark_done(ok, {"inserted": 1})
+        store.mark_partial(part, {"inserted": 2}, "1 个目标失败")
+        store.mark_failed(bad, "boom")
+
+        batch = store.get_batch("b1")
+        assert batch["status"] == "partial"
+        assert batch["done_sources"] == 3
+        assert batch["partial_sources"] == 1
+        assert batch["failed_sources"] == 1
+
+    def test_get_batch_all_partial_is_not_failed(self, fresh_db):
+        store = FetchJobStore()
+        first = store.create("a", batch_id="b2")
+        second = store.create("b", batch_id="b2")
+        store.mark_partial(first, {"inserted": 1}, "目标失败")
+        store.mark_partial(second, {"inserted": 1}, "目标失败")
+
+        batch = store.get_batch("b2")
+        assert batch["status"] == "partial"
+        assert batch["failed_sources"] == 0
+
     def test_mark_timeout_persists_with_default_message(self, fresh_db):
         store = FetchJobStore()
         job_id = store.create("36kr_rss")
@@ -593,6 +638,40 @@ def test_worker_marks_job_failed_when_result_carries_error(fresh_db):
         assert "agent bot failed" in job["error"]
     finally:
         _FETCHER_REGISTRY.pop("stub-err", None)
+
+
+def test_worker_marks_job_partial_when_result_carries_warning(fresh_db):
+    """有入库 + 目标失败 → partial (v1.0.88), 不能显示成「失败 · 0 篇」。"""
+    from moni.fetch.base import _FETCHER_REGISTRY
+    from moni.web.routes import fetch as fetch_route
+    from moni.web.routes.fetch import FetchJobStore
+
+    class WarnFetcher:
+        source_name = "stub-warn"
+        date_from = None
+        date_to = None
+        progress_callback = None
+
+        def run(self):
+            if self.progress_callback:
+                self.progress_callback(total_feeds=44, done_feeds=44, articles_so_far=19)
+            return {
+                "source": "stub-warn", "fetched": 44, "parsed": 44, "inserted": 19,
+                "warning": "feed 不完整: 1 个目标失败 (psbc-news)",
+                "failed_targets": ["psbc-news"],
+            }
+
+    _FETCHER_REGISTRY["stub-warn"] = WarnFetcher
+    try:
+        job_id = FetchJobStore().create("stub-warn")
+        fetch_route._run_fetch_job(job_id, "stub-warn", None, None, True)
+        job = FetchJobStore().get_raw(job_id)
+        assert job["status"] == "partial"
+        assert "psbc-news" in job["error"]
+        assert job["articles_so_far"] == 19
+        assert job["result"]["inserted"] == 19
+    finally:
+        _FETCHER_REGISTRY.pop("stub-warn", None)
 
 
 # ── v1.0.7.6 zombie sweep tests ────────────────────────────────────────────

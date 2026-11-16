@@ -91,6 +91,12 @@ class BaseFetcher(ABC):
 
     progress_callback: Any = None
 
+    # ── manual trigger (v1.0.88) ────────────────────────────────────────────
+    # True when the user clicked "立即抓取" (web) instead of the scheduled
+    # path. Sources with their own retry cooldown (bank_feed) use it to skip
+    # the cooldown — an explicit click means "retry the failed targets now".
+    force: bool = False
+
     def _register(self) -> None:
         """Register this class in the global fetcher registry."""
         _FETCHER_REGISTRY[self.source_name] = type(self)

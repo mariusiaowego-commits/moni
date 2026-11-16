@@ -1912,6 +1912,8 @@ function app() {
 
           // terminal batch
           this.fetchingAll = false;
+        // 终态补一次计数: 快任务可能一次轮询就到终态, 动画没机会跑到最终值。
+        this._animateArticleCount(data.articles_so_far || 0);
           const allResults = [
             ...(data.results || []),
             ...(data.errors || []).map(e => ({ source: e.source, error: e.error })),
@@ -1920,8 +1922,9 @@ function app() {
           this.setFetchAllResult({
             status: data.status === 'failed' ? 'partial' : data.status,
             sources_total: data.total_sources,
-            sources_ok: data.total_sources - (data.failed_sources || 0),
+            sources_ok: data.total_sources - (data.failed_sources || 0) - (data.partial_sources || 0),
             sources_failed: data.failed_sources || 0,
+            sources_partial: data.partial_sources || 0,
             total_inserted: totalInserted,
             results: allResults,
           });
@@ -1929,7 +1932,11 @@ function app() {
             this._finishFetchAnimation(true);
             const labelMap = { done: '完成', partial: '部分完成', failed: '失败' };
             this._flipStatus(labelMap[data.status] || data.status);
-            this._showCompletion(`${data.total_sources || 0} 个源 · 新增 ${totalInserted} 篇 · 用时 ${data.elapsed_seconds || 0}s`);
+            const partialNote = data.partial_sources ? ` · ${data.partial_sources} 源部分完成` : '';
+            this._showCompletion(
+              `${data.total_sources || 0} 个源 · 新增 ${totalInserted} 篇 · 用时 ${data.elapsed_seconds || 0}s${partialNote}`,
+              data.status === 'partial' ? '部分完成' : '抓取完成！',
+            );
           }
           if (data.status === 'done' || data.status === 'partial') this.loadSources();
           this._scheduleTaskLinger(t, data.status);
@@ -1953,7 +1960,7 @@ function app() {
         });
         this._upsertFetchTask({ ...t });
 
-        const terminal = ['done', 'failed', 'timeout', 'stale', 'cancelled'].includes(data.status);
+        const terminal = ['done', 'partial', 'failed', 'timeout', 'stale', 'cancelled'].includes(data.status);
         if (!terminal) {
           if (this.fetchProgressModal && this.fetchProgress?.id === t.id && this.fetchBatchMode === false) {
             this._updateFeedInfo(data.source || t.source || '', data.current_feed || '');
@@ -1964,21 +1971,26 @@ function app() {
         }
 
         if (this.fetchProgressModal && this.fetchProgress?.id === t.id) {
+          this._animateArticleCount(data.articles_so_far || 0);
           this._finishFetchAnimation(data.status !== 'done');
-          const labelMap = { done: '完成', failed: '失败', timeout: '超时', stale: '已中止' };
+          const labelMap = { done: '完成', partial: '部分完成', failed: '失败', timeout: '超时', stale: '已中止' };
           this._flipStatus(labelMap[data.status] || data.status);
-          if (data.status === 'done') {
+          if (data.status === 'done' || data.status === 'partial') {
             const r2 = data.result || {};
-            const summary = `${r2.inserted || 0} 篇 · 用时 ${data.elapsed_seconds || 0}s`;
+            const gap = data.status === 'partial' ? ` · ${data.error || '部分目标失败'}` : '';
+            const summary = `${r2.inserted || 0} 篇 · 用时 ${data.elapsed_seconds || 0}s${gap}`;
             this._suckIntoMoni();
-            this._showCompletion(summary);
+            this._showCompletion(
+              summary,
+              data.status === 'partial' ? '部分完成' : '抓取完成！',
+            );
             this.loadSources();
           }
-        } else if (data.status === 'done' || data.status === 'failed') {
+        } else if (data.status === 'done' || data.status === 'partial' || data.status === 'failed') {
           this.loadSources();
         }
         // surface last single result into result panel（默认折叠）
-        if (data.status === 'done' && data.result) {
+        if ((data.status === 'done' || data.status === 'partial') && data.result) {
           const text = typeof data.result === 'string'
             ? data.result
             : JSON.stringify(data.result, null, 2);
@@ -3090,10 +3102,12 @@ function app() {
       });
     },
 
-    _showCompletion(summary) {
+    _showCompletion(summary, label = '抓取完成！') {
       const overlay = document.getElementById('completionOverlay');
       const sub = document.getElementById('completionSub');
       if (!overlay) return;
+      const title = overlay.querySelector('.completion-text');
+      if (title) title.textContent = label;
       if (sub && summary) sub.textContent = summary;
       overlay.classList.add('show');
     },

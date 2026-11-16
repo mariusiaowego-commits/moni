@@ -787,7 +787,7 @@
               <div style="position:absolute; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; font-size:var(--font-12); font-weight:600;"
                 x-text="fetchProgress ? `${fetchProgress.done_feeds || 0} / ${fetchProgress.total_feeds || 0}` : '...'"></div>
             </div>
-            <div class="muted" style="margin-top:8px; font-size:var(--font-13);">当前 feed: <span x-text="fetchProgress?.current_feed || '(初始化中)'" style="font-family:monospace;"></span></div>
+            <div class="muted" style="margin-top:8px; font-size:var(--font-13);">当前 feed: <span x-text="fetchProgress?.current_feed || (isFetchRunning ? '(初始化中)' : '—')" style="font-family:monospace;"></span></div>
           </div>
 
           <!-- Articles counter -->
@@ -797,7 +797,8 @@
           </div>
 
           <!-- Error block — single source -->
-          <div x-show="!fetchBatchMode && fetchProgress?.error" class="fr-error banner-error"
+          <div x-show="!fetchBatchMode && fetchProgress?.error"
+            :class="fetchProgress?.status === 'partial' ? 'fr-error banner-warning' : 'fr-error banner-error'"
             x-text="fetchProgress?.error"></div>
 
           <!-- Error block — batch mode -->
@@ -808,7 +809,8 @@
           </div>
 
           <!-- Final result — single source -->
-          <div x-show="!fetchBatchMode && fetchProgress?.status === 'done' && fetchProgress?.result" class="banner-success">
+          <div x-show="!fetchBatchMode && (fetchProgress?.status === 'done' || fetchProgress?.status === 'partial') && fetchProgress?.result"
+            :class="fetchProgress?.status === 'partial' ? 'banner-warning' : 'banner-success'">
             <div><b x-text="fetchProgress?.result?.fetched || 0"></b> 原始 → <b x-text="fetchProgress?.result?.parsed || 0"></b> 解析 → <b x-text="fetchProgress?.result?.inserted || 0"></b> 入库</div>
             <div class="muted" style="margin-top:4px;">
               <span x-show="fetchProgress?.result?.dropped_blacklist > 0">黑名单丢弃 <b x-text="fetchProgress?.result?.dropped_blacklist"></b> · </span>

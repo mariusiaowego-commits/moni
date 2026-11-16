@@ -544,3 +544,129 @@ def test_item_problems_rejects_bad_source_type_and_oversize(bot):
     item["source_type"] = "media"
     item["title"] = "建" * 301
     assert any("title" in p for p in bot.item_problems(item, 0))
+
+
+# ── v1.0.88: 官网确定性解析 ───────────────────────────────────────────────
+
+def test_date_from_url_reads_both_site_layouts(bot):
+    assert bot.date_from_url("https://www.psbc.com/cn/gyyc/ycfm/ycdt/202611/t20261112_25705208.html") == "2026-11-12"
+    assert bot.date_from_url("https://group.ccb.cn/chn/2026-11/16/article_2026111610162388669.shtml") == "2026-11-16"
+    assert bot.date_from_url("https://www.psbc.com/cn/gyyc/ycfm/ycdt/index.html") is None
+
+
+def test_parse_static_list_filters_and_sorts(bot):
+    html = """
+    <a href="/nav/about.html">关于我们</a>
+    <a href="./202611/t20261110_100.html">建设银行与某集团签署战略合作协议</a>
+    <a href="./202611/t20261112_102.html">建设银行发布2026年三季度经营业绩报告</a>
+    <a href="./202611/t20261112_102.html">建设银行发布2026年三季度经营业绩报告</a>
+    <a href="./202611/t20261111_101.html">建设银行2026年办公用品采购招标公告</a>
+    <a href="https://other.example.com/t20261101_9.html">外站链接不算</a>
+    """
+    rows = bot.parse_static_list(
+        html, "https://www.ccb.com/news/", max_items=10
+    )
+    assert [r["date"] for r in rows] == ["2026-11-12", "2026-11-10"]
+    assert rows[0]["title"].startswith("建设银行发布")
+    assert rows[0]["url"] == "https://www.ccb.com/news/202611/t20261112_102.html"
+
+
+def test_parse_static_list_caps_items(bot):
+    html = "".join(
+        f'<a href="./202611/t202611{day:02d}_{day}.html">建设银行第{day}号新闻发布</a>'
+        for day in range(1, 21)
+    )
+    rows = bot.parse_static_list(html, "https://www.ccb.com/n/", max_items=5)
+    assert len(rows) == 5
+    assert rows[0]["date"] == "2026-11-20"
+
+
+def test_collect_official_static_builds_items(bot, monkeypatch):
+    html = '<a href="./202611/t20261112_1.html">邮储银行发布2026年三季度经营业绩</a>'
+    monkeypatch.setattr(bot, "_http_get", lambda url, timeout: html.encode("utf-8"))
+    monkeypatch.setattr(bot, "fetch_detail_text", lambda url, timeout: "正文" * 80)
+    target = {
+        "id": "psbc-news", "kind": "official_list", "url": "https://www.psbc.com/x/",
+        "bank": "psbc", "publisher": "中国邮政储蓄银行", "max_items": 5,
+    }
+    items = bot.collect_official_static(target, timeout=5)
+    assert len(items) == 1
+    item = items[0]
+    assert item["bank"] == "psbc"
+    assert item["source_type"] == "official"
+    assert item["created_at"].startswith("2026-11-12")
+    assert len(item["text"]) >= 100
+
+
+def test_collect_official_static_empty_list_raises(bot, monkeypatch):
+    monkeypatch.setattr(bot, "_http_get", lambda url, timeout: b"<html></html>")
+    target = {
+        "id": "psbc-news", "kind": "official_list", "url": "https://www.psbc.com/x/",
+        "bank": "psbc", "publisher": "中国邮政储蓄银行", "max_items": 5,
+    }
+    with pytest.raises(bot.TargetError, match="no dated article links"):
+        bot.collect_official_static(target, timeout=5)
+
+
+# ── v1.0.88: agent 瞬时失败重试 ────────────────────────────────────────────
+
+def test_call_agent_with_retry_retries_transient(bot, monkeypatch):
+    calls: list[int] = []
+
+    def fake(prompt, *, timeout, profile):
+        calls.append(1)
+        if len(calls) == 1:
+            raise bot.TargetError("agent exited 1: Error: session_replay_gap")
+        return "[]"
+
+    monkeypatch.setattr(bot, "call_agent", fake)
+    monkeypatch.setattr(bot.time, "sleep", lambda s: None)
+    assert bot.call_agent_with_retry("p", timeout=5, profile="moni") == "[]"
+    assert len(calls) == 2
+
+
+def test_call_agent_with_retry_does_not_retry_hard_error(bot, monkeypatch):
+    calls: list[int] = []
+
+    def fake(prompt, *, timeout, profile):
+        calls.append(1)
+        raise bot.TargetError("agent JSON is invalid: boom")
+
+    monkeypatch.setattr(bot, "call_agent", fake)
+    with pytest.raises(bot.TargetError, match="agent JSON is invalid"):
+        bot.call_agent_with_retry("p", timeout=5, profile="moni")
+    assert len(calls) == 1
+
+
+def test_main_falls_back_to_agent_when_static_fails(tmp_path, bot, monkeypatch):
+    targets = {
+        "targets": [{
+            "id": "psbc-news", "kind": "official_list", "static": True,
+            "url": "https://www.psbc.com/x/", "bank": "psbc",
+            "publisher": "中国邮政储蓄银行",
+        }]
+    }
+    tfile = tmp_path / "targets.json"
+    tfile.write_text(json.dumps(targets, ensure_ascii=False), encoding="utf-8")
+
+    monkeypatch.setattr(
+        bot, "collect_official_static",
+        lambda target, timeout: (_ for _ in ()).throw(bot.TargetError("no links")),
+    )
+    monkeypatch.setattr(
+        bot, "collect_agent",
+        lambda targets, **kw: ([{
+            "id": "psbc-abc", "url": "https://www.psbc.com/a.html",
+            "title": "邮储银行发布公告", "text": "正文" * 80,
+            "created_at": "2026-11-12T00:00:00+08:00", "bank": "psbc",
+            "source_type": "official", "publisher": "中国邮政储蓄银行",
+            "target_id": "psbc-news",
+        }], []),
+    )
+    out = tmp_path / "feed"
+    assert bot.main([
+        "--output-dir", str(out), "--targets", str(tfile), "--date", "2026-11-16",
+    ]) == 0
+    payload = json.loads((out / "latest.json").read_text(encoding="utf-8"))
+    assert payload["fallbacks"] == [{"target": "psbc-news", "reason": "no links"}]
+    assert [i["id"] for i in payload["items"]] == ["psbc-abc"]
