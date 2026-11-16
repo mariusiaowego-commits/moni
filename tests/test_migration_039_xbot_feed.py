@@ -99,7 +99,7 @@ def _links(conn, source_id: str = SOURCE_ID) -> list[str]:
 
 
 def test_039_version_constant_is_39():
-    assert _CURRENT_VERSION == 42
+    assert _CURRENT_VERSION == 43
 
 
 # ── 2. the source lands on an unseeded (v38-era) database ──────────────
@@ -432,7 +432,7 @@ def test_039_fresh_db_via_migrate(tmp_path):
     version = conn.execute(
         "SELECT COALESCE(MAX(version), 0) FROM schema_version"
     ).fetchone()[0]
-    assert version == 42
+    assert version == 43
     assert _row(conn) is not None
     close_db()
 
@@ -454,7 +454,7 @@ def test_039_on_v38_db_without_seed(tmp_path):
     version = conn.execute(
         "SELECT COALESCE(MAX(version), 0) FROM schema_version"
     ).fetchone()[0]
-    assert version == 42
+    assert version == 43
     assert _row(conn) is not None
     close_db()
 
@@ -754,6 +754,19 @@ CREATE TABLE llm_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- 043 alters llm_jobs. A real v38 database has had that table since
+-- migration 005; the old minimal fixture omitted it because 039 never
+-- touched it.
+CREATE TABLE llm_jobs (
+    id          TEXT PRIMARY KEY,
+    task_type   TEXT NOT NULL,
+    article_id  TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    attempts    INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL,
+    fence       INTEGER NOT NULL DEFAULT 0
+);
 """
 
 #: The four business tags migration 039 binds the source to.
@@ -845,7 +858,7 @@ def test_039_upgrades_a_v38_db_without_seed(tmp_path):
     new_version = conn.execute(
         "SELECT COALESCE(MAX(version), 0) FROM schema_version"
     ).fetchone()[0]
-    assert new_version == 42
+    assert new_version == 43
     row = conn.execute(
         "SELECT id, name, display_name, is_active FROM sources WHERE id = ?",
         (SOURCE_ID,),
@@ -891,7 +904,7 @@ def test_039_upgrades_a_v38_db_that_has_the_business_tags(tmp_path):
     conn.row_factory = sqlite3.Row
     assert conn.execute(
         "SELECT COALESCE(MAX(version), 0) FROM schema_version"
-    ).fetchone()[0] == 42
+    ).fetchone()[0] == 43
     row = conn.execute(
         "SELECT id, name, is_active FROM sources WHERE id = ?", (SOURCE_ID,)
     ).fetchone()
@@ -1037,7 +1050,7 @@ def test_039_upgrades_a_db_built_by_old_code(tmp_path):
         new_version = conn.execute(
             "SELECT COALESCE(MAX(version), 0) FROM schema_version"
         ).fetchone()[0]
-        assert new_version == 42
+        assert new_version == 43
         row = conn.execute(
             "SELECT id, name, display_name, is_active FROM sources WHERE id = ?",
             (SOURCE_ID,),

@@ -12,12 +12,22 @@
 | `docs/v1.0.89-relabel` | 已合并，可删 | PR #209 squash `fcd3d18` |
 | `feat/xbot-author-block-v1.0.75` | 已合并，可删（含 worktree `~/dev/moni-worktrees/xbot-author-block-v1.0.75`） | PR #206 squash `fa651fb`，tag `v1.0.88` |
 | `feat/bank-peer-source-plan` | PR 已关闭，可删 | PR #185 CLOSED，内容已被 v1.0.89 覆盖 |
-| `feat/articles-reading-ai` | **勿删，在开发** | PR #207 OPEN（Sprint 47，版本号需避开已占用的 v1.0.88/89/90） |
+| `feat/articles-reading-ai` | **勿删，在开发** | PR #207 OPEN；已合入 main 至 v1.0.90，版本号仍待分配 |
 | `feat/contest-finals-2611` / `feat/showcase-demo-2611` | **勿删，未合并** | 无 PR |
 
 删分支前按惯例先 `gh pr view <n>` 确认 MERGED / CLOSED，再逐条报给 dad；不批量 `git branch -D`。
 
 ---
+
+## 进行中: **文章查阅阅读 / 筛选 / AI 对话** (2026-11-16 · Sprint 47 · PR #207)
+
+分支 `feat/articles-reading-ai`。开发起点是 v1.0.87（`d7e6680`），未包含当时还在别的分支上的提交。2026-11-16 已把 `origin/main` 后到的 5 个提交合进来：#206 v1.0.88、#208/#209 v1.0.89、#210/#211 v1.0.90。v1.0.88/89/90 已被占用，本功能尚未打 tag、未重启 8900。
+
+文章查阅：正文按 Markdown 渲染，剔除图片；标签芯片 + 信源多选；全部列表可批量硬删除（上限 200）。详情右侧是一次性 `hermes chat --oneshot` 对话，不新建 profile、不累积 hermes session。2 万字以内整篇送入；更长的文章分段读完再合并。每次提问写入 `llm_jobs.task_type=reader_chat`。关闭详情后任务继续，完成后列表出现「AI 有新结果」。
+
+`moni` profile 走 hermes gateway，`--run-budget` 会被拒，超时由本地看门狗杀进程组。AI 面板按 AICSS 手写：orb 等待态、3 字/12ms 逐字上屏、思考折叠、引文 chip、12px 圆角表格。详情弹窗左右卡片对齐，动作按钮在左栏底部吸条。xbot「屏蔽作者」按钮留在作者芯片上。
+
+Schema：042（作者屏蔽，已在 main）+ 043（reader AI）。`_CURRENT_VERSION = 43`。`migrate()` 会补跑 41 之后缺席的迁移，避免并行版本互相跳过。
 
 ## 已发布: **v1.0.90 — 60 天时效窗口覆盖 agent / 媒体条目** (2026-11-16 · PR #210 · tag `v1.0.90`)
 

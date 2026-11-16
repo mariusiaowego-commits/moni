@@ -9,13 +9,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response
 
 from moni.db.connection import get_db
 from moni.web.exceptions import BadRequestError, NotFoundError, ServiceUnavailableError
 from moni.web.models import (
     Article,
     ArticleSummaryRequest,
+    BulkDeleteRequest,
     FactCheckRequest,
     ImportFulltextRequest,
     TagRef,
@@ -91,21 +92,48 @@ def _row_to_article(row: dict[str, Any], fresh_thresholds: dict[str, str] | None
         url=row["url"],
         author=row["publisher"],
         published_at=row["published_at"],
-        content=row["raw_content"],
+        content=row.get("raw_content"),
         summary=row["summary"],
         is_deleted=False,
         is_fresh=is_fresh,
         is_pinned=is_pinned,
         pinned_at=pinned_at_dt,
+        reader_unread=bool(row.get("reader_unread") or 0),
         created_at=fetched_at,
         updated_at=fetched_at,
     )
 
 
+_ARTICLE_SORTS = {
+    "fetched_at_desc": "a.fetched_at DESC",
+    "published_at_desc": "a.published_at DESC",
+    "title_asc": "a.title ASC",
+}
+
+
+def _csv_values(raw: str | None, *, cap: int) -> list[str]:
+    """Split a comma-separated filter into unique, capped values."""
+    if not raw:
+        return []
+    seen: list[str] = []
+    for part in raw.split(","):
+        value = part.strip()
+        if value and value not in seen:
+            seen.append(value)
+        if len(seen) >= cap:
+            break
+    return seen
+
+
 @router.get("", response_model=list[Article])
 def list_articles(
+    response: Response,
     source: str | None = Query(None, description="Filter by source name"),
     tag: str | None = Query(None, description="Filter by tag name"),
+    sources: str | None = Query(None, description="Comma-separated source names (OR)"),
+    tags: str | None = Query(None, description="Comma-separated tag names"),
+    tag_mode: str = Query("or", pattern="^(or|and)$"),
+    sort: str = Query("fetched_at_desc", description="fetched_at_desc | published_at_desc | title_asc"),
     # v1.0.5.10: keyword search — case-insensitive LIKE on title + raw_content.
     # Frontend has always sent this param (since v1.0.2), but the route
     # silently ignored it.  Now we actually filter.  The frontend
@@ -136,18 +164,30 @@ def list_articles(
     """
     conn = get_db()
 
-    # Build WHERE + params dynamically. All three filters are independent.
+    source_values = _csv_values(sources, cap=30) or ([source] if source else [])
+    tag_values = _csv_values(tags, cap=20) or ([tag] if tag else [])
+
     where_clauses: list[str] = []
     params: list[Any] = []
-    if source:
-        where_clauses.append("a.source = ?")
-        params.append(source)
-    if tag:
-        where_clauses.append(
-            "EXISTS (SELECT 1 FROM article_tags at "
-            "WHERE at.article_id = a.id AND at.tag_name = ?)"
-        )
-        params.append(tag)
+    if source_values:
+        placeholders = ",".join("?" for _ in source_values)
+        where_clauses.append(f"a.source IN ({placeholders})")
+        params.extend(source_values)
+    if tag_values:
+        placeholders = ",".join("?" for _ in tag_values)
+        if tag_mode == "and":
+            where_clauses.append(
+                "(SELECT COUNT(DISTINCT at.tag_name) FROM article_tags at "
+                f"WHERE at.article_id = a.id AND at.tag_name IN ({placeholders})) = ?"
+            )
+            params.extend(tag_values)
+            params.append(len(tag_values))
+        else:
+            where_clauses.append(
+                "EXISTS (SELECT 1 FROM article_tags at "
+                f"WHERE at.article_id = a.id AND at.tag_name IN ({placeholders}))"
+            )
+            params.extend(tag_values)
     if keyword:
         # SQLite LIKE is case-insensitive for ASCII by default; wrap
         # the user-supplied substring in %...% for substring match.
@@ -157,9 +197,10 @@ def list_articles(
         params.append(like)
     where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
+    order_sql = _ARTICLE_SORTS.get(sort, _ARTICLE_SORTS["fetched_at_desc"])
     sql = f"""
         SELECT a.id, a.title, a.url, a.source, a.publisher, a.published_at,
-               a.raw_content, a.summary, a.fetched_at,
+               a.summary, a.fetched_at,
                (SELECT GROUP_CONCAT(
                   CASE WHEN td.color IS NULL OR td.color = ''
                        THEN CASE WHEN td.display_name IS NULL OR td.display_name = ''
@@ -182,15 +223,24 @@ def list_articles(
                -- v1.0.8: pin status via LEFT JOIN.  p.pinned_at is NULL
                -- when the article is not pinned, so we use that as the
                -- boolean check.
-               p.pinned_at AS pinned_at
+               p.pinned_at AS pinned_at,
+               EXISTS (SELECT 1 FROM reader_conversations rc
+                       WHERE rc.article_id = a.id AND rc.unread = 1) AS reader_unread
         FROM articles a
         LEFT JOIN article_pins p ON p.article_id = a.id
         {where_sql}
-        ORDER BY a.fetched_at DESC
+        ORDER BY {order_sql}
         LIMIT ? OFFSET ?
     """
+    count_sql = f"""
+        SELECT COUNT(*) AS n
+        FROM articles a
+        {where_sql}
+    """
+    total = int(conn.execute(count_sql, params).fetchone()["n"])
     params.extend([limit, offset])
     rows = conn.execute(sql, params).fetchall()
+    response.headers["X-Total-Count"] = str(total)
 
     # v1.0.7.0: 计算每个信源的最新抓取时间
     fresh_thresholds: dict[str, str] = {}
@@ -201,6 +251,72 @@ def list_articles(
         fresh_thresholds[r["source"]] = r["max_fetched"]
 
     return [_row_to_article(dict(row), fresh_thresholds) for row in rows]
+
+
+@router.get("/facets")
+def article_facets() -> dict[str, Any]:
+    """Tag/source counts for the header filter chips.
+
+    Counts are global (not keyword-scoped) so the chip row does not jump
+    while the user is typing.  The list itself applies the real filters.
+    """
+    conn = get_db()
+    tag_rows = conn.execute(
+        """
+        SELECT at.tag_name AS name, COUNT(*) AS count,
+               td.display_name AS display_name, td.color AS color
+        FROM article_tags at
+        LEFT JOIN tag_definitions td ON td.name = at.tag_name
+        GROUP BY at.tag_name
+        ORDER BY count DESC, name ASC
+        """
+    ).fetchall()
+    source_rows = conn.execute(
+        """
+        SELECT a.source AS name, COUNT(*) AS count, s.display_name AS display_name
+        FROM articles a
+        LEFT JOIN sources s ON s.name = a.source
+        GROUP BY a.source
+        ORDER BY count DESC, name ASC
+        """
+    ).fetchall()
+    return {
+        "tags": [dict(r) for r in tag_rows],
+        "sources": [dict(r) for r in source_rows],
+    }
+
+
+@router.post("/bulk-delete")
+def bulk_delete_articles(body: BulkDeleteRequest) -> dict[str, Any]:
+    """Hard-delete up to 200 articles.
+
+    Cascades remove tags, pins, llm_jobs and reader conversations.  The
+    UI must show a confirmation dialog before calling this; the endpoint
+    does not ask twice.
+    """
+    ids = [value for value in dict.fromkeys(body.ids) if value]
+    if not ids:
+        raise BadRequestError(message="ids must contain at least one article id")
+    if len(ids) > 200:
+        raise BadRequestError(message="bulk delete is limited to 200 articles")
+
+    conn = get_db()
+    placeholders = ",".join("?" for _ in ids)
+    existing = {
+        row["id"]
+        for row in conn.execute(
+            f"SELECT id FROM articles WHERE id IN ({placeholders})", ids
+        ).fetchall()
+    }
+    if not existing:
+        return {"deleted": 0, "missing": ids}
+    conn.execute(
+        f"DELETE FROM articles WHERE id IN ({','.join('?' for _ in existing)})",
+        tuple(existing),
+    )
+    conn.commit()
+    missing = [value for value in ids if value not in existing]
+    return {"deleted": len(existing), "missing": missing}
 
 
 @router.get("/{article_id}", response_model=Article)
@@ -230,7 +346,9 @@ def get_article(article_id: str) -> Article:
                           FROM article_keyword_hits
                          WHERE article_id = a.id
                          GROUP BY tag_name)) AS tag_keyword_hits,
-               p.pinned_at AS pinned_at
+               p.pinned_at AS pinned_at,
+               EXISTS (SELECT 1 FROM reader_conversations rc
+                       WHERE rc.article_id = a.id AND rc.unread = 1) AS reader_unread
         FROM articles a
         LEFT JOIN article_pins p ON p.article_id = a.id
         WHERE a.id = ?

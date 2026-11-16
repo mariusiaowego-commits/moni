@@ -132,7 +132,7 @@ def cancel_llm_job(job_id: str) -> dict[str, Any]:
 
     conn = get_db()
     row = conn.execute(
-        "SELECT id, status FROM llm_jobs WHERE id = ?", (job_id,)
+        "SELECT id, status, task_type FROM llm_jobs WHERE id = ?", (job_id,)
     ).fetchone()
     if row is None:
         raise NotFoundError(message=f"LLM job {job_id!r} not found")
@@ -140,12 +140,17 @@ def cancel_llm_job(job_id: str) -> dict[str, Any]:
         raise ConflictError(
             message=f"Job {job_id!r} is already {row['status']!r}; cannot cancel",
         )
-    now = datetime.now(timezone.utc).isoformat()
-    conn.execute(
-        "UPDATE llm_jobs SET status = 'cancelled', finished_at = ? WHERE id = ?",
-        (now, job_id),
-    )
-    conn.commit()
+    if row["task_type"] == "reader_chat":
+        from moni.llm.reader_worker import cancel_reader_run
+
+        cancel_reader_run(job_id)
+    else:
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "UPDATE llm_jobs SET status = 'cancelled', finished_at = ? WHERE id = ?",
+            (now, job_id),
+        )
+        conn.commit()
     logger.info("[llm_jobs] job %s cancelled by user", job_id)
     job = get_job(job_id)
     assert job is not None

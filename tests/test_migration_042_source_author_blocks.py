@@ -5,7 +5,7 @@
 口径（warden DoD v0.3.0）：
 - 新表 ``source_author_blocks``，来源列存 ``source_name``（**不存** sources.id，无 FK）
 - migration 幂等（重跑不报错、不重复建）
-- ``_CURRENT_VERSION`` bump 到 42
+- ``_CURRENT_VERSION`` 至少包含 042；当前是 043 reader AI
 """
 from __future__ import annotations
 
@@ -36,9 +36,9 @@ def fresh_db(tmp_path, monkeypatch):
     close_db()
 
 
-def test_current_version_is_42():
-    """AC-18：_CURRENT_VERSION 必须 bump 到 42。"""
-    assert _CURRENT_VERSION == 42
+def test_current_version_includes_042():
+    """042 已进 schema；当前版本是 043 reader AI。"""
+    assert _CURRENT_VERSION == 43
 
 
 def test_migration_042_file_exists():

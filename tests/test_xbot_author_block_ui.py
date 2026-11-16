@@ -6,7 +6,7 @@
 这里只钉死**结构与行为契约**。
 
 关键契约（warden DoD v0.3.0）：
-- AC-1: 按钮挂在**作者 chip 内部右侧**（不是底栏 .article-actions）；
+- AC-1: 按钮挂在**作者 chip 内部右侧**（不是动作条 .reader-sticky-bar）；
          只对 xbot_feed 出现；走主题变量。
 - AC-9: 名单管理 UI 在 sprint-35 的 ``.fetch-config-xbot`` 区块内。
 - AC-14: 二次确认**复用** ``window.moniModal.confirm``（modal.js:223），
@@ -74,13 +74,12 @@ def test_block_button_lives_inside_author_chip(index_html: str):
 
 
 def test_block_button_is_not_in_bottom_actions(index_html: str):
-    """AC-1：底栏 .article-actions 的既有按钮数量不能变（不挤占）。"""
-    start = index_html.index('<div class="article-actions">')
-    end = index_html.index("</div>", start)
+    """AC-1：动作条不放屏蔽按钮。Sprint 47 起底栏是 .reader-sticky-bar。"""
+    start = index_html.index('<div class="reader-sticky-bar">')
+    end = index_html.index("</main>", start)
     actions = index_html[start:end]
-    assert "屏蔽作者" not in actions, "屏蔽按钮不该进底栏"
-    # 既有 5 个动作按钮仍在
-    for label in ("生成摘要", "事实核查", "提取案例", "复制原文链接"):
+    assert "屏蔽作者" not in actions, "屏蔽按钮不该进动作条"
+    for label in ("生成摘要", "事实核查", "提取案例", "复制链接"):
         assert label in actions
 
 

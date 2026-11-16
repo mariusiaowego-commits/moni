@@ -55,6 +55,10 @@ class Article(BaseModel):
     # JOIN in the listing query.
     is_pinned: bool = False
     pinned_at: datetime | None = None
+    # Sprint 47: true when the article's latest reader conversation has an
+    # unread assistant reply.  Computed by the list query; False for
+    # articles that never entered the AI panel.
+    reader_unread: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -104,6 +108,12 @@ class ImportFulltextRequest(BaseModel):
     """Import full-text content from a local .md file."""
 
     file_path: str
+
+
+class BulkDeleteRequest(BaseModel):
+    """Delete up to 200 articles in one request (Sprint 47)."""
+
+    ids: list[str]
 
 
 # ---------------------------------------------------------------------------
