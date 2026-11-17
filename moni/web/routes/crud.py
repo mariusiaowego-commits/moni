@@ -150,6 +150,12 @@ def update_article(article_id: str, body: ArticleUpdate) -> Article:
     if cursor.rowcount == 0:
         raise NotFoundError(message=f"Article {article_id!r} not found")
 
+    # Pin quality derives from body/publisher/published_at (§5.2.5).
+    if body.author is not None or body.published_at is not None or body.content is not None:
+        from moni.scoring import recompute_quality_if_pinned
+
+        recompute_quality_if_pinned(conn, article_id)
+
     row = conn.execute(
         """
         SELECT id, title, url, source, publisher, published_at,

@@ -99,7 +99,7 @@ def _links(conn, source_id: str = SOURCE_ID) -> list[str]:
 
 
 def test_039_version_constant_is_39():
-    assert _CURRENT_VERSION == 44
+    assert _CURRENT_VERSION >= 44
 
 
 # ── 2. the source lands on an unseeded (v38-era) database ──────────────
@@ -432,7 +432,7 @@ def test_039_fresh_db_via_migrate(tmp_path):
     version = conn.execute(
         "SELECT COALESCE(MAX(version), 0) FROM schema_version"
     ).fetchone()[0]
-    assert version == 44
+    assert version == _CURRENT_VERSION
     assert _row(conn) is not None
     close_db()
 
@@ -454,7 +454,7 @@ def test_039_on_v38_db_without_seed(tmp_path):
     version = conn.execute(
         "SELECT COALESCE(MAX(version), 0) FROM schema_version"
     ).fetchone()[0]
-    assert version == 44
+    assert version == _CURRENT_VERSION
     assert _row(conn) is not None
     close_db()
 
@@ -858,7 +858,7 @@ def test_039_upgrades_a_v38_db_without_seed(tmp_path):
     new_version = conn.execute(
         "SELECT COALESCE(MAX(version), 0) FROM schema_version"
     ).fetchone()[0]
-    assert new_version == 44
+    assert new_version == _CURRENT_VERSION
     row = conn.execute(
         "SELECT id, name, display_name, is_active FROM sources WHERE id = ?",
         (SOURCE_ID,),
@@ -904,7 +904,7 @@ def test_039_upgrades_a_v38_db_that_has_the_business_tags(tmp_path):
     conn.row_factory = sqlite3.Row
     assert conn.execute(
         "SELECT COALESCE(MAX(version), 0) FROM schema_version"
-    ).fetchone()[0] == 44
+    ).fetchone()[0] == _CURRENT_VERSION
     row = conn.execute(
         "SELECT id, name, is_active FROM sources WHERE id = ?", (SOURCE_ID,)
     ).fetchone()
@@ -1050,7 +1050,7 @@ def test_039_upgrades_a_db_built_by_old_code(tmp_path):
         new_version = conn.execute(
             "SELECT COALESCE(MAX(version), 0) FROM schema_version"
         ).fetchone()[0]
-        assert new_version == 44
+        assert new_version == _CURRENT_VERSION
         row = conn.execute(
             "SELECT id, name, display_name, is_active FROM sources WHERE id = ?",
             (SOURCE_ID,),

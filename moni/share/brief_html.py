@@ -205,6 +205,8 @@ def _load_rows(db_path: str, article_ids: list[str]) -> list[sqlite3.Row]:
                        brief_body_md,
                        fact_check_conclusion, fact_check_note,
                        business_value_score, business_value_note,
+                       business_value_status, business_value_breakdown_json,
+                       business_value_hash, business_value_rubric,
                        quality_score, bb_score
                 FROM articles WHERE id IN ({ph})
                 ORDER BY CASE id {order} END
@@ -221,6 +223,8 @@ def _load_rows(db_path: str, article_ids: list[str]) -> list[sqlite3.Row]:
                        NULL as brief_summary, NULL as brief_body_md,
                        fact_check_conclusion, fact_check_note,
                        business_value_score, business_value_note,
+                       NULL as business_value_status, NULL as business_value_breakdown_json,
+                       NULL as business_value_hash, NULL as business_value_rubric,
                        quality_score, bb_score
                 FROM articles WHERE id IN ({ph})
                 """,
@@ -228,14 +232,26 @@ def _load_rows(db_path: str, article_ids: list[str]) -> list[sqlite3.Row]:
             ).fetchall()
         )
     conn.close()
-    # BV desc for brief
-    rows.sort(
-        key=lambda r: (
-            0 if r["business_value_score"] is not None else 1,
-            -(r["business_value_score"] or 0),
-        )
-    )
+    rows.sort(key=_brief_sort_key)
     return rows
+
+
+def _brief_sort_key(row: sqlite3.Row) -> tuple:
+    """ready -> legacy rows -> needs_review -> excluded; then score desc."""
+    score = row["business_value_score"]
+    try:
+        status = row["business_value_status"]
+    except (KeyError, IndexError, TypeError):
+        status = None
+    if status == "ready":
+        tier = 0
+    elif status == "needs_review":
+        tier = 2
+    elif status is None:
+        tier = 0 if score is not None else 3
+    else:
+        tier = 3
+    return (tier, -(score or 0))
 
 
 def _source_line(row: sqlite3.Row) -> str:
@@ -247,17 +263,112 @@ def _source_line(row: sqlite3.Row) -> str:
 
 
 def _quality(row: sqlite3.Row) -> int:
+    """Brief reading score: BestBlogs if present, else the local reading heuristic.
+
+    Deliberately ignores ``quality_score``: that column now belongs to the Pin
+    quality column (pin_heuristic_v2) and a 90-capped completeness number must
+    not masquerade as a reading score.
+    """
     if row["bb_score"] is not None:
         try:
             return int(row["bb_score"])
         except (TypeError, ValueError):
             pass
-    if row["quality_score"] is not None:
+    from moni.scoring import from_row, reading_heuristic
+
+    return reading_heuristic(from_row(row))
+
+
+def _quality_chip(row: sqlite3.Row, score: int) -> tuple[str, str]:
+    if row["bb_score"] is not None:
+        return f"阅读 {score}", "阅读分（0–100）：来自 BestBlogs 评分，优先展示"
+    return (
+        f"阅读 {score}",
+        "阅读分（0–100）：本地估算，含摘要与核查加分，与 Pin 质量列算法不同",
+    )
+
+
+def _bv_breakdown(row: sqlite3.Row) -> dict:
+    try:
+        raw = row["business_value_breakdown_json"]
+    except (KeyError, IndexError, TypeError):
+        return {}
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _bv_tags(row: sqlite3.Row) -> list[str]:
+    """Up to three dimension names that reached 7+, weight-ordered. No numbers."""
+    data = _bv_breakdown(row)
+    dims = data.get("dimensions") or []
+    strong = [d for d in dims if int(d.get("score") or 0) >= 7]
+    strong.sort(key=lambda d: (-int(d.get("weight") or 0), -int(d.get("score") or 0)))
+    return [str(d.get("label")) for d in strong[:3] if d.get("label")]
+
+
+WINDOW_HORIZON_DAYS = 90
+
+
+def _window_expired(row: sqlite3.Row, today: date | None = None) -> str | None:
+    """Annotate a decision window that has passed since the score was given.
+
+    Read-time only (design §6.5): the stored score, status and sort order are
+    untouched.  ``None`` means no annotation.
+    """
+    data = _bv_breakdown(row)
+    scored_on = data.get("scored_on")
+    dates = data.get("decision_window_dates") or []
+    if not scored_on or not dates:
+        return None
+    try:
+        scored = date.fromisoformat(str(scored_on)[:10])
+    except ValueError:
+        return None
+    today = today or date.today()
+    soonest: int | None = None
+    for raw in dates:
         try:
-            return int(row["quality_score"])
-        except (TypeError, ValueError):
-            pass
-    return compute_heuristic_quality(row)
+            deadline = date.fromisoformat(str(raw)[:10])
+        except ValueError:
+            continue
+        days = (deadline - scored).days
+        if 0 <= days < WINDOW_HORIZON_DAYS and today > deadline:
+            if soonest is None or days < soonest:
+                soonest = days
+    if soonest is None:
+        return None
+    return f"窗口已过（评分时 {soonest} 天）"
+
+
+def _bv_status(row: sqlite3.Row) -> str | None:
+    try:
+        return row["business_value_status"]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
+def _bv_hash_stale(row: sqlite3.Row) -> bool:
+    """Ready/needs_review rows whose body changed after scoring (§4.4)."""
+    if _bv_status(row) not in ("ready", "needs_review"):
+        return False
+    try:
+        stored = row["business_value_hash"]
+    except (KeyError, IndexError, TypeError):
+        return False
+    if not stored:
+        return False
+    from moni.scoring import content_hash
+
+    try:
+        body = row["raw_content"] or ""
+    except (KeyError, IndexError, TypeError):
+        return False
+    return stored != content_hash(body)
 
 
 def _raw_len(row: sqlite3.Row) -> int:
@@ -393,6 +504,13 @@ def _summary_with_meta(row: sqlite3.Row) -> tuple[str, str, bool]:
 
 def _bv_usable(row: sqlite3.Row) -> bool:
     """Business judgment successfully produced (not empty / 素材不足 stub)."""
+    status = _bv_status(row)
+    if status == "insufficient":
+        return False
+    if status in ("failed", "budget_skipped", "pending"):
+        return False
+    if _bv_hash_stale(row):
+        return False
     try:
         score = row["business_value_score"]
     except (KeyError, IndexError, TypeError):
@@ -404,11 +522,28 @@ def _bv_usable(row: sqlite3.Row) -> bool:
     note = _bv_note_display(raw_note)
     if score is None and not note:
         return False
-    if note and "素材不足" in note:
+    if note and ("素材不足" in note or "正文过短" in note):
         return False
     if score is not None and int(score) <= 40 and (not note or "素材不足" in note):
         return False
     return True
+
+
+def _bv_exclusion_reason(row: sqlite3.Row) -> str:
+    status = _bv_status(row)
+    if status == "insufficient":
+        return "正文过短（不足 200 字）"
+    if status in ("failed", "budget_skipped", "pending"):
+        return "业务价值未完成"
+    if _bv_hash_stale(row):
+        return "业务价值未完成"
+    try:
+        note = _bv_note_display(row["business_value_note"])
+    except (KeyError, IndexError, TypeError):
+        note = ""
+    if note and ("正文过短" in note or "素材不足" in note):
+        return "正文过短（不足 200 字）"
+    return "业务判断不足"
 
 
 def _fc_usable(row: sqlite3.Row) -> bool:
@@ -436,7 +571,7 @@ def _article_exclusion_reason(row: sqlite3.Row) -> str | None:
     if _usable_summary_raw(row) is None:
         reasons.append("无可用摘要")
     if not _bv_usable(row):
-        reasons.append("业务判断不足")
+        reasons.append(_bv_exclusion_reason(row))
     if not _fc_usable(row):
         reasons.append("事实核查不足")
     return "、".join(reasons) if reasons else None
@@ -676,13 +811,27 @@ def render_brief_html(
             elif not note:
                 note = "见正文"
         bv_s = str(bv) if bv is not None else "—"
-        tip_bv = "业务价值（0–100）：对同业/自身业务可对标程度，由 moni AI 评估"
+        status = _bv_status(r)
+        review = " · 待复核" if status == "needs_review" else ""
+        tags = _bv_tags(r)
+        tags_html = (
+            f'<span class="chip">{_esc("、".join(tags))}</span>' if tags else ""
+        )
+        window = _window_expired(r)
+        window_html = (
+            f'<span class="chip has-tip" data-tip="评分时的决策窗口已过，可重跑更新">'
+            f"{_esc(window)}</span>"
+            if window
+            else ""
+        )
+        tip_bv = "通用业务价值：10 问逐项打分，程序按权重加总，模型不直接给总分"
         focus_items.append(
             f"""<li class="focus-item">
   <div class="focus-title">
-    <span class="focus-bv has-tip" data-tip="{_esc(tip_bv)}">业务价值 {_esc(bv_s)}</span>
+    <span class="focus-bv has-tip" data-tip="{_esc(tip_bv)}">通用 {_esc(bv_s)}{_esc(review)}</span>
     <strong>{_esc(t)}</strong>
   </div>
+  {tags_html}{window_html}
   <p class="focus-note">{_esc(note)}</p>
 </li>"""
         )
@@ -757,13 +906,22 @@ def render_brief_html(
         fold_open = "全文未入库" if thin and not laid else "查看全文"
         fold_close = "收起全文"
         card_cls = "card is-thin" if thin and not laid else "card"
-        q_tip = (
-            "质量/注意力分（0–100）：综合标题完整度、正文信息量等的启发式评分，"
-            "用于粗略判断是否「值得一读」。非机构评级。"
+        q_text, q_tip = _quality_chip(r, q)
+        bv_tip = "通用业务价值：10 问逐项打分，程序按权重加总，模型不直接给总分"
+        card_status = _bv_status(r)
+        bv_review = " · 待复核" if card_status == "needs_review" else ""
+        card_tags = _bv_tags(r)
+        card_tags_html = (
+            f'<span class="chip">{_esc("、".join(card_tags))}</span>'
+            if card_tags
+            else ""
         )
-        bv_tip = (
-            "业务价值（0–100）：对同业/自身业务的可对标、可落地程度。"
-            "由 moni 结合正文做 AI 评估；正文过短时会标「素材不足」。"
+        card_window = _window_expired(r)
+        card_window_html = (
+            f'<span class="chip has-tip" data-tip="评分时的决策窗口已过，可重跑更新">'
+            f"{_esc(card_window)}</span>"
+            if card_window
+            else ""
         )
 
         cards.append(
@@ -776,8 +934,9 @@ def render_brief_html(
   <div class="meta-row">
     <span class="chip">{_esc(_source_line(r))}</span>
     <span class="chip">{_esc(pub_date)}</span>
-    <span class="chip score has-tip" data-tip="{_esc(q_tip)}">质量分 {q}</span>
-    <span class="chip score has-tip" data-tip="{_esc(bv_tip)}">业务价值 {bv_s}</span>
+    <span class="chip score has-tip" data-tip="{_esc(q_tip)}">{_esc(q_text)}</span>
+    <span class="chip score has-tip" data-tip="{_esc(bv_tip)}">通用 {bv_s}{_esc(bv_review)}</span>
+    {card_tags_html}{card_window_html}
   </div>
   <div class="sec">
     <h3 class="sec-label">摘要</h3>
@@ -1201,7 +1360,7 @@ def render_brief_html(
 <body>
 <div class="wrap">
   <h1>{_esc(title)}</h1>
-  <p class="sub">from moni by TQ · {n_show} 篇文章 · 按业务价值排序 · 全文已内嵌（离线可读）{
+  <p class="sub">from moni by TQ · {n_show} 篇文章 · 按通用业务价值排序 · 全文已内嵌（离线可读）{
     f' · 另有 {n_drop} 篇因信息不足未纳入' if n_drop else ''
   }{evidence_rollup}</p>
 
@@ -1216,6 +1375,7 @@ def render_brief_html(
 
   {evidence_html}
 
+  <p class="foot">分数衡量文章对我方的参考程度，不评价文中机构，仅供内部参考。</p>
   <p class="foot">Curated by moni — a TQ project.</p>
 </div>
 

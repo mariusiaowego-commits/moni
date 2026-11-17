@@ -569,6 +569,12 @@ def import_fulltext(article_id: str, body: ImportFulltextRequest) -> dict[str, A
     )
     conn.commit()
 
+    # A pinned article's quality column is derived from the body; recompute so
+    # the Pin list does not keep showing the thin-draft score (design §5.2).
+    from moni.scoring import recompute_quality_if_pinned
+
+    recompute_quality_if_pinned(conn, article_id)
+
     logger.info("Imported full-text for article %s from %s (%d chars)", article_id, file_path, len(content))
 
     return {

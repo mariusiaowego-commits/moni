@@ -173,6 +173,7 @@ def cmd_backfill_publisher() -> None:
     scanned = len(candidates)
     updated = 0
     unchanged = 0
+    touched: list[str] = []
     for row in candidates:
         extracted = _extract_publisher_from_title(row["title"] or "")
         if extracted:
@@ -181,9 +182,15 @@ def cmd_backfill_publisher() -> None:
                 (extracted, row["id"]),
             )
             updated += 1
+            touched.append(row["id"])
         else:
             unchanged += 1
     conn.commit()
+    if touched:
+        from ..scoring import recompute_quality_if_pinned
+
+        for article_id in touched:
+            recompute_quality_if_pinned(conn, article_id)
     print(
         f"backfill-publisher: scanned={scanned}, "
         f"updated={updated}, unchanged={unchanged}"

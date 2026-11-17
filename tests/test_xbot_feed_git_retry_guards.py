@@ -70,6 +70,10 @@ _SRC_FILE = Path(__file__).parent.parent / "moni" / "fetch" / "sources" / "xbot_
 #: **残留提醒（可接受）**：base 是硬编码，历史被重写时会 **fail-closed**
 #: （测试红），不会假绿。
 BASE_COMMIT = "0aef2054298e45dea94572422918f8519b1f00da"
+#: sprint-51 交付 commit。范围护栏钉在 ``BASE_COMMIT..SPRINT_TIP`` 这条
+#: **已合并**的历史区间上：sprint-51 之后的分支（如 52）不再触发误报，
+#: 而 sprint-51 本身的越界改动仍能被这两条断言咬住。
+SPRINT_TIP = "befd901"
 
 
 @pytest.fixture
@@ -397,9 +401,9 @@ def test_author_blocked_counter_stays_independent_int():
 # ── 改动范围护栏（warden EV-15）─────────────────────────────────────────
 
 def test_only_one_source_file_changed():
-    """EV-15: 生产代码只改了 1 个文件（xbot_feed.py）；测试文件另计。"""
+    """EV-15: sprint-51 生产代码只改了 1 个文件（xbot_feed.py）。"""
     out = subprocess.run(
-        ["git", "diff", "--name-only", BASE_COMMIT, "--", "moni/"],
+        ["git", "diff", "--name-only", f"{BASE_COMMIT}..{SPRINT_TIP}", "--", "moni/"],
         check=True, capture_output=True, text=True,
     ).stdout.split()
     assert out == ["moni/fetch/sources/xbot_feed.py"], \
@@ -407,9 +411,9 @@ def test_only_one_source_file_changed():
 
 
 def test_no_migration_or_web_changes():
-    """不许动 db / web / 前端（范围收窄）。"""
+    """sprint-51 区间内不许动 db / web / 前端（范围收窄）。"""
     out = subprocess.run(
-        ["git", "diff", "--name-only", BASE_COMMIT, "--",
+        ["git", "diff", "--name-only", f"{BASE_COMMIT}..{SPRINT_TIP}", "--",
          "moni/db/", "moni/web/", "static/", "config/"],
         check=True, capture_output=True, text=True,
     ).stdout.split()

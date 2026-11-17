@@ -1184,6 +1184,9 @@ label { font-size: var(--font-14); }
    Unpinned = outline. */
 .pin-col { width: 44px; text-align: center; }
 .pin-col-head { width: 44px; text-align: center; color: var(--muted-fg); font-weight: 500; font-size: var(--font-12); }
+/* v1.0.96: Pin 质量列（pin_heuristic_v2，0–90）。数字等宽右对齐，悬停看公式。 */
+.quality-col-head { width: 72px; text-align: right; color: var(--muted-fg); font-weight: 500; font-size: var(--font-12); }
+.quality-cell { width: 72px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pin-col .pin-btn {
   width: 24px; height: 24px;
   padding: 0;

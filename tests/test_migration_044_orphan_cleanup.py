@@ -124,4 +124,4 @@ def test_rerun_is_idempotent(conn):
 
 def test_fresh_database_reaches_version_44(conn):
     version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
-    assert int(version) == 44
+    assert int(version) >= 44

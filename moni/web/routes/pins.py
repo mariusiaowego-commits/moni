@@ -27,6 +27,7 @@ Design notes
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -34,6 +35,7 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 from moni.db.connection import get_db
+from moni.scoring import ensure_quality, needs_quality_refresh
 from moni.web.exceptions import NotFoundError
 
 router = APIRouter(prefix="/api/articles", tags=["pins"])
@@ -46,6 +48,12 @@ class PinToggleResponse(BaseModel):
     article_id: str
     is_pinned: bool
     pinned_at: datetime | None
+    quality_score: int | None = None
+    quality_status: str | None = None
+    quality_error: str | None = None
+    quality_formula: str | None = None
+    quality_breakdown: dict | None = None
+    quality_score_at: str | None = None
 
 
 class BulkUnpinRequest(BaseModel):
@@ -55,6 +63,16 @@ class BulkUnpinRequest(BaseModel):
 class BulkUnpinResponse(BaseModel):
     unpinned: list[str]
     not_found: list[str]
+
+
+class QualityRefreshRequest(BaseModel):
+    article_ids: list[str]
+
+
+class QualityRefreshResponse(BaseModel):
+    updated: list[str]
+    unchanged: list[str]
+    skipped: list[str]
 
 
 # ── POST /api/articles/{id}/pin?on=true|false ──────────────────────────────
@@ -94,10 +112,23 @@ def toggle_pin(
             "DELETE FROM article_pins WHERE article_id = ?", (article_id,)
         )
     conn.commit()
+    quality: dict[str, Any] = {}
+    if on:
+        result = ensure_quality(conn, article_id)
+        if result is not None:
+            quality = {
+                "quality_score": result.score,
+                "quality_status": result.status,
+                "quality_error": result.error,
+                "quality_formula": result.formula,
+                "quality_breakdown": result.breakdown,
+                "quality_score_at": now,
+            }
     return PinToggleResponse(
         article_id=article_id,
         is_pinned=on,
         pinned_at=datetime.fromisoformat(now) if on else None,
+        **quality,
     )
 
 
@@ -200,6 +231,9 @@ def list_pinned_articles(
         f"""
         SELECT a.id, a.title, a.url, a.source, a.publisher, a.published_at,
                a.raw_content, a.summary, a.fetched_at,
+               a.quality_score, a.quality_status, a.quality_error,
+               a.quality_formula, a.quality_breakdown_json,
+               a.quality_input_hash, a.quality_score_at,
                p.pinned_at AS pinned_at,
                EXISTS (SELECT 1 FROM reader_conversations rc
                        WHERE rc.article_id = a.id AND rc.unread = 1) AS reader_unread,
@@ -240,7 +274,11 @@ def list_pinned_articles(
     # we want the same code).  Easiest fix: copy the row-shape
     # fields manually here.
     from moni.web.routes.articles import _row_to_article
-    items = [_row_to_article(dict(row)) for row in rows]
+    items = []
+    for row in rows:
+        item = _row_to_article(dict(row)).model_dump()
+        item["quality"] = quality_payload(row)
+        items.append(item)
 
     return {
         "items": items,
@@ -249,6 +287,68 @@ def list_pinned_articles(
         "page_size": page_size,
         "sort": sort,
     }
+
+def quality_payload(row: Any) -> dict[str, Any]:
+    """Shape one row's stored quality for the Pin client."""
+    breakdown = None
+    raw = row["quality_breakdown_json"]
+    if raw:
+        try:
+            breakdown = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            breakdown = None
+    return {
+        "score": row["quality_score"],
+        "status": row["quality_status"],
+        "error": row["quality_error"],
+        "formula": row["quality_formula"],
+        "breakdown": breakdown,
+        "score_at": row["quality_score_at"],
+    }
+
+
+# ── POST /api/articles/pins/quality-refresh ───────────────────────────────
+
+
+@router.post("/pins/quality-refresh", response_model=QualityRefreshResponse)
+def refresh_pin_quality(body: QualityRefreshRequest) -> QualityRefreshResponse:
+    """Recompute Pin quality for the given ids.
+
+    GET /pinned stays read-only; the Pin page calls this only for rows whose
+    ``quality_formula`` is missing or outdated.  Ids outside the pin set are
+    skipped rather than scored.
+    """
+    updated: list[str] = []
+    unchanged: list[str] = []
+    skipped: list[str] = []
+    if not body.article_ids:
+        return QualityRefreshResponse(updated=[], unchanged=[], skipped=[])
+    conn = get_db()
+    ids = body.article_ids[:200]
+    placeholders = ",".join("?" * len(ids))
+    rows = conn.execute(
+        f"SELECT a.id, a.title, a.raw_content, a.publisher, a.published_at, "
+        f"a.source, a.ai_summary, a.fact_check_conclusion, a.url, "
+        f"a.quality_formula, a.quality_status, a.quality_breakdown_json, "
+        f"a.quality_input_hash "
+        f"FROM articles a INNER JOIN article_pins p ON p.article_id = a.id "
+        f"WHERE a.id IN ({placeholders})",
+        ids,
+    ).fetchall()
+    pinned = {row["id"]: row for row in rows}
+    for article_id in ids:
+        row = pinned.get(article_id)
+        if row is None:
+            skipped.append(article_id)
+            continue
+        if not needs_quality_refresh(row):
+            unchanged.append(article_id)
+            continue
+        if ensure_quality(conn, article_id) is not None:
+            updated.append(article_id)
+        else:
+            skipped.append(article_id)
+    return QualityRefreshResponse(updated=updated, unchanged=unchanged, skipped=skipped)
 
 
 # ── POST /api/articles/pins/bulk-unpin ─────────────────────────────────────

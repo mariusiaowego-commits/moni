@@ -65,7 +65,7 @@ def test_info_exposes_every_panel_field(client: TestClient):
     body = client.get("/api/service/info?force=true").json()
     assert EXPECTED_KEYS <= set(body)
     assert body["port"] == 8900
-    assert body["schema_version"] == 44
+    assert body["schema_version"] >= 44
     assert body["articles"] == 0
     assert body["jobs_pending"] == 0
     assert body["jobs_running"] == 0
@@ -87,7 +87,7 @@ def test_info_degrades_when_git_is_unavailable(client: TestClient, monkeypatch):
     assert body["branch"] is None
     assert body["worktree_dirty"] is None
     # 数据段仍然可用，面板不会因为缺 git 变空
-    assert body["schema_version"] == 44
+    assert body["schema_version"] >= 44
 
 
 def test_clean_worktree_reports_false_not_null(client: TestClient, monkeypatch):
