@@ -35,7 +35,7 @@ _SOURCE_ID = "src-xbot-feed"
 
 _SRC_FILE = Path(__file__).parent.parent / "moni" / "fetch" / "sources" / "xbot_feed.py"
 
-#: 本 sprint 的**固定** base commit（分支 tip，我的改动是**未提交**的工作区改动）。
+#: 本 sprint 的**固定** base commit（= 本 PR 的 base，= ``merge-base(tip, base)``）。
 #:
 #: 为什么不用 ``origin/main``：那个 ref 会**随别人合并而移动** —— 本次
 #: 写测试期间 dad 合了 PR #216（``e104fbb``），``git diff origin/main``
@@ -44,12 +44,21 @@ _SRC_FILE = Path(__file__).parent.parent / "moni" / "fetch" / "sources" / "xbot_
 #:
 #: 2026-11-16 19:20 同步：dad 又合了 PR #217（``bd53452``）、PR #218
 #: （``e5b807f``，migration 044）、PR #219 / #220（``d69f66d``，web 服务胶囊），
-#: 本分支已 **fast-forward** 到 ``d69f66d``（未创建任何新 commit），
-#: base 随之更新为 ``d69f66d``。
+#: 本分支已 **fast-forward** 到 ``d69f66d``。
+#: 2026-11-17 08:45 提交：改动已 commit 成 ``befd901``（PR #221）。
 #:
-#: **锚点语义（关键）**：本 sprint 的改动全部在**工作区未提交**，因此
-#: ``git diff <base>`` 的 diff 点必须是**分支 tip**（= 我的改动的直接底座），
-#: 而不是更早的提交 —— 否则 dad 在那之后的任何合并都会被算成「我的越界改动」
+#: **锚点语义（关键，勿改）**：锚点 = **base（merge-base）**，不是分支 tip。
+#: ``git diff <base> -- moni/`` 恒等于「本 PR 相对 base 的改动」，
+#: 与工作区是否已提交**无关** —— 这是 commit 前后都成立的前提。
+#:
+#: ⚠️ **绝不可把锚点改成 tip（``HEAD``）** —— commit 之后
+#: ``git diff HEAD`` 为空 ⇒ 范围护栏**恒绿（假绿）**，越界改动再也咬不住。
+#: 实测：``git diff d69f66d --name-only -- moni/`` → 只有 ``xbot_feed.py``；
+#: ``git diff HEAD --name-only -- moni/`` → 空。
+#:
+#: **为什么锚点必须是 base 而不是更早的提交**：本 sprint 的改动在 base 之上
+#: 是**未提交**的（当时的工作区改动），diff 点必须选「我的改动的直接底座」，
+#: 否则 dad 在那之后的任何合并都会被算成「我的越界改动」
 #: （实测：base 停在 ``bd53452`` 时，dad 的 PR #218 的 ``moni/db/migrate.py``
 #: 与 ``044_orphan_rows_cleanup.sql`` 会让两条范围护栏**误报失败**）。
 #:

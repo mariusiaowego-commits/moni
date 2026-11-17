@@ -23,8 +23,9 @@
 round-3 定向复审判 **PASS**（P0=0 / P1=0 / P2=1，残留项为元护栏子串绕过，不阻塞）。含一条**数据丢失级 P0**：
 新增的 clone 清理用 rmtree 删整个 clone_root，`clone_dir` 指向数据目录时会删光 `news.db`；
 已改为按「是不是我们造的」判定，且只删 `.git`（6 场景探针全部通过）。
-**状态**：**未发布**。代码 + 测试已就绪，**待 dad 下一道 GO 才 commit / push / PR / merge / tag / 部署**；本条不随 v1.0.93 发布。
-**base**：分支已 fast-forward 到 `origin/main @ d69f66d`（PR #220），未创建任何新 commit。
+**状态**：**未发布**。代码 + 测试已就绪，PR **#221** 已开（head `befd901`，base `d69f66d`），
+**待 dad merge / tag / 部署**；本条**不随已发布的 v1.0.93 / v1.0.94 发布**，随 v1.0.95 发布。
+**base**：分支已 fast-forward 到 `origin/main @ d69f66d`（PR #220），本 sprint 的改动为 1 个 commit `befd901`。
 
 ---
 
@@ -85,7 +86,7 @@ PR #207 把文章查阅、筛选与文内 AI 合进 `main` 后，生产验收又
 | `feat/articles-title-ellipsis-structure-answer` | 仅本地（worktree `.codex/worktrees/4ffa/moni`） | 已合并，可删；先挪走 worktree | PR #216 squash `e104fbb`，tag `v1.0.93` |
 | `feat/contest-finals-2611` | 本地（worktree `.codex/worktrees/2f0d/moni`） | **勿删，未合并** | 无 PR |
 | `feat/showcase-demo-2611` | 仅本地 | **勿删，未合并** | 无 PR |
-| `feat/xbot-git-retry-v1.0.95` | 本地（worktree `dev/moni-worktrees/xbot-git-retry-v1.0.93`） | **勿动，本 sprint 在跑** | Sprint 51 / id 26111606 · PR 待开 |
+| `feat/xbot-git-retry-v1.0.95` | 远端 + 本地（worktree `dev/moni-worktrees/xbot-git-retry-v1.0.93`） | **勿动，本 sprint 在跑** | Sprint 51 / id 26111606 · PR #221 已开，待 dad merge |
 
 上表已删掉四条早已不存在的分支：`feature/v1.0.88-bank-feed-resilience`、`docs/v1.0.89-relabel`、
 `feat/xbot-author-block-v1.0.75`、`feat/articles-reading-ai`。
