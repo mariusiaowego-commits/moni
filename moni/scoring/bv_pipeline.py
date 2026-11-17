@@ -92,7 +92,7 @@ def _today() -> str:
     return datetime.now(timezone.utc).astimezone().date().isoformat()
 
 
-def _parse_json(raw: str) -> dict | None:
+def parse_json_object(raw: str) -> dict | None:
     if not raw:
         return None
     text = raw.strip()
@@ -146,7 +146,7 @@ class _Caller:
         self.budget -= max(time.monotonic() - started, 0.0)
         if code != 0:
             return None
-        return _parse_json(out)
+        return parse_json_object(out)
 
 
 def _windows(body: str) -> str:

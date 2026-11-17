@@ -4,6 +4,22 @@
 
 ---
 
+## 进行中: **Sprint 53 — 业务方向分 V2（S1 核心）** (2026-11-17 · 分支 `feat/bv-direction-v2` · sprint id `26111702`)
+
+设计 §10（`docs/specs/2026-11-16-pin-quality-bv-harness.md`）落地第一阶段，实现记录
+`docs/plans/2026-11-17_bv-direction-v2.md`。
+
+- **migration 046**：新增 `bv_direction`（配置）、`bv_direction_research`（版本，唯一键
+  `(direction_id, research_version)`）、`article_bv_direction`（方向分，主键含
+  `research_version`）；`_CURRENT_VERSION 45 → 46`；不改既有列、不回填。
+- **`moni/scoring/direction.py`**：研究提示词 `bv_direction_research_v1`（五条硬句写死）、
+  `parse_research` 全量校验（10 key / 四档锚点 / 问题 ≤30 字 / 禁词 / 写作禁词）、
+  `research_to_rubric` 只换 question/anchors/template、权重与 label 从 `RUBRIC_V1` 继承、
+  `usable_research` 只看最大 `research_version` 且不回退旧版。
+- **测试**：`tests/test_scoring_direction.py` 25 passed；scoring/pins/db 相关 104 passed；
+  迁移相关 50 passed；全量 **2017 passed / 2 skipped**，仍是那 2 项环境性失败。
+- **待做（S2/S3）**：研究 runner 与配置 API、方向分缓存写入、简报/卡片 UI。
+
 ## 已发布: **v1.0.96 — Pin 质量列 + 业务价值 harness** (2026-11-17 · PR #223 · tag `v1.0.96` · commit `5316f05`)
 
 设计稿 `docs/specs/2026-11-16-pin-quality-bv-harness.md`（v4 已拍板 B/C/C/B），实现记录
