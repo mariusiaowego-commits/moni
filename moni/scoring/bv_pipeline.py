@@ -173,7 +173,8 @@ def _windows(body: str) -> str:
         if len(current) + len(para) + 2 <= WINDOW_CHARS:
             current = f"{current}\n\n{para}" if current else para
         else:
-            chunks.append(current)
+            if current:
+                chunks.append(current)
             current = para
     if current:
         chunks.append(current)
@@ -251,7 +252,7 @@ def _audit_prompt(dimensions: list[dict], rb: Rubric, evidence: list[dict]) -> s
         for d in dimensions
     )
     quotes = (
-        "\n".join(f"[{e['id']}] {e['quote']}" for e in evidence)
+        "\n".join(f"[{e['id']}] {e['quote'][:300]}" for e in evidence)
         if evidence
         else "（本篇没有可用引文）"
     )

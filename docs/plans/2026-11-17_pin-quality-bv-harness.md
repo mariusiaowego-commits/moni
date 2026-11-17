@@ -83,11 +83,11 @@ bv:        pending → ready | needs_review | failed | budget_skipped
 单测/集成（`/Users/mt16/dev/moni/.venv/bin/python -m pytest ... -p no:cacheprovider`）：
 
 - `tests/test_scoring_heuristic.py` 9 passed
-- `tests/test_scoring_bv.py` 18 passed（自定义 Rubric 注入、5 次调用硬上限、补抽引文编号唯一、带空格日期、长文窗口保留尾段）
-- `tests/test_scoring_integration.py` 13 passed（Pin 响应形状、refresh 幂等与正文敏感、`GET /pinned` 只读、预算不足落 `budget_skipped` 且分数 NULL、CRUD PUT 后重算、快速 hermes 不烧预算、`/api/articles` 不带质量字段、正文过短排除、hash 过期排除、ready 先于 needs_review、legacy 与 ready 同档、标签 ≤3 不带数字、窗口过期标注不改分）
+- `tests/test_scoring_bv.py` 19 passed（自定义 Rubric 注入、5 次调用硬上限、补抽引文编号唯一、带空格日期、长文窗口保留首尾、2999 字段落边界）
+- `tests/test_scoring_integration.py` 14 passed（Pin 响应形状、refresh 幂等与正文敏感、`GET /pinned` 只读、预算不足落 `budget_skipped` 且分数 NULL、CRUD PUT 后重算、只改标题不重算、快速 hermes 不烧预算、`/api/articles` 不带质量字段、正文过短排除、hash 过期排除、ready 先于 needs_review、legacy 与 ready 同档、标签 ≤3 不带数字、窗口过期标注不改分）
 - `tests/test_scoring_store.py` 2 passed（公式/指纹漂移、rubric 与正文哈希缓存键）
 - `tests/test_pins.py`、`tests/test_brief_html.py`、`tests/test_brief.py` 全绿
-- 全量 `tests/`：**1988 passed / 2 skipped**；2 项与本改动无关的环境性失败（见 §6）
+- 全量 `tests/`：**1992 passed / 2 skipped**；2 项与本改动无关的环境性失败（见 §6）
 
 浏览器实测（本地临时实例 8799 + 临时 DB，未触碰生产 8900；静态简报页 8798）：
 
@@ -120,6 +120,13 @@ bv:        pending → ready | needs_review | failed | budget_skipped
 | P2 | 检查员 prompt 没有引文，无法判断「理由没有事实」 | 审计 prompt 加入已校验引文 |
 | P2 | 有 `bb_score` 时 chip 文案 `BestBlogs n` 偏离 §7.4 | 统一 `阅读 n`，tip 说明来源 |
 | P2 | 渲染不校验 `business_value_hash`，正文变了仍按旧分纳入 | `_bv_usable` 加 hash 校验，过期行归「业务价值未完成」 |
+
+第二轮复核（基于 `c60ab3c` + `a5cb4f5`）判 **PASS WITH NITS**：4 项 P1 确认修好；又修掉一个
+`_windows` 边界（2999/3000 字段落会插入空窗、丢掉首段）并加边界用例；检查员 prompt 的引文
+截到 300 字。
+
+仍保留的低风险 nit：CRUD / backfill 的重算发生在 `commit()` 之后，严格说不是设计 §5.2.5 的
+「同一事务」；`ensure_quality` 失败时该行仍带旧 `quality_formula`，需要手动 refresh 才会补算。
 
 ## 8. 回滚
 

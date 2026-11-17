@@ -192,6 +192,21 @@ def test_crud_put_recomputes_pinned_quality(client):
     assert after == 87
 
 
+def test_crud_title_only_does_not_recompute(client):
+    _insert("t1", body="短稿")
+    client.post("/api/articles/t1/pin?on=true")
+    before = get_db().execute(
+        "SELECT quality_score_at FROM articles WHERE id='t1'"
+    ).fetchone()["quality_score_at"]
+
+    r = client.put("/api/articles/t1", json={"title": "只改标题"})
+    assert r.status_code == 200, r.text
+    after = get_db().execute(
+        "SELECT quality_score_at FROM articles WHERE id='t1'"
+    ).fetchone()["quality_score_at"]
+    assert after == before
+
+
 def test_fast_hermes_does_not_burn_the_run_budget(fresh_db, monkeypatch):
     import moni.share.enrichment as enrichment
 

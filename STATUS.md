@@ -19,16 +19,17 @@
 **数据**：migration **045**（`articles` 加 10 列，只加不回填）；`_CURRENT_VERSION 44 → 45`。
 **V1 不做**：方向分/方向研究（V2 附录）、历史分回填、`GET /api/articles` 暴露质量字段。
 
-**测试**：`test_scoring_heuristic` 9 + `test_scoring_bv` 18 + `test_scoring_integration` 13 + `test_scoring_store` 2 全绿；
-`test_pins` / `test_brief_html` / `test_brief` 全绿；全量 **1988 passed / 2 skipped**，
+**测试**：`test_scoring_heuristic` 9 + `test_scoring_bv` 19 + `test_scoring_integration` 14 + `test_scoring_store` 2 全绿；
+`test_pins` / `test_brief_html` / `test_brief` 全绿；全量 **1992 passed / 2 skipped**，
 2 项环境性失败（Pillow 未安装、沙箱禁止建 git worktree），与本改动无关。
 **浏览器实测**：Pin 质量列 `— / 30 / 87`（旧行经 refresh 自动补算），tooltip 默认 `display:none`、
 仅 `:hover` 显示；简报页 `通用 72` + 标签 + `窗口已过（评分时 52 天）`、`通用 90 · 待复核`、
 未纳入区 `正文过短（不足 200 字）`。
 
-**审计**：独立只读审计判 FAIL（4 P1 + 8 P2）→ 全部修正并复跑（预算按墙钟扣减、
+**审计**：独立只读审计 round-1 判 FAIL（4 P1 + 8 P2）→ 全部修正并复跑（预算按墙钟扣减、
 CRUD/CLI 写路径补重算、长文 4 窗取证、5 次调用硬上限、引文重编号、legacy 同档、
-日期空格、rubric 缓存键、检查员看引文、chip 文案、渲染 hash 校验）。
+日期空格、rubric 缓存键、检查员看引文、chip 文案、渲染 hash 校验）；round-2 判 **PASS WITH NITS**
+（4 P1 确认修好；再修 `_windows` 2999/3000 字空窗边界 + 引文截 300 字）。
 
 **状态**：代码 + 测试 + 文档就绪，已提交并开 PR **#223**；待用户授权 merge / tag / 部署。
 
