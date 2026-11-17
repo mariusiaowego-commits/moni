@@ -85,10 +85,12 @@ import copy
 import json
 import logging
 import re
+import shutil
 import subprocess
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, NamedTuple, Sequence
+from typing import Any, Callable, NamedTuple, Sequence
 
 from ..base import BaseFetcher, register_fetcher
 
@@ -439,6 +441,92 @@ def _redact_git_output(text: str) -> str:
     return _CREDENTIAL_URL_RE.sub(r"\1***@", text)
 
 
+# ── sprint-51 (v1.0.95): 上游 git 临时网络失败的退避重试 ────────────────
+#
+# 2026-11-16 16:32 生产 xbot_feed 抓取失败 (``0 篇 0/0 (0s)``), 底层
+# stderr 是 ``LibreSSL SSL_connect: SSL_ERROR_SYSCALL`` —— 上游私有仓库经
+# 本机代理访问时, 隧道建立后 TLS 握手被上游重置。诊断量化: 同一条代理路径
+# 上 ``git ls-remote`` 15 次采样 OK=12/FAIL=3, 且 google.com 与
+# api.github.com 经同一代理也各有 1 次失败 ⇒ **隧道整体间歇抖动**, 不是
+# GitHub 专项, 也不是配置丢失。
+#
+# 原来 ``_sync_clone`` 对 ``git pull --ff-only`` **单次尝试、无重试** ⇒
+# 一次抖动即整轮失败, 上游从此不再更新 (最后一次成功 pull: 11-12 10:57)。
+#
+# 判据 (warden 裁定 B): **rc 只判成功/失败, 重试与否看 stderr 文本**。
+# git 的 rc 在网络类失败下不携带语义 —— TLS 握手失败、仓库不存在、认证
+# 失败**都是 128**; 只看 rc 会把「仓库被删了」和「隧道抖了一下」当成同一
+# 类, 对永久错误做无谓重试。所以三层求值:
+#
+#   L1 rc == 0            → 成功, 不重试 (stderr 里可能有无关 warning)
+#   L2 命中永久签名        → 不重试, 立即失败
+#   L3 命中临时签名        → 重试 (在预算内)
+#   L4 都不命中 (未知)     → 不重试, 立即失败 (保守默认: 宁可少重试一次)
+#
+# 未知不重试是有代价的 (新增的临时错误措辞不会被重试) —— 所以临时签名的
+# 每一条都必须有独立测试用例, 新增签名必须同时补测试。
+
+#: 可重试的临时网络/TLS 错误签名 (stderr 子串, 匹配时先脱敏再小写比较)。
+#: 每一条都要有独立用例 (warden AC-2)。
+TRANSIENT_GIT_ERROR_SIGNATURES: tuple[str, ...] = (
+    "ssl_error_syscall",       # 本次生产故障 (LibreSSL SSL_connect)
+    "connection reset",       # 连接被重置
+    "connection timed out",   # 连接超时
+    "could not resolve host",  # DNS 解析失败 (git 措辞)
+    "couldn't resolve host",  # DNS 解析失败 (libc 措辞)
+    "temporary failure in name resolution",  # DNS 临时失败 (libc 措辞)
+    "early eof",              # 提前 EOF
+    "gnutls recv error",      # GnuTLS 接收错误 (连接被非正常终止)
+    "gnutls error",           # GnuTLS 通用错误 (含握手被非正常终止)
+    "gnutls_handshake",       # GnuTLS 握手失败
+    "curl 28",                # curl 28 (operation timeout)
+    "curl 35",                # curl 35 (SSL connect error)
+    "curl 52",                # curl 52 (empty reply)
+    "curl 56",                # curl 56 (recv failure)
+)
+
+#: 不可重试的永久错误签名 (stderr 子串, 匹配时先脱敏再小写比较)。
+#: 每一条都要有独立用例 (warden AC-3)。
+PERMANENT_GIT_ERROR_SIGNATURES: tuple[str, ...] = (
+    "not fast-forward",                # 本地有分叉 (pull --ff-only 拒绝)
+    "authentication failed",           # 凭据无效/过期
+    "could not read username",         # 缺凭据 / 交互式终端被拒
+    "repository not found",            # 仓库不存在/被删/无权限
+    "permission denied",               # 权限不足
+    "host key verification failed",    # SSH host key 不匹配
+    "local changes would be overwritten",  # 工作区有未提交改动
+)
+
+#: 一次 ``_sync_clone`` 最多尝试几次 (1 次原始 + 2 次重试)。
+#: 与 ``bestblogs.py`` 的 ``for attempt in (1, 2, 3)`` 保持仓内一致。
+GIT_RETRY_MAX_ATTEMPTS = 3
+
+#: 每次重试前的退避秒数 (第 1 次失败后等 2s, 第 2 次后等 4s)。合计 6s。
+GIT_RETRY_BACKOFF_SECONDS: tuple[float, ...] = (2.0, 4.0)
+
+#: 整个重试循环的总时限 (秒)。必须小于 job 级 ``JOB_TIMEOUT_SECONDS``
+#: (600), 否则重试会把 job 预算吃掉。每次尝试的单次超时另取
+#: ``min(git_timeout, 剩余预算)`` —— 否则 3×120+6=366s 会突破总时限 4 倍。
+GIT_RETRY_TOTAL_TIMEOUT = 90.0
+
+
+def _is_transient_git_error(stderr: str) -> bool:
+    """这份 git stderr 是否属于**可重试**的临时网络/TLS 失败。
+
+    先脱敏再匹配 (``user:token@`` 里的字符会干扰子串匹配), 再小写比较。
+
+    永久签名优先判定 —— 一条 stderr 里同时含临时与永久签名时 (例如
+    ``SSL_ERROR_SYSCALL ... Authentication failed``) 必须判**不重试**,
+    避免把永久错误误判成临时错误。
+    """
+    if not stderr:
+        return False
+    text = _redact_git_output(stderr).lower()
+    if any(sig in text for sig in PERMANENT_GIT_ERROR_SIGNATURES):
+        return False
+    return any(sig in text for sig in TRANSIENT_GIT_ERROR_SIGNATURES)
+
+
 def normalize_tweet_url(raw_url: str, handle: str = "", tweet_id: str = "") -> str:
     """把 X / Twitter URL 归一成 ``https://x.com/<handle>/status/<id>``。
 
@@ -718,6 +806,151 @@ class FetcherXbotFeed(BaseFetcher):
         return self._data_dir() / STATE_FILENAME
 
     # ── git ──────────────────────────────────────────────────────────────
+    def _sleep_backoff(self, seconds: float) -> None:
+        """退避等待 (测试里被替换成 no-op, 避免真等)。
+
+        单独抽出来是为了**测试可注入**: warden 的脆弱测试警示 W-2 说
+        「不要靠真 sleep 计时」—— 断言退避**被请求的秒数序列** (== [2, 4]),
+        墙钟只断言上界。
+        """
+        if seconds > 0:
+            time.sleep(seconds)
+
+    def _run_git_with_retry(
+        self,
+        argv: list[str],
+        *,
+        cwd: str | None,
+        git_timeout: float,
+        total_timeout: float,
+        cleanup: Callable[[], None] | None = None,
+    ) -> tuple[bool, str]:
+        """跑一次 git 命令, 遇**临时网络/TLS**失败按退避重试。
+
+        返回 ``(ok, stderr)``:
+
+        - ``ok=True``  → git 成功 (rc == 0), ``stderr`` 是原始输出
+        - ``ok=False`` → 最终失败, ``stderr`` 是**最后一次**的输出 (已脱敏)
+
+        判据见模块级 ``_is_transient_git_error`` 的三层求值说明。
+
+        三个约束 (warden AC-11 / AC-12 / AC-13):
+
+        - **总时限**: ``total_timeout`` 是整个重试循环的预算; 每次尝试的
+          单次超时取 ``min(git_timeout, 剩余预算)`` —— 否则 3×120+6=366s
+          会突破 90s 总时限 4 倍, 还吃掉 job 级 600s 预算的 61%。
+          预算耗尽后**不再发起新的 git 调用**。
+        - **不死锁**: 全程不持有任何锁 —— 本函数不 new 任何 Lock, 也不碰
+          任何共享状态 (并发调用互不影响)。
+        - **日志保真**: 每次尝试都记「第几次 / 共几次」+ 真实 stderr
+          (脱敏后), 且最终失败时能看到最后一次的 stderr。
+        """
+        deadline = time.monotonic() + max(0.0, total_timeout)
+        attempts = GIT_RETRY_MAX_ATTEMPTS
+        last_stderr = ""
+
+        for attempt in range(1, attempts + 1):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                # 预算耗尽 → 不再发起新的 git 调用 (AC-11)。
+                logger.error(
+                    "[xbot-feed] git %s aborted: total budget %.0fs exhausted "
+                    "after %d attempt(s): %s",
+                    argv[1] if len(argv) > 1 else argv[0],
+                    total_timeout,
+                    attempt - 1,
+                    last_stderr[:300] or "(no stderr)",
+                )
+                return False, last_stderr
+
+            # 单次超时取 min(git_timeout, 剩余预算) —— 否则单次就能吃满
+            # 120s, 总时限形同虚设 (warden Q-1 的核心矛盾)。
+            call_timeout = min(git_timeout, remaining)
+
+            try:
+                proc = subprocess.run(
+                    argv,
+                    cwd=cwd,
+                    capture_output=True,
+                    text=True,
+                    timeout=call_timeout,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired:
+                # git 自己卡死 (e.g. 隧道半开) —— 按临时网络失败处理, 可重试。
+                last_stderr = f"git timed out after {call_timeout:.0f}s"
+                logger.error(
+                    "[xbot-feed] git %s attempt %d/%d timed out after %.0fs",
+                    argv[1] if len(argv) > 1 else argv[0],
+                    attempt,
+                    attempts,
+                    call_timeout,
+                )
+                if attempt >= attempts:
+                    return False, last_stderr
+                self._sleep_backoff(self._backoff_for(attempt))
+                continue
+            except OSError as exc:
+                # git 起不来 (不存在 / 权限) —— 永久错误, 不重试。
+                logger.error(
+                    "[xbot-feed] git %s attempt %d/%d failed to start: %s",
+                    argv[1] if len(argv) > 1 else argv[0],
+                    attempt,
+                    attempts,
+                    exc,
+                )
+                return False, str(exc)
+
+            if proc.returncode == 0:
+                # L1: rc == 0 → 成功, 不看 stderr 里有没有无关 warning。
+                return True, proc.stderr or ""
+
+            raw = (proc.stderr or proc.stdout or "").strip()
+            last_stderr = _redact_git_output(raw)
+
+            # L2 / L3 / L4: 永久 → 不重试; 临时 → 重试; 未知 → 不重试。
+            if not _is_transient_git_error(raw):
+                logger.error(
+                    "[xbot-feed] git %s attempt %d/%d failed (rc=%d): %s",
+                    argv[1] if len(argv) > 1 else argv[0],
+                    attempt,
+                    attempts,
+                    proc.returncode,
+                    last_stderr[:300],
+                )
+                return False, last_stderr
+
+            logger.error(
+                "[xbot-feed] git %s attempt %d/%d failed (rc=%d, transient "
+                "network error): %s",
+                argv[1] if len(argv) > 1 else argv[0],
+                attempt,
+                attempts,
+                proc.returncode,
+                last_stderr[:300],
+            )
+            if attempt >= attempts:
+                return False, last_stderr
+
+            # 重试前的副作用清理: clone 失败会留下半成品目录, 不清掉下一次
+            # clone 会撞 "destination path already exists" (warden AC-7)。
+            if cleanup is not None:
+                cleanup()
+
+            self._sleep_backoff(self._backoff_for(attempt))
+
+        return False, last_stderr
+
+    @staticmethod
+    def _backoff_for(attempt: int) -> float:
+        """第 ``attempt`` 次失败后该退避多久 (秒)。"""
+        idx = attempt - 1
+        if idx < 0:
+            idx = 0
+        if idx >= len(GIT_RETRY_BACKOFF_SECONDS):
+            idx = len(GIT_RETRY_BACKOFF_SECONDS) - 1
+        return GIT_RETRY_BACKOFF_SECONDS[idx]
+
     def _sync_clone(self, cfg: dict[str, Any]) -> Path | None:
         """确保本地有一份最新的 clone; 返回 clone 根目录, 失败返回 None。
 
@@ -729,6 +962,10 @@ class FetcherXbotFeed(BaseFetcher):
         以 ``-`` 开头的 git 选项 / 非 github.com 的协议 / 越出数据目录
         的路径); 所有 git 输出进日志前先脱敏 (去掉 URL 里的
         ``user:token@``)。
+
+        v1.0.95 (sprint-51): 上游 git 遇**临时网络/TLS** 失败时按有限次数
+        退避重试 (总时限 90s, 单次超时取 min(git_timeout, 剩余预算))。
+        永久错误 (非快进 / 认证 / 仓库不存在 / 本地冲突) 不重试。
         """
         try:
             clone_root = self._validate_clone_dir(self._clone_root(cfg))
@@ -745,67 +982,116 @@ class FetcherXbotFeed(BaseFetcher):
             return None
 
         timeout = float(cfg.get("git_timeout") or 120)
+        # sprint-51 (v1.0.95): 重试循环的总时限。默认 90s —— 必须远小于
+        # job 级 JOB_TIMEOUT_SECONDS (600), 否则重试会把 job 预算吃掉。
+        _total_raw = cfg.get("git_retry_total_timeout")
+        total_timeout = float(
+            _total_raw if _total_raw is not None else GIT_RETRY_TOTAL_TIMEOUT
+        )
 
         if (clone_root / ".git").is_dir():
             logger.info("[xbot-feed] updating existing clone at %s", clone_root)
-            try:
-                proc = subprocess.run(
-                    ["git", "pull", "--ff-only"],
-                    cwd=str(clone_root),
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    check=False,
-                )
-            except subprocess.TimeoutExpired:
-                logger.error(
-                    "[xbot-feed] git pull timed out after %.0fs: %s",
-                    timeout, clone_root,
-                )
-                return None
-            except OSError as exc:
-                logger.error("[xbot-feed] git pull failed to start: %s", exc)
-                return None
-            if proc.returncode != 0:
-                logger.error(
-                    "[xbot-feed] git pull failed (rc=%d): %s",
-                    proc.returncode,
-                    _redact_git_output(
-                        (proc.stderr or proc.stdout or "").strip()
-                    )[:300],
-                )
+            # pull 分支**不做任何 cleanup** —— `git pull --ff-only` 失败时
+            # 不会动原 clone 的 HEAD 或工作区 (warden AC-8)。
+            ok, _stderr = self._run_git_with_retry(
+                ["git", "pull", "--ff-only"],
+                cwd=str(clone_root),
+                git_timeout=timeout,
+                total_timeout=total_timeout,
+            )
+            if not ok:
                 return None
             return clone_root
 
         logger.info("[xbot-feed] cloning %s → %s", repo_url, clone_root)
         clone_root.parent.mkdir(parents=True, exist_ok=True)
-        try:
+
+        # 记录 clone **开始前** clone_root 是否已存在 —— 这是判断「哪些内容
+        # 是我们这次 clone 造出来的」的**唯一可靠依据**（warden P0-1）。
+        # 判据: 目录之前不存在 ⇒ 里面的一切都是 git clone 留下的 ⇒ 整个可删;
+        #       目录之前就存在 ⇒ 那是用户数据 ⇒ **绝不能删整个目录**。
+        _clone_existed_before = clone_root.exists()
+        _entries_before: set[str] = set()
+        if _clone_existed_before:
+            try:
+                _entries_before = {e.name for e in clone_root.iterdir()}
+            except OSError:
+                _entries_before = set()
+
+        def _cleanup_partial_clone() -> None:
+            """清掉 clone 失败留下的半成品, 但**绝不删用户数据**。
+
+            背景 (sprint-51 warden P0-1): ``clone_dir`` 是**用户可配项**
+            (UI/API 都能改), 可以指向 moni 数据目录本身, 或指向一个含用户
+            重要文件的子目录。若用「目录存在就 rmtree」, 一次 clone 失败就
+            会把 ``data/news.db`` 连同整个数据目录删光 ——
+            ``_validate_clone_dir`` 的既有口径 (``resolved != data_dir
+            and ...``) 恰好放行 ``clone_dir == 数据目录``, 该路径可达。
+
+            修法 (按「是不是我们造的」判定, 而不是猜内容):
+
+            - clone **之前目录不存在** ⇒ 里面的一切都是这次 clone 留下的
+              ⇒ 整个目录可安全删除;
+            - clone **之前目录已存在** ⇒ 用户数据 ⇒ 只删「我们这次新增的
+              条目」(通常是 ``.git``), 目录本身与原有内容一律保留;
+            - 任何不确定的情形 ⇒ **不删**, 只记 error 日志。
+
+            「保守优先」: 宁可留一个垃圾目录, 也不误删生产库。
+            """
+            if not clone_root.exists():
+                return
+            try:
+                entries_now = {e.name for e in clone_root.iterdir()}
+            except OSError:
+                return
+
+            if not _clone_existed_before:
+                # 目录是我们这次 clone 造的 ⇒ 整个删掉
+                shutil.rmtree(clone_root, ignore_errors=True)
+                return
+
+            # 目录本来就在 ⇒ 只删「我们这次新增的条目」
+            added = entries_now - _entries_before
+            if not added:
+                # 没有任何新增 ⇒ 没有我们留下的半成品 ⇒ 不动
+                return
+            # P2-3（warden round-2）：只删**名为 .git** 的新增条目。
+            # 其余新增项（用户在 clone 期间新建的文件等）**只记日志不删** ——
+            # 「是不是半成品」的真实特征就是那个 .git 目录，其余内容一律保留。
+            removed: list[str] = []
+            kept: list[str] = []
+            for name in sorted(added):
+                if name != ".git":
+                    kept.append(name)
+                    continue
+                victim = clone_root / name
+                try:
+                    if victim.is_dir():
+                        shutil.rmtree(victim, ignore_errors=True)
+                    else:
+                        victim.unlink(missing_ok=True)
+                    removed.append(name)
+                except OSError:
+                    continue
+            logger.error(
+                "[xbot-feed] partial clone at %s: removed %s — kept %s",
+                clone_root,
+                removed or ["(nothing)"],
+                sorted(_entries_before) + kept,
+            )
+
+        ok, _stderr = self._run_git_with_retry(
             # `--` 之后的参数一律当**位置参数** (路径/URL), 不再被 git
             # 当成选项解析 —— 双保险 (repo_url 已经过 _validate_repo_url)。
-            proc = subprocess.run(
-                ["git", "clone", "--quiet", "--", repo_url, str(clone_root)],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            logger.error(
-                "[xbot-feed] git clone timed out after %.0fs: %s",
-                timeout, repo_url,
-            )
-            return None
-        except OSError as exc:
-            logger.error("[xbot-feed] git clone failed to start: %s", exc)
-            return None
-        if proc.returncode != 0:
-            logger.error(
-                "[xbot-feed] git clone failed (rc=%d): %s",
-                proc.returncode,
-                _redact_git_output(
-                    (proc.stderr or proc.stdout or "").strip()
-                )[:300],
-            )
+            ["git", "clone", "--quiet", "--", repo_url, str(clone_root)],
+            cwd=None,
+            git_timeout=timeout,
+            total_timeout=total_timeout,
+            cleanup=_cleanup_partial_clone,
+        )
+        if not ok:
+            # 最后一次也失败 → 把半成品清掉, 不留垃圾目录。
+            _cleanup_partial_clone()
             return None
         return clone_root
 
