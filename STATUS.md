@@ -4,7 +4,7 @@
 
 ---
 
-## 进行中: **Pin 质量列 + 业务价值 harness** (2026-11-17 · Sprint 52 / id `26111701` · 分支 `feat/pin-quality-bv-harness` · 目标版本 v1.0.96)
+## 已发布: **v1.0.96 — Pin 质量列 + 业务价值 harness** (2026-11-17 · PR #223 · tag `v1.0.96` · commit `5316f05`)
 
 设计稿 `docs/specs/2026-11-16-pin-quality-bv-harness.md`（v4 已拍板 B/C/C/B），实现记录
 `docs/plans/2026-11-17_pin-quality-bv-harness.md`。新包 `moni/scoring/`，两件事：
@@ -32,7 +32,18 @@ CRUD/CLI 写路径补重算、长文 4 窗取证、5 次调用硬上限、引文
 （4 P1 确认修好；再修 `_windows` 2999/3000 字空窗边界 + 引文截 300 字）；round-3 判
 **PASS WITH NITS**、无 P0/P1（再补 >4 窗边界用例与打分 prompt 引文上限）。
 
-**状态**：代码 + 测试 + 文档就绪，已提交并开 PR **#223**；待用户授权 merge / tag / 部署。
+**发布**：squash merge `5316f05` · annotated tag `v1.0.96` · 生产 `/Users/mt16/dev/moni` 已 ff 到 `5316f05` ·
+`com.moni.web` 重启（PID 25885）· `schema_version 44 → 45`（执行前备份
+`data/backups/news.db.pre-045-20261117-1500`，integrity ok / 版本 44 / 124,383,232 bytes）·
+`/api/service/info` 报 `version=v1.0.96 / commit=5316f05 / schema=45 / worktree_dirty=false`。
+
+**生产冒烟**：`GET /api/articles/pinned` 36 篇均带 `quality` dict（历史行 formula 为空）；
+对 `7ab82a579114a88d` 调一次 refresh → `updated`，落库 `quality_score=83 / ready / pin_heuristic_v2`，
+再调一次 → `unchanged`；`GET /api/articles` 无 `quality_*`；生产库只读渲染简报正常
+（`按通用业务价值排序`、`通用`/`阅读` chip、页脚免责句）；首页 200，`app.js` 含 Pin 质量函数、
+`main.css` 含 `quality-col-head`。
+
+**遗留**：方向分/方向研究按 B 方案留到 Sprint 53（复用 `score_general_bv(rubric=...)`）。
 
 ---
 
