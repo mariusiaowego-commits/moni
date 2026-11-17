@@ -44,9 +44,10 @@
 round-3 定向复审判 **PASS**（P0=0 / P1=0 / P2=1，残留项为元护栏子串绕过，不阻塞）。含一条**数据丢失级 P0**：
 新增的 clone 清理用 rmtree 删整个 clone_root，`clone_dir` 指向数据目录时会删光 `news.db`；
 已改为按「是不是我们造的」判定，且只删 `.git`（6 场景探针全部通过）。
-**状态**：**未发布**。代码 + 测试已就绪，PR **#221** 已开（head `befd901`，base `d69f66d`），
+**状态**：**未发布**。代码 + 测试已就绪，PR **#221** 已开（base `0aef205`；实现 commit `befd901`，
+head 见 PR 页面 —— head SHA 会随每次 push 前进，故此处只记稳定的 base 与实现 commit）；
 **待 dad merge / tag / 部署**；本条**不随已发布的 v1.0.93 / v1.0.94 发布**，随 v1.0.95 发布。
-**base**：分支已 merge 到 `origin/main @ 0aef205`（PR #222，仅文档），本 sprint 的改动为 commit `befd901` + P2 修正 commit。
+**base**：分支已 merge 到 `origin/main @ 0aef205`（PR #222，仅文档）。
 
 ---
 

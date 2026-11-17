@@ -40,7 +40,8 @@ _REAL_RUN = subprocess.run
 #: dc730322 → bd53452 → e5b807f → d69f66d → 0aef205 之间**均未被 dad 改动**
 #: ⇒ 各 base 取到的基线逐字相同，换 base 不影响任何断言的结论。
 #: 锚点语义：锚点 = base（merge-base），**不是** tip —— commit 之后
-#: ``git diff HEAD`` 为空会让范围护栏恒绿（假绿）。详见 guards 文件里的同段注释。
+#: ``git diff HEAD`` 为空会让范围护栏恒绿（假绿）。详见 guards 文件里的同段注释
+#: （那里精确写了锚点=tip 时两条护栏各自的后果）。
 _BASE_COMMIT = "0aef2054298e45dea94572422918f8519b1f00da"
 
 _TLS_STDERR = (
@@ -219,18 +220,45 @@ def test_every_transient_signature_has_a_test_case():
 
     这条比逐条参数化更抗漏 —— 以后往表 A 加签名而忘了补用例，本测试立刻红
     （P1-2 的根因就是「表 14 条 / 用例 12 条」这种静默缺口）。
+
+    **收紧为「最长匹配」判据**（warden r2 的 P2-3）：原先只查「用例载荷里是否
+    **包含**该签名字符串」⇒ 加一条**宽泛**签名（``"curl"``，是 ``"curl 35"`` 的
+    子串）时元护栏**不红**，等于允许「加签名但不补专属用例」蒙混过关。
+    现在要求：每条签名必须存在一个载荷，使它在该载荷里**不被任何更长的签名覆盖**
+    （即它是该载荷的**最长匹配**）⇒ 宽泛签名拿不到专属载荷 ⇒ 立刻红。
+
+    语义说明：这里判的是「**这条签名有专属用例**」，不是「这条签名更长」——
+    「gnutls error」虽是「gnutls recv error」的子串，两者各自有专属载荷，都合法。
     """
     from moni.fetch.sources.xbot_feed import TRANSIENT_GIT_ERROR_SIGNATURES
 
     from tests.test_xbot_feed_git_retry_signatures import TRANSIENT_CASES
 
-    payloads = "\n".join(s for _cid, s in TRANSIENT_CASES).lower()
-    missing = [
-        sig for sig in TRANSIENT_GIT_ERROR_SIGNATURES
-        if sig.lower() not in payloads
-    ]
+    payloads = [(cid, p.lower()) for cid, p in TRANSIENT_CASES]
+    sigs = list(TRANSIENT_GIT_ERROR_SIGNATURES)
+
+    missing: list[str] = []
+    for sig in sigs:
+        s = sig.lower()
+        has_own_case = False
+        for _cid, payload in payloads:
+            if s not in payload:
+                continue
+            # 该载荷里是否还有**更长**的签名也命中？若都有，则本签名在该载荷里
+            # 不是最长匹配 ⇒ 拿不到专属用例
+            shadowed = [
+                t for t in sigs
+                if t.lower() != s and t.lower() in payload and len(t) > len(s)
+            ]
+            if not shadowed:
+                has_own_case = True
+                break
+        if not has_own_case:
+            missing.append(sig)
+
     assert not missing, (
-        f"这些临时签名没有任何测试载荷覆盖（AC-2 要求逐条独立用例）: {missing}"
+        f"这些临时签名没有专属测试载荷覆盖（AC-2 要求逐条独立用例；"
+        f"若某签名是另一签名的子串，需给它自己的载荷）: {missing}"
     )
 
 

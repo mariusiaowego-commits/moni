@@ -53,13 +53,17 @@ _SRC_FILE = Path(__file__).parent.parent / "moni" / "fetch" / "sources" / "xbot_
 #: 与工作区是否已提交**无关** —— 这是 commit 前后都成立的前提。
 #:
 #: ⚠️ **绝不可把锚点改成 tip（``HEAD``）** —— commit 之后
-#: ``git diff HEAD`` 为空 ⇒ 范围护栏**恒绿（假绿）**，越界改动再也咬不住。
-#: 实测：``git diff 0aef205 --name-only -- moni/`` → 只有 ``xbot_feed.py``；
-#: ``git diff HEAD --name-only -- moni/`` → 空。
+#: ``git diff HEAD`` 为空 ⇒ 两条护栏的**后果不同**（实测变异验证过）：
+#: - ``test_no_migration_or_web_changes`` 断言「越界集合为空」⇒ diff 恒空
+#:   ⇒ **恒绿（假绿）**，越界改动再也咬不住；
+#: - ``test_only_one_source_file_changed`` 断言「恰好是 xbot_feed.py」⇒ diff 为空
+#:   ⇒ **fail-closed 变红**（还能靠它发现锚点被改）。
+#: ⇒ 两条护栏**不能互相替代**；锚点必须是 base。
 #:
 #: **为什么锚点必须是 base 而不是更早的提交**：本 sprint 的改动在 base 之上
-#: 是**未提交**的（当时的工作区改动），diff 点必须选「我的改动的直接底座」，
-#: 否则 dad 在那之后的任何合并都会被算成「我的越界改动」
+#: 是**已提交**的（commit ``befd901`` 起）。写测试与提交之间 base 曾多次前移
+#: （dad 连续合 PR #216~#222），每次都要跟着更新，否则 dad 在那之后的任何合并
+#: 都会被算成「我的越界改动」
 #: （实测：base 停在 ``bd53452`` 时，dad 的 PR #218 的 ``moni/db/migrate.py``
 #: 与 ``044_orphan_rows_cleanup.sql`` 会让两条范围护栏**误报失败**）。
 #:
