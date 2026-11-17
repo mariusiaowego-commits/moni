@@ -19,7 +19,7 @@
 **数据**：migration **045**（`articles` 加 10 列，只加不回填）；`_CURRENT_VERSION 44 → 45`。
 **V1 不做**：方向分/方向研究（V2 附录）、历史分回填、`GET /api/articles` 暴露质量字段。
 
-**测试**：`test_scoring_heuristic` 9 + `test_scoring_bv` 18 + `test_scoring_integration` 13 全绿；
+**测试**：`test_scoring_heuristic` 9 + `test_scoring_bv` 18 + `test_scoring_integration` 13 + `test_scoring_store` 2 全绿；
 `test_pins` / `test_brief_html` / `test_brief` 全绿；全量 **1988 passed / 2 skipped**，
 2 项环境性失败（Pillow 未安装、沙箱禁止建 git worktree），与本改动无关。
 **浏览器实测**：Pin 质量列 `— / 30 / 87`（旧行经 refresh 自动补算），tooltip 默认 `display:none`、

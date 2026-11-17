@@ -85,6 +85,7 @@ bv:        pending → ready | needs_review | failed | budget_skipped
 - `tests/test_scoring_heuristic.py` 9 passed
 - `tests/test_scoring_bv.py` 18 passed（自定义 Rubric 注入、5 次调用硬上限、补抽引文编号唯一、带空格日期、长文窗口保留尾段）
 - `tests/test_scoring_integration.py` 13 passed（Pin 响应形状、refresh 幂等与正文敏感、`GET /pinned` 只读、预算不足落 `budget_skipped` 且分数 NULL、CRUD PUT 后重算、快速 hermes 不烧预算、`/api/articles` 不带质量字段、正文过短排除、hash 过期排除、ready 先于 needs_review、legacy 与 ready 同档、标签 ≤3 不带数字、窗口过期标注不改分）
+- `tests/test_scoring_store.py` 2 passed（公式/指纹漂移、rubric 与正文哈希缓存键）
 - `tests/test_pins.py`、`tests/test_brief_html.py`、`tests/test_brief.py` 全绿
 - 全量 `tests/`：**1988 passed / 2 skipped**；2 项与本改动无关的环境性失败（见 §6）
 
