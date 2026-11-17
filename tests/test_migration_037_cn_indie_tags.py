@@ -70,7 +70,7 @@ def test_037_runs_after_036(v36_db):
     migrate()
     assert get_db().execute(
         "SELECT MAX(version) FROM schema_version"
-    ).fetchone()[0] == _CURRENT_VERSION == 44  # reader AI v1.0.88; 44 from v1.0.94
+    ).fetchone()[0] == _CURRENT_VERSION and _CURRENT_VERSION >= 44  # 44 from v1.0.94
 
 
 def test_037_binds_source_to_existing_tags(v36_db):

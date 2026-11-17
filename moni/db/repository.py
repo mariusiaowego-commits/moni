@@ -371,10 +371,15 @@ class ArticleRepository:
             "SELECT id, raw_content FROM articles "
             "WHERE raw_content IS NOT NULL AND raw_content LIKE '%<%'"
         ).fetchall()
+        pinned_ids = {
+            r[0]
+            for r in conn.execute("SELECT article_id FROM article_pins").fetchall()
+        }
 
         scanned = 0
         updated = 0
         unchanged = 0
+        touched_pinned: list[str] = []
         for row in rows:
             scanned += 1
             old = row["raw_content"] or ""
@@ -384,8 +389,15 @@ class ArticleRepository:
                     "UPDATE articles SET raw_content = ? WHERE id = ?",
                     (new, row["id"]),
                 )
+                if row["id"] in pinned_ids:
+                    touched_pinned.append(row["id"])
                 updated += 1
             else:
                 unchanged += 1
         conn.commit()
+        if touched_pinned:
+            from moni.scoring import ensure_quality
+
+            for aid in touched_pinned:
+                ensure_quality(conn, aid)
         return {"scanned": scanned, "updated": updated, "unchanged": unchanged}

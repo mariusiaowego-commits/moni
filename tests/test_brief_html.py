@@ -91,7 +91,7 @@ def test_html_contains_body_and_fold(fresh_db: Path, tmp_path: Path):  # tmp_pat
     assert "summary-block" in html_doc
     assert "--summary-bg" in html_doc
     assert "card-idx" in html_doc
-    assert "质量分" in html_doc
+    assert "阅读 " in html_doc  # v1.0.96: brief chip renamed 阅读分 / BestBlogs
     assert "业务价值" in html_doc
     assert "bv-score" in html_doc  # score sits next to 业务判断 title
     assert "fc-inline" in html_doc  # 已核实 inline with claim text

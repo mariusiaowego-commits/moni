@@ -232,7 +232,7 @@
               <tr>
                 <th><input type="checkbox" :checked="articlesSubTab === 'all' ? articleAllSelectedOnPage() : pinnedAllSelectedOnPage()" @change="articlesSubTab === 'all' ? articleToggleAllOnPage($event) : pinnedToggleAllOnPage($event)"></th>
                 <th class="pin-col-head" x-show="articlesSubTab === 'all'">Pin</th>
-                <th>标题</th><th>来源</th><th>命中标签</th><th>原文时间</th><th>抓取时间</th><th style="text-align: right;">操作</th>
+                <th>标题</th><th>来源</th><th>命中标签</th><th class="quality-col-head" x-show="articlesSubTab === 'pinned'" style="text-align: right;">质量</th><th>原文时间</th><th>抓取时间</th><th style="text-align: right;">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -282,6 +282,12 @@
                       </span>
                     </div>
                     <span x-show="!a.tags || a.tags.length === 0" class="muted">-</span>
+                  </td>
+                  <td class="quality-cell tabular-nums nowrap" x-show="articlesSubTab === 'pinned'" style="text-align: right;">
+                    <span class="tag-chip-wrap" tabindex="0">
+                      <span x-text="pinQualityCell(a)"></span>
+                      <span class="tip" x-text="pinQualityTip(a)"></span>
+                    </span>
                   </td>
                   <td class="tabular-nums nowrap" x-text="formatTime(a.published_at || a.fetched_at || a.created_at)"></td>
                   <td class="tabular-nums nowrap" x-text="formatTime(a.created_at)"></td>

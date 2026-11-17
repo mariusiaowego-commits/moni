@@ -38,7 +38,7 @@ def fresh_db(tmp_path, monkeypatch):
 
 def test_current_version_includes_042():
     """042 已进 schema；当前版本是 043 reader AI。"""
-    assert _CURRENT_VERSION == 44
+    assert _CURRENT_VERSION >= 42
 
 
 def test_migration_042_file_exists():

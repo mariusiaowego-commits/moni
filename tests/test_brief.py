@@ -349,18 +349,32 @@ class TestEnrichment:
 
             mid = re.search(r"ID: (\S+)", prompt)
             aid = mid.group(1) if mid else "e1"
-            if "业务价值" in prompt or "对自身业务" in prompt:
+            if "取证助手" in prompt:
                 return (
                     json.dumps(
                         {
-                            "id": aid,
-                            "score": 72 if aid == "e1" else 20,
-                            "note": "对支付侧可对标智能客服。",
+                            "evidence": [
+                                {"id": "e1", "quote": "支付机构推进智能客服支付机构推进智能客服"}
+                            ]
                         },
                         ensure_ascii=False,
                     ),
                     0,
                 )
+            if "评分员" in prompt or "上一轮打分没有通过检查" in prompt:
+                from moni.scoring.rubric import KEYS
+
+                dims = {
+                    key: {
+                        "score": 6,
+                        "evidence_ids": ["e1"],
+                        "reason": "正文写到机构动作与客户对象",
+                    }
+                    for key in KEYS
+                }
+                return json.dumps({"dimensions": dims}, ensure_ascii=False), 0
+            if "检查员" in prompt:
+                return json.dumps({"pass": True, "reasons": []}), 0
             if "事实核查" in prompt:
                 return (
                     json.dumps(
@@ -414,8 +428,8 @@ class TestEnrichment:
             ).fetchall()
         }
         conn.close()
-        # thin content path sets BV without hermes necessarily for e2
-        assert rows["e2"][1] is not None  # score
+        # thin body → insufficient, score stays NULL (design §6.1)
+        assert rows["e2"][1] is None
         assert rows["e1"][1] is not None
 
         text = rebuild_article_content(str(fresh_db), ["e1", "e2"], brief=True)

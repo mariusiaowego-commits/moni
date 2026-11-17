@@ -23,6 +23,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,9 @@ _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 # Body layout adds hermes calls; default budget covers ~10 articles offline HTML.
 ENRICH_BUDGET_SEC = int(os.environ.get("MONI_ENRICH_BUDGET_SEC", "900"))
 STEP_TIMEOUT_SEC = int(os.environ.get("MONI_ENRICH_STEP_TIMEOUT", "90"))
+# Per-article share of the run budget (design §4.6): 120s cap, below 60s skip.
+BV_ARTICLE_BUDGET_SEC = 120.0
+MIN_BV_ARTICLE_BUDGET = 60.0
 THIN_CONTENT_CHARS = 200
 
 FACT_CHECK_PROMPT = """你是 moni 事实核查助手。只基于文内声明，不编造。
@@ -819,7 +823,8 @@ def _article_rows(conn: sqlite3.Connection, article_ids: list[str]) -> list[sqli
         SELECT id, title, raw_content, ai_summary, summary,
                fact_check_conclusion, fact_check_note, has_fact_check,
                business_value_score, business_value_note,
-               quality_score, bb_score, bb_summary, bb_one_sentence,
+               business_value_status, business_value_hash,
+               quality_score, quality_formula, bb_score, bb_summary, bb_one_sentence,
                brief_summary, brief_body_md, source, url, publisher, published_at
         FROM articles WHERE id IN ({ph})
         ORDER BY CASE id {order_cases} END
@@ -832,7 +837,8 @@ def _article_rows(conn: sqlite3.Connection, article_ids: list[str]) -> list[sqli
             SELECT id, title, raw_content, ai_summary, summary,
                    fact_check_conclusion, fact_check_note, has_fact_check,
                    business_value_score, business_value_note,
-                   quality_score, bb_score, bb_summary, NULL as bb_one_sentence,
+                   NULL as business_value_status, NULL as business_value_hash,
+                   quality_score, NULL as quality_formula, bb_score, bb_summary, NULL as bb_one_sentence,
                    NULL as brief_summary, NULL as brief_body_md,
                    source, url, publisher, published_at
             FROM articles WHERE id IN ({ph})
@@ -844,7 +850,8 @@ def _article_rows(conn: sqlite3.Connection, article_ids: list[str]) -> list[sqli
                 SELECT id, title, raw_content, ai_summary, NULL as summary,
                        fact_check_conclusion, fact_check_note, has_fact_check,
                        NULL as business_value_score, NULL as business_value_note,
-                       NULL as quality_score, NULL as bb_score, NULL as bb_summary,
+                       NULL as business_value_status, NULL as business_value_hash,
+                       NULL as quality_score, NULL as quality_formula, NULL as bb_score, NULL as bb_summary,
                        NULL as bb_one_sentence, NULL as brief_summary, NULL as brief_body_md,
                        source, url, publisher, published_at
                 FROM articles WHERE id IN ({ph})
@@ -906,54 +913,77 @@ def _ensure_business_value(
     row: sqlite3.Row,
     extra_args: list[str],
     budget_left: list[float],
+    article_budget: float | None = None,
 ) -> bool:
-    score = row["business_value_score"]
-    note = row["business_value_note"]
-    if score is not None and note and str(note).strip():
-        return True
-    content = (row["raw_content"] or "")[:3000]
-    raw_len = len((row["raw_content"] or "").strip())
-    if raw_len < THIN_CONTENT_CHARS:
-        now = _now()
-        conn.execute(
-            "UPDATE articles SET business_value_score=?, business_value_note=?, "
-            "business_value_at=? WHERE id=?",
-            (25, "素材不足（正文过短），无法可靠评估业务价值。", now, row["id"]),
-        )
-        conn.commit()
-        return True
-    if budget_left[0] <= 0:
-        return False
-    prompt = BUSINESS_VALUE_PROMPT.format(
-        article_id=row["id"],
-        title=row["title"] or "",
-        content=content,
+    """Run the v1 harness.  Returns False only when the article must be retried."""
+    from moni.scoring import (
+        BvResult,
+        content_hash,
+        from_row,
+        needs_bv_rescore,
+        score_general_bv,
+        write_bv,
     )
-    timeout = min(STEP_TIMEOUT_SEC, max(15, int(budget_left[0])))
-    out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
-    budget_left[0] -= timeout
-    if code != 0:
-        log.warning("enrichment: business_value hermes exit %s for %s", code, row["id"])
+    from moni.scoring.bv_pipeline import STATUS_SKIPPED
+
+    snap = from_row(row)
+    if not needs_bv_rescore(row, snap):
+        return True
+    alloc = budget_left[0] if article_budget is None else min(article_budget, budget_left[0])
+    if alloc < MIN_BV_ARTICLE_BUDGET:
+        # Persist the skip so the brief can say「业务价值未完成」instead of
+        # showing a stale score, and so the next run retries it.
+        try:
+            write_bv(
+                conn,
+                snap,
+                BvResult(
+                    status=STATUS_SKIPPED,
+                    error="预算不足",
+                    content_hash=content_hash(snap.body),
+                ),
+            )
+            conn.commit()
+        except sqlite3.OperationalError as exc:
+            log.error("enrichment: BV skip write failed (migration 045 missing?): %s", exc)
         return False
-    data = _parse_json_obj(out) or {}
+
+    def llm(prompt: str, timeout: float) -> tuple[str, int]:
+        out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
+        budget_left[0] -= timeout
+        return out, code
+
+    elapsed = time.monotonic()
+    result = score_general_bv(
+        snap,
+        llm=llm,
+        budget_s=alloc,
+        step_timeout=min(STEP_TIMEOUT_SEC, max(15.0, alloc)),
+    )
+    elapsed = time.monotonic() - elapsed
     try:
-        sc = int(data.get("score", 0))
-    except (TypeError, ValueError):
-        sc = 0
-    sc = max(0, min(100, sc))
-    bv_note = (data.get("note") or "").strip() or "（无说明）"
-    now = _now()
-    try:
-        conn.execute(
-            "UPDATE articles SET business_value_score=?, business_value_note=?, "
-            "business_value_at=? WHERE id=?",
-            (sc, bv_note, now, row["id"]),
-        )
+        write_bv(conn, snap, result)
         conn.commit()
     except sqlite3.OperationalError as exc:
-        log.error("enrichment: BV write failed (migration 020 missing?): %s", exc)
+        log.error("enrichment: BV write failed (migration 045 missing?): %s", exc)
         return False
-    return True
+    log.info(
+        "scoring bv article=%s status=%s calls=%s elapsed=%.1fs budget_left=%.1fs",
+        row["id"],
+        result.status,
+        result.calls_used,
+        elapsed,
+        budget_left[0],
+    )
+    if result.status in ("ready", "needs_review", "insufficient"):
+        return True
+    log.warning(
+        "enrichment: business_value %s for %s (%s)",
+        result.status,
+        row["id"],
+        result.error or "",
+    )
+    return False
 
 
 def _ensure_quality(
@@ -969,20 +999,11 @@ def _ensure_quality(
     bb_score is display-preferred but we still store a quality_score when
     missing so brief templates never show empty 「—」.
     """
+    # 045: quality_score now belongs to the Pin column (pin_heuristic_v2).
+    if "quality_formula" in row.keys() and row["quality_formula"]:
+        return True
     if row["quality_score"] is not None:
         return True
-    if row["bb_score"] is not None:
-        # Mirror BB score into quality_score for uniform column
-        now = _now()
-        try:
-            conn.execute(
-                "UPDATE articles SET quality_score=?, quality_score_at=? WHERE id=?",
-                (int(row["bb_score"]), now, row["id"]),
-            )
-            conn.commit()
-            return True
-        except (sqlite3.OperationalError, TypeError, ValueError):
-            pass
 
     # Fast path: heuristic (always works, no budget)
     sc = compute_heuristic_quality(row)
@@ -1452,7 +1473,14 @@ def run_enrichment(
                     55,
                     f"业务价值评估 ({i + 1}/{n}) ...",
                 )
-                ok = _ensure_business_value(conn, row, extra_args, budget_left)
+                share = budget_left[0] / max(len(rows) - i, 1)
+                ok = _ensure_business_value(
+                    conn,
+                    row,
+                    extra_args,
+                    budget_left,
+                    article_budget=min(BV_ARTICLE_BUDGET_SEC, share),
+                )
                 if ok:
                     stats["business_value"] += 1
                 else:
@@ -1571,8 +1599,19 @@ def rebuild_article_content(
     if brief:
         def sort_key(r: sqlite3.Row) -> tuple:
             sc = r["business_value_score"]
-            # None last
-            return (0 if sc is not None else 1, -(sc or 0))
+            try:
+                status = r["business_value_status"]
+            except (KeyError, IndexError):
+                status = None
+            if status == "ready":
+                tier = 0
+            elif status is None:
+                tier = 1 if sc is not None else 3
+            elif status == "needs_review":
+                tier = 2
+            else:
+                tier = 3
+            return (tier, -(sc or 0))
 
         rows = sorted(rows, key=sort_key)
 
@@ -1604,11 +1643,16 @@ def rebuild_article_content(
             block += f"链接: {row['url']}\n"
         block += f"\n{content}"
 
-        # quality: bb preferred, else quality_score, else heuristic on the fly
-        q = row["bb_score"] if row["bb_score"] is not None else row["quality_score"]
-        if q is None:
-            q = compute_heuristic_quality(row)
-        q_label = "BestBlogs 评分" if row["bb_score"] is not None else "质量/注意力分"
+        # reading score: BestBlogs if present, else the local reading heuristic.
+        # quality_score now belongs to the Pin column and must not leak here.
+        from moni.scoring import from_row as _snap_from_row, reading_heuristic
+
+        if row["bb_score"] is not None:
+            q = row["bb_score"]
+            q_label = "BestBlogs 评分"
+        else:
+            q = reading_heuristic(_snap_from_row(row))
+            q_label = "阅读分"
         block += f"\n\n**{q_label}**: {q}/100"
 
         bv = row["business_value_score"]
