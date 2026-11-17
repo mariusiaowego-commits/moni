@@ -756,6 +756,28 @@ Gate 2 降级后 summary 与逐条判定不同步、brief 脚注不受 flag 控�
   分值 **1.60–5.00**、全部两位小数、12 篇满分；`page=1` 20 条、`page=2` 16 条；
   refresh 返回 `updated=36 / unchanged=0 / skipped=0`。
 
+## 进行中: **Sprint 67 — 业务方向分 V2（S1 内核已交付，S2/S3 未做）** (2026-11-23 · 分支 `feat/bv-direction-v2` · sprint id `26112367` · PR #225)
+
+设计 §10（`docs/specs/2026-11-16-pin-quality-bv-harness.md`）落地第一阶段，实现记录
+`docs/plans/2026-11-17_bv-direction-v2.md`。
+
+- **migration 053**（原 046 与 main 的 `046_fact_check_summary.sql` 撞号，已改名为 053）：
+  新增 `bv_direction`（配置）、`bv_direction_research`（版本，唯一键
+  `(direction_id, research_version)`）、`article_bv_direction`（方向分，主键含
+  `research_version`）；`_CURRENT_VERSION 52 → 53`；不改既有列、不回填。
+- **`moni/scoring/direction.py`**：研究提示词 `bv_direction_research_v1`（五条硬句写死）、
+  `parse_research` 全量校验（10 key / 四档锚点 / 问题 ≤30 字 / 禁词 / 写作禁词）、
+  `research_to_rubric` 只换 question/anchors/template、权重与 label 从 `RUBRIC_V1` 继承、
+  `usable_research` 只看最大 `research_version` 且不回退旧版。
+- **rebase**：分支原落后 main 51 个提交；2026-11-23 rebase 到当时最新 main（`4f9b5e2`），
+  冲突仅 `moni/db/migrate.py` 一处（版本号），按 053 解决。main 后续仍在推进，推分支前会再 rebase 一次。
+- **测试**：`/usr/local/bin/python3 -m pytest tests/ -p no:cacheprovider -q` → **2437 passed /
+  2 skipped / 1 failed（363s）**。唯一失败是
+  `tests/test_migration_039_xbot_feed.py::test_039_upgrades_a_db_built_by_old_code`：沙箱禁止写
+  `.git/worktrees`，放开权限单跑 **1 passed**，属环境限制、非代码问题。
+- **待做（S2/S3）**：研究 runner（running→passed/failed 落库、旧 passed→expired）、方向配置
+  读写 API、方向分缓存写入与重算、简报/卡片方向分 UI、方向不可用时整列隐藏。
+
 ## 已发布: **v1.0.96 — Pin 质量列 + 业务价值 harness** (2026-11-17 · PR #223 · tag `v1.0.96` · commit `5316f05`)
 
 设计稿 `docs/specs/2026-11-16-pin-quality-bv-harness.md`（v4 已拍板 B/C/C/B），实现记录
