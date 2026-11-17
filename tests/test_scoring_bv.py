@@ -300,9 +300,9 @@ def test_long_body_windows_keep_the_tail():
 
 def test_windows_keep_head_when_a_paragraph_exactly_fills_a_window():
     head = "首" * 2999
-    body = "\n\n".join(
-        [head, *(["中间段落" * 200] * 6), "尾段：2026 年 12 月 1 日截止。"]
-    )
+    dense = "2026 年 12 月 1 日预算 3000 万元" * 40  # ~800 字，含日期与数字
+    body = "\n\n".join([head, *([dense] * 9), "尾段：2026 年 12 月 1 日截止。"])
+    assert len(bv_pipeline._windows(body)) < len(body)  # >4 窗，确实走了筛选分支
     sampled = bv_pipeline._windows(body)
     assert not sampled.startswith("\n\n")
     assert head[:50] in sampled

@@ -201,6 +201,11 @@ def _evidence_prompt(snap: ArticleSnapshot) -> str:
     )
 
 
+def _quote_lines(evidence: list[dict], limit: int = 300) -> str:
+    """Bound quote length in every prompt: one huge quote must not eat the budget."""
+    return "\n".join(f"[{e['id']}] {e['quote'][:limit]}" for e in evidence)
+
+
 def _topup_prompt(snap: ArticleSnapshot, dropped: list[dict]) -> str:
     missing = "\n".join(f"- {d['quote'][:60]}" for d in dropped[:8])
     return (
@@ -213,7 +218,7 @@ def _topup_prompt(snap: ArticleSnapshot, dropped: list[dict]) -> str:
 
 
 def _score_prompt(snap: ArticleSnapshot, evidence: list[dict], rb: Rubric) -> str:
-    ev = "\n".join(f"[{e['id']}] {e['quote']}" for e in evidence)
+    ev = _quote_lines(evidence)
     return (
         "你是 moni 业务价值评分员。读者是银行/支付数字化从业者。\n"
         "对下面十维各打 0-10 的整数分。每维必须给出 evidence_ids，且只能引用下面列出的 id。\n"
@@ -239,7 +244,7 @@ def _rescore_prompt(
         "正文没写到就给 0。\n\n"
         f"{rb.prompt_block()}\n\n"
         f"可用引文：\n"
-        + "\n".join(f"[{e['id']}] {e['quote']}" for e in evidence)
+        + _quote_lines(evidence)
         + '\n\n严格输出 JSON：{"dimensions":{"rule_delta":{"score":0,"evidence_ids":[],'
         '"reason":"…"}}}\n\n'
         f"标题：{snap.title}\n导语：{snap.body[:400]}"
@@ -251,11 +256,7 @@ def _audit_prompt(dimensions: list[dict], rb: Rubric, evidence: list[dict]) -> s
         f"- {d['key']}（{d['label']}）：{d['score']} 分；理由：{d['reason']}"
         for d in dimensions
     )
-    quotes = (
-        "\n".join(f"[{e['id']}] {e['quote'][:300]}" for e in evidence)
-        if evidence
-        else "（本篇没有可用引文）"
-    )
+    quotes = _quote_lines(evidence) if evidence else "（本篇没有可用引文）"
     return (
         "你是 moni 打分检查员。只判断下面十维分数是否与正文事实一致，不要重写分数、不要给总分。\n"
         "判不通过的标准：理由没有事实、分数与锚点明显不符、出现空话或禁用词。\n"

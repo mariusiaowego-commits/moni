@@ -128,6 +128,11 @@ bv:        pending → ready | needs_review | failed | budget_skipped
 仍保留的低风险 nit：CRUD / backfill 的重算发生在 `commit()` 之后，严格说不是设计 §5.2.5 的
 「同一事务」；`ensure_quality` 失败时该行仍带旧 `quality_formula`，需要手动 refresh 才会补算。
 
+第三轮复核（最终 head，含空窗与引文修正）判 **PASS WITH NITS**、无 P0/P1：确认 4 个 P1 与
+`_windows` 边界修复；再补两处 —— 边界用例改成真正 >4 窗的分支、打分/重跑 prompt 的引文
+也统一截 300 字。剩余 nit：`tests/test_brief*.py` 硬编码 `sys.path` 指向 `~/dev/moni`
+（预存在，本 PR 外，另一分支在清理），单文件跑会 import 主 checkout。
+
 ## 8. 回滚
 
 SQLite `ADD COLUMN` 不可逆。回滚 = 恢复执行 045 前的库备份；新列留空时旧代码可正常工作（首次部署即此状态）。代码回滚到 `60a2a06` 即可，无需反向迁移。
