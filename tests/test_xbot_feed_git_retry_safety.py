@@ -33,14 +33,15 @@ from moni.db.migrate import migrate
 _REAL_RUN = subprocess.run
 
 #: 本 sprint 的固定 base（= 本 PR 的 base，= ``merge-base(tip, base)``）。
-#: 2026-11-16 19:20 分支已 fast-forward 到 dad 的 PR #220（``d69f66d``），base 随之更新。
+#: 2026-11-16 19:20 分支已 fast-forward 到 dad 的 PR #220（``d69f66d``）。
 #: 2026-11-17 08:45 改动已 commit 成 ``befd901``（PR #221）。
+#: 2026-11-17 09:40 再同步：dad 合了 PR #222（``0aef205``，仅文档）⇒ base 更新。
 #: 注：``moni/fetch/sources/xbot_feed.py`` 与 migration 042 在
-#: dc730322 → bd53452 → e5b807f → d69f66d 之间**均未被 dad 改动** ⇒ 各 base 取到的基线
-#: 逐字相同，换 base 不影响任何断言的结论。
+#: dc730322 → bd53452 → e5b807f → d69f66d → 0aef205 之间**均未被 dad 改动**
+#: ⇒ 各 base 取到的基线逐字相同，换 base 不影响任何断言的结论。
 #: 锚点语义：锚点 = base（merge-base），**不是** tip —— commit 之后
 #: ``git diff HEAD`` 为空会让范围护栏恒绿（假绿）。详见 guards 文件里的同段注释。
-_BASE_COMMIT = "d69f66dcc73c517fde979a875d369775b37daf23"
+_BASE_COMMIT = "0aef2054298e45dea94572422918f8519b1f00da"
 
 _TLS_STDERR = (
     "fatal: unable to access 'https://github.com/mariusiaowego-commits/xbot-feed.git/': "

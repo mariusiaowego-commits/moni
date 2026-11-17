@@ -1,7 +1,7 @@
 # Sprint 51 · xbot_feed 上游 git 临时网络失败的有限次数退避重试
 
-> **目标版本** v1.0.95 · **分支** `feat/xbot-git-retry-v1.0.95` · **base** `origin/main @ d69f66d`
-> （2026-11-16 19:20 同步：dad 合了 PR #217 / #218 / #219 / #220，分支 fast-forward 到 `d69f66d`，未创建新 commit）
+> **目标版本** v1.0.95 · **分支** `feat/xbot-git-retry-v1.0.95` · **base** `origin/main @ 0aef205`
+> （2026-11-17 同步：dad 合了 PR #217 / #218 / #219 / #220 / #222，分支已 merge 到 `0aef205`）
 > **sprint** 51 · **追踪 id** 26111606 · **状态** 实现完成，待 dad 下一道 GO 才 commit/push/PR
 
 ## 用户 GO 原文

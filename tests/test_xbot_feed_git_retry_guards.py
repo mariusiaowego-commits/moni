@@ -43,9 +43,10 @@ _SRC_FILE = Path(__file__).parent.parent / "moni" / "fetch" / "sources" / "xbot_
 #: 范围护栏误报。护栏必须钉在**固定的 base commit** 上。
 #:
 #: 2026-11-16 19:20 同步：dad 又合了 PR #217（``bd53452``）、PR #218
-#: （``e5b807f``，migration 044）、PR #219 / #220（``d69f66d``，web 服务胶囊），
-#: 本分支已 **fast-forward** 到 ``d69f66d``。
+#: （``e5b807f``，migration 044）、PR #219 / #220（``d69f66d``，web 服务胶囊）。
 #: 2026-11-17 08:45 提交：改动已 commit 成 ``befd901``（PR #221）。
+#: 2026-11-17 09:40 再同步：dad 合了 PR #222（``0aef205``，**仅改 STATUS.md /
+#: USER_GUIDE.md 两个文档**）⇒ 本分支已 merge，base 随之更新为 ``0aef205``。
 #:
 #: **锚点语义（关键，勿改）**：锚点 = **base（merge-base）**，不是分支 tip。
 #: ``git diff <base> -- moni/`` 恒等于「本 PR 相对 base 的改动」，
@@ -53,7 +54,7 @@ _SRC_FILE = Path(__file__).parent.parent / "moni" / "fetch" / "sources" / "xbot_
 #:
 #: ⚠️ **绝不可把锚点改成 tip（``HEAD``）** —— commit 之后
 #: ``git diff HEAD`` 为空 ⇒ 范围护栏**恒绿（假绿）**，越界改动再也咬不住。
-#: 实测：``git diff d69f66d --name-only -- moni/`` → 只有 ``xbot_feed.py``；
+#: 实测：``git diff 0aef205 --name-only -- moni/`` → 只有 ``xbot_feed.py``；
 #: ``git diff HEAD --name-only -- moni/`` → 空。
 #:
 #: **为什么锚点必须是 base 而不是更早的提交**：本 sprint 的改动在 base 之上
@@ -64,7 +65,7 @@ _SRC_FILE = Path(__file__).parent.parent / "moni" / "fetch" / "sources" / "xbot_
 #:
 #: **残留提醒（可接受）**：base 是硬编码，历史被重写时会 **fail-closed**
 #: （测试红），不会假绿。
-BASE_COMMIT = "d69f66dcc73c517fde979a875d369775b37daf23"
+BASE_COMMIT = "0aef2054298e45dea94572422918f8519b1f00da"
 
 
 @pytest.fixture

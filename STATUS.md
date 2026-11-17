@@ -4,6 +4,27 @@
 
 ---
 
+## 已发布: **v1.0.94 — 孤儿行清理与顶部 admin 浮层** (2026-11-17 · PR #218 / #219 / #220 · tag `v1.0.94`)
+
+两件事：
+
+- **孤儿行清理（migration 044）**：`article_tags` 305 行、`article_keyword_hits` 344 行、`llm_jobs` 3 行
+  指向已删除文章。根因是 2026-06-16~18 那批删除时连接没开 `PRAGMA foreign_keys`，
+  `ON DELETE CASCADE` 未生效。连接层现在每次建连都开外键，新删文章会级联清子表，不再新增；
+  044 只清存量，`NOT IN` 判定，可重复执行。
+- **顶部 admin 浮层**：右上角 `PID xxxxx` 胶囊悬停展开九行信息 —— 运行状态 / 端口 / PID / 已运行、
+  版本 / 分支 / 工作区脏否 / Schema、数据库文件名 + 大小 / 文章数 / 队列 / 模型、最近抓取。
+  新增只读 `GET /api/service/info`，git 子进程 3 秒超时降级为 `null`，整包缓存 30 秒
+  （`?force=true` 绕过），只返回数据库**文件名**不暴露绝对路径。
+
+**测试**: `tests/test_service_info.py` 6 passed（字段齐全、不泄露路径、git 缺失降级、
+干净工作区为 `false`、缓存与 force、模板结构）；migration 相关 229 passed。
+
+**发布**: `e5b807f` + `a7382f7` + `d69f66d` · tag `v1.0.94` · 8900 已重启（PID 3762，root 200）·
+`main.css` / `app.js` 均为 `20261116006`。
+生产实测：迁移后三类孤儿全部 0，`article_tags` 8396 → 8091，文章数不变 5262，schema 43 → 44；
+浮层 320×356，1440 宽右边界 1268、1280 宽 1093，移开鼠标收起，`worktree_dirty=false`。
+
 ## 进行中: **xbot_feed 上游 git 临时网络失败的退避重试** (2026-11-16 · Sprint 51 · 分支 `feat/xbot-git-retry-v1.0.95` · 目标版本 v1.0.95)
 
 上游私有仓库经本机代理访问时**隧道建立后 TLS 握手被重置**（`LibreSSL SSL_connect: SSL_ERROR_SYSCALL`），
@@ -25,7 +46,7 @@ round-3 定向复审判 **PASS**（P0=0 / P1=0 / P2=1，残留项为元护栏子
 已改为按「是不是我们造的」判定，且只删 `.git`（6 场景探针全部通过）。
 **状态**：**未发布**。代码 + 测试已就绪，PR **#221** 已开（head `befd901`，base `d69f66d`），
 **待 dad merge / tag / 部署**；本条**不随已发布的 v1.0.93 / v1.0.94 发布**，随 v1.0.95 发布。
-**base**：分支已 fast-forward 到 `origin/main @ d69f66d`（PR #220），本 sprint 的改动为 1 个 commit `befd901`。
+**base**：分支已 merge 到 `origin/main @ 0aef205`（PR #222，仅文档），本 sprint 的改动为 commit `befd901` + P2 修正 commit。
 
 ---
 
