@@ -143,14 +143,21 @@ def write_bv(conn: sqlite3.Connection, snap: ArticleSnapshot, result: BvResult) 
 
 
 def needs_bv_rescore(row: Mapping[str, Any] | sqlite3.Row, snap: ArticleSnapshot) -> bool:
-    """Cache-hit test for the harness: status + body hash must both agree."""
+    """Cache-hit test: status + rubric + body hash must all agree."""
     try:
         status = row["business_value_status"]
         stored_hash = row["business_value_hash"]
     except (KeyError, IndexError, TypeError):
         return True
+    try:
+        stored_rubric = row["business_value_rubric"]
+    except (KeyError, IndexError, TypeError):
+        stored_rubric = None
     if status in (None, "", "failed", "budget_skipped", "pending"):
         return True
     from .bv_pipeline import content_hash
+    from .rubric import RUBRIC_V1
 
+    if stored_rubric and stored_rubric != RUBRIC_V1.id:
+        return True
     return stored_hash != content_hash(snap.body)

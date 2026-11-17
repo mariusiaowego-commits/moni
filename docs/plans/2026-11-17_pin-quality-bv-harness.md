@@ -83,10 +83,10 @@ bv:        pending → ready | needs_review | failed | budget_skipped
 单测/集成（`/Users/mt16/dev/moni/.venv/bin/python -m pytest ... -p no:cacheprovider`）：
 
 - `tests/test_scoring_heuristic.py` 9 passed
-- `tests/test_scoring_bv.py` 14 passed（含自定义 Rubric 注入）
-- `tests/test_scoring_integration.py` 7 passed（Pin 响应形状、refresh 幂等与正文敏感、`/api/articles` 不带质量字段、正文过短排除、ready 先于 needs_review、标签 ≤3 不带数字、窗口过期标注不改分）
+- `tests/test_scoring_bv.py` 18 passed（自定义 Rubric 注入、5 次调用硬上限、补抽引文编号唯一、带空格日期、长文窗口保留尾段）
+- `tests/test_scoring_integration.py` 13 passed（Pin 响应形状、refresh 幂等与正文敏感、`GET /pinned` 只读、预算不足落 `budget_skipped` 且分数 NULL、CRUD PUT 后重算、快速 hermes 不烧预算、`/api/articles` 不带质量字段、正文过短排除、hash 过期排除、ready 先于 needs_review、legacy 与 ready 同档、标签 ≤3 不带数字、窗口过期标注不改分）
 - `tests/test_pins.py`、`tests/test_brief_html.py`、`tests/test_brief.py` 全绿
-- 全量 `tests/`：**1967 passed / 2 skipped**；2 项与本改动无关的环境性失败（见 §6）
+- 全量 `tests/`：**1988 passed / 2 skipped**；2 项与本改动无关的环境性失败（见 §6）
 
 浏览器实测（本地临时实例 8799 + 临时 DB，未触碰生产 8900；静态简报页 8798）：
 
@@ -102,6 +102,24 @@ bv:        pending → ready | needs_review | failed | budget_skipped
 - 质量列实际宽 140px：表格 `table-layout:auto` 会把余量摊到各列；数字仍右对齐，未改全局表格布局。
 - 方向分（V2）未实现；`moni/scoring/direction.py` 只是占位，不建表、不调用。
 
-## 7. 回滚
+## 7. 独立审计与修正（2026-11-17）
+
+独立只读审计（subagent，基于 commit `7722e45`）判 **FAIL**：4 个 P1 + 8 个 P2。已全部修正：
+
+| 级别 | 问题 | 修正 |
+| --- | --- | --- |
+| P1 | 全局预算按「请求超时」扣减，秒回的 fake hermes 也会把 900s 预算耗尽 | 改为按实际墙钟耗时扣减（`enrichment.py` llm 闭包） |
+| P1 | `PUT /api/articles/{id}` 写 publisher/published_at/raw_content 后不重算 Pin 质量 | 该路由与 `backfill-publisher` 都补 `recompute_quality_if_pinned` |
+| P1 | 长文取证只取前 12000 字，尾段日期/金额拿不到 | 实现 §6.2：≤3000 字/窗，首、尾 + 数字/日期密度最高的两窗，拼进同一次取证 |
+| P1 | 补抽 + 重跑 + 检查可发 6 次调用 | `_Caller` 硬上限 5 次，超出即不再调用；测试覆盖 6 次路径 |
+| P2 | 补抽引文从 e1 重新编号导致 id 冲突 | 合并后去重并按顺序重编号 |
+| P2 | 旧行（status 为空）单独一档，排到所有 ready 之后 | 与 ready 同档，按分数降序 |
+| P2 | `2026 年 12 月 1 日`（带空格）解析不出日期 | `_DATE_RE` 允许年/月/日两侧空白 |
+| P2 | `needs_bv_rescore` 不比对 rubric 版本 | 缓存键加 `business_value_rubric` |
+| P2 | 检查员 prompt 没有引文，无法判断「理由没有事实」 | 审计 prompt 加入已校验引文 |
+| P2 | 有 `bb_score` 时 chip 文案 `BestBlogs n` 偏离 §7.4 | 统一 `阅读 n`，tip 说明来源 |
+| P2 | 渲染不校验 `business_value_hash`，正文变了仍按旧分纳入 | `_bv_usable` 加 hash 校验，过期行归「业务价值未完成」 |
+
+## 8. 回滚
 
 SQLite `ADD COLUMN` 不可逆。回滚 = 恢复执行 045 前的库备份；新列留空时旧代码可正常工作（首次部署即此状态）。代码回滚到 `60a2a06` 即可，无需反向迁移。

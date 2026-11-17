@@ -58,7 +58,13 @@ _PUNCT_MAP = str.maketrans(
         "　": " ",
     }
 )
-_DATE_RE = re.compile(r"(20\d{2})[-/年.](\d{1,2})[-/月.](\d{1,2})")
+_DATE_RE = re.compile(r"(20\d{2})\s*[-/年.]\s*(\d{1,2})\s*[-/月.]\s*(\d{1,2})")
+_NUM_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+#: 长文取证窗口：≤3000 字/窗，首尾各一 + 数字/日期密度最高的两个。
+WINDOW_CHARS = 3000
+WINDOW_LIMIT = 4
+LONG_BODY_CHARS = 6000
 
 
 @dataclass(frozen=True)
@@ -110,14 +116,25 @@ def _parse_json(raw: str) -> dict | None:
 
 
 class _Caller:
-    def __init__(self, llm: LLM | None, budget_s: float, step_timeout: float):
+    def __init__(
+        self,
+        llm: LLM | None,
+        budget_s: float,
+        step_timeout: float,
+        max_calls: int = 5,
+    ):
         self._llm = llm
         self.budget = budget_s
         self.step = step_timeout
         self.calls = 0
+        self.max_calls = max_calls
 
     def can_call(self) -> bool:
-        return self._llm is not None and self.budget >= _MIN_CALL_BUDGET
+        return (
+            self._llm is not None
+            and self.budget >= _MIN_CALL_BUDGET
+            and self.calls < self.max_calls
+        )
 
     def call(self, prompt: str) -> dict | None:
         if not self.can_call():
@@ -132,6 +149,46 @@ class _Caller:
         return _parse_json(out)
 
 
+def _windows(body: str) -> str:
+    """Cheap long-body sampling for the evidence pass (design §6.2).
+
+    Packs paragraphs into ≤3000-char chunks, then keeps the first, the last
+    and the two densest (numbers + dates) middle chunks.  The selection is
+    concatenated into the *same* evidence call, never a second one.
+    """
+    if len(body) <= LONG_BODY_CHARS:
+        return body
+    chunks: list[str] = []
+    current = ""
+    for para in re.split(r"\n\s*\n", body):
+        para = para.strip()
+        if not para:
+            continue
+        if len(para) > WINDOW_CHARS:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.extend(para[i : i + WINDOW_CHARS] for i in range(0, len(para), WINDOW_CHARS))
+            continue
+        if len(current) + len(para) + 2 <= WINDOW_CHARS:
+            current = f"{current}\n\n{para}" if current else para
+        else:
+            chunks.append(current)
+            current = para
+    if current:
+        chunks.append(current)
+    if len(chunks) <= WINDOW_LIMIT:
+        return "\n\n".join(chunks)
+
+    def density(text: str) -> int:
+        return len(_NUM_RE.findall(text)) + 2 * len(_DATE_RE.findall(text))
+
+    middle = list(enumerate(chunks[1:-1], start=1))
+    middle.sort(key=lambda item: (-density(item[1]), item[0]))
+    keep = {0, len(chunks) - 1} | {idx for idx, _ in middle[: WINDOW_LIMIT - 2]}
+    return "\n\n".join(chunks[i] for i in sorted(keep))
+
+
 def _evidence_prompt(snap: ArticleSnapshot) -> str:
     return (
         "你是 moni 取证助手。只从下面正文中摘录原句，不要改写、不要总结、不要编造。\n"
@@ -139,7 +196,7 @@ def _evidence_prompt(snap: ArticleSnapshot) -> str:
         "优先摘能回答这十类问题的句子：规则与文件、机构动作、产品规则、系统实现、客群动作、"
         "资金路径、损失与处罚、适用范围、日期与截止、牌照与预算。\n"
         '严格输出 JSON：{"evidence":[{"id":"e1","quote":"原句"}]}\n\n'
-        f"标题：{snap.title}\n正文：\n{snap.body[:12000]}"
+        f"标题：{snap.title}\n正文：\n{_windows(snap.body)}"
     )
 
 
@@ -150,7 +207,7 @@ def _topup_prompt(snap: ArticleSnapshot, dropped: list[dict]) -> str:
         f"{missing}\n\n"
         f"最多 {MAX_EVIDENCE} 句，必须是正文连续原句且至少 {MIN_QUOTE_CHARS} 字。\n"
         '严格输出 JSON：{"evidence":[{"id":"e1","quote":"原句"}]}\n\n'
-        f"标题：{snap.title}\n正文：\n{snap.body[:12000]}"
+        f"标题：{snap.title}\n正文：\n{_windows(snap.body)}"
     )
 
 
@@ -188,16 +245,22 @@ def _rescore_prompt(
     )
 
 
-def _audit_prompt(dimensions: list[dict], rb: Rubric) -> str:
+def _audit_prompt(dimensions: list[dict], rb: Rubric, evidence: list[dict]) -> str:
     rows = "\n".join(
         f"- {d['key']}（{d['label']}）：{d['score']} 分；理由：{d['reason']}"
         for d in dimensions
+    )
+    quotes = (
+        "\n".join(f"[{e['id']}] {e['quote']}" for e in evidence)
+        if evidence
+        else "（本篇没有可用引文）"
     )
     return (
         "你是 moni 打分检查员。只判断下面十维分数是否与正文事实一致，不要重写分数、不要给总分。\n"
         "判不通过的标准：理由没有事实、分数与锚点明显不符、出现空话或禁用词。\n"
         "正文未涉及某维且给 0，是合法结果，不要因此判失败。\n"
         f"{rb.prompt_block()}\n\n"
+        f"可用引文（正文原句）：\n{quotes}\n\n"
         f"待检查：\n{rows}\n\n"
         '严格输出 JSON：{"pass":true,"reasons":[]}'
     )
@@ -367,8 +430,17 @@ def score_general_bv(
                 topup.get("evidence") or [], normalized
             )
             dropped.extend(more_dropped)
-            valid.extend(more)
+            seen = {normalize(e["quote"]) for e in valid}
+            for item in more:
+                if normalize(item["quote"]) in seen:
+                    continue
+                seen.add(normalize(item["quote"]))
+                valid.append(item)
     valid = valid[:MAX_EVIDENCE]
+    # Re-number after the merge: both passes start at e1, so a naive extend
+    # would hand the scorer two different quotes under the same id.
+    for i, item in enumerate(valid, 1):
+        item["id"] = f"e{i}"
     valid_ids = {e["id"] for e in valid}
 
     raw_scores = caller.call(_score_prompt(snap, valid, rubric))
@@ -387,7 +459,7 @@ def score_general_bv(
             dims, fail_reasons = _coerce_dimensions(rescored, valid_ids, rubric)
 
     if not fail_reasons and caller.can_call():
-        audit = caller.call(_audit_prompt(dims, rubric))
+        audit = caller.call(_audit_prompt(dims, rubric, valid))
         if audit is not None and not audit.get("pass", True):
             reasons = [str(r) for r in (audit.get("reasons") or []) if str(r).strip()]
             fail_reasons = reasons or ["检查未通过"]

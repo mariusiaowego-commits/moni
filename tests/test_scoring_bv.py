@@ -225,3 +225,74 @@ def test_custom_rubric_replaces_questions_and_id():
     assert result.total == 100
     assert result.breakdown["rubric"] == "bv_rubric_test"
     assert [d["key"] for d in result.breakdown["dimensions"]] == ["only_question"]
+
+
+def test_call_count_never_exceeds_five():
+    """topup + rescore + audit must not add up to a sixth call (design §4.6)."""
+    calls = {"n": 0}
+    bad = _all(3, ["e1"])
+    bad["rule_delta"]["reason"] = "凸显了某行的领先地位"  # forces a rescore
+
+    def llm(prompt: str, timeout: float):
+        calls["n"] += 1
+        if "取证助手" in prompt:
+            return json.dumps({"evidence": [{"id": "e1", "quote": QUOTE_1}]}), 0
+        if "找不到" in prompt:  # top-up prompt
+            return json.dumps(
+                {"evidence": [{"id": "e1", "quote": QUOTE_2}]}
+            ), 0
+        if "上一轮打分没有通过检查" in prompt:
+            return json.dumps({"dimensions": _all(4, ["e1"])}), 0
+        if "评分员" in prompt:
+            return json.dumps({"dimensions": bad}), 0
+        if "检查员" in prompt:
+            return json.dumps({"pass": False, "reasons": ["理由空"]}), 0
+        return "{}", 0
+
+    result = score_general_bv(_snap(), llm=llm)
+    assert result.calls_used <= 5
+    assert calls["n"] <= 5
+    assert result.status == "needs_review"
+
+
+def test_topup_evidence_ids_are_unique():
+    def llm(prompt: str, timeout: float):
+        if "取证助手" in prompt:
+            return json.dumps({"evidence": [{"id": "e1", "quote": QUOTE_1}]}), 0
+        if "找不到" in prompt:
+            return json.dumps(
+                {
+                    "evidence": [
+                        {"id": "e1", "quote": QUOTE_2},
+                        {"id": "e2", "quote": QUOTE_3},
+                    ]
+                }
+            ), 0
+        if "评分员" in prompt:
+            return json.dumps({"dimensions": _all(4, ["e1", "e2", "e3"])}), 0
+        if "检查员" in prompt:
+            return json.dumps({"pass": True, "reasons": []}), 0
+        return "{}", 0
+
+    result = score_general_bv(_snap(), llm=llm)
+    evidence = result.breakdown["evidence"]
+    ids = [e["id"] for e in evidence]
+    assert ids == [f"e{i}" for i in range(1, len(ids) + 1)]
+    assert len({e["quote"] for e in evidence}) == len(evidence)
+
+
+def test_dates_with_spaces_are_parsed():
+    assert bv_pipeline._dates_in(["2026 年 12 月 1 日截止"]) == ["2026-12-01"]
+    assert bv_pipeline._dates_in(["2026年12月1日截止"]) == ["2026-12-01"]
+
+
+def test_long_body_windows_keep_the_tail():
+    head = "开头段落。" * 200
+    tail = "尾段：2026 年 12 月 1 日截止，预算 3000 万元。"
+    middle = "\n\n".join(["中间段落。" * 100] * 20)
+    body = "\n\n".join([head, middle, tail])
+    assert len(body) > 6000
+    sampled = bv_pipeline._windows(body)
+    assert tail in sampled
+    assert head[:40] in sampled
+    assert len(sampled) < len(body)

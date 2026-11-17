@@ -206,6 +206,7 @@ def _load_rows(db_path: str, article_ids: list[str]) -> list[sqlite3.Row]:
                        fact_check_conclusion, fact_check_note,
                        business_value_score, business_value_note,
                        business_value_status, business_value_breakdown_json,
+                       business_value_hash, business_value_rubric,
                        quality_score, bb_score
                 FROM articles WHERE id IN ({ph})
                 ORDER BY CASE id {order} END
@@ -223,6 +224,7 @@ def _load_rows(db_path: str, article_ids: list[str]) -> list[sqlite3.Row]:
                        fact_check_conclusion, fact_check_note,
                        business_value_score, business_value_note,
                        NULL as business_value_status, NULL as business_value_breakdown_json,
+                       NULL as business_value_hash, NULL as business_value_rubric,
                        quality_score, bb_score
                 FROM articles WHERE id IN ({ph})
                 """,
@@ -246,7 +248,7 @@ def _brief_sort_key(row: sqlite3.Row) -> tuple:
     elif status == "needs_review":
         tier = 2
     elif status is None:
-        tier = 1 if score is not None else 3
+        tier = 0 if score is not None else 3
     else:
         tier = 3
     return (tier, -(score or 0))
@@ -279,7 +281,7 @@ def _quality(row: sqlite3.Row) -> int:
 
 def _quality_chip(row: sqlite3.Row, score: int) -> tuple[str, str]:
     if row["bb_score"] is not None:
-        return f"BestBlogs {score}", "BestBlogs 评分：外部阅读质量分，优先展示"
+        return f"阅读 {score}", "阅读分（0–100）：来自 BestBlogs 评分，优先展示"
     return (
         f"阅读 {score}",
         "阅读分（0–100）：本地估算，含摘要与核查加分，与 Pin 质量列算法不同",
@@ -348,6 +350,25 @@ def _bv_status(row: sqlite3.Row) -> str | None:
         return row["business_value_status"]
     except (KeyError, IndexError, TypeError):
         return None
+
+
+def _bv_hash_stale(row: sqlite3.Row) -> bool:
+    """Ready/needs_review rows whose body changed after scoring (§4.4)."""
+    if _bv_status(row) not in ("ready", "needs_review"):
+        return False
+    try:
+        stored = row["business_value_hash"]
+    except (KeyError, IndexError, TypeError):
+        return False
+    if not stored:
+        return False
+    from moni.scoring import content_hash
+
+    try:
+        body = row["raw_content"] or ""
+    except (KeyError, IndexError, TypeError):
+        return False
+    return stored != content_hash(body)
 
 
 def _raw_len(row: sqlite3.Row) -> int:
@@ -488,6 +509,8 @@ def _bv_usable(row: sqlite3.Row) -> bool:
         return False
     if status in ("failed", "budget_skipped", "pending"):
         return False
+    if _bv_hash_stale(row):
+        return False
     try:
         score = row["business_value_score"]
     except (KeyError, IndexError, TypeError):
@@ -511,6 +534,8 @@ def _bv_exclusion_reason(row: sqlite3.Row) -> str:
     if status == "insufficient":
         return "正文过短（不足 200 字）"
     if status in ("failed", "budget_skipped", "pending"):
+        return "业务价值未完成"
+    if _bv_hash_stale(row):
         return "业务价值未完成"
     try:
         note = _bv_note_display(row["business_value_note"])

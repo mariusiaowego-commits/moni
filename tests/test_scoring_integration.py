@@ -140,6 +140,90 @@ def test_refresh_endpoint_is_idempotent_and_body_sensitive(client):
     assert skipped["skipped"] == ["missing"]
 
 
+def test_pinned_get_is_read_only_for_legacy_rows(client):
+    _insert("legacy2", body="短稿", quality_score=96)
+    get_db().execute(
+        "INSERT INTO article_pins (article_id, pinned_at) VALUES (?, ?)",
+        ("legacy2", datetime.now(timezone.utc).isoformat()),
+    )
+    get_db().commit()
+
+    body = client.get("/api/articles/pinned").json()
+    item = body["items"][0]
+    assert item["quality"]["score"] == 96
+    assert item["quality"]["formula"] is None
+    row = get_db().execute(
+        "SELECT quality_score, quality_formula FROM articles WHERE id='legacy2'"
+    ).fetchone()
+    assert row["quality_score"] == 96
+    assert row["quality_formula"] is None
+
+
+def test_budget_skip_persists_null_score_and_retries(fresh_db):
+    from moni.share.enrichment import _ensure_business_value
+
+    _insert("budget", body=_long_body(), business_value_score=55, business_value_note="旧说明")
+    conn = get_db()
+    row = conn.execute("SELECT * FROM articles WHERE id='budget'").fetchone()
+    ok = _ensure_business_value(conn, row, [], [0.0], article_budget=10.0)
+    assert ok is False
+    row = conn.execute(
+        "SELECT business_value_score, business_value_status, business_value_error "
+        "FROM articles WHERE id='budget'"
+    ).fetchone()
+    assert row["business_value_score"] is None
+    assert row["business_value_status"] == "budget_skipped"
+    assert row["business_value_error"] == "预算不足"
+
+
+def test_crud_put_recomputes_pinned_quality(client):
+    _insert("edit", body="短稿")
+    client.post("/api/articles/edit/pin?on=true")
+    before = get_db().execute(
+        "SELECT quality_score FROM articles WHERE id='edit'"
+    ).fetchone()["quality_score"]
+
+    r = client.put("/api/articles/edit", json={"content": _long_body()})
+    assert r.status_code == 200, r.text
+    after = get_db().execute(
+        "SELECT quality_score FROM articles WHERE id='edit'"
+    ).fetchone()["quality_score"]
+    assert before != after
+    assert after == 87
+
+
+def test_fast_hermes_does_not_burn_the_run_budget(fresh_db, monkeypatch):
+    import moni.share.enrichment as enrichment
+
+    def fake_hermes(prompt: str, timeout_sec: int = 120, extra_args=None):
+        if "取证助手" in prompt:
+            return json.dumps(
+                {
+                    "evidence": [
+                        {"id": "e1", "quote": "监管要求支付机构在 2025 年 12 月 31 日前完成备案"}
+                    ]
+                },
+                ensure_ascii=False,
+            ), 0
+        if "评分员" in prompt:
+            dims = {
+                key: {"score": 0, "evidence_ids": [], "reason": f"{key} 无"}
+                for key in ("rule_delta",)
+            }
+            return json.dumps({"dimensions": dims}), 0
+        if "检查员" in prompt:
+            return json.dumps({"pass": True, "reasons": []}), 0
+        return "{}", 0
+
+    monkeypatch.setattr(enrichment, "_invoke_hermes", fake_hermes)
+    _insert("fast", body=_long_body())
+    conn = get_db()
+    row = conn.execute("SELECT * FROM articles WHERE id='fast'").fetchone()
+    budget = [900.0]
+    enrichment._ensure_business_value(conn, row, [], budget, article_budget=120.0)
+    assert budget[0] > 890.0
+
+
 # ── Brief rendering ───────────────────────────────────────────────────────
 
 
@@ -249,3 +333,21 @@ def test_future_window_is_not_annotated(fresh_db):
     )
     html_doc = render_brief_html(str(fresh_db), ["win2"])
     assert "窗口已过" not in html_doc
+
+
+def test_stale_hash_is_excluded(fresh_db):
+    _brief_row("stale", "旧分文章", score=88, status="ready", breakdown=_breakdown(total=88))
+    get_db().execute(
+        "UPDATE articles SET business_value_hash='deadbeef' WHERE id='stale'"
+    )
+    get_db().commit()
+    html_doc = render_brief_html(str(fresh_db), ["stale"])
+    assert "未纳入本次简报" in html_doc
+    assert "业务价值未完成" in html_doc
+
+
+def test_legacy_scored_rows_sort_with_ready(fresh_db):
+    _brief_row("legacy-ok", "旧行八十分", score=80, status=None, breakdown=None)
+    _brief_row("ready-low", "新行十一分", score=11, status="ready", breakdown=_breakdown(total=11))
+    html_doc = render_brief_html(str(fresh_db), ["ready-low", "legacy-ok"])
+    assert html_doc.index("旧行八十分") < html_doc.index("新行十一分")

@@ -823,7 +823,7 @@ def _article_rows(conn: sqlite3.Connection, article_ids: list[str]) -> list[sqli
         SELECT id, title, raw_content, ai_summary, summary,
                fact_check_conclusion, fact_check_note, has_fact_check,
                business_value_score, business_value_note,
-               business_value_status, business_value_hash,
+               business_value_status, business_value_hash, business_value_rubric,
                quality_score, quality_formula, bb_score, bb_summary, bb_one_sentence,
                brief_summary, brief_body_md, source, url, publisher, published_at
         FROM articles WHERE id IN ({ph})
@@ -838,6 +838,7 @@ def _article_rows(conn: sqlite3.Connection, article_ids: list[str]) -> list[sqli
                    fact_check_conclusion, fact_check_note, has_fact_check,
                    business_value_score, business_value_note,
                    NULL as business_value_status, NULL as business_value_hash,
+                   NULL as business_value_rubric,
                    quality_score, NULL as quality_formula, bb_score, bb_summary, NULL as bb_one_sentence,
                    NULL as brief_summary, NULL as brief_body_md,
                    source, url, publisher, published_at
@@ -851,6 +852,7 @@ def _article_rows(conn: sqlite3.Connection, article_ids: list[str]) -> list[sqli
                        fact_check_conclusion, fact_check_note, has_fact_check,
                        NULL as business_value_score, NULL as business_value_note,
                        NULL as business_value_status, NULL as business_value_hash,
+                       NULL as business_value_rubric,
                        NULL as quality_score, NULL as quality_formula, NULL as bb_score, NULL as bb_summary,
                        NULL as bb_one_sentence, NULL as brief_summary, NULL as brief_body_md,
                        source, url, publisher, published_at
@@ -949,8 +951,11 @@ def _ensure_business_value(
         return False
 
     def llm(prompt: str, timeout: float) -> tuple[str, int]:
+        started = time.monotonic()
         out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
-        budget_left[0] -= timeout
+        # Charge actual wall time, not the requested timeout: a fast hermes
+        # must not spend the whole run budget (§4.6).
+        budget_left[0] -= max(time.monotonic() - started, 0.0)
         return out, code
 
     elapsed = time.monotonic()
@@ -1606,7 +1611,7 @@ def rebuild_article_content(
             if status == "ready":
                 tier = 0
             elif status is None:
-                tier = 1 if sc is not None else 3
+                tier = 0 if sc is not None else 3
             elif status == "needs_review":
                 tier = 2
             else:
