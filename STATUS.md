@@ -25,6 +25,30 @@
 生产实测：迁移后三类孤儿全部 0，`article_tags` 8396 → 8091，文章数不变 5262，schema 43 → 44；
 浮层 320×356，1440 宽右边界 1268、1280 宽 1093，移开鼠标收起，`worktree_dirty=false`。
 
+## 进行中: **xbot_feed 上游 git 临时网络失败的退避重试** (2026-11-16 · Sprint 51 · 分支 `feat/xbot-git-retry-v1.0.95` · 目标版本 v1.0.95)
+
+上游私有仓库经本机代理访问时**隧道建立后 TLS 握手被重置**（`LibreSSL SSL_connect: SSL_ERROR_SYSCALL`），
+`_sync_clone` 对 `git pull --ff-only` 单次尝试无重试 ⇒ 一次抖动整轮失败。
+生产最后成功 pull **2026-11-12 10:57:54**，此后 xbot_feed 新文章 0 入库（表内最新 2026-11-11，共 197 篇）。
+
+**改法**：仅 `moni/fetch/sources/xbot_feed.py` —— 临时网络/TLS 失败按 **3 次尝试、2s→4s 退避、总时限 90s** 重试；
+每次单次超时取 `min(git_timeout=120, 剩余预算)`（否则 3×120+6=366s 会突破总时限并吃掉 job 级 600s 预算的 61%）。
+判据以 **stderr 文本**为准、rc 只判成功：git 的 rc 在网络类失败下不携带语义（TLS/仓库不存在/认证失败都是 128）。
+永久错误（非快进 / 认证 / 仓库不存在 / 权限 / host key / 本地冲突）**不重试**，未知错误也**不重试**（保守默认）。
+
+**不做**：改代理节点或代理配置（不在本次授权）、改 UI、改其它源、改作者屏蔽逻辑、改 `git pull --ff-only` 语义、改 max_days 去重。
+`git pull --ff-only`、max_days 去重、作者屏蔽三项**逐字未变**（有回归护栏断言）。
+
+**测试**：专项 67 passed（4 个新文件）；负控 **22/22**（NC-1..NC-25）；全量 **1950 passed / 2 skipped / 0 failed**（串行跑）。
+**审计**：warden round-1 判 FAIL（P0=1 / P1=2 / P2=3）→ 6 项全修；round-2 判 PASS（P0=0 / P1=0 / P2=4）→ 4 项 P2 全修；
+round-3 定向复审判 **PASS**（P0=0 / P1=0 / P2=1，残留项为元护栏子串绕过，不阻塞）。含一条**数据丢失级 P0**：
+新增的 clone 清理用 rmtree 删整个 clone_root，`clone_dir` 指向数据目录时会删光 `news.db`；
+已改为按「是不是我们造的」判定，且只删 `.git`（6 场景探针全部通过）。
+**状态**：**未发布**。代码 + 测试已就绪，PR **#221** 已开（base `0aef205`；实现 commit `befd901`，
+head 见 PR 页面 —— head SHA 会随每次 push 前进，故此处只记稳定的 base 与实现 commit）；
+**待 dad merge / tag / 部署**；本条**不随已发布的 v1.0.93 / v1.0.94 发布**，随 v1.0.95 发布。
+**base**：分支已 merge 到 `origin/main @ 0aef205`（PR #222，仅文档）。
+
 ---
 
 ## 已发布: **v1.0.93 — 标题列截断与回答结构化** (2026-11-16 · PR #216 · tag `v1.0.93`)
@@ -84,7 +108,7 @@ PR #207 把文章查阅、筛选与文内 AI 合进 `main` 后，生产验收又
 | `feat/articles-title-ellipsis-structure-answer` | 仅本地（worktree `.codex/worktrees/4ffa/moni`） | 已合并，可删；先挪走 worktree | PR #216 squash `e104fbb`，tag `v1.0.93` |
 | `feat/contest-finals-2611` | 本地（worktree `.codex/worktrees/2f0d/moni`） | **勿删，未合并** | 无 PR |
 | `feat/showcase-demo-2611` | 仅本地 | **勿删，未合并** | 无 PR |
-| `feat/xbot-git-retry-v1.0.94` | 本地（worktree `dev/moni-worktrees/xbot-git-retry-v1.0.93`） | **勿动，别人的活** | 另一 agent 在跑 |
+| `feat/xbot-git-retry-v1.0.95` | 远端 + 本地（worktree `dev/moni-worktrees/xbot-git-retry-v1.0.93`） | **勿动，本 sprint 在跑** | Sprint 51 / id 26111606 · PR #221 已开，待 dad merge |
 
 上表已删掉四条早已不存在的分支：`feature/v1.0.88-bank-feed-resilience`、`docs/v1.0.89-relabel`、
 `feat/xbot-author-block-v1.0.75`、`feat/articles-reading-ai`。
