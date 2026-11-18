@@ -23,7 +23,6 @@ from typing import Any
 from moni.share.enrichment import (
     THIN_CONTENT_CHARS,
     build_evidence_section_html,
-    compute_heuristic_quality,
     load_evidence_context,
     pick_source_summary,
     _format_date,

@@ -190,7 +190,7 @@
               </button>
             </template>
             <button class="link-btn filter-clear" x-show="articleFilterCount > 0" @click="clearArticleFilters()">清除筛选</button>
-            <span class="filter-total" x-text="'共 ' + articlesTotal + ' 篇'"></span>
+            <span class="filter-total" x-show="articlesSubTab !== 'pinned'" x-text="'共 ' + articlesTotal + ' 篇'"></span>
             <span style="flex:1"></span>
             <select class="filter-select" x-model="articlesSort" @change="onArticlesFilterChange()" title="排序">
               <option value="fetched_at_desc">入库时间</option>

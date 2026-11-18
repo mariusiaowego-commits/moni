@@ -75,3 +75,14 @@ Pin 子标签的数据在 `pinnedArticles` + `pinnedPage` / `pinnedPageSize` / `
 - 两位小数固定显示（`4.80` 而不是 `4.8`），便于列对齐。
 - 负数下限 0，5.00 封顶；不出现 4.999 的显示。
 - 分页每页条数沿用现有选项 `[20, 50, 100, 200]`。
+
+## 5. 独立只读审计（2026-11-18）
+
+独立审计结论 **PASS WITH NITS**：无 P0/P1/P2，4 个 P3。处理如下：
+
+| 级别 | 问题 | 处理 |
+| --- | --- | --- |
+| P3 | `enrichment._ensure_quality` 仍把 0–100 估算写进 Pin 专属列，且 `compute_heuristic_quality` 读回时 `int()` 截断（4.8→4） | 改为只处理 Pin 集合内的行，委托 `moni.scoring.ensure_quality`（0–5 + 公式名）；集合外跳过 |
+| P3 | `brief_html` 导入 `compute_heuristic_quality` 但全文件无调用 | 删除该函数与死导入 |
+| P3 | Pin 子标签下顶部「共 5330 篇」与分页「共 36 篇」并排 | 顶部总计在 Pin 子标签隐藏 |
+| P3 | migration 020 注释仍写 `0-100` | 历史迁移不改，本记录说明列语义已变 |

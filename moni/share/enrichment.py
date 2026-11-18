@@ -757,62 +757,6 @@ def pick_source_summary(row: sqlite3.Row | dict) -> tuple[str, str]:
     return "", "none"
 
 
-def compute_heuristic_quality(row: sqlite3.Row | dict) -> int:
-    """Local quality/attention score 0-100 when bb_score / LLM score missing.
-
-    Prefer ``bb_score`` if present. Heuristic uses content richness + metadata.
-    """
-    def g(key: str, default=None):
-        try:
-            return row[key]
-        except (KeyError, IndexError, TypeError):
-            return default
-
-    bb = g("bb_score")
-    if bb is not None:
-        try:
-            return max(0, min(100, int(bb)))
-        except (TypeError, ValueError):
-            pass
-    qs = g("quality_score")
-    if qs is not None:
-        try:
-            return max(0, min(100, int(qs)))
-        except (TypeError, ValueError):
-            pass
-
-    score = 45
-    raw = (g("raw_content") or "") or ""
-    n = len(raw.strip())
-    if n >= 5000:
-        score += 25
-    elif n >= 2000:
-        score += 18
-    elif n >= 800:
-        score += 10
-    elif n >= THIN_CONTENT_CHARS:
-        score += 4
-    else:
-        score -= 20  # thin / empty
-
-    if g("ai_summary") and str(g("ai_summary")).strip():
-        score += 8
-    if g("fact_check_conclusion") and str(g("fact_check_conclusion")).strip():
-        score += 7
-    if g("publisher") and str(g("publisher")).strip():
-        score += 5
-    if g("published_at") and str(g("published_at")).strip():
-        score += 3
-    # Channel prior (not the display publisher)
-    src = (g("source") or "") or ""
-    if src.startswith("bestblog"):
-        score += 2
-    elif src in ("mpaypass", "wechat_rss_a", "wechat_rss_b"):
-        score += 1
-
-    return max(0, min(100, score))
-
-
 def _article_rows(conn: sqlite3.Connection, article_ids: list[str]) -> list[sqlite3.Row]:
     if not article_ids:
         return []
@@ -999,44 +943,24 @@ def _ensure_quality(
     *,
     use_llm: bool = False,
 ) -> bool:
-    """Ensure quality_score is set. Default: free heuristic (no LLM).
+    """Refresh the Pin quality column, and only for rows in the Pin set.
 
-    bb_score is display-preferred but we still store a quality_score when
-    missing so brief templates never show empty 「—」.
+    ``quality_score`` belongs to ``pin_heuristic_v3`` (0–5) since 045.  A
+    legacy 0–100 estimate written here would put two scales in one column, so
+    rows outside the Pin set are left alone (nothing else reads the column).
     """
-    # 045+: quality_score now belongs to the Pin column (pin_heuristic_v3).
-    if "quality_formula" in row.keys() and row["quality_formula"]:
-        return True
-    if row["quality_score"] is not None:
-        return True
-
-    # Fast path: heuristic (always works, no budget)
-    sc = compute_heuristic_quality(row)
-    if use_llm and budget_left[0] > 30:
-        content = (row["raw_content"] or "")[:2000]
-        if content.strip():
-            prompt = QUALITY_PROMPT.format(
-                article_id=row["id"], title=row["title"] or "", content=content
-            )
-            timeout = min(STEP_TIMEOUT_SEC, max(15, int(budget_left[0])))
-            out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
-            budget_left[0] -= timeout
-            if code == 0:
-                data = _parse_json_obj(out) or {}
-                try:
-                    sc = max(0, min(100, int(data.get("score", sc))))
-                except (TypeError, ValueError):
-                    pass
-    now = _now()
     try:
-        conn.execute(
-            "UPDATE articles SET quality_score=?, quality_score_at=? WHERE id=?",
-            (sc, now, row["id"]),
-        )
-        conn.commit()
+        pinned = conn.execute(
+            "SELECT 1 FROM article_pins WHERE article_id = ?", (row["id"],)
+        ).fetchone()
     except sqlite3.OperationalError:
         return False
-    return True
+    if pinned is None:
+        return True
+
+    from moni.scoring import ensure_quality as ensure_pin_quality
+
+    return ensure_pin_quality(conn, row["id"]) is not None
 
 
 def _needs_body_layout(raw: str | None) -> bool:
