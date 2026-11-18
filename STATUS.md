@@ -3,6 +3,46 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
+## 进行中: **xbot_feed 劣质内容治理（主题 ≠ 准入）** (2026-11-18 · Sprint 54 · id `26111703` · 分支 `feature/sprint-54-xbot-content-quality`)
+
+把「xbot_feed 抓到的主题相关内容」与「该不该进库」**拆成两层**：只读文本规则判劣质 ⇒
+**只产候选清单**给 dad 审，**不自动处置**。另把 `bypass` 的两个闸门拆成独立开关（**零行为变化**）。
+
+**改法**（26 个文件，全部**未 commit**）：决策纯函数 `moni/fetch/moderation.py`（**纯函数、零 DB 依赖**）；
+保护资产只读护栏 `moni/fetch/protected_assets.py`（10 类，**零新表**）；
+`bypass` 拆分到新键 **`bypass_tag_or_gate`**（旧 deprecated alias `bypass_tag_filter` 的归一/pop **一行未动**，
+`tests/test_fetch_config.py` **一行未改**）；只读预演器 `scripts/xbot_quality_candidates.py`；
+脱敏产物生成器 `scripts/xbot_quality_artifacts.py`；离线验证器 `scripts/xbot_quality_validate.py`；
+只读端点 `moni/web/routes/moderation.py`（`GET /api/moderation/xbot/candidates`）；
+只读 FTS 探针 `scripts/verify_fts_index_criteria.py`。
+**本 sprint 不新增任何 migration**（`_CURRENT_VERSION` 保持 45，**不抢迁移号**）。
+
+**不做**：任何**生产处置**（隔离 / 屏蔽作者 / 归档 execute / rescue —— 属阶段二）、改生产配置
+（`bypass_keyword_filters` 仍 true，新键**未启用**）、启黑名单、改词表阈值、前端 UI 入口
+（I8 **只是 API**，界面**没有**真实用户入口 ⇒ **不能称「阶段二执行已开发」**）。
+
+⚠️ **发布前必须处理**：`origin/main` 的 `_CURRENT_VERSION` 已是 **46**
+（新增 `moni/db/migrations/046_fact_check_summary.sql`），本分支仍是 **45**。
+本 sprint **不新增 migration、不抢迁移号** ⇒ 合并前须先决定如何处理这个落差
+（rebase 到最新 main 后再核对 `_CURRENT_VERSION` 与迁移文件），**否则直接合并会带着旧版本号**。
+
+**测试**：全量 **2114 passed / 2 skipped**（p7 独立复跑一致）；5 个既有文件**原位**单跑 **61 passed**
+（改用相对定位 ⇒ 消除「原位跑假绿」，**绿灯现可直接引用**）；本 sprint 新增 7 个测试文件 **120 passed**。
+变异负控**打中**（注入 `moni/db/migrate.py` MUTANT ⇒ 原位单跑红）⇒ 证明原位跑真在测 worktree 代码。
+
+**审计**：p7 warden 五轮 —— 初审 P0=3/P1=6 → 复核 P0=0/P1=1 → 第三轮 P0=0/P1=1 → 第四轮 PASS → **终审 PASS（P0=0/P1=0）**
+⇒ 4 条 P2 全消项；13:44 又派**最终 diff 复核**（26 个文件全纳审，含 14 个 untracked）。
+
+**⚠️ 已知限制（随包读）**：① 候选是 **agent 草标，不是 dad 人工真值** ⇒ **没有真值就没有精确率/召回率/误杀率**；
+② 上游 feed **零媒体字段** ⇒ **媒体类劣质内容是硬盲区**，本方案不覆盖，也不得声称「已清干净」；
+③ basket 恢复**有损**（派生数据 / FTS 索引 / 原 `fetched_at` 不恢复）；④ FTS 探针**只报告不自愈**
+（external-content 表无 trigger ⇒ 会漂移，rebuild 需 dad 单独 GO）；⑤ 规则阈值全是**暂定值**，未经标注集标定。
+
+**状态**：**未发布**。代码 + 测试已就绪，**未 commit / 未 push / 未开 PR / 未 merge / 未 tag / 未部署**。
+产物 `artifacts/xbot-quality-2026-11-18/`（脱敏候选 41 / 标注模板 41 / 不确定案例 35）**已 gitignore，不入库**
+⇒ dad 要看请**只读查看**，**填 `annotation-template.json` 的 `dad_verdict`** ⇒ 填完才有真值与指标。
+**待 dad GO**：commit → PR → merge → tag/部署 → G2 配置 → G3 批量处置。
+
 
 ## 已发布: **v1.0.96 — Pin 质量列 + 业务价值 harness** (2026-11-17 · PR #223 · tag `v1.0.96` · commit `5316f05`)
 

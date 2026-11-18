@@ -13,6 +13,40 @@ v1.0.51: 之前 `tests/test_api.py::test_put_update_200` 会调
 做法：把 `moni.web.routes.fetch._CONFIG_PATH` 指向一份 tmp 副本，
 并在会话结束时断言真实文件字节没变。这样"测试改了生产配置"这件事
 会**当场炸**，而不是靠人肉 `git diff` 发现。
+
+────────────────────────────────────────────────────────────────────────
+sprint-54 / id 26111703 — 「单独跑」既有测试文件的导入路径（**已于 2026-11-18 修正**）
+
+**历史（已作废，仅留作历史）**：以下 5 个文件曾硬编码
+``sys.path.insert(0, os.path.expanduser("~/dev/moni"))``：
+
+  tests/test_fetch_config.py
+  tests/test_brief_html.py
+  tests/test_xwatch_cli.py
+  tests/test_bestblogs_api.py
+  tests/test_xwatch_fetch.py
+
+⇒ 在 **worktree** 里**单独**跑其中任意一个，``moni`` 包会被解析到**主 checkout**
+⇒ 那个文件的结果**不代表 worktree 的代码** ⇒ **绿灯是假的**。
+⇒ 当时定的纪律：这 5 个文件必须用「去污染路径」跑，且**原位绿灯不得引用**。
+
+**现状（2026-11-18 起，p7 终审确认）**：该问题**已从机制上消除**。
+这 5 个文件现改用**相对本文件定位**（回退到 ``~/dev/moni``）：
+
+  _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+  if not os.path.isdir(os.path.join(_REPO_ROOT, "moni")):
+      _REPO_ROOT = os.path.expanduser("~/dev/moni")
+  sys.path.insert(0, _REPO_ROOT)
+
+⇒ **worktree 内原位单跑 = 测 worktree 代码**（p7 实测 ``moni.__file__``
+   指向 worktree；主 checkout 原位单跑指向主 checkout）；
+⇒ **主 checkout 那 5 个文件零改动**，既有用法完全不变；
+⇒ **变异负控打中**：在 worktree 注入 ``moni/db/migrate.py`` MUTANT
+   ⇒ 原位单跑**转红** ⇒ 证明原位跑真在测 worktree 代码。
+
+⇒ **现在的纪律**：这 5 个文件的**原位单跑绿灯可以直接引用**
+   （实测 61 passed），**不再**需要去污染副本。
+   ⚠️ 上面那段「必须去污染路径跑 / 原位绿灯不得引用」是**历史规定，已作废**。
 """
 
 from __future__ import annotations

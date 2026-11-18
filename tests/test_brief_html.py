@@ -8,7 +8,12 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, os.path.expanduser("~/dev/moni"))
+# 定位仓库根: **优先用本文件相对位置** ⇒ 从 worktree 单跑时命中 **worktree 代码**;
+# 回退到 ~/dev/moni ⇒ 主 checkout 的既有用法**完全不变**。
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if not os.path.isdir(os.path.join(_REPO_ROOT, "moni")):
+    _REPO_ROOT = os.path.expanduser("~/dev/moni")
+sys.path.insert(0, _REPO_ROOT)
 
 from moni.db.connection import close_db, get_db, set_db_path
 from moni.db.migrate import migrate

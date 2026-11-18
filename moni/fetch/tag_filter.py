@@ -52,7 +52,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from moni.db.connection import get_db
-from .filters import _is_source_bypassed
+from .filters import _bypass_tag_or_gate
 from .keyword_match import keyword_matches
 
 logger = logging.getLogger(__name__)
@@ -180,9 +180,14 @@ def apply_tag_keyword_filter(
         return articles, stats, []
 
     # ── Sprint-21 bypass: skip tag-keyword OR gate + synthesize bound tags ──
-    if _is_source_bypassed(source):
+    # sprint-54 / id 26111703: switched from the combined ``_is_source_bypassed``
+    # to the **narrow** ``_bypass_tag_or_gate`` so that the keyword-gate bypass
+    # (``filters.py``) and the tag-gate bypass are decided independently.
+    # Behaviour is unchanged for every source that has no explicit
+    # ``bypass_tag_or_gate`` key (fallback keeps the old value).
+    if _bypass_tag_or_gate(source):
         logger.info(
-            "[%s] bypass_keyword_filters — skipping tag filter and synthesizing hits",
+            "[%s] bypass_tag_or_gate — skipping tag filter and synthesizing hits",
             source,
         )
         bound_tags = _load_bound_tag_names_for_source(source)

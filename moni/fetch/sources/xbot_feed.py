@@ -287,7 +287,20 @@ DEFAULT_SCOPE: dict[str, Any] = {
 #: 这两个键在 ``sources.fetch_config`` 里是**用户配的**, 读取时按它们
 #: 的键名放行 (见 ``_load_config``) —— ``_DEFAULTS`` 的白名单只认
 #: ``DEFAULT_FETCH_CONFIG`` 的键, 门槛与 scope 都不在里面。
-EXTRA_CONFIG_KEYS: tuple[str, ...] = ("thresholds", "scope")
+EXTRA_CONFIG_KEYS: tuple[str, ...] = (
+    "thresholds",
+    "scope",
+    # sprint-54 / id 26111703: the **new** tag-gate bypass switch.
+    # Without this, ``_load_config()`` silently drops the key
+    # (it only keeps ``_DEFAULTS`` keys ∪ ``EXTRA_CONFIG_KEYS``), so
+    # a configured value would never reach the fetcher.
+    #
+    # ⚠️ The name must NOT collide with the deprecated alias
+    # ``bypass_tag_filter`` (which is an alias of ``bypass_keyword_filters``
+    # and is normalised/popped by ``config_sources.py``) — see
+    # ``moni/fetch/filters.py::_bypass_tag_or_gate``.
+    "bypass_tag_or_gate",
+)
 
 
 class ThresholdDecision(NamedTuple):

@@ -26,6 +26,9 @@ from moni.web.routes.fact_check_plus import router as fact_check_plus_router  # 
 from moni.web.routes.fetch import router as fetch_router
 from moni.web.routes.llm import router as llm_router
 from moni.web.routes.llm_jobs import router as llm_jobs_router
+# v1.0.100 (sprint-54): xbot 劣质内容**只读**预演端点
+# (GET /api/moderation/xbot/candidates)。只读, 不含正文, 不执行任何处置。
+from moni.web.routes.moderation import router as moderation_router
 # v1.0.8: pin router — must be registered BEFORE articles_router so
 # the literal path "/pinned" wins over the catch-all "/{article_id}".
 # FastAPI matches in registration order for ambiguous routes.
@@ -51,6 +54,7 @@ _routers: list[APIRouter] = [
     fact_check_plus_router,  # v1.0.22
     fetch_router,
     llm_jobs_router,
+    moderation_router,  # v1.0.100 (sprint-54): 只读候选预演
     llm_router,
     reader_router,
     service_router,

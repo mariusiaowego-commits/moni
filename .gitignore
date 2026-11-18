@@ -107,3 +107,7 @@ docs/moni-screenshots-*.zip
 /docs/full-audit-2026-06-26.md
 /moni/web/static/demo.html
 /moni/web/static/demo-v2.html
+
+# sprint-54 (id 26111703): xbot 质量治理的**本地运行产物**
+# (脱敏候选 JSON / 标注模板 / 不确定案例清单) —— 是快照, 不是源码, 不进仓。
+artifacts/
