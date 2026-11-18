@@ -672,11 +672,11 @@ def _normalize_verdict(raw: Any, fallback: str) -> str:
     return "【待核实】"
 
 
-def _clip_sentence(text: str, limit: int = 120) -> str:
+def _clip_sentence(text: str, limit: int = 150) -> str:
     """Cap the stored summary without cutting it mid-clause.
 
-    The 60-character budget belongs to the rendered image line; the source
-    summary stays a little longer so the writer has a complete sentence.
+    v1.0.101: 上限从 120 放到 150 —— 分享图要写清"能不能引用/依据多硬/
+    注意什么"三件事，60 字不够。
     """
     text = (text or "").strip()
     if len(text) <= limit:
@@ -785,6 +785,7 @@ def _persist_fact_check_plus(
         # (模板 fact_check_plus.md:42 规定 evidence 必须空) 跟其他 3 档 (缺 snippet 失败).
         # 原 L644 的同一行赋值删除, 避免重复.
         conclusion = str(parsed.get("conclusion") or "【待核实】").strip()
+        thesis = str(parsed.get("thesis") or "").strip()[:80]
         # 046: 给读者看的一句人话结论。历史提示词没有这个字段 → 空串，
         # share 注入层回退到 rationale 渲染。
         summary = _clip_sentence(str(parsed.get("summary") or ""))
@@ -823,7 +824,7 @@ def _persist_fact_check_plus(
             if not conclusion.startswith("【已核实】"):
                 _persist_no_check_needed(
                     conn, article_id=article_id, conclusion=conclusion,
-                    finished_at=finished_at, summary=summary,
+                    finished_at=finished_at, summary=summary, thesis=thesis,
                 )
                 return
             raise ValueError("no evidence with snippet")
@@ -937,6 +938,15 @@ def _persist_fact_check_plus(
             # Pre-046 schema: the column does not exist yet.
             if not _is_missing_column(exc):
                 raise
+        try:
+            conn.execute(
+                "UPDATE articles SET fact_check_thesis = ? WHERE id = ?",
+                (thesis or None, article_id),
+            )
+        except sqlite3.OperationalError as exc:
+            # Pre-048 schema: the column does not exist yet.
+            if not _is_missing_column(exc):
+                raise
 
         gate = json.dumps(
             {
@@ -1044,6 +1054,7 @@ def _persist_no_check_needed(
     conclusion: str,
     finished_at: str,
     summary: str = "",
+    thesis: str = "",
 ) -> None:
     """【无需核查】档: 写 articles 结论, 不插 evidence, 跳过 Gate 2/3.
 
@@ -1107,6 +1118,15 @@ def _persist_no_check_needed(
         )
     except sqlite3.OperationalError as exc:
         # Pre-046 schema: the column does not exist yet.
+        if not _is_missing_column(exc):
+            raise
+    try:
+        conn.execute(
+            "UPDATE articles SET fact_check_thesis = ? WHERE id = ?",
+            (thesis or None, article_id),
+        )
+    except sqlite3.OperationalError as exc:
+        # Pre-048 schema: the column does not exist yet.
         if not _is_missing_column(exc):
             raise
 

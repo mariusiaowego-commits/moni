@@ -18,7 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 47  # + 047 fact_check_gate / how / evidence source_date
+_CURRENT_VERSION = 48  # + 048 fact_check_thesis
 
 # Migrations <= this version were applied by the old "max(schema_version)"
 # rule, which did not record every intermediate row.  Never re-run them.

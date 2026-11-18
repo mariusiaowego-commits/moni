@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -100,6 +101,15 @@ def _row_to_article(row: dict[str, Any], fresh_thresholds: dict[str, str] | None
         pinned_at=pinned_at_dt,
         reader_unread=bool(row.get("reader_unread") or 0),
         has_reader_chat=bool(row.get("has_reader_chat") or 0),
+        fact_check_conclusion=row.get("fact_check_conclusion"),
+        fact_check_method=row.get("fact_check_method"),
+        fact_checked_at=row.get("fact_checked_at") or None,
+        has_fact_check=int(row.get("has_fact_check") or 0),
+        has_web_fact_check=int(row.get("has_web_fact_check") or 0),
+        fact_check_summary=row.get("fact_check_summary"),
+        fact_check_thesis=row.get("fact_check_thesis"),
+        fact_check_how=row.get("fact_check_how"),
+        fact_check_timeliness=row.get("fact_check_timeliness"),
         created_at=fetched_at,
         updated_at=fetched_at,
     )
@@ -362,6 +372,23 @@ def get_article(article_id: str) -> Article:
 
     if row is None:
         raise NotFoundError(message=f"Article {article_id!r} not found")
+
+    # v1.0.101: 事实核查字段单查一次，旧库缺列时整体跳过（详情页回退到空）。
+    try:
+        fact = conn.execute(
+            """
+            SELECT fact_check_conclusion, fact_check_method, fact_checked_at,
+                   has_fact_check, has_web_fact_check, fact_check_summary,
+                   fact_check_thesis, fact_check_how, fact_check_timeliness
+            FROM articles WHERE id = ?
+            """,
+            (article_id,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        fact = None
+    if fact is not None:
+        row = dict(row)
+        row.update({k: fact[k] for k in fact.keys()})
 
     # v1.0.7.0: 计算该信源的最新抓取时间
     fresh_thresholds: dict[str, str] = {}

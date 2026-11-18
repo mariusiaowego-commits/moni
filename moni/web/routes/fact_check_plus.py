@@ -366,7 +366,7 @@ def fact_check_plus_evidence(article_id: str) -> dict[str, Any]:
             """
             SELECT query, url, domain, snippet, fetched_at, model, provider,
                    conclusion, rationale, evidence_seq, created_at, job_id,
-                   days_old
+                   days_old, claim, verdict, source_date
             FROM fact_check_evidence
             WHERE article_id = ?
             ORDER BY evidence_seq ASC
@@ -374,7 +374,7 @@ def fact_check_plus_evidence(article_id: str) -> dict[str, Any]:
             (article_id,),
         ).fetchall()
     except Exception:
-        # Pre-migration 027: days_old column may be missing.
+        # Pre-migration 027/046/047: optional columns may be missing.
         rows = conn.execute(
             """
             SELECT query, url, domain, snippet, fetched_at, model, provider,
@@ -390,7 +390,7 @@ def fact_check_plus_evidence(article_id: str) -> dict[str, Any]:
         item = dict(r)
         days_old = item.get("days_old")
         if days_old is None:
-            days_old = compute_days_old(item.get("fetched_at"))
+            days_old = compute_days_old(item.get("source_date"))
             item["days_old"] = days_old
         item["timeliness"] = compute_timeliness(days_old)
         items.append(item)
