@@ -26,6 +26,41 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/articles", tags=["articles"])
 
+_FACT_CHECK_COLUMNS = (
+    "fact_check_conclusion",
+    "fact_check_method",
+    "fact_checked_at",
+    "has_fact_check",
+    "has_web_fact_check",
+    "fact_check_summary",
+    "fact_check_thesis",
+    "fact_check_how",
+    "fact_check_timeliness",
+)
+
+
+def _parse_iso_dt(value: Any) -> datetime | None:
+    """Parse a stored ISO timestamp; dirty/blank values become None."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _fact_check_fields(conn, article_id: str) -> dict[str, Any]:
+    """Read whichever fact-check columns exist (pre-026/046/047/048 safe)."""
+    existing = {r[1] for r in conn.execute("PRAGMA table_info(articles)")}
+    cols = [c for c in _FACT_CHECK_COLUMNS if c in existing]
+    if not cols:
+        return {}
+    row = conn.execute(
+        f"SELECT {', '.join(cols)} FROM articles WHERE id = ?",
+        (article_id,),
+    ).fetchone()
+    return dict(row) if row is not None else {}
+
 
 def _row_to_article(row: dict[str, Any], fresh_thresholds: dict[str, str] | None = None) -> Article:
     """Convert a sqlite3.Row (dict-like) to an Article Pydantic model.
@@ -77,12 +112,7 @@ def _row_to_article(row: dict[str, Any], fresh_thresholds: dict[str, str] | None
     # pinned (LEFT JOIN).  Convert to (is_pinned, pinned_at).
     pinned_at_raw = row.get("pinned_at")
     is_pinned = pinned_at_raw is not None
-    pinned_at_dt: datetime | None = None
-    if pinned_at_raw:
-        try:
-            pinned_at_dt = datetime.fromisoformat(pinned_at_raw)
-        except (ValueError, TypeError):
-            pinned_at_dt = None
+    pinned_at_dt = _parse_iso_dt(pinned_at_raw)
 
     return Article(
         id=row["id"],
@@ -100,6 +130,15 @@ def _row_to_article(row: dict[str, Any], fresh_thresholds: dict[str, str] | None
         pinned_at=pinned_at_dt,
         reader_unread=bool(row.get("reader_unread") or 0),
         has_reader_chat=bool(row.get("has_reader_chat") or 0),
+        fact_check_conclusion=row.get("fact_check_conclusion"),
+        fact_check_method=row.get("fact_check_method"),
+        fact_checked_at=_parse_iso_dt(row.get("fact_checked_at")),
+        has_fact_check=int(row.get("has_fact_check") or 0),
+        has_web_fact_check=int(row.get("has_web_fact_check") or 0),
+        fact_check_summary=row.get("fact_check_summary"),
+        fact_check_thesis=row.get("fact_check_thesis"),
+        fact_check_how=row.get("fact_check_how"),
+        fact_check_timeliness=row.get("fact_check_timeliness"),
         created_at=fetched_at,
         updated_at=fetched_at,
     )
@@ -362,6 +401,10 @@ def get_article(article_id: str) -> Article:
 
     if row is None:
         raise NotFoundError(message=f"Article {article_id!r} not found")
+
+    # v1.0.101: 事实核查字段单查一次，按实际存在的列读，旧库缺列只丢那一列。
+    row = dict(row)
+    row.update(_fact_check_fields(conn, article_id))
 
     # v1.0.7.0: 计算该信源的最新抓取时间
     fresh_thresholds: dict[str, str] = {}

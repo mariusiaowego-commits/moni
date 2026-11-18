@@ -47,13 +47,14 @@ FACT_CHECK_PROMPT = """你是 moni 事实核查助手。只基于文内声明，
 
 要求（短）：
 - 最多 2 条 claim；纯观点 → conclusion="无需核查"，note 空
-- 标签只用：【已核实】|【待核实】|【存疑】（禁英文）
-- conclusion ≤20 字；每条 claim 半句，直说
+- 标签只能用：【待核实】|【存疑】|【无需核查】——**离线不联网，禁止标【已核实】**
+- conclusion ≤20 字；note 一句话说清「为什么给这个标签 + 引用风险」，≤60 字
+- 禁止复述 claim1/claim2 模板，禁止写 URL、检索词
 - 禁「不是X而是Y」、禁赋能/凸显了/值得注意
 
 严格 JSON：
 ```json
-{{"id": "{article_id}", "conclusion": "…", "method": "llm_inference", "note": "claim1 【已核实】: …; claim2 【待核实】: …"}}
+{{"id": "{article_id}", "conclusion": "【待核实】", "method": "llm_inference", "note": "核心数据无外部来源，引用前须核对原公告"}}
 ```
 
 标题: {title}
@@ -1458,9 +1459,10 @@ def run_enrichment(
                 else:
                     stats["failed"].append(f"brief_body:{row['id']}")
 
-        # 7) v1.0.24 brief web mode: enqueue missing fact_check_plus (non-blocking)
-        #    then stamp evidence_rendered_at. Never wait for job completion.
-        if flags.get("brief"):
+        # 7) v1.0.24 brief web mode / v1.0.101 深度事实核查:
+        #    补齐缺的 fact_check_plus，再盖 evidence_rendered_at。
+        #    用户勾了「深度事实核查」就说明要联网档，不能只给离线推断。
+        if flags.get("brief") or flags.get("include_fact_check"):
             _update_progress(
                 conn, task_id, "enrich_fact_check", 66, "检查联网核查覆盖 ..."
             )
@@ -1474,6 +1476,8 @@ def run_enrichment(
                     db_path=db_path,
                     provider=provider,
                     model=model,
+                    wait=True,
+                    timeout=180.0,
                 )
                 stats["fact_check_plus_enqueued"] = enq
             except Exception as exc:
@@ -1495,8 +1499,9 @@ def run_enrichment(
 
 
 _FACT_CHECK_HEADER = (
-    "**事实核查**（仅作判断依据；报告只写一句 ≤60 字人话结论，"
-    "禁止照抄数字、区间、参数名、字段名或原文）"
+    "**事实核查**（仅作判断依据；报告写人话结论，说清能不能引用、"
+    "依据有多硬、引用时注意什么；数字翻成读者关心的含义，翻不出就省略；"
+    "禁止照抄参数名、取值区间、字段名或原文）"
 )
 
 

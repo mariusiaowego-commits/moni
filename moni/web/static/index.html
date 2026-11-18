@@ -3267,8 +3267,16 @@
                 <p x-text="articleDetail?.summary"></p>
               </div>
               <div class="summary-box" x-show="articleDetail?.fact_check_conclusion" x-cloak>
-                <h4>事实核查结论</h4>
+                <h4>
+                  事实核查结论
+                  <small class="muted" x-show="articleDetail?.fact_check_method === 'web_search'">联网核查 · 有出处</small>
+                  <small class="muted" x-show="articleDetail?.fact_check_method === 'llm_inference'">快速核查 · 未联网，模型推断</small>
+                </h4>
                 <p x-text="articleDetail?.fact_check_conclusion"></p>
+                <p class="muted" x-show="articleDetail?.fact_check_how" x-text="articleDetail?.fact_check_how"></p>
+                <p class="muted" x-show="articleDetail?.fact_check_thesis">
+                  文章主张：<span x-text="articleDetail?.fact_check_thesis"></span>
+                </p>
               </div>
               <div class="fact-check-evidence" x-show="articleDetail?.has_web_fact_check" x-cloak>
                 <details>
@@ -3280,10 +3288,13 @@
                   <ol class="evidence-list">
                     <template x-for="(e, idx) in articleEvidenceList" :key="idx">
                       <li class="evidence-item">
-                        <div class="evidence-query" x-text="e.query"></div>
+                        <div class="evidence-query">
+                          <span class="badge" x-show="e.verdict" x-text="e.verdict"></span>
+                          <span x-text="e.claim || e.query"></span>
+                        </div>
                         <a class="evidence-url" :class="{'link-blocked': isBlockedUrl(e.url)}" :href="safeHref(e.url)" target="_blank" rel="noopener noreferrer" x-text="e.url"></a>
                         <div class="evidence-snippet" x-text="e.snippet"></div>
-                        <div class="evidence-meta"><span x-text="e.domain"></span><span x-text="e.fetched_at"></span><span x-text="e.model"></span></div>
+                        <div class="evidence-meta"><span x-text="e.domain"></span><span x-text="e.source_date || e.fetched_at"></span><span x-text="e.model"></span></div>
                       </li>
                     </template>
                   </ol>
@@ -3583,6 +3594,15 @@
               <b>总字数:</b>
               <span x-text="shareEstimate?.total_chars ?? '—'"></span>
             </span>
+          </div>
+          <div class="summary-box" x-show="(shareEstimate?.articles_missing_summary || 0) + (shareEstimate?.articles_missing_web_fact_check || 0) > 0" x-cloak>
+            <h4>生成前提示</h4>
+            <p style="margin: 0 0 6px 0;" x-show="(shareEstimate?.articles_missing_summary || 0) > 0">
+              有 <b x-text="shareEstimate?.articles_missing_summary"></b> 篇还没有 AI 摘要，入队后会自动补齐（会多花一点时间）。
+            </p>
+            <p style="margin: 0;" x-show="(shareEstimate?.articles_missing_web_fact_check || 0) > 0">
+              有 <b x-text="shareEstimate?.articles_missing_web_fact_check"></b> 篇还没有联网核查，本次会先跑核查再生成（最多等 180 秒）。
+            </p>
           </div>
           <div class="summary-box" x-show="!shareEstimateError" x-cloak>
             <h4>LLM 预估</h4>

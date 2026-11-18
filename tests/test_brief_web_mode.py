@@ -197,6 +197,48 @@ def test_brief_web_mode_enqueues_missing_fact_check_plus(fresh_db, monkeypatch):
     assert rows[0]["status"] == "pending"
 
 
+def test_one_image_with_deep_fact_check_enqueues_web_check(fresh_db, monkeypatch):
+    """v1.0.101: 分享图勾了「深度事实核查」也要走联网档，而不是只留离线推断。"""
+    _insert_article("a1", web_checked=False)
+    monkeypatch.setattr("moni.llm.jobs.ensure_worker_started", lambda: None)
+    manifest = fresh_db.parent / "png-fact-check-manifest.json"
+    manifest.write_text(
+        json.dumps({"payload": {
+            "include_abstract": True,
+            "include_fact_check": True,
+            "include_business_value": False,
+            "brief": False,
+        }}),
+        encoding="utf-8",
+    )
+    import moni.share.enrichment as _enr
+
+    monkeypatch.setattr(_enr, "_wait_for_jobs", lambda *a, **k: {})
+    calls: dict = {}
+    real_enqueue = _enr._enqueue_missing_web_fact_checks
+
+    def _spy(*args, **kwargs):
+        calls.update(kwargs)
+        return real_enqueue(*args, **kwargs)
+
+    monkeypatch.setattr(_enr, "_enqueue_missing_web_fact_checks", _spy)
+
+    run_enrichment(
+        str(fresh_db),
+        ["a1"],
+        manifest_path=str(manifest),
+        invoke_hermes=_fake_hermes,
+    )
+
+    rows = get_db().execute(
+        "SELECT article_id, status FROM llm_jobs WHERE task_type = 'fact_check_plus'"
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["article_id"] == "a1"
+    assert calls["wait"] is True
+    assert calls["timeout"] == 180.0
+
+
 def test_brief_web_mode_skips_articles_already_checked(fresh_db, monkeypatch):
     """2 篇都有 has_web_fact_check -> llm_jobs 不新增."""
     _insert_article("a1", web_checked=True)

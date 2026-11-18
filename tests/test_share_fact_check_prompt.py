@@ -172,11 +172,36 @@ def test_report_png_prompt_has_copy_ban():
     prompt = (REPO_ROOT / "moni/share/prompts/format-report-png.md").read_text()
 
     assert "one-line verdict with colored marker" not in prompt
-    assert "≤60 Chinese characters" in prompt
-    assert "Never copy numbers, ranges, parameter names" in prompt
+    assert "2-3 plain sentences" in prompt
+    assert "≤150 Chinese characters" in prompt
+    # 数字不是一律禁抄：能翻成含义就必须写，翻不出才省略。
+    assert "Numbers are allowed" in prompt
+    assert "Never write parameter names" in prompt
+    assert "「与文档一致」" in prompt
     assert "Override content-structure" in prompt
     good_example = prompt.split("Good: ")[1].splitlines()[0]
     assert "；" not in good_example
+
+
+def test_fact_check_prompt_marks_evidence_types_and_discipline():
+    prompt = (REPO_ROOT / "moni/llm/prompts/fact_check.md").read_text()
+
+    for kind in ("文内矛盾", "公开常识", "模型记忆", "无依据"):
+        assert kind in prompt
+    # 无证据不许判「错误」。
+    assert "没有证据就说没有证据" in prompt
+    assert "1-3 条" in prompt
+    assert "600 字以内" in prompt
+
+
+def test_fact_check_plus_prompt_requires_thesis_and_source_date():
+    prompt = (REPO_ROOT / "moni/llm/prompts/fact_check_plus.md").read_text()
+
+    assert '"thesis"' in prompt
+    assert "≤40 字" in prompt
+    assert "2-3 句，≤150 汉字" in prompt
+    assert '"source_date"' in prompt
+    assert "翻成读者能懂的含义" in prompt
 
 
 def test_content_structure_scopes_per_claim_to_long_form():
