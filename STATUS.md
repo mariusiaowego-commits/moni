@@ -32,10 +32,12 @@
 - `scripts/default_worker.sh`：单图格式也加载风格提示；新增 `MONI_PROMPT_DUMP` 便于审计组装结果。
 
 **审计**：独立只读审计两轮（CHANGES REQUESTED → APPROVE WITH NITS）：已修好示例与规则自相矛盾、
-Gate 2 降级后 summary 与逐条判定不同步、brief 脚注不受 flag 控制、异常兜底过宽、summary 超 60 字；
+Gate 2 降级后 summary 与逐条判定不同步、brief 脚注不受 flag 控制、异常兜底过宽；
 以及英文 verdict 绕过降级。新增 6 条回归用例。剩余 P3（非 JSON 历史 note 回灌）留后续。
 
-**测试**：`pytest tests/` → **2021 passed, 2 skipped**；唯一失败 `test_039_upgrades_a_db_built_by_old_code`
+材料层 summary 上限 120 字（按标点回退），60 字只约束成品那一行；避免把句子切在词中间。
+
+**测试**：`pytest tests/` → **2022 passed, 2 skipped**；唯一失败 `test_039_upgrades_a_db_built_by_old_code`
 是沙箱无法在主仓库 `.git` 建临时 worktree，沙箱外单跑 **1 passed**。
 
 **验收（待部署）**：`python3 -m moni.db.migrate` → schema 46；重跑同一篇文章的 `report_png`，

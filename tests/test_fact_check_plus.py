@@ -518,6 +518,35 @@ def test_fact_check_plus_no_check_needed_keeps_summary(fresh_db, monkeypatch):
     assert row["fact_check_summary"] == "纯观点文，没有可验证的具体主张"
 
 
+def test_fact_check_plus_summary_not_cut_mid_sentence(fresh_db, monkeypatch):
+    """60-120 字的材料不能按成品 60 字上限硬裁."""
+    summary = (
+        "参数区间与各引用出处基本站得住；但所引榜单实为无序名单且被质疑刷量，"
+        "Google 座右铭说法也需加限定，读者不宜直接引用。"
+    )
+    assert 60 < len(summary) <= 120
+    _insert_article("a1")
+    _insert_job("job-long-summary", "a1")
+    payload = json.dumps({
+        "conclusion": "【待核实】",
+        "summary": summary,
+        "evidence": [
+            {"query": "q", "url": "https://www.pbc.gov.cn/notice/1",
+             "snippet": "s", "rationale": "r"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-long-summary", "task_type": "fact_check_plus",
+              "article_id": "a1", "provider": "minimax-cn",
+              "model": "MiniMax-M3", "attempts": 0})
+
+    row = get_db().execute(
+        "SELECT fact_check_summary FROM articles WHERE id = 'a1'"
+    ).fetchone()
+    assert row["fact_check_summary"] == summary
+
+
 def test_fact_check_plus_rerun_without_summary_clears_old(fresh_db, monkeypatch):
     _insert_article("a1")
     _insert_job("job-r1", "a1")

@@ -670,8 +670,12 @@ def _normalize_verdict(raw: Any, fallback: str) -> str:
     return "【待核实】"
 
 
-def _clip_sentence(text: str, limit: int = 60) -> str:
-    """Keep a human summary inside the prompt's 60-character budget."""
+def _clip_sentence(text: str, limit: int = 120) -> str:
+    """Cap the stored summary without cutting it mid-clause.
+
+    The 60-character budget belongs to the rendered image line; the source
+    summary stays a little longer so the writer has a complete sentence.
+    """
     text = (text or "").strip()
     if len(text) <= limit:
         return text
