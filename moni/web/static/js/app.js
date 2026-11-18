@@ -4913,10 +4913,11 @@ function app() {
           self._pollFactCheckPlusJob(data.job_id, id);
         })
         .catch(err => {
+          const raw = String(err.message || '').trim();
           this._notify(
             'error',
             this._llmErrorText(err.message, '联网核查没能排上队，可以稍后重试。'),
-            { detail: err.message }
+            raw ? { detail: raw } : undefined
           );
         })
         .finally(() => { self.factCheckLoading = false; });
@@ -4957,19 +4958,19 @@ function app() {
               // Refresh article detail so has_web_fact_check + conclusion render
               return fetch(`/api/articles/${articleId}`, { credentials: 'same-origin' })
                 .then(r => r.json())
-                .then(detail => { self.articleDetail = detail; });
+                .then(detail => { self.readerRefreshDetail(articleId, detail); });
             }
             if (job.status === 'failed') {
-              const raw = job.error || 'unknown';
+              const raw = String(job.error || '').trim();
               self._notify(
                 'error',
                 self._llmErrorText(raw, '联网核查没跑完，可以稍后重试。'),
-                { detail: raw }
+                raw && raw !== 'unknown' ? { detail: raw } : undefined
               );
               // 失败时把「⏳ 联网核查中...」的占位撤掉，恢复上次结论。
               fetch(`/api/articles/${articleId}`, { credentials: 'same-origin' })
                 .then(r => r.json())
-                .then(detail => { self.articleDetail = detail; })
+                .then(detail => { self.readerRefreshDetail(articleId, detail); })
                 .catch(() => {});
               return;
             }
@@ -4985,6 +4986,13 @@ function app() {
           });
       };
       setTimeout(tick, 2000);
+    },
+
+    /** 迟到的核查结果不能盖掉用户已经翻开的另一篇。 */
+    readerRefreshDetail(articleId, detail) {
+      if (!detail) return;
+      if (this.articleDetail && this.articleDetail.id !== articleId) return;
+      this.articleDetail = detail;
     },
 
     // v1.0.22: 拉取联网核查证据链 (后端已按 evidence_seq 升序)

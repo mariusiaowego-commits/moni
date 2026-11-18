@@ -3221,7 +3221,8 @@
 
     <!-- ══ Article detail + reader AI (Sprint 47) ══════════════ -->
     <div class="modal-backdrop reader-backdrop" x-show="articleDetail" x-cloak
-         @click.self="closeArticleDetail()" @keydown.escape.window="readerHandleEscape()">
+         @click.self="closeArticleDetail()" @keydown.escape.window="readerHandleEscape()"
+         @resize.window="readerSyncViewport()">
       <div class="reader-modal" x-show="articleDetail" :class="{ 'is-expanded': readerExpanded }">
         <header class="reader-head">
           <div class="reader-head-main">
@@ -3255,14 +3256,14 @@
 
         <div class="reader-split" :class="'mobile-' + readerMobileTab">
           <div class="reader-tabs" role="tablist" aria-label="文章内容">
-            <button type="button" class="reader-tab" role="tab" :aria-selected="readerContentTab === 'read'"
-                    :class="{ 'is-active': readerContentTab === 'read' }" @click="readerSwitchContentTab('read')">正文</button>
-            <button type="button" class="reader-tab" role="tab" :aria-selected="readerContentTab === 'summary'"
-                    :class="{ 'is-active': readerContentTab === 'summary' }" @click="readerSwitchContentTab('summary')">摘要</button>
-            <button type="button" class="reader-tab" role="tab" :aria-selected="readerContentTab === 'fact'"
-                    :class="{ 'is-active': readerContentTab === 'fact' }" @click="readerSwitchContentTab('fact')">事实核查</button>
-            <button type="button" class="reader-tab reader-tab-ai" role="tab" :aria-selected="readerMobileTab === 'ai'"
-                    :class="{ 'is-active': readerMobileTab === 'ai' }" @click="readerSwitchToAi()">对话</button>
+            <button type="button" class="reader-tab" role="tab" :aria-selected="readerContentTab === 'read' && !readerAiFocused"
+                    :class="{ 'is-active': readerContentTab === 'read' && !readerAiFocused }" @click="readerSwitchContentTab('read')">正文</button>
+            <button type="button" class="reader-tab" role="tab" :aria-selected="readerContentTab === 'summary' && !readerAiFocused"
+                    :class="{ 'is-active': readerContentTab === 'summary' && !readerAiFocused }" @click="readerSwitchContentTab('summary')">摘要</button>
+            <button type="button" class="reader-tab" role="tab" :aria-selected="readerContentTab === 'fact' && !readerAiFocused"
+                    :class="{ 'is-active': readerContentTab === 'fact' && !readerAiFocused }" @click="readerSwitchContentTab('fact')">事实核查</button>
+            <button type="button" class="reader-tab reader-tab-ai" role="tab" :aria-selected="readerAiFocused"
+                    :class="{ 'is-active': readerAiFocused }" @click="readerSwitchToAi()">对话</button>
           </div>
 
           <main class="reader-pane reader-pane-split">
@@ -3281,7 +3282,7 @@
                          x-text="'生成于 ' + formatTime(articleDetail?.summary_at)"></small>
                 </div>
                 <div class="summary-box" x-show="articleDetail?.summary" x-cloak>
-                  <p class="markdown" x-html="readerRenderMarkdown(articleDetail?.summary || '')"></p>
+                  <div class="markdown" x-html="readerRenderMarkdownPlain(articleDetail?.summary || '')"></div>
                 </div>
                 <p class="muted" x-show="!articleDetail?.summary" x-cloak>
                   这篇文章还没有摘要，点下方「生成摘要」跑一次。
@@ -3292,7 +3293,8 @@
                 <div class="reader-panel-head">
                   <h4>事实核查</h4>
                   <span class="badge" :class="articleDetail?.has_web_fact_check ? 'web_search' : ''"
-                        x-text="articleDetail?.has_web_fact_check ? '联网核查 · 有出处' : '快速核查 · 未联网'"></span>
+                        x-text="articleDetail?.has_web_fact_check ? '联网核查 · 有出处'
+                              : (articleDetail?.has_fact_check ? '快速核查 · 未联网' : '未核查')"></span>
                 </div>
 
                 <p class="reader-tier-note" x-show="articleDetail?.has_web_fact_check">
@@ -3313,7 +3315,7 @@
                 <div class="summary-box" x-show="articleDetail?.fact_check_conclusion" x-cloak>
                   <h4>核查详情</h4>
                   <div class="markdown" x-show="readerFactPreviewText"
-                       x-html="readerRenderMarkdown(readerFactPreviewText)"></div>
+                       x-html="readerRenderMarkdownPlain(readerFactPreviewText)"></div>
                   <template x-if="readerFactRestText">
                     <div>
                       <button type="button" class="btn btn-ghost btn-sm reader-fold-toggle"
@@ -3321,7 +3323,7 @@
                               :aria-expanded="readerFactReportOpen"
                               x-text="readerFactReportOpen ? '收起逐条核查' : '展开逐条核查'"></button>
                       <div class="markdown reader-fact-report" x-show="readerFactReportOpen"
-                           x-html="readerRenderMarkdown(readerFactRestText)"></div>
+                           x-html="readerRenderMarkdownPlain(readerFactRestText)"></div>
                     </div>
                   </template>
                 </div>

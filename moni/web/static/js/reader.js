@@ -576,6 +576,8 @@
     // 正文 / 摘要 / 事实核查 三个内容页签（与窄屏的「对话」页签正交）。
     readerContentTab: 'read',
     readerFactReportOpen: false,
+    // 窄屏才有的「整屏对话」状态；宽屏右侧常驻 AI，不需要这套切换。
+    readerIsNarrow: false,
     readerMessages: [],
     readerConversation: null,
     readerPrompts: [],
@@ -611,6 +613,7 @@
       this.readerMobileTab = 'read';
       this.readerContentTab = 'read';
       this.readerFactReportOpen = false;
+      this.readerSyncViewport();
       fetch(`/api/articles/${article.id}`, { credentials: 'same-origin' })
         .then((r) => {
           if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -657,6 +660,9 @@
 
     readerSwitchContentTab(tab) {
       this.readerContentTab = tab;
+      // 窄屏下「对话」是整屏视图，切内容页签必须把整屏切回来，
+      // 否则页签高亮了但格子里还是 AI 面板。
+      this.readerMobileTab = 'read';
       this.readerFactReportOpen = false;
       this.$nextTick(() => {
         const box = this.$refs?.readerScroll || document.querySelector('.reader-scroll');
@@ -667,6 +673,15 @@
     readerSwitchToAi() {
       this.readerMobileTab = 'ai';
       this.readerScrollToBottom();
+    },
+
+    readerSyncViewport() {
+      this.readerIsNarrow = window.matchMedia('(max-width: 1100px)').matches;
+    },
+
+    /** 窄屏切到「对话」时，内容页签不再算选中（否则 tablist 里两个 aria-selected=true）。 */
+    get readerAiFocused() {
+      return this.readerIsNarrow && this.readerMobileTab === 'ai';
     },
 
     /**
@@ -995,6 +1010,12 @@
       let html = renderMarkdown(structureListMarkdown(text));
       html = structureRenderedLists(html);
       return addCitations(html);
+    },
+
+    /** 核查结论等「模型产物」不挂正文引用 chip：那些「」不是文章里的引文。 */
+    readerRenderMarkdownPlain(text) {
+      let html = renderMarkdown(structureListMarkdown(text));
+      return structureRenderedLists(html);
     },
 
     readerRenderArticle(text) {
