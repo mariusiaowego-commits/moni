@@ -48,7 +48,7 @@ class PinToggleResponse(BaseModel):
     article_id: str
     is_pinned: bool
     pinned_at: datetime | None
-    quality_score: int | None = None
+    quality_score: float | None = None
     quality_status: str | None = None
     quality_error: str | None = None
     quality_formula: str | None = None

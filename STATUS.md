@@ -15,16 +15,17 @@
 脱敏产物生成器 `scripts/xbot_quality_artifacts.py`；离线验证器 `scripts/xbot_quality_validate.py`；
 只读端点 `moni/web/routes/moderation.py`（`GET /api/moderation/xbot/candidates`）；
 只读 FTS 探针 `scripts/verify_fts_index_criteria.py`。
-**本 sprint 不新增任何 migration**（`_CURRENT_VERSION` 保持 45，**不抢迁移号**）。
+**本 sprint 不新增任何 migration**（**不抢迁移号**）；已把最新 `origin/main`
+（`e5975a3`）merge 进本分支 ⇒ **直接继承 main 的 `_CURRENT_VERSION` 47**
+（含 `046_fact_check_summary.sql` / `047_fact_check_gate.sql`），本分支**未新建、未重编号**任何迁移。
 
 **不做**：任何**生产处置**（隔离 / 屏蔽作者 / 归档 execute / rescue —— 属阶段二）、改生产配置
 （`bypass_keyword_filters` 仍 true，新键**未启用**）、启黑名单、改词表阈值、前端 UI 入口
 （I8 **只是 API**，界面**没有**真实用户入口 ⇒ **不能称「阶段二执行已开发」**）。
 
-⚠️ **发布前必须处理**：`origin/main` 的 `_CURRENT_VERSION` 已是 **46**
-（新增 `moni/db/migrations/046_fact_check_summary.sql`），本分支仍是 **45**。
-本 sprint **不新增 migration、不抢迁移号** ⇒ 合并前须先决定如何处理这个落差
-（rebase 到最新 main 后再核对 `_CURRENT_VERSION` 与迁移文件），**否则直接合并会带着旧版本号**。
+✅ **schema 落差已处理**：合并前本地是 **45**、`origin/main` 已是 **46/47**
+（`046_fact_check_summary.sql` / `047_fact_check_gate.sql`）⇒ 本分支**未新建、未重编号**迁移，
+已通过 merge 干净继承 main 的 **`_CURRENT_VERSION` = 47** ⇒ **不会带着旧版本号**合并。
 
 **测试**：全量 **2114 passed / 2 skipped**（p7 独立复跑一致）；5 个既有文件**原位**单跑 **61 passed**
 （改用相对定位 ⇒ 消除「原位跑假绿」，**绿灯现可直接引用**）；本 sprint 新增 7 个测试文件 **120 passed**。
@@ -43,6 +44,106 @@
 ⇒ dad 要看请**只读查看**，**填 `annotation-template.json` 的 `dad_verdict`** ⇒ 填完才有真值与指标。
 **待 dad GO**：commit → PR → merge → tag/部署 → G2 配置 → G3 批量处置。
 
+
+## 已发布: **分享事实核查改人话结论 + 核查器 summary** (2026-11-18 · PR #232/#233 · commit `f1c26da` · 未打 tag)
+
+**症状**：PNG 报告的事实核查行变成「温度 [0,2]、top_p [0,1]、频率惩罚 [-2,2] …均与官方文档一致」。
+
+**根因（实测）**：
+
+- `moni/share/enrichment.py` 把 `fact_check_note` 的 6 条 `query/url/snippet/rationale` 原样拼进正文，
+  单篇 7327 字节里约 5.9KB 是核查 JSON（`7ab82a579114a88d`）。
+- 该文 `fact_check_conclusion` 只有「【待核实】」5 个字；枚举句来自 rationale，不是结论字段。
+- `format-report-png.md` 只定义颜色、`content-structure.md` 要求逐条 1-2 句理由；
+  `writing-style-compact.md` 只在 brief 模式加载，普通 PNG 无风格约束。
+- `fact_check_evidence.conclusion` 逐条都写总体标签（`moni/llm/jobs.py`），没有逐条判定；
+  核查器输出结构也没有一句人话 summary。
+
+**改动**：
+
+- migration 046：`articles.fact_check_summary` + `fact_check_evidence.claim/verdict`（additive）。
+- `moni/llm/prompts/fact_check_plus.md`：新增 `summary`（≤60 字人话）与逐条 `claim/verdict`。
+- `moni/llm/jobs.py`：解析/落库 summary 与逐条判定；缺 verdict 回退总体标签；90 天降级时 summary 加过期提示。
+- `moni/share/enrichment.py`：有 summary 只注入「结论 + 核查要点」，历史行回退到
+  `claim/verdict/domain` 紧凑列表；丢掉 query/snippet/url；`include_fact_check=false` 不再注入。
+- `format-report-png.md`：一句 ≤60 汉字、禁抄数字/区间/参数名/域名/原文、禁 3 项以上列举；
+  明确 override content-structure §3。
+- `content-structure.md`：逐条理由只给长文格式，单图格式一句话。
+- `writing-style-compact.md`：禁止把核查素材（参数区间、字段名、「逐项一致」）搬进结论。
+- `scripts/default_worker.sh`：单图格式也加载风格提示；新增 `MONI_PROMPT_DUMP` 便于审计组装结果。
+
+**审计**：独立只读审计两轮（CHANGES REQUESTED → APPROVE WITH NITS）：已修好示例与规则自相矛盾、
+Gate 2 降级后 summary 与逐条判定不同步、brief 脚注不受 flag 控制、异常兜底过宽；
+以及英文 verdict 绕过降级。新增 6 条回归用例。剩余 P3（非 JSON 历史 note 回灌）留后续。
+
+材料层 summary 上限 120 字（按标点回退），60 字只约束成品那一行；避免把句子切在词中间。
+
+**测试**：`pytest tests/` → **2022 passed, 2 skipped**；唯一失败 `test_039_upgrades_a_db_built_by_old_code`
+是沙箱无法在主仓库 `.git` 建临时 worktree，沙箱外单跑 **1 passed**。
+
+**发布**：squash `b434943`（#232）+ `f1c26da`（#233） · 生产 `git pull --ff-only` ·
+`python3 -m moni.db.migrate` → schema **46** · `com.moni.web` 重启（PID 41774）·
+`/api/service/info` 报 `commit=f1c26da / schema_version=46 / worktree_dirty=false`。
+
+**生产实测**：
+
+- 注入块：`7ab82a579114a88d` 从 7327 字节（约 5.9KB 核查 JSON）降到 **404 字节**，
+  只剩「结论 + 核查要点」，`"snippet"` / `"query"` / URL 均为 0 命中。
+- 重跑联网核查：`fact_check_summary` 落库 66 字；逐条 verdict 分开为
+  `已核实 / 待核实 / 存疑`（11 条）。
+- PNG E2E：任务 `1-fGf5pB9WBuGNBuyuOD8Q` → `data/artifacts/1-fGf5pB9WBuGNBuyuOD8Q-report_png-0.png`，
+  事实核查行 **33 字**：「文中引用的事实都查得到，主体是个人管理观点，引用时宜标为观点。」
+  无数字区间、无参数名、无分号、无冒号后枚举。
+
+**已知边界（未修，P3）**：`fact_check_conclusion` 若带「≤20 字说明」后缀（如
+`【已核实】仅指可查事实部分`），Gate 2 的白名单检查用精确等值比较会跳过。属既有逻辑，待单独处理。
+
+## 已发布: **v1.0.99 — Pin 质量分改 1 位小数** (2026-11-18 · PR #229 · tag `v1.0.99` · commit `a6e8e93`)
+
+实现记录 `docs/plans/2026-11-18_quality-scale-5.md` §6，设计稿 §5 已同步。
+
+- **口径**：`pin_heuristic_v3` 取整 `round(..., 1)`，Pin 列与 tooltip 明细 `toFixed(1)`。
+  公式每项都是 0.1 的整数倍（长度 1.4/1.0/0.6/0.2/−1.1、数字结构 0/0.2/0.4/0.6、
+  发布方 0.3、时间 0.2、底分 2.5），第二位小数恒为 0，故收掉。
+- **不重算**：取值集合不变（`1.4–5.0`），存量行无需 refresh。
+- **缓存**：`index.html` 的 `js/app.js?v=` 推进到 `20261118001`（上次 bump 停在 #219）。
+- **审计**：独立只读审计 **PASS WITH NITS**（3 P3，均为文案/注释）：验收用例 `3.10/5.00/4.80`、
+  css 注释、plan 前文旧口径，已在本 PR 修完。
+- **测试**：`test_scoring_heuristic` / `test_scoring_integration` / `test_scoring_store` /
+  `test_pins` 共 **51 passed**；前端守卫 4 文件 **84 passed**；CI `pytest · py3.12` pass。
+- **发布**：squash merge `a6e8e93` · annotated tag `v1.0.99` · 生产 ff 到 `a6e8e93` ·
+  `com.moni.web` 重启（PID 97496）· `/api/service/info` 报
+  `version=v1.0.99 / commit=a6e8e93 / schema=45 / worktree_dirty=false`。
+- **生产冒烟**：`/static/index.html` 返回 `app.js?v=20261118001`，JS 含 `toFixed(1)`；
+  36 篇 Pin 取值 `1.6–5.0` 全为 1 位小数；浏览器实测第 1 页 20 条、列值
+  `4.6 / 5.0 / 3.6 / 4.0 / 3.8`、分页「第 1 页 · 共 36 篇」。
+
+## 已发布: **v1.0.98 — 分享 PNG prompt 限额与产物回收** (2026-11-18 · PR #226 · tag `v1.0.98` · commit `3b15660`)
+
+另一条线发布。观察证据：tag `v1.0.98` → `3b15660`；生产运行窗口内 `/api/service/info` 报
+`version=v1.0.98 / commit=3b15660 / schema=45 / worktree_dirty=false`（PID 89688）。实现细节见 PR #226。
+
+## 已发布: **v1.0.97 — 质量分 5 分制 + Pin 列头 + 分页修复** (2026-11-18 · PR #227 · tag `v1.0.97` · commit `57af0d3`)
+
+实现记录 `docs/plans/2026-11-18_quality-scale-5.md`，设计稿 §5 已同步。
+
+- **5 分制**：`pin_heuristic_v3`，底分 2.50 + 长度 ≤1.40 + 数字结构 ≤0.60 + 发布方 0.30 +
+  发布时间 0.20，四项全满 5.00，仍不设调整分（当时两位小数，v1.0.99 起改 1 位）。
+  公式名升版，存量 `v2` 行加载/refresh 时重算。
+- **列头**：「质量」→「质量分」，Pin tab 内显示。
+- **分页**：修掉 Pin 子标签复用「全部文章」分页状态的问题；现在 Pin 用自己的
+  `pinnedPage / pinnedPageSize / pinnedHasMore`，文案「第 N 页 · 共 M 篇」。
+- **审计**：独立只读审计 **PASS WITH NITS**（4 P3）。已修 3 项：`enrichment._ensure_quality`
+  不再把 0–100 写进 Pin 列（改为只对 Pin 集合内行调 `pin_heuristic_v3`）、删除死导入
+  `compute_heuristic_quality`、Pin 子标签隐藏顶部「共 5330 篇」；migration 020 历史注释保留不改。
+- **测试**：全量 **1975 passed / 2 skipped**（`test_brief.py` / `test_brief_html.py` 写死生产路径，
+  单独跑 19 passed；混跑会串库），2 项既有环境性失败；CI `pytest · py3.12` pass。
+- **发布**：squash merge `57af0d3` · annotated tag `v1.0.97` · 生产 `/Users/mt16/dev/moni`
+  ff 到 `57af0d3` · `com.moni.web` 重启（PID 85688）· `/api/service/info` 报
+  `version=v1.0.97 / commit=57af0d3 / schema=45 / worktree_dirty=false`（本次无迁移）。
+- **生产冒烟**：`/static/index.html` 含「质量分」；36 篇 Pin 全部 `pin_heuristic_v3 / ready`，
+  分值 **1.60–5.00**、全部两位小数、12 篇满分；`page=1` 20 条、`page=2` 16 条；
+  refresh 返回 `updated=36 / unchanged=0 / skipped=0`。
 
 ## 已发布: **v1.0.96 — Pin 质量列 + 业务价值 harness** (2026-11-17 · PR #223 · tag `v1.0.96` · commit `5316f05`)
 
@@ -108,7 +209,7 @@ CRUD/CLI 写路径补重算、长文 4 窗取证、5 次调用硬上限、引文
 生产实测：迁移后三类孤儿全部 0，`article_tags` 8396 → 8091，文章数不变 5262，schema 43 → 44；
 浮层 320×356，1440 宽右边界 1268、1280 宽 1093，移开鼠标收起，`worktree_dirty=false`。
 
-## 进行中: **xbot_feed 上游 git 临时网络失败的退避重试** (2026-11-16 · Sprint 51 · 分支 `feat/xbot-git-retry-v1.0.95` · 目标版本 v1.0.95)
+## 已发布: **v1.0.95 — xbot_feed 上游 git 临时网络失败的退避重试** (2026-11-16 · Sprint 51 · PR #221 · tag `v1.0.95` · commit `60a2a06`)
 
 上游私有仓库经本机代理访问时**隧道建立后 TLS 握手被重置**（`LibreSSL SSL_connect: SSL_ERROR_SYSCALL`），
 `_sync_clone` 对 `git pull --ff-only` 单次尝试无重试 ⇒ 一次抖动整轮失败。
@@ -199,7 +300,7 @@ PR #207 把文章查阅、筛选与文内 AI 合进 `main` 后，生产验收又
 
 ---
 
-## 进行中: **文章查阅阅读 / 筛选 / AI 对话** (2026-11-16 · Sprint 47 · PR #207)
+## 已发布: **文章查阅阅读 / 筛选 / AI 对话** (2026-11-16 · Sprint 47 · PR #207 · 随 v1.0.91 发布)
 
 分支 `feat/articles-reading-ai`。开发起点是 v1.0.87（`d7e6680`），未包含当时还在别的分支上的提交。2026-11-16 已把 `origin/main` 后到的 5 个提交合进来：#206 v1.0.88、#208/#209 v1.0.89、#210/#211 v1.0.90。v1.0.88/89/90 已被占用，本功能尚未打 tag、未重启 8900。
 
@@ -422,7 +523,7 @@ pytest 1630 passed / 2 skipped。移动端按 dad 决定不做。
 第一版把 5 个官网塞进一次 `hermes -z`，实测 600s 没跑完 → 5 个官网**全丢**，
 只剩媒体 RSS 的 4 条。改成一页一次调用后同样的输入拿到 58 条官网条目（+3 条媒体，共 61）。
 
-## 进行中: **X-bot 精选「屏蔽作者」** (2026-11-12 · 分支 `feat/xbot-author-block-v1.0.75` · PR #206)
+## 已发布: **v1.0.88 — X-bot 精选「屏蔽作者」** (2026-11-12 · PR #206 · tag `v1.0.88` · commit `fa651fb`)
 
 在 X-bot 精选（`xbot_feed`）的文章详情弹窗里，按 `@handle` 一键屏蔽作者。
 被屏蔽的作者以后不再入库；旧文章**物理删除**（不可恢复，屏蔽前确认框显示
@@ -459,7 +560,7 @@ round 2 复审判 **PASS**（P0=0 / P1=0），仅余 1 项 P2 残留：确认框
 
 ---
 
-## 进行中: **分享产物 worker 修复** (2026-11-12 · 分支 `feature/v1.0.73-share-maintenance`)
+## 已发布: **v1.0.74 — 分享产物 worker 修复** (2026-11-12 · PR #183 / #184 · tag `v1.0.74` · commit `7375e84`)
 
 v1.0.42 起 `worker_llm.py` 把 prompt 从 `-z` 后面挪到 argv 末尾，hermes argparse
 把 `--usage-file` 当成 `-z` 的值后 exit 2；worker 只记录 stdout，导致

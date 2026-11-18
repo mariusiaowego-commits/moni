@@ -337,8 +337,12 @@ def test_fact_check_plus_worker_writes_has_fact_check(fresh_db, monkeypatch):
     _insert_job("job-w1", "a1")
     payload = json.dumps({
         "conclusion": "【已核实】",
-        "evidence": [{"query": "央行", "url": "https://www.pbc.gov.cn/notice/1",
-                      "snippet": "央行发布 1 月金融数据", "rationale": "官方公告"}],
+        "evidence": [
+            {"query": "央行", "url": "https://www.pbc.gov.cn/notice/1",
+             "snippet": "央行发布 1 月金融数据", "rationale": "官方公告"},
+            {"query": "监管", "url": "https://www.nfra.gov.cn/notice/2",
+             "snippet": "金融监管总局发布", "rationale": "官方公告"},
+        ],
     }, ensure_ascii=False)
     monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
 
@@ -358,41 +362,269 @@ def test_fact_check_plus_worker_writes_has_fact_check(fresh_db, monkeypatch):
     ).fetchone()["status"] == "done"
     assert conn.execute(
         "SELECT COUNT(*) FROM fact_check_evidence WHERE article_id = 'a1'"
-    ).fetchone()[0] == 1
+    ).fetchone()[0] == 2
 
 
-def test_fact_check_plus_double_gate_domain_whitelist(fresh_db, monkeypatch):
-    """无白名单域源时【已核实】强制降级为【待核实】; 白名单域保持【已核实】."""
-    _insert_article("a-36kr")
-    _insert_article("a-gov")
-    _insert_job("job-36kr", "a-36kr")
-    _insert_job("job-gov", "a-gov")
-    replies = iter([
-        json.dumps({
-            "conclusion": "【已核实】",
-            "evidence": [{"query": "q", "url": "https://36kr.com/p/1",
-                          "snippet": "36kr 报道"}],
-        }, ensure_ascii=False),
-        json.dumps({
-            "conclusion": "【已核实】",
-            "evidence": [{"query": "q", "url": "https://www.pbc.gov.cn/notice/1",
-                          "snippet": "央行公告"}],
-        }, ensure_ascii=False),
-    ])
-    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: next(replies))
+def test_fact_check_plus_persists_summary_and_verdicts(fresh_db, monkeypatch):
+    """046: summary → articles.fact_check_summary; claim/verdict → evidence rows."""
+    _insert_article("a1")
+    _insert_job("job-046", "a1")
+    payload = json.dumps({
+        "conclusion": "【待核实】",
+        "summary": "参数表与官方文档一致；适用性仍是作者判断",
+        "evidence": [
+            {"claim": "温度范围是 0 到 2", "verdict": "【已核实】",
+             "query": "q1", "url": "https://www.pbc.gov.cn/notice/1",
+             "snippet": "s1", "rationale": "r1"},
+            {"claim": "某个未核清的说法", "verdict": "【存疑】",
+             "query": "q2", "url": "https://www.pbc.gov.cn/notice/2",
+             "snippet": "s2", "rationale": "r2"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
 
-    _run_job({"id": "job-36kr", "task_type": "fact_check_plus", "article_id": "a-36kr",
-              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
-    _run_job({"id": "job-gov", "task_type": "fact_check_plus", "article_id": "a-gov",
+    _run_job({"id": "job-046", "task_type": "fact_check_plus", "article_id": "a1",
               "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
 
     conn = get_db()
+    art = conn.execute(
+        "SELECT fact_check_summary FROM articles WHERE id = 'a1'"
+    ).fetchone()
+    assert art["fact_check_summary"] == "参数表与官方文档一致；适用性仍是作者判断"
+
+    rows = conn.execute(
+        "SELECT claim, verdict FROM fact_check_evidence "
+        "WHERE article_id = 'a1' ORDER BY evidence_seq"
+    ).fetchall()
+    assert [r["claim"] for r in rows] == ["温度范围是 0 到 2", "某个未核清的说法"]
+    assert [r["verdict"] for r in rows] == ["【已核实】", "【存疑】"]
+
+
+def test_fact_check_plus_verdict_defaults_to_conclusion(fresh_db, monkeypatch):
+    """旧模型不吐 verdict 时，逐条判定回退到总体 conclusion。"""
+    _insert_article("a1")
+    _insert_job("job-046b", "a1")
+    payload = json.dumps({
+        "conclusion": "【已核实】",
+        "evidence": [
+            {"query": "q", "url": "https://www.pbc.gov.cn/notice/1",
+             "snippet": "s", "rationale": "r"},
+            {"query": "q2", "url": "https://www.nfra.gov.cn/notice/2",
+             "snippet": "s2", "rationale": "r2"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-046b", "task_type": "fact_check_plus", "article_id": "a1",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    row = get_db().execute(
+        "SELECT verdict FROM fact_check_evidence WHERE article_id = 'a1'"
+    ).fetchone()
+    assert row["verdict"] == "【已核实】"
+
+
+def test_fact_check_plus_demotion_drops_summary_and_verdicts(fresh_db, monkeypatch):
+    """Gate 2 降级后 summary 必须清空、逐条【已核实】降为【待核实】."""
+    _insert_article("a1")
+    _insert_job("job-dem", "a1")
+    payload = json.dumps({
+        "conclusion": "【已核实】",
+        "summary": "参数与官方文档一致",
+        "evidence": [
+            {"claim": "某个参数范围", "verdict": "【已核实】",
+             "query": "q", "url": "https://36kr.com/p/1",
+             "snippet": "s", "rationale": "r"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-dem", "task_type": "fact_check_plus", "article_id": "a1",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    conn = get_db()
+    art = conn.execute(
+        "SELECT fact_check_summary, fact_check_conclusion FROM articles WHERE id = 'a1'"
+    ).fetchone()
+    assert art["fact_check_conclusion"] == "【待核实】"
+    assert art["fact_check_summary"] is None
     assert conn.execute(
-        "SELECT fact_check_conclusion FROM articles WHERE id = 'a-36kr'"
-    ).fetchone()["fact_check_conclusion"] == "【待核实】"
+        "SELECT verdict FROM fact_check_evidence WHERE article_id = 'a1'"
+    ).fetchone()["verdict"] == "【待核实】"
+
+
+def test_fact_check_plus_invalid_verdict_falls_back(fresh_db, monkeypatch):
+    _insert_article("a1")
+    _insert_job("job-bad-verdict", "a1")
+    payload = json.dumps({
+        "conclusion": "【待核实】",
+        "evidence": [
+            {"claim": "某个说法", "verdict": "maybe",
+             "query": "q", "url": "https://www.pbc.gov.cn/notice/1",
+             "snippet": "s", "rationale": "r"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-bad-verdict", "task_type": "fact_check_plus",
+              "article_id": "a1", "provider": "minimax-cn",
+              "model": "MiniMax-M3", "attempts": 0})
+
+    row = get_db().execute(
+        "SELECT verdict FROM fact_check_evidence WHERE article_id = 'a1'"
+    ).fetchone()
+    assert row["verdict"] == "【待核实】"
+
+
+def test_fact_check_plus_english_verdict_is_demoted(fresh_db, monkeypatch):
+    """英文 Supported 也必须被 Gate 2 降级，不能绕过白名单检查."""
+    _insert_article("a1")
+    _insert_job("job-en-verdict", "a1")
+    payload = json.dumps({
+        "conclusion": "【已核实】",
+        "summary": "参数与官方文档一致",
+        "evidence": [
+            {"claim": "某个参数范围", "verdict": "Supported",
+             "query": "q", "url": "https://36kr.com/p/1",
+             "snippet": "s", "rationale": "r"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-en-verdict", "task_type": "fact_check_plus",
+              "article_id": "a1", "provider": "minimax-cn",
+              "model": "MiniMax-M3", "attempts": 0})
+
+    conn = get_db()
     assert conn.execute(
-        "SELECT fact_check_conclusion FROM articles WHERE id = 'a-gov'"
-    ).fetchone()["fact_check_conclusion"] == "【已核实】"
+        "SELECT verdict FROM fact_check_evidence WHERE article_id = 'a1'"
+    ).fetchone()["verdict"] == "【待核实】"
+    assert conn.execute(
+        "SELECT fact_check_summary FROM articles WHERE id = 'a1'"
+    ).fetchone()["fact_check_summary"] is None
+
+
+def test_fact_check_plus_no_check_needed_keeps_summary(fresh_db, monkeypatch):
+    _insert_article("a1")
+    _insert_job("job-nocheck", "a1")
+    payload = json.dumps({
+        "conclusion": "【无需核查】",
+        "summary": "纯观点文，没有可验证的具体主张",
+        "evidence": [],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-nocheck", "task_type": "fact_check_plus",
+              "article_id": "a1", "provider": "minimax-cn",
+              "model": "MiniMax-M3", "attempts": 0})
+
+    row = get_db().execute(
+        "SELECT fact_check_summary FROM articles WHERE id = 'a1'"
+    ).fetchone()
+    assert row["fact_check_summary"] == "纯观点文，没有可验证的具体主张"
+
+
+def test_fact_check_plus_summary_not_cut_mid_sentence(fresh_db, monkeypatch):
+    """60-120 字的材料不能按成品 60 字上限硬裁."""
+    summary = (
+        "参数区间与各引用出处基本站得住；但所引榜单实为无序名单且被质疑刷量，"
+        "Google 座右铭说法也需加限定，读者不宜直接引用。"
+    )
+    assert 60 < len(summary) <= 120
+    _insert_article("a1")
+    _insert_job("job-long-summary", "a1")
+    payload = json.dumps({
+        "conclusion": "【待核实】",
+        "summary": summary,
+        "evidence": [
+            {"query": "q", "url": "https://www.pbc.gov.cn/notice/1",
+             "snippet": "s", "rationale": "r"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-long-summary", "task_type": "fact_check_plus",
+              "article_id": "a1", "provider": "minimax-cn",
+              "model": "MiniMax-M3", "attempts": 0})
+
+    row = get_db().execute(
+        "SELECT fact_check_summary FROM articles WHERE id = 'a1'"
+    ).fetchone()
+    assert row["fact_check_summary"] == summary
+
+
+def test_fact_check_plus_rerun_without_summary_clears_old(fresh_db, monkeypatch):
+    _insert_article("a1")
+    _insert_job("job-r1", "a1")
+    first = json.dumps({
+        "conclusion": "【待核实】",
+        "summary": "旧的人话结论",
+        "evidence": [
+            {"query": "q", "url": "https://www.pbc.gov.cn/notice/1",
+             "snippet": "s", "rationale": "r"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: first)
+    _run_job({"id": "job-r1", "task_type": "fact_check_plus", "article_id": "a1",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    _insert_job("job-r2", "a1")
+    second = json.dumps({
+        "conclusion": "【待核实】",
+        "evidence": [
+            {"query": "q", "url": "https://www.pbc.gov.cn/notice/2",
+             "snippet": "s2", "rationale": "r2"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: second)
+    _run_job({"id": "job-r2", "task_type": "fact_check_plus", "article_id": "a1",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    row = get_db().execute(
+        "SELECT fact_check_summary FROM articles WHERE id = 'a1'"
+    ).fetchone()
+    assert row["fact_check_summary"] is None
+
+
+def test_fact_check_plus_double_gate_domain_whitelist(fresh_db, monkeypatch):
+    """Gate 2 (v1.0.100): 单域降级; ≥2 注册域含一手源放行; 3 家媒体放行."""
+    cases = {
+        "a-one": [{"query": "q", "url": "https://36kr.com/p/1", "snippet": "36kr"}],
+        "a-gov2": [
+            {"query": "q", "url": "https://www.pbc.gov.cn/notice/1", "snippet": "央行"},
+            {"query": "q", "url": "https://www.nfra.gov.cn/notice/2", "snippet": "监管"},
+        ],
+        "a-media3": [
+            {"query": "q", "url": "https://www.stcn.com/a", "snippet": "证券时报"},
+            {"query": "q", "url": "https://www.cls.cn/b", "snippet": "财联社"},
+            {"query": "q", "url": "https://www.yicai.com/c", "snippet": "第一财经"},
+        ],
+    }
+    for aid, evidence in cases.items():
+        _insert_article(aid)
+        _insert_job(f"job-{aid}", aid)
+    replies = iter(
+        json.dumps({"conclusion": "【已核实】", "evidence": ev}, ensure_ascii=False)
+        for ev in cases.values()
+    )
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: next(replies))
+
+    for aid in cases:
+        _run_job({
+            "id": f"job-{aid}", "task_type": "fact_check_plus", "article_id": aid,
+            "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0,
+        })
+
+    conn = get_db()
+
+    def conclusion(aid: str) -> str:
+        return conn.execute(
+            "SELECT fact_check_conclusion FROM articles WHERE id = ?", (aid,)
+        ).fetchone()["fact_check_conclusion"]
+
+    assert conclusion("a-one") == "【待核实】"
+    assert conclusion("a-gov2") == "【已核实】"
+    assert conclusion("a-media3") == "【已核实】"
 
 
 def test_fact_check_plus_evidence_table_insert(fresh_db):
@@ -577,15 +809,17 @@ def test_fact_check_plus_no_failure_log_when_parse_succeeds(fresh_db, monkeypatc
 
 
 def _fc_plus_payload(fetched_at: str | None, *, conclusion: str = "【已核实】") -> str:
-    ev: dict = {
-        "query": "央行",
-        "url": "https://www.pbc.gov.cn/notice/1",
-        "snippet": "央行发布 1 月金融数据",
-        "rationale": "官方公告",
-    }
-    if fetched_at is not None:
-        ev["fetched_at"] = fetched_at
-    return json.dumps({"conclusion": conclusion, "evidence": [ev]}, ensure_ascii=False)
+    """两条一手来源的载荷：Gate 2 (v1.0.100) 要求 ≥2 个注册域。"""
+    evidence = []
+    for url, snippet in (
+        ("https://www.pbc.gov.cn/notice/1", "央行发布 1 月金融数据"),
+        ("https://www.nfra.gov.cn/notice/2", "金融监管总局同日发布"),
+    ):
+        ev: dict = {"query": "央行", "url": url, "snippet": snippet, "rationale": "官方公告"}
+        if fetched_at is not None:
+            ev["source_date"] = fetched_at
+        evidence.append(ev)
+    return json.dumps({"conclusion": conclusion, "evidence": evidence}, ensure_ascii=False)
 
 
 def _ago(days: int) -> str:
@@ -1260,3 +1494,216 @@ def test_doubtful_empty_evidence_succeeds(fresh_db, monkeypatch):
     ).fetchone()
     assert art["fact_check_conclusion"] == "【存疑】"
     assert art["has_web_fact_check"] == 1
+
+
+# ---------------------------------------------------------------------------
+# v1.0.100: 分档白名单 + 标签前缀判定 + 来源日期
+# ---------------------------------------------------------------------------
+
+
+def test_domain_tiers_classify_and_registrable_dedup():
+    """分档与 eTLD+1 去重：同集团的多个页面不算独立来源。"""
+    from moni.llm.domains import classify, registrable_domain
+
+    assert classify("nfra.gov.cn") == "A"
+    assert classify("www.nfra.gov.cn") == "A"
+    assert classify("contest.weixin.qq.com") == "A"
+    assert classify("mpaypass.com.cn") == "B"
+    assert classify("zhuanlan.zhihu.com") == "C"
+    assert classify("unknown-blog.example") is None
+
+    assert registrable_domain("news.qq.com") == "qq.com"
+    assert registrable_domain("contest.weixin.qq.com") == "qq.com"
+    assert registrable_domain("finance.sina.com.cn") == "sina.com.cn"
+    assert registrable_domain("x.com.cn") == "x.com.cn"
+    assert registrable_domain("bj.news.com.cn") == "news.com.cn"
+
+
+def test_evaluate_authority_two_paths():
+    from moni.llm.domains import evaluate_authority
+
+    one_media = evaluate_authority(["36kr.com"])
+    assert not one_media.passed
+
+    gov_plus_media = evaluate_authority(["pbc.gov.cn", "stcn.com"])
+    assert gov_plus_media.passed
+
+    three_media = evaluate_authority(["stcn.com", "cls.cn", "yicai.com"])
+    assert three_media.passed
+
+    same_group = evaluate_authority(["contest.weixin.qq.com", "news.qq.com"])
+    assert not same_group.passed
+    assert same_group.distinct_domains == 1
+
+    c_tier_ignored = evaluate_authority(["pbc.gov.cn", "zhuanlan.zhihu.com"])
+    assert not c_tier_ignored.passed
+
+
+def test_gate2_suffixed_conclusion_no_longer_bypasses(fresh_db, monkeypatch):
+    """带说明的【已核实】不再整条绕过闸门：单域仍降级，说明文字保留。"""
+    _insert_article("a-suf")
+    _insert_job("job-suf", "a-suf")
+    payload = json.dumps({
+        "conclusion": "【已核实】核心事实获官方源与多源交叉确认",
+        "evidence": [
+            {"query": "q", "url": "https://zhuanlan.zhihu.com/p/1", "snippet": "知乎"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-suf", "task_type": "fact_check_plus", "article_id": "a-suf",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    art = get_db().execute(
+        "SELECT fact_check_conclusion, fact_check_gate FROM articles WHERE id = 'a-suf'"
+    ).fetchone()
+    assert art["fact_check_conclusion"].startswith("【待核实】")
+    assert "核心事实获官方源与多源交叉确认" in art["fact_check_conclusion"]
+    gate = json.loads(art["fact_check_gate"])
+    assert gate["authority"]["passed"] is False
+    assert gate["demoted_from"] == "【已核实】"
+
+
+def test_gate2_suffixed_conclusion_with_two_sources_passes(fresh_db, monkeypatch):
+    """带说明的【已核实】+ 两个一手源 → 保留原档位与原说明。"""
+    _insert_article("a-ok")
+    _insert_job("job-ok", "a-ok")
+    payload = json.dumps({
+        "conclusion": "【已核实】核心数据与监管口径一致",
+        "evidence": [
+            {"query": "q", "url": "https://www.pbc.gov.cn/notice/1", "snippet": "央行"},
+            {"query": "q", "url": "https://www.nfra.gov.cn/notice/2", "snippet": "监管"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-ok", "task_type": "fact_check_plus", "article_id": "a-ok",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    art = get_db().execute(
+        "SELECT fact_check_conclusion, fact_check_how FROM articles WHERE id = 'a-ok'"
+    ).fetchone()
+    assert art["fact_check_conclusion"] == "【已核实】核心数据与监管口径一致"
+    assert "2 条证据" in art["fact_check_how"]
+    assert "一手来源 2 个" in art["fact_check_how"]
+
+
+def test_gate3_missing_source_date_is_unknown_not_fresh(fresh_db, monkeypatch):
+    """没有来源日期时 days_old 为 NULL、时效 unknown —— 不再伪造成今天。"""
+    _insert_article("a-nodate")
+    _insert_job("job-nodate", "a-nodate")
+    payload = json.dumps({
+        "conclusion": "【待核实】",
+        "evidence": [
+            {"query": "q", "url": "https://www.pbc.gov.cn/notice/1", "snippet": "央行"},
+            {"query": "q", "url": "https://www.nfra.gov.cn/notice/2", "snippet": "监管"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-nodate", "task_type": "fact_check_plus", "article_id": "a-nodate",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT days_old, source_date FROM fact_check_evidence WHERE article_id = 'a-nodate'"
+    ).fetchall()
+    assert [r["days_old"] for r in rows] == [None, None]
+    assert [r["source_date"] for r in rows] == [None, None]
+    art = conn.execute(
+        "SELECT fact_check_timeliness FROM articles WHERE id = 'a-nodate'"
+    ).fetchone()
+    assert art["fact_check_timeliness"] == "unknown"
+
+
+def test_source_date_drives_timeliness(fresh_db, monkeypatch):
+    """payload 里给 source_date 时，年龄按来源日期算并落库。"""
+    _insert_article("a-src")
+    _insert_job("job-src", "a-src")
+    old = (datetime.now(timezone.utc) - timedelta(days=120)).isoformat()
+    payload = json.dumps({
+        "conclusion": "【已核实】",
+        "evidence": [
+            {"query": "q", "url": "https://www.pbc.gov.cn/notice/1", "snippet": "央行",
+             "source_date": old},
+            {"query": "q", "url": "https://www.nfra.gov.cn/notice/2", "snippet": "监管"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-src", "task_type": "fact_check_plus", "article_id": "a-src",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT days_old, source_date FROM fact_check_evidence "
+        "WHERE article_id = 'a-src' ORDER BY evidence_seq"
+    ).fetchall()
+    assert rows[0]["days_old"] == 120
+    assert rows[0]["source_date"] == old
+    assert rows[1]["days_old"] is None
+    art = conn.execute(
+        "SELECT fact_check_conclusion, fact_check_timeliness FROM articles WHERE id = 'a-src'"
+    ).fetchone()
+    assert art["fact_check_timeliness"] == "90d_demote"
+    assert art["fact_check_conclusion"] == "【存疑】"
+
+
+def test_conclusion_tag_helpers():
+    """标签读写：带说明、空串、双标签、全角括号都要稳定。"""
+    from moni.llm.fact_check_tags import conclusion_tag, with_tag
+
+    assert conclusion_tag("【已核实】") == "【已核实】"
+    assert conclusion_tag("【已核实】核心事实多源一致") == "【已核实】"
+    assert conclusion_tag("") == ""
+    assert conclusion_tag("核心事实成立") == ""
+    assert conclusion_tag("【待核实】【已核实】") == "【待核实】"
+
+    assert with_tag("【待核实】", "【已核实】核心事实多源一致") == "【待核实】核心事实多源一致"
+    assert with_tag("【待核实】", "【已核实】") == "【待核实】"
+    assert with_tag("【待核实】", "") == "【待核实】"
+    assert with_tag("【存疑】", "【已核实】：某个说法") == "【存疑】某个说法"
+
+
+def test_timeliness_90d_keeps_detail():
+    """91 天降级为【存疑】时保留原说明，不能整段替换成标签。"""
+    from moni.web.routes.fact_check_plus import apply_timeliness
+
+    assert apply_timeliness("【已核实】核心数据与监管口径一致", 120) == (
+        "【存疑】核心数据与监管口径一致"
+    )
+    assert apply_timeliness("【已核实】", 120) == "【存疑】"
+    assert apply_timeliness("【已核实】核心数据", 60) == (
+        "【已核实】核心数据(已过期 30-90 天)"
+    )
+
+
+def test_fetched_at_does_not_substitute_source_date(fresh_db, monkeypatch):
+    """只有 fetched_at、没有 source_date → 年龄仍是未知（禁止用抓取时刻顶替）。"""
+    _insert_article("a-fa")
+    _insert_job("job-fa", "a-fa")
+    payload = json.dumps({
+        "conclusion": "【待核实】",
+        "evidence": [
+            {"query": "q", "url": "https://www.pbc.gov.cn/notice/1", "snippet": "央行",
+             "fetched_at": _ago(5)},
+            {"query": "q", "url": "https://www.nfra.gov.cn/notice/2", "snippet": "监管"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-fa", "task_type": "fact_check_plus", "article_id": "a-fa",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT days_old, source_date, fetched_at FROM fact_check_evidence "
+        "WHERE article_id = 'a-fa' ORDER BY evidence_seq"
+    ).fetchall()
+    assert [r["days_old"] for r in rows] == [None, None]
+    assert [r["source_date"] for r in rows] == [None, None]
+    # fetched_at 仍然留痕，但不再参与年龄计算。
+    assert rows[0]["fetched_at"]
+    assert conn.execute(
+        "SELECT fact_check_timeliness FROM articles WHERE id = 'a-fa'"
+    ).fetchone()["fact_check_timeliness"] == "unknown"

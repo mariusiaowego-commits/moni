@@ -28,7 +28,7 @@ V1 只做两件事，都建立在同一套评分模块上：
 
 ## 1. 结论
 
-**质量分**回答「稿子齐不齐」，本地算，上限 90，只在 Pin 列表出现。它不评内容好坏，也不再抄 BestBlogs 的 `bb_score`。
+**质量分**回答「稿子齐不齐」，本地算，5 分制（一位小数），只在 Pin 列表出现。它不评内容好坏，也不再抄 BestBlogs 的 `bb_score`。
 
 **通用业务价值**回答「这篇对我方有没有用」，10 个维度各 0–10，每维必须有正文原句支撑，程序按权重加总。模型不给总分。检查不过重跑一次，仍不过标「待复核」，排在通过项之后。
 
@@ -96,7 +96,7 @@ V1 只做两件事，都建立在同一套评分模块上：
 
 | 能力 | 落点 | 模型调用 |
 | --- | --- | --- |
-| 质量分 `pin_heuristic_v2` | Pin 列表一列 | 0 |
+| 质量分 `pin_heuristic_v3`（0–5） | Pin 列表一列 | 0 |
 | 通用业务价值 10 维 | 简报排序 + 卡片 | 每篇 ≤5 次 |
 | 评分模块 | 新建 `moni/scoring/` | — |
 | 迁移 045 | 加列 + 1 张表（`bv_direction*` 推迟） | — |
@@ -131,7 +131,7 @@ V2 触发条件（grok 与 agy 条件合并后取严）：
 moni/scoring/
   __init__.py      # 对外只暴露 4 个函数，见 4.3
   snapshot.py      # ArticleSnapshot：从 sqlite3.Row 归一化出的不可变输入
-  heuristic.py     # pin_heuristic_v2 + reading_heuristic + 指纹
+  heuristic.py     # pin_heuristic_v3（0–5）+ reading_heuristic（0–100）+ 指纹
   rubric.py        # RUBRIC_V1：10 维、权重、锚点、理由模板、禁词
   bv_pipeline.py   # 取证 → 打分 → 检查 → 重跑；返回 Breakdown，不碰 DB
   store.py         # Breakdown ↔ 文章列；质量列读写
@@ -228,19 +228,24 @@ V1 不加指标系统，日志够用。没有这条日志，预算问题无法�
 - SQLite 的 `ADD COLUMN` 多数不可逆。回滚 = 恢复备份，不是写反向迁移。所以 045 执行前必须做库备份。
 - 回滚后新列留空，代码要能在「列存在但全空」的状态下正常工作（这也是首次部署的状态）。
 
-## 5. 质量分 `pin_heuristic_v2`
+## 5. 质量分 `pin_heuristic_v3`
 
 ### 5.1 公式
 
 | key | 规则 |
 | --- | --- |
-| base | 45 |
-| length | `len(raw.strip())`，只去首尾空白：≥5000 +25；≥2000 +18；≥800 +10；≥200 +4；否则 −20 |
-| substance | 数字串 ≥3 处 +8，1–2 处 +4；分段 ≥4 再 +4；合计 ≤12 |
-| publisher | 非空 +5 |
-| published_at | 非空 +3 |
+| base | 2.50 |
+| length | `len(raw.strip())`，只去首尾空白：≥5000 +1.40；≥2000 +1.00；≥800 +0.60；≥200 +0.20；否则 −1.10 |
+| substance | 数字串 ≥3 处 +0.40，1–2 处 +0.20；分段 ≥4 再 +0.20；合计 ≤0.60 |
+| publisher | 非空 +0.30 |
+| published_at | 非空 +0.20 |
 
-`total = clamp(0, 90, base + Σdelta)`。上限 90 是 45+25+12+5+3，不设「调整分」。
+`total = round(clamp(0, 5.0, base + Σdelta), 1)`，一位小数。所有加项都是 0.1 的整数倍，第二位小数恒为 0，故不再保留。四项 + 底分合计正好 5.0，不设「调整分」。
+
+2026-11-18 口径调整（用户拍板）：原 0–90 改为 **5 分制**；同日上线后按用户要求收为 **1 位小数**。映射保持单调
+（25→1.40、18→1.00、10→0.60、4→0.20、−20→−1.10；8→0.40、4→0.20；5→0.30、3→0.20），
+目的是与 0–100 的通用业务价值分、BestBlogs `bb_score` 一眼区分。公式名随之升为
+`pin_heuristic_v3`，旧 `v2` 行在下次 Pin 页加载或 refresh 时重算。
 
 指纹 = 公式名 + strip 后的正文 + 发布方原串 + 发布时间原串。不含标题、来源、摘要、核查、`bb_score`。
 
@@ -251,7 +256,7 @@ V1 不加指标系统，日志够用。没有这条日志，预算问题无法�
 1. `POST /pin`：pin 行写入成功后同步算，失败不回滚 Pin。
 2. `DELETE /pin`：不删分，不改时间戳。
 3. `GET /pinned`：只读，返回本行的 `quality_formula`，不做指纹比对、不写库。
-4. Pin 页渲染时，某行 `quality_formula != 'pin_heuristic_v2'`（含 NULL）→ 该行先显示省略号，对该 id 发一次 `POST /api/articles/pins/quality-refresh`。刷新回来再显示。
+4. Pin 页渲染时，某行 `quality_formula != 'pin_heuristic_v3'`（含 NULL）→ 该行先显示省略号，对该 id 发一次 `POST /api/articles/pins/quality-refresh`。刷新回来再显示。
 5. **正文写回也要重算**（agy 补的一条）：任何写 `raw_content` / `publisher` / `published_at` 的路径，如果该文章在 Pin 集合里，同一事务内重算质量分。这条堵的是「Pin 时只有标题、后来补抓全文」的场景 —— 只靠公式版本判断不出来。
 6. refresh 的 body 是 id 列表，上限 200，只处理仍在 Pin 集合里的 id。分享页不调用。
 7. 响应 `{updated:[], unchanged:[], skipped:[]}`。公式不对、哈希不对、breakdown 为空、status 不是 `ready`，都算 `updated`。
@@ -266,24 +271,24 @@ V1 不加指标系统，日志够用。没有这条日志，预算问题无法�
 
 ### 5.4 Pin 列
 
-表头「质量」，右对齐等宽数字，宽约 72px，插在「命中标签」和「原文时间」之间。只在 Pin tab 出现。
+表头「质量分」，右对齐等宽数字，宽度按一位小数收口，插在「命中标签」和「原文时间」之间。只在 Pin tab 出现。
 
 | 状态 | 显示 |
 | --- | --- |
-| 公式正确且有分 | 整数 |
+| 公式正确且有分 | 一位小数（如 `4.6`） |
 | 公式不对 / 正在刷新 | 省略号 |
 | `failed` | 破折号，tip 用 `quality_error` |
 | 分享页 | 只显示公式正确的行，其余破折号 |
 
 tooltip（悬停才出现，七行）：
 
-- 本地算的完整度，不评内容好坏
-- 四项全满才到 90，满分即 90
-- 正文长度：去首尾空白后分 5 档，不足 200 扣 20
-- 数字与结构：数字≥3 处 +8，1–2 处 +4，分段≥4 +4
-- 发布方：有发布方 +5
-- 发布时间：有发布时间 +3
-- 底分 45
+- 本地算的完整度，5 分制，不评内容好坏
+- 四项全满才到 5.0，满分即 5.0
+- 正文长度：去首尾空白后分 5 档，不足 200 扣 1.10
+- 数字与结构：数字≥3 处 +0.40，1–2 处 +0.20，分段≥4 +0.20
+- 发布方：有发布方 +0.30
+- 发布时间：有发布时间 +0.20
+- 底分 2.50
 
 ## 6. 通用业务价值
 
@@ -408,8 +413,8 @@ V1 不建方向表。
 
 ## 9. 验收断言
 
-1. `bb_score=96`，正文 strip 后 1000 字、数字 0 处、分段 <4、无发布方、无发布时间 → Pin 后 `quality_score=55`，`bb_score` 仍 96，`base+Σdelta=55`。
-2. 历史行 `quality_score=96`、`quality_formula` 为空：`GET /pinned` 返回该行公式为空、库不变；Pin 页显示省略号并对该 id 发一次 refresh；refresh 后公式是 `pin_heuristic_v2`、分数重算、`bb_score` 不变。
+1. `bb_score=96`，正文 strip 后 1000 字、数字 0 处、分段 <4、无发布方、无发布时间 → Pin 后 `quality_score=3.1`，`bb_score` 仍 96，`base+Σdelta=3.1`。
+2. 历史行 `quality_score=96`、`quality_formula` 为空：`GET /pinned` 返回该行公式为空、库不变；Pin 页显示省略号并对该 id 发一次 refresh；refresh 后公式是 `pin_heuristic_v3`、分数重算、`bb_score` 不变。
 3. 摘要和核查有无不影响质量分；breakdown 不含 `ai_summary`/`fact_check`/`source_prior`/`bb_score`。
 4. 正文不变，第二次 refresh 落在 `unchanged`；改 `raw_content` 后 refresh 落在 `updated`。
 5. **Pin 后补抓全文**：写 `raw_content` 的路径触发同事务重算，`quality_score` 与 `quality_input_hash` 都变化。（agy 补的场景）
@@ -424,10 +429,10 @@ V1 不建方向表。
 14. 缺 `adoption_cost`，两次都缺 → `needs_review`、`cap_reason=missing`；十 key 齐且全 0 → 可 `ready`。
 15. 卡片：`通用 72` + 标签「规则约束、同业动作、决策窗口」；标签不带数字；超过 3 个只显示权重最高的 3 个。
 16. 决策窗口 10 分、评分日距生效 52 天；把渲染日改到 120 天后 → 分数不变、status 不变、界面出现「窗口已过（评分时 52 天）」，排序不掉档。
-17. `_quality()` 对 `quality_score=90` 但无 `bb_score` 的文章返回 `reading_heuristic` 的值（夹具：strip≥5000 含内部空行、摘要+核查齐 → 93），不返回 90，chip 是「阅读 93」。
+17. `_quality()` 对 `quality_score=5.0` 但无 `bb_score` 的文章返回 `reading_heuristic` 的值（夹具：strip≥5000 含内部空行、摘要+核查齐 → 93），不返回 5.0，chip 是「阅读 93」。
 18. `GET /api/articles` JSON 不含 `quality_*`；Pin 响应含。
 19. `_ensure_quality` 不再把 `bb_score` 写进 `quality_score`。
-20. 夹具：正文 strip 后 5230 字、数字 6 处、分段 5 段、有发布方、无发布时间 → `base+Σdelta = 45+25+12+5+0 = 87`，breakdown 的 `total` 与之一致，且 `publisher.detail` 不带「封顶前」。
+20. 夹具：正文 strip 后 5230 字、数字 6 处、分段 5 段、有发布方、无发布时间 → `base+Σdelta = 2.5+1.4+0.6+0.3+0 = 4.8`，breakdown 的 `total` 与之一致，且 `publisher.detail` 不带「封顶前」。
 
 ## 10. V2 附录：方向分
 

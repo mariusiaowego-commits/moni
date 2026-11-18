@@ -1,6 +1,9 @@
 """Local, model-free scores.
 
-``pin_heuristic_v2`` answers "is this draft complete enough to work with?".
+``pin_heuristic_v3`` answers "is this draft complete enough to work with?" on
+a 0–5 scale (one decimal).  Every term is a multiple of 0.1, so a second
+decimal would always be zero.  The five-point form exists so the Pin column can
+never be confused with the 0–100 business-value score or BestBlogs ``bb_score``.
 ``reading_heuristic`` is the legacy completeness/attention score used by the
 brief card when no BestBlogs score exists.  They share the length tiers but
 must not call each other: the Pin column and the brief card answer different
@@ -14,8 +17,9 @@ from dataclasses import dataclass, field
 
 from .snapshot import ArticleSnapshot
 
-PIN_FORMULA = "pin_heuristic_v2"
-PIN_MAX = 90
+PIN_FORMULA = "pin_heuristic_v3"
+PIN_MAX = 5.0
+PIN_BASE = 2.5
 THIN_CHARS = 200
 _NUMBER_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
 _PARA_SPLIT_RE = re.compile(r"\n\s*\n")
@@ -23,7 +27,7 @@ _PARA_SPLIT_RE = re.compile(r"\n\s*\n")
 
 @dataclass(frozen=True)
 class QualityResult:
-    score: int | None
+    score: float | None
     status: str | None
     formula: str = PIN_FORMULA
     breakdown: dict | None = None
@@ -31,16 +35,22 @@ class QualityResult:
     input_hash: str = ""
 
 
-def _length_delta(n: int) -> int:
+def _length_tier(n: int) -> tuple[int, float]:
+    """Length tier as (0–100 reading points, 0–5 Pin points)."""
     if n >= 5000:
-        return 25
+        return 25, 1.4
     if n >= 2000:
-        return 18
+        return 18, 1.0
     if n >= 800:
-        return 10
+        return 10, 0.6
     if n >= THIN_CHARS:
-        return 4
-    return -20
+        return 4, 0.2
+    return -20, -1.1
+
+
+def _length_delta(n: int) -> int:
+    """Reading scale: shared with the brief card (0–100)."""
+    return _length_tier(n)[0]
 
 
 def count_numbers(text: str) -> int:
@@ -56,15 +66,15 @@ def score_quality(snap: ArticleSnapshot) -> QualityResult:
     n = len(body)
     numbers = count_numbers(body)
     paragraphs = count_paragraphs(body)
-    number_pts = 8 if numbers >= 3 else (4 if numbers >= 1 else 0)
-    para_pts = 4 if paragraphs >= 4 else 0
-    substance_pts = min(12, number_pts + para_pts)
-    publisher_pts = 5 if snap.publisher.strip() else 0
-    published_pts = 3 if snap.published_at.strip() else 0
-    length_pts = _length_delta(n)
+    number_pts = 0.4 if numbers >= 3 else (0.2 if numbers >= 1 else 0.0)
+    para_pts = 0.2 if paragraphs >= 4 else 0.0
+    substance_pts = round(min(0.6, number_pts + para_pts), 1)
+    publisher_pts = 0.3 if snap.publisher.strip() else 0.0
+    published_pts = 0.2 if snap.published_at.strip() else 0.0
+    length_pts = _length_tier(n)[1]
 
-    total = 45 + length_pts + substance_pts + publisher_pts + published_pts
-    total = max(0, min(PIN_MAX, total))
+    total = PIN_BASE + length_pts + substance_pts + publisher_pts + published_pts
+    total = round(max(0.0, min(PIN_MAX, total)), 1)
 
     detail_parts = []
     if number_pts:
@@ -73,7 +83,8 @@ def score_quality(snap: ArticleSnapshot) -> QualityResult:
         detail_parts.append(f"分段 {paragraphs} 段 +{para_pts}")
     breakdown = {
         "formula": PIN_FORMULA,
-        "base": 45,
+        "scale": "0-5",
+        "base": PIN_BASE,
         "total": total,
         "items": [
             {
@@ -81,28 +92,28 @@ def score_quality(snap: ArticleSnapshot) -> QualityResult:
                 "label": "正文长度",
                 "hit": length_pts > 0,
                 "detail": f"{n} 字",
-                "delta": length_pts,
+                "delta": round(length_pts, 1),
             },
             {
                 "key": "substance",
                 "label": "数字与结构",
                 "hit": substance_pts > 0,
                 "detail": "，".join(detail_parts),
-                "delta": substance_pts,
+                "delta": round(substance_pts, 1),
             },
             {
                 "key": "publisher",
                 "label": "发布方",
                 "hit": publisher_pts > 0,
                 "detail": "有发布方" if publisher_pts else "",
-                "delta": publisher_pts,
+                "delta": round(publisher_pts, 1),
             },
             {
                 "key": "published_at",
                 "label": "发布时间",
                 "hit": published_pts > 0,
                 "detail": "有发布时间" if published_pts else "",
-                "delta": published_pts,
+                "delta": round(published_pts, 1),
             },
         ],
     }

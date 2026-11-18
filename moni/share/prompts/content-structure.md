@@ -21,7 +21,10 @@ For each article, analyze and prepare the following:
      - **Disputed** — contradicts known facts or other sources
    - If the article is purely opinion or has no checkable claims, 
      mark as "No fact-check required."
-   - For each checked claim, provide 1-2 sentences of reasoning.
+   - Long-form formats (markdown / PDF / HTML / rich text): 1-2 sentences of
+     reasoning per checked claim.
+   - One-image formats (report PNG / infographic): one plain sentence total —
+     see the format prompt.
 
 4. **Tags** — Use the tags already assigned to the article in moni. 
    If none exist, assign 1-3 tags based on topic.

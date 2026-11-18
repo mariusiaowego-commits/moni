@@ -33,12 +33,11 @@
 - **`articles_fts` 是 external-content**：对它 `SELECT` 读的是 `articles`
   ⇒ 索引孤儿**只能**用 `fts5vocab` 在**副本**上查（生产零写入）。
 
-## ⚠️ 发布前必须处理：schema 版本落差
+## ✅ schema 版本落差：已通过合并处理
 
-⚠️ **发布前必须处理**：`origin/main` 的 `_CURRENT_VERSION` 已是 **46**
-（新增 `moni/db/migrations/046_fact_check_summary.sql`），本分支仍是 **45**。
-本 sprint **不新增 migration、不抢迁移号** ⇒ 合并前须先决定如何处理这个落差
-（rebase 到最新 main 后再核对 `_CURRENT_VERSION` 与迁移文件），**否则直接合并会带着旧版本号**。
+✅ **schema 落差已处理**：合并前本地是 **45**、`origin/main` 已是 **46/47**
+（`046_fact_check_summary.sql` / `047_fact_check_gate.sql`）⇒ 本分支**未新建、未重编号**迁移，
+已通过 merge 干净继承 main 的 **`_CURRENT_VERSION` = 47** ⇒ **不会带着旧版本号**合并。
 
 ## 已知限制
 

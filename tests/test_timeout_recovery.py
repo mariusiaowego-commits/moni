@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import struct
 import time
 from pathlib import Path
 
@@ -12,13 +13,19 @@ from moni.share.timeout_recovery import (
     find_recent_artifact,
     is_valid_html,
     is_valid_png,
+    png_paths_from_text,
 )
 
 
-def _write_png(path: Path) -> Path:
+def _write_png(path: Path, size: tuple[int, int] = (1080, 1920)) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(
-        PNG_MAGIC + b"\x00\x00\x00\rIHDR" + b"\x00" * 2000 + b"IEND\xaeB`\x82"
+        PNG_MAGIC
+        + b"\x00\x00\x00\rIHDR"
+        + struct.pack(">II", *size)
+        + b"\x08\x02\x00\x00\x00"
+        + b"\x00" * 2000
+        + b"IEND\xaeB`\x82"
     )
     _age(path, 5)
     return path
@@ -51,6 +58,77 @@ def test_find_png_written_during_run(tmp_path):
     png = _write_png(tmp_path / "infographic" / "daily" / "infographic.png")
     started = time.time() - 60
     assert _search("info_graphic_png", started, tmp_path) == png.resolve()
+
+
+@pytest.mark.parametrize("subdir", ["cache/artifacts", "cache/documents"])
+def test_find_png_in_hermes_profile_cache(subdir, tmp_path):
+    """kami 技能把成品写进 profile cache，不在 repo 内也要能回收。"""
+    png = _write_png(tmp_path / "profile" / subdir / "report.png")
+    started = time.time() - 60
+    assert _search("report_png", started, tmp_path) == png.resolve()
+
+
+def test_scratch_preview_never_beats_real_artifact(tmp_path):
+    """cache/scratch 里是手机预览，mtime 更新也不能顶替主搜索根的成品。"""
+    final = _write_png(tmp_path / "profile" / "reports" / "final.png")
+    preview = _write_png(tmp_path / "profile" / "cache" / "scratch" / "phone.png")
+    os.utime(preview, (time.time() - 2, time.time() - 2))
+    assert _search("report_png", time.time() - 60, tmp_path) == final.resolve()
+
+
+def test_scratch_used_only_when_nothing_else(tmp_path):
+    preview = _write_png(tmp_path / "profile" / "cache" / "scratch" / "phone.png")
+    assert _search("report_png", time.time() - 60, tmp_path) == preview.resolve()
+
+
+def test_extra_dir_is_searched(tmp_path):
+    png = _write_png(tmp_path / "moni-output" / "moni-report.png")
+    assert find_recent_artifact(
+        "report_png",
+        time.time() - 60,
+        repo_root=tmp_path,
+        artifacts_dir=tmp_path / "data" / "artifacts",
+        profile_dir=tmp_path / "profile",
+        extra_dirs=(tmp_path / "moni-output",),
+    ) == png.resolve()
+
+
+def test_png_paths_from_text_prefers_reported_path(tmp_path):
+    png = _write_png(tmp_path / "reports" / "行业跟踪.png")
+    text = f"输出文件：\n`{png}`\n参考 https://fal.media/files/abc/x.png\n"
+    assert png_paths_from_text(text, not_before=time.time() - 60) == [png.resolve()]
+
+
+def test_png_paths_from_text_skips_stale(tmp_path):
+    stale = _write_png(tmp_path / "reports" / "old.png")
+    old = time.time() - 3600
+    os.utime(stale, (old, old))
+    assert png_paths_from_text(f"{stale}\n", not_before=time.time() - 120) == []
+
+
+def test_png_paths_from_text_accepts_artifact_inside_artifacts_dir(tmp_path):
+    """agent 直接写 artifacts 目录是最理想情况，不能被排除。"""
+    own = _write_png(tmp_path / "data" / "artifacts" / "report-2026-11-18-report_png.png")
+    assert png_paths_from_text(str(own), not_before=time.time() - 60) == [own.resolve()]
+
+
+def test_strip_crop_does_not_win_mtime_scan(tmp_path):
+    """同一次运行里的裁切条/放大图比成品新，不能当报告图。"""
+    final = _write_png(tmp_path / "profile" / "cache" / "scratch" / "report" / "report.png")
+    crop = _write_png(
+        tmp_path / "profile" / "cache" / "scratch" / "report" / "h3big.png",
+        size=(2600, 560),
+    )
+    os.utime(crop, (time.time() - 2, time.time() - 2))
+    assert _search("report_png", time.time() - 60, tmp_path) == final.resolve()
+
+
+def test_png_paths_from_text_accepts_freshly_written_file(tmp_path):
+    """成品可能就在回复前 <1s 落盘，显式路径分支不能套稳定窗。"""
+    png = tmp_path / "reports" / "fresh.png"
+    png.parent.mkdir(parents=True, exist_ok=True)
+    png.write_bytes(PNG_MAGIC + b"\x00\x00\x00\rIHDR" + b"\x00" * 2000 + b"IEND\xaeB`\x82")
+    assert png_paths_from_text(str(png), not_before=time.time() - 60) == [png.resolve()]
 
 
 def test_ignore_png_from_before_run(tmp_path):

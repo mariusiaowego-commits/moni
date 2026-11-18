@@ -23,7 +23,6 @@ from typing import Any
 from moni.share.enrichment import (
     THIN_CONTENT_CHARS,
     build_evidence_section_html,
-    compute_heuristic_quality,
     load_evidence_context,
     pick_source_summary,
     _format_date,
@@ -266,8 +265,8 @@ def _quality(row: sqlite3.Row) -> int:
     """Brief reading score: BestBlogs if present, else the local reading heuristic.
 
     Deliberately ignores ``quality_score``: that column now belongs to the Pin
-    quality column (pin_heuristic_v2) and a 90-capped completeness number must
-    not masquerade as a reading score.
+    quality column (pin_heuristic_v3, 0–5) and a five-capped completeness
+    number must not masquerade as a reading score.
     """
     if row["bb_score"] is not None:
         try:

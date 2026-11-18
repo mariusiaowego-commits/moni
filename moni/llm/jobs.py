@@ -44,6 +44,7 @@ import json
 import logging
 import os
 import re
+import sqlite3
 import threading
 import time
 import uuid
@@ -54,6 +55,8 @@ from urllib.parse import urlparse
 from moni.db.connection import get_db
 from moni.db import leases
 from moni.llm.client import call_llm
+from moni.llm.domains import evaluate_authority
+from moni.llm.fact_check_tags import conclusion_tag, with_tag
 from moni.llm.prompts import render_fact_check, render_fact_check_plus, render_summary
 # Re-export for backwards compat (Day 1 had DOMAIN_WHITELIST defined here;
 # Day 2 moves the canonical definition to moni.web.routes.fact_check_plus).
@@ -639,6 +642,85 @@ _FACT_CHECK_PLUS_PARSE_REASONS = frozenset(
     }
 )
 
+_FACT_CHECK_VERDICTS = ("【已核实】", "【待核实】", "【存疑】")
+_FACT_CHECK_VERDICT_ALIASES = {
+    "supported": "【已核实】",
+    "verified": "【已核实】",
+    "unverified": "【待核实】",
+    "unsupported": "【待核实】",
+    "disputed": "【存疑】",
+    "contradicted": "【存疑】",
+}
+
+
+def _normalize_verdict(raw: Any, fallback: str) -> str:
+    """Keep a per-evidence verdict inside the three allowed tags.
+
+    Older prompts never emitted ``verdict``; fall back to the article-level
+    conclusion so historical behaviour is unchanged.
+    """
+    text = str(raw or "").strip()
+    for tag in _FACT_CHECK_VERDICTS:
+        if text.startswith(tag):
+            return tag
+    alias = _FACT_CHECK_VERDICT_ALIASES.get(text.lower().strip("[]() "))
+    if alias:
+        return alias
+    for tag in _FACT_CHECK_VERDICTS:
+        if str(fallback or "").startswith(tag):
+            return tag
+    return "【待核实】"
+
+
+def _clip_sentence(text: str, limit: int = 120) -> str:
+    """Cap the stored summary without cutting it mid-clause.
+
+    The 60-character budget belongs to the rendered image line; the source
+    summary stays a little longer so the writer has a complete sentence.
+    """
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    clipped = text[:limit]
+    for punct in "。！？；.!?;":
+        idx = clipped.rfind(punct)
+        if idx >= limit // 2:
+            return clipped[: idx + 1]
+    return clipped
+
+
+def _build_how(authority: Any, valid: list[dict[str, Any]], timeliness: str) -> str:
+    """从证据行派生「怎么核的」，不交给模型自述。
+
+    模型写这段只会写成"多方权威交叉印证"；来源条数、类型、日期都能从
+    落库证据里直接算出来，可审计。
+    """
+    a_n, b_n = len(authority.tier_a_domains), len(authority.tier_b_domains)
+    parts = [f"据 {len(valid)} 条证据"]
+    if a_n and b_n:
+        parts.append(f"一手来源 {a_n} 个、编辑制媒体 {b_n} 个")
+    elif a_n:
+        parts.append(f"一手来源 {a_n} 个")
+    elif b_n:
+        parts.append(f"编辑制媒体 {b_n} 个")
+    else:
+        parts.append("无权威来源")
+    dates = sorted(e["source_date"][:10] for e in valid if e.get("source_date"))
+    parts.append(f"最新来源日期 {dates[-1]}" if dates else "来源日期未知")
+    parts.append(
+        {
+            "fresh": "时效在 30 天内",
+            "30d_warn": "最新来源已过 30 天",
+            "90d_demote": "最新来源超过 90 天",
+            "unknown": "时效未知",
+        }.get(timeliness, "时效未知")
+    )
+    return "；".join(parts)[:160]
+
+
+def _is_missing_column(exc: Exception) -> bool:
+    return isinstance(exc, sqlite3.OperationalError) and "no such column" in str(exc).lower()
+
 
 def _truncate_utf8(s: str, max_bytes: int) -> str:
     """Truncate string to max_bytes without splitting a multi-byte UTF-8 char."""
@@ -703,6 +785,9 @@ def _persist_fact_check_plus(
         # (模板 fact_check_plus.md:42 规定 evidence 必须空) 跟其他 3 档 (缺 snippet 失败).
         # 原 L644 的同一行赋值删除, 避免重复.
         conclusion = str(parsed.get("conclusion") or "【待核实】").strip()
+        # 046: 给读者看的一句人话结论。历史提示词没有这个字段 → 空串，
+        # share 注入层回退到 rationale 渲染。
+        summary = _clip_sentence(str(parsed.get("summary") or ""))
 
         # Gate 1: drop rows without snippet / invalid URL
         valid: list[dict[str, Any]] = []
@@ -717,12 +802,15 @@ def _persist_fact_check_plus(
             ev_fetched = (e.get("fetched_at") or "").strip() or None
             valid.append(
                 {
+                    "claim": (e.get("claim") or "").strip()[:120],
+                    "verdict": str(e.get("verdict") or "").strip(),
                     "query": (e.get("query") or "").strip() or "",
                     "url": url,
                     "domain": domain,
                     "snippet": snippet,
                     "rationale": (e.get("rationale") or "").strip() or "",
                     "fetched_at": ev_fetched,
+                    "source_date": (e.get("source_date") or "").strip() or None,
                 }
             )
         if not valid:
@@ -735,32 +823,52 @@ def _persist_fact_check_plus(
             if not conclusion.startswith("【已核实】"):
                 _persist_no_check_needed(
                     conn, article_id=article_id, conclusion=conclusion,
-                    finished_at=finished_at,
+                    finished_at=finished_at, summary=summary,
                 )
                 return
             raise ValueError("no evidence with snippet")
 
-        # Gate 2: whitelist required for 【已核实】
-        has_whitelist = any(is_in_whitelist(e["domain"]) for e in valid)
-        if conclusion == "【已核实】" and not has_whitelist:
-            conclusion = "【待核实】"
+        # Gate 2 (v1.0.100): 按档位标签判定，带说明的结论不再绕过白名单。
+        # 两条路径: ≥2 个注册域且 ≥1 个一手源，或 ≥3 个编辑制媒体。
+        authority = evaluate_authority([e["domain"] for e in valid])
+        gate2_demoted = conclusion_tag(conclusion) == "【已核实】" and not authority.passed
+        if gate2_demoted:
+            conclusion = with_tag("【待核实】", conclusion)
             logger.info(
-                "[llm_jobs] fact_check_plus job %s: demoted 【已核实】→【待核实】 (no whitelist domain)",
+                "[llm_jobs] fact_check_plus job %s: demoted 【已核实】→【待核实】 (%s)",
                 job_id,
+                authority.reason,
             )
 
         # Gate 3: timeliness — 31-90 加后缀, 91+ 强制【存疑】
+        # Gate 3 (v1.0.100): 年龄按来源日期算。以前缺省取 finished_at，
+        # 于是 days_old 恒为 0，时效闸从未生效。
         now_dt = datetime.now(timezone.utc)
         worst_days: int | None = None
         for e in valid:
-            raw_fetched = e.get("fetched_at") or finished_at
-            e["fetched_at"] = raw_fetched
-            days_old = compute_days_old(raw_fetched, now=now_dt)
+            # 只用来源日期；fetched_at 只做审计留痕，不能顶替（否则又把抓取时刻当今天）。
+            source_date = (e.get("source_date") or "").strip() or None
+            e["source_date"] = source_date
+            e["fetched_at"] = (e.get("fetched_at") or "").strip() or finished_at
+            days_old = compute_days_old(source_date, now=now_dt)
             e["days_old"] = days_old
             if days_old is not None and (worst_days is None or days_old > worst_days):
                 worst_days = days_old
         timeliness = compute_timeliness(worst_days)
         conclusion = apply_timeliness(conclusion, worst_days)
+        # A demotion makes the one-sentence summary unreliable: "与官方文档一致"
+        # next to an amber badge is exactly what we are removing.  Drop it and
+        # let the writer fall back to per-claim verdicts instead.
+        if gate2_demoted or timeliness == "90d_demote":
+            summary = ""
+        for e in valid:
+            e["verdict"] = _normalize_verdict(e["verdict"], conclusion)
+        if gate2_demoted:
+            # Normalize first: the prompt's content-structure section teaches
+            # English tags, so a raw "Supported" must not escape the demotion.
+            for e in valid:
+                if e["verdict"] == "【已核实】":
+                    e["verdict"] = "【待核实】"
         if timeliness == "90d_demote":
             logger.info(
                 "[llm_jobs] fact_check_plus job %s: evidence days_old=%s → 90d_demote 【存疑】",
@@ -820,6 +928,41 @@ def _persist_fact_check_plus(
                     (conclusion, finished_at, note, article_id),
                 )
 
+        try:
+            conn.execute(
+                "UPDATE articles SET fact_check_summary = ? WHERE id = ?",
+                (summary or None, article_id),
+            )
+        except sqlite3.OperationalError as exc:
+            # Pre-046 schema: the column does not exist yet.
+            if not _is_missing_column(exc):
+                raise
+
+        gate = json.dumps(
+            {
+                "tier": "web_search",
+                "authority": {
+                    "passed": authority.passed,
+                    "reason": authority.reason,
+                    "tier_a": list(authority.tier_a_domains),
+                    "tier_b": list(authority.tier_b_domains),
+                },
+                "demoted_from": "【已核实】" if gate2_demoted else None,
+                "timeliness": timeliness,
+            },
+            ensure_ascii=False,
+        )
+        how = _build_how(authority, valid, timeliness)
+        try:
+            conn.execute(
+                "UPDATE articles SET fact_check_gate = ?, fact_check_how = ? WHERE id = ?",
+                (gate, how, article_id),
+            )
+        except sqlite3.OperationalError as exc:
+            # Pre-047 schema: columns do not exist yet.
+            if not _is_missing_column(exc):
+                raise
+
         # Replace prior evidence for this article (re-run overwrite).
         conn.execute(
             "DELETE FROM fact_check_evidence WHERE article_id = ?",
@@ -866,6 +1009,24 @@ def _persist_fact_check_plus(
                     """,
                     vals,
                 )
+            try:
+                conn.execute(
+                    "UPDATE fact_check_evidence SET claim = ?, verdict = ? WHERE id = ?",
+                    (e.get("claim") or None, e.get("verdict") or None, row_id),
+                )
+            except sqlite3.OperationalError as exc:
+                # Pre-046 schema: claim / verdict columns do not exist yet.
+                if not _is_missing_column(exc):
+                    raise
+            try:
+                conn.execute(
+                    "UPDATE fact_check_evidence SET source_date = ? WHERE id = ?",
+                    (e.get("source_date") or None, row_id),
+                )
+            except sqlite3.OperationalError as exc:
+                # Pre-047 schema: source_date column does not exist yet.
+                if not _is_missing_column(exc):
+                    raise
     except ValueError as exc:
         # B5: log truncated raw_output into llm_jobs.error for the 3 parse
         # failure branches; re-raise with full message so outer _mark_failed
@@ -882,6 +1043,7 @@ def _persist_no_check_needed(
     article_id: str,
     conclusion: str,
     finished_at: str,
+    summary: str = "",
 ) -> None:
     """【无需核查】档: 写 articles 结论, 不插 evidence, 跳过 Gate 2/3.
 
@@ -937,6 +1099,40 @@ def _persist_no_check_needed(
                 """,
                 (conclusion, finished_at, article_id),
             )
+
+    try:
+        conn.execute(
+            "UPDATE articles SET fact_check_summary = ? WHERE id = ?",
+            (summary or None, article_id),
+        )
+    except sqlite3.OperationalError as exc:
+        # Pre-046 schema: the column does not exist yet.
+        if not _is_missing_column(exc):
+            raise
+
+    gate = json.dumps(
+        {
+            "tier": "web_search",
+            "authority": {
+                "passed": False,
+                "reason": "无可独立验证的具体主张",
+                "tier_a": [],
+                "tier_b": [],
+            },
+            "demoted_from": None,
+            "timeliness": "unknown",
+        },
+        ensure_ascii=False,
+    )
+    try:
+        conn.execute(
+            "UPDATE articles SET fact_check_gate = ?, fact_check_how = ? WHERE id = ?",
+            (gate, "无可独立验证的具体主张", article_id),
+        )
+    except sqlite3.OperationalError as exc:
+        # Pre-047 schema: columns do not exist yet.
+        if not _is_missing_column(exc):
+            raise
 
     # Clear prior evidence for this article (re-run overwrite), even though
     # 【无需核查】 never inserts new rows. Keeps behavior consistent with the

@@ -757,62 +757,6 @@ def pick_source_summary(row: sqlite3.Row | dict) -> tuple[str, str]:
     return "", "none"
 
 
-def compute_heuristic_quality(row: sqlite3.Row | dict) -> int:
-    """Local quality/attention score 0-100 when bb_score / LLM score missing.
-
-    Prefer ``bb_score`` if present. Heuristic uses content richness + metadata.
-    """
-    def g(key: str, default=None):
-        try:
-            return row[key]
-        except (KeyError, IndexError, TypeError):
-            return default
-
-    bb = g("bb_score")
-    if bb is not None:
-        try:
-            return max(0, min(100, int(bb)))
-        except (TypeError, ValueError):
-            pass
-    qs = g("quality_score")
-    if qs is not None:
-        try:
-            return max(0, min(100, int(qs)))
-        except (TypeError, ValueError):
-            pass
-
-    score = 45
-    raw = (g("raw_content") or "") or ""
-    n = len(raw.strip())
-    if n >= 5000:
-        score += 25
-    elif n >= 2000:
-        score += 18
-    elif n >= 800:
-        score += 10
-    elif n >= THIN_CONTENT_CHARS:
-        score += 4
-    else:
-        score -= 20  # thin / empty
-
-    if g("ai_summary") and str(g("ai_summary")).strip():
-        score += 8
-    if g("fact_check_conclusion") and str(g("fact_check_conclusion")).strip():
-        score += 7
-    if g("publisher") and str(g("publisher")).strip():
-        score += 5
-    if g("published_at") and str(g("published_at")).strip():
-        score += 3
-    # Channel prior (not the display publisher)
-    src = (g("source") or "") or ""
-    if src.startswith("bestblog"):
-        score += 2
-    elif src in ("mpaypass", "wechat_rss_a", "wechat_rss_b"):
-        score += 1
-
-    return max(0, min(100, score))
-
-
 def _article_rows(conn: sqlite3.Connection, article_ids: list[str]) -> list[sqlite3.Row]:
     if not article_ids:
         return []
@@ -999,44 +943,24 @@ def _ensure_quality(
     *,
     use_llm: bool = False,
 ) -> bool:
-    """Ensure quality_score is set. Default: free heuristic (no LLM).
+    """Refresh the Pin quality column, and only for rows in the Pin set.
 
-    bb_score is display-preferred but we still store a quality_score when
-    missing so brief templates never show empty 「—」.
+    ``quality_score`` belongs to ``pin_heuristic_v3`` (0–5) since 045.  A
+    legacy 0–100 estimate written here would put two scales in one column, so
+    rows outside the Pin set are left alone (nothing else reads the column).
     """
-    # 045: quality_score now belongs to the Pin column (pin_heuristic_v2).
-    if "quality_formula" in row.keys() and row["quality_formula"]:
-        return True
-    if row["quality_score"] is not None:
-        return True
-
-    # Fast path: heuristic (always works, no budget)
-    sc = compute_heuristic_quality(row)
-    if use_llm and budget_left[0] > 30:
-        content = (row["raw_content"] or "")[:2000]
-        if content.strip():
-            prompt = QUALITY_PROMPT.format(
-                article_id=row["id"], title=row["title"] or "", content=content
-            )
-            timeout = min(STEP_TIMEOUT_SEC, max(15, int(budget_left[0])))
-            out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
-            budget_left[0] -= timeout
-            if code == 0:
-                data = _parse_json_obj(out) or {}
-                try:
-                    sc = max(0, min(100, int(data.get("score", sc))))
-                except (TypeError, ValueError):
-                    pass
-    now = _now()
     try:
-        conn.execute(
-            "UPDATE articles SET quality_score=?, quality_score_at=? WHERE id=?",
-            (sc, now, row["id"]),
-        )
-        conn.commit()
+        pinned = conn.execute(
+            "SELECT 1 FROM article_pins WHERE article_id = ?", (row["id"],)
+        ).fetchone()
     except sqlite3.OperationalError:
         return False
-    return True
+    if pinned is None:
+        return True
+
+    from moni.scoring import ensure_quality as ensure_pin_quality
+
+    return ensure_pin_quality(conn, row["id"]) is not None
 
 
 def _needs_body_layout(raw: str | None) -> bool:
@@ -1570,24 +1494,122 @@ def run_enrichment(
     return stats
 
 
+_FACT_CHECK_HEADER = (
+    "**事实核查**（仅作判断依据；报告只写一句 ≤60 字人话结论，"
+    "禁止照抄数字、区间、参数名、字段名或原文）"
+)
+
+
+def _row_text(row: sqlite3.Row, key: str) -> str:
+    """Read an optional column without breaking pre-migration rows."""
+    try:
+        value = row[key]
+    except (KeyError, IndexError, TypeError):
+        return ""
+    return str(value or "").strip()
+
+
+def _normalize_fact_tags(text: str) -> str:
+    return (
+        text.replace("[supported]", "【已核实】")
+        .replace("[Supported]", "【已核实】")
+        .replace("[unverified]", "【待核实】")
+        .replace("[Unverified]", "【待核实】")
+        .replace("[disputed]", "【存疑】")
+        .replace("[Disputed]", "【存疑】")
+    )
+
+
+def _fact_check_items(note: str) -> list[str]:
+    """Compact the stored evidence JSON into claim lines.
+
+    Drops query/snippet/url: the writer only needs to know what was checked
+    and how it came out, not the raw web-search payload.
+    """
+    if not note:
+        return []
+    try:
+        entries = json.loads(note)
+    except (json.JSONDecodeError, TypeError):
+        entries = None
+    if not isinstance(entries, list):
+        text = _normalize_fact_tags(note).strip()
+        return [f"- {text[:160]}"] if text else []
+
+    lines: list[str] = []
+    for entry in entries[:8]:
+        if not isinstance(entry, dict):
+            continue
+        claim = str(entry.get("claim") or entry.get("rationale") or "").strip()
+        if not claim:
+            continue
+        verdict = str(entry.get("verdict") or "").strip()
+        domain = str(entry.get("domain") or "").strip()
+        line = f"- {f'[{verdict}] ' if verdict else ''}{claim[:120]}"
+        if domain:
+            line += f"（{domain}）"
+        lines.append(line)
+    return lines
+
+
+def _fact_check_summaries(conn: sqlite3.Connection, article_ids: list[str]) -> dict[str, str]:
+    """Read 046's human summary if the column exists (pre-046 → empty)."""
+    if not article_ids:
+        return {}
+    placeholders = ",".join("?" * len(article_ids))
+    try:
+        rows = conn.execute(
+            f"SELECT id, fact_check_summary FROM articles WHERE id IN ({placeholders})",
+            article_ids,
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    return {str(r[0]): str(r[1] or "").strip() for r in rows}
+
+
+def _fact_check_material(row: sqlite3.Row, summary: str = "") -> str:
+    """Render the fact-check section handed to the report model.
+
+    New rows carry a human ``fact_check_summary``; when present it is the
+    only prose the model sees, so it cannot copy rationale snippets.
+    Legacy rows fall back to the compact claim list.
+    """
+    conclusion = _row_text(row, "fact_check_conclusion")
+    if not conclusion:
+        return ""
+
+    block = f"\n\n{_FACT_CHECK_HEADER}: {conclusion}"
+    if summary:
+        return block + f"\n**核查要点**: {summary}"
+
+    items = _fact_check_items(_row_text(row, "fact_check_note"))
+    if items:
+        block += "\n**逐条记录**（供判断，勿转写）:\n" + "\n".join(items)
+    return block
+
+
 def rebuild_article_content(
     db_path: str,
     article_ids: list[str],
     *,
     brief: bool = False,
     bb_summary_source: str = "moni_ai",
+    include_fact_check: bool = True,
 ) -> str:
     """Re-read articles and build prompt body blocks (post-enrichment).
 
     Brief mode: sort by business_value_score DESC, then original order.
     v1.0.24: append 事实核查证据 section (MD) when brief=True.
+    include_fact_check=False: omit the fact-check block entirely (a BV-only
+    report used to inherit historical fact-check rows).
     """
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         rows = _article_rows(conn, article_ids)
+        fact_check_summaries = _fact_check_summaries(conn, article_ids)
         evidence_md = ""
-        if brief and article_ids:
+        if brief and include_fact_check and article_ids:
             try:
                 ctx = load_evidence_context(conn, article_ids)
                 evidence_md = build_evidence_section_md(ctx)
@@ -1685,20 +1707,8 @@ def rebuild_article_content(
             if show_bb and str(row["bb_summary"]).strip():
                 block += f"\n\n**BestBlogs 摘要**: {row['bb_summary']}"
 
-        if row["fact_check_conclusion"] and str(row["fact_check_conclusion"]).strip():
-            block += f"\n\n**事实核查结论**: {row['fact_check_conclusion']}"
-            if row["fact_check_note"] and str(row["fact_check_note"]).strip():
-                # normalize english tags if any slipped through
-                note = str(row["fact_check_note"])
-                note = (
-                    note.replace("[supported]", "【已核实】")
-                    .replace("[Supported]", "【已核实】")
-                    .replace("[unverified]", "【待核实】")
-                    .replace("[Unverified]", "【待核实】")
-                    .replace("[disputed]", "【存疑】")
-                    .replace("[Disputed]", "【存疑】")
-                )
-                block += f"\n**事实核查明细**: {note}"
+        if include_fact_check:
+            block += _fact_check_material(row, fact_check_summaries.get(str(row["id"]), ""))
 
         parts.append(block)
 
@@ -1754,6 +1764,7 @@ def main(argv: list[str] | None = None) -> int:
             ids,
             brief=bool(flags.get("brief")),
             bb_summary_source=str(flags.get("bb_summary_source") or "moni_ai"),
+            include_fact_check=bool(flags.get("include_fact_check")),
         )
         print(text)
     return 0
