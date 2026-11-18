@@ -1193,8 +1193,7 @@ PYEOF
             explicit_pngs=$(PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" \
                 "$REPO_ROOT/moni/share/timeout_recovery.py" \
                 --from-output "$hermes_out_file" \
-                --not-before "$llm_started_epoch" \
-                --exclude-dir "$artifacts_dir" 2>/dev/null) || true
+                --not-before "$llm_started_epoch" 2>/dev/null) || true
             local cand
             while IFS= read -r cand; do
                 [[ -n "$cand" ]] || continue

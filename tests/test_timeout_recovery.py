@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import struct
 import time
 from pathlib import Path
 
@@ -16,10 +17,15 @@ from moni.share.timeout_recovery import (
 )
 
 
-def _write_png(path: Path) -> Path:
+def _write_png(path: Path, size: tuple[int, int] = (1080, 1920)) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(
-        PNG_MAGIC + b"\x00\x00\x00\rIHDR" + b"\x00" * 2000 + b"IEND\xaeB`\x82"
+        PNG_MAGIC
+        + b"\x00\x00\x00\rIHDR"
+        + struct.pack(">II", *size)
+        + b"\x08\x02\x00\x00\x00"
+        + b"\x00" * 2000
+        + b"IEND\xaeB`\x82"
     )
     _age(path, 5)
     return path
@@ -93,20 +99,28 @@ def test_png_paths_from_text_prefers_reported_path(tmp_path):
     assert png_paths_from_text(text, not_before=time.time() - 60) == [png.resolve()]
 
 
-def test_png_paths_from_text_skips_stale_and_excluded(tmp_path):
+def test_png_paths_from_text_skips_stale(tmp_path):
     stale = _write_png(tmp_path / "reports" / "old.png")
     old = time.time() - 3600
     os.utime(stale, (old, old))
-    own = _write_png(tmp_path / "artifacts" / "own.png")
-    text = f"{stale}\n{own}\n"
-    assert (
-        png_paths_from_text(
-            text,
-            not_before=time.time() - 120,
-            exclude_dir=tmp_path / "artifacts",
-        )
-        == []
+    assert png_paths_from_text(f"{stale}\n", not_before=time.time() - 120) == []
+
+
+def test_png_paths_from_text_accepts_artifact_inside_artifacts_dir(tmp_path):
+    """agent 直接写 artifacts 目录是最理想情况，不能被排除。"""
+    own = _write_png(tmp_path / "data" / "artifacts" / "report-2026-11-18-report_png.png")
+    assert png_paths_from_text(str(own), not_before=time.time() - 60) == [own.resolve()]
+
+
+def test_strip_crop_does_not_win_mtime_scan(tmp_path):
+    """同一次运行里的裁切条/放大图比成品新，不能当报告图。"""
+    final = _write_png(tmp_path / "profile" / "cache" / "scratch" / "report" / "report.png")
+    crop = _write_png(
+        tmp_path / "profile" / "cache" / "scratch" / "report" / "h3big.png",
+        size=(2600, 560),
     )
+    os.utime(crop, (time.time() - 2, time.time() - 2))
+    assert _search("report_png", time.time() - 60, tmp_path) == final.resolve()
 
 
 def test_png_paths_from_text_accepts_freshly_written_file(tmp_path):

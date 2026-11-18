@@ -11,12 +11,16 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import struct
 import sys
 import time
 from pathlib import Path
 
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 MIN_HTML_BYTES = 2048
+#: PNG 成品下限（宽、高都要过）。低于这个的是裁切条、放大检查图、手机预览，
+#: agent 在同一次运行里会写一堆，mtime 往往比成品新。
+MIN_PNG_SIDE = 800
 _SKIP_DIRS = {".git", "node_modules", "__pycache__"}
 # artifacts 目录里 moni 自己的标准产物名（其他任务的成品），不能当成本次
 # agent 新写的文件回收。
@@ -40,6 +44,18 @@ def is_valid_png(path: Path) -> bool:
             return b"IEND" in fh.read()
     except OSError:
         return False
+
+
+def png_dimensions(path: Path) -> tuple[int, int] | None:
+    """读 IHDR 里的宽高；不是 PNG 或读不到返回 None。"""
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(24)
+    except OSError:
+        return None
+    if len(head) < 24 or head[:8] != PNG_MAGIC or head[12:16] != b"IHDR":
+        return None
+    return struct.unpack(">II", head[16:24])
 
 
 def is_valid_html(path: Path) -> bool:
@@ -102,6 +118,7 @@ def _scan_roots(
     validate,
     not_before: float,
     deadline: float,
+    min_side: int | None = None,
 ) -> tuple[float, Path] | None:
     best: tuple[float, Path] | None = None
     for root in roots:
@@ -123,6 +140,10 @@ def _scan_roots(
                     continue
                 if not validate(path):
                     continue
+                if min_side is not None:
+                    dims = png_dimensions(path)
+                    if dims is None or min(dims) < min_side:
+                        continue
                 if best is None or mtime > best[0]:
                     best = (mtime, path)
     return best
@@ -136,19 +157,16 @@ def png_paths_from_text(
     text: str,
     *,
     not_before: float,
-    exclude_dir: Path | None = None,
     now: float | None = None,
 ) -> list[Path]:
     """从 agent 回复里取出本次运行产出的 PNG 绝对路径，按 mtime 升序。
 
     比 mtime 猜测可靠：agent 通常会把成品路径直接写在回复里。
-    ``exclude_dir`` 用来排除本任务自己的 artifacts 目录。
 
     这里不设「刚写完 1 秒内不认」的稳定窗：路径是 agent 自己报的，且
     ``is_valid_png`` 已校验完整，文件可能就在回复前 <1s 落盘。
     """
     deadline = now if now is not None else time.time()
-    exclude = exclude_dir.resolve() if exclude_dir is not None else None
     found: dict[str, tuple[float, Path]] = {}
 
     def consider(raw: str) -> None:
@@ -159,12 +177,6 @@ def png_paths_from_text(
         if not path.is_absolute() or path.suffix.lower() != ".png":
             return
         resolved = path.resolve()
-        if exclude is not None:
-            try:
-                resolved.relative_to(exclude)
-                return
-            except ValueError:
-                pass
         if str(resolved) in found:
             return
         try:
@@ -200,9 +212,10 @@ def find_recent_artifact(
     main_roots, fallback_roots = _search_dirs(
         format_name, repo_root, artifacts_dir, profile_dir, extra_dirs
     )
-    best = _scan_roots(main_roots, suffixes, validate, not_before, deadline)
+    min_side = MIN_PNG_SIDE if suffixes == (".png",) else None
+    best = _scan_roots(main_roots, suffixes, validate, not_before, deadline, min_side)
     if best is None:
-        best = _scan_roots(fallback_roots, suffixes, validate, not_before, deadline)
+        best = _scan_roots(fallback_roots, suffixes, validate, not_before, deadline, min_side)
     return best[1].resolve() if best else None
 
 
@@ -214,7 +227,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo-root")
     parser.add_argument("--artifacts-dir")
     parser.add_argument("--profile-dir")
-    parser.add_argument("--exclude-dir")
     parser.add_argument("--extra-dir", action="append", default=[])
     args = parser.parse_args(argv)
 
@@ -223,7 +235,6 @@ def main(argv: list[str] | None = None) -> int:
         found_paths = png_paths_from_text(
             text,
             not_before=args.not_before,
-            exclude_dir=Path(args.exclude_dir) if args.exclude_dir else None,
         )
         sys.stdout.write("\n".join(str(p) for p in found_paths))
         return 0
