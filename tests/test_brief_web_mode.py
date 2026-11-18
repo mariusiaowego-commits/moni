@@ -214,6 +214,14 @@ def test_one_image_with_deep_fact_check_enqueues_web_check(fresh_db, monkeypatch
     import moni.share.enrichment as _enr
 
     monkeypatch.setattr(_enr, "_wait_for_jobs", lambda *a, **k: {})
+    calls: dict = {}
+    real_enqueue = _enr._enqueue_missing_web_fact_checks
+
+    def _spy(*args, **kwargs):
+        calls.update(kwargs)
+        return real_enqueue(*args, **kwargs)
+
+    monkeypatch.setattr(_enr, "_enqueue_missing_web_fact_checks", _spy)
 
     run_enrichment(
         str(fresh_db),
@@ -227,6 +235,8 @@ def test_one_image_with_deep_fact_check_enqueues_web_check(fresh_db, monkeypatch
     ).fetchall()
     assert len(rows) == 1
     assert rows[0]["article_id"] == "a1"
+    assert calls["wait"] is True
+    assert calls["timeout"] == 180.0
 
 
 def test_brief_web_mode_skips_articles_already_checked(fresh_db, monkeypatch):

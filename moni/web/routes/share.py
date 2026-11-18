@@ -168,9 +168,13 @@ def _estimate_missing_enrichment(
         row = conn.execute(
             f"""
             SELECT
-              SUM(CASE WHEN TRIM(IFNULL(summary, '')) = '' THEN 1 ELSE 0 END)
+              SUM(CASE WHEN TRIM(IFNULL(summary, '')) = ''
+                        AND TRIM(IFNULL(ai_summary, '')) = ''
+                       THEN 1 ELSE 0 END)
                 AS missing_summary,
-              SUM(CASE WHEN IFNULL(has_web_fact_check, 0) = 0 THEN 1 ELSE 0 END)
+              SUM(CASE WHEN IFNULL(has_web_fact_check, 0) = 0
+                        AND IFNULL(fact_check_method, '') != 'web_search'
+                       THEN 1 ELSE 0 END)
                 AS missing_web
             FROM articles WHERE id IN ({placeholders})
             """,

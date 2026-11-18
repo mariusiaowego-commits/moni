@@ -148,6 +148,45 @@ class TestArticles:
         r = client.get("/api/articles/nonexistent")
         assert r.status_code == 404
 
+    def test_get_by_id_tolerates_dirty_fact_checked_at(
+        self, client: TestClient, seeded_article: int
+    ):
+        """脏时间戳只丢这个字段，不能把整个详情接口打成 500。"""
+        from moni.db.connection import get_db
+
+        get_db().execute(
+            "UPDATE articles SET fact_checked_at = ? WHERE id = ?",
+            ("not-a-date", str(seeded_article)),
+        )
+        get_db().commit()
+
+        r = client.get(f"/api/articles/{seeded_article}")
+
+        assert r.status_code == 200
+        assert r.json()["fact_checked_at"] is None
+
+    def test_get_by_id_survives_half_migrated_schema(
+        self, client: TestClient, seeded_article: int
+    ):
+        """半迁移库（缺 thesis 列）仍应返回已有的核查结论。"""
+        from moni.db.connection import get_db
+
+        conn = get_db()
+        conn.execute(
+            "UPDATE articles SET fact_check_conclusion = ? WHERE id = ?",
+            ("【待核实】", str(seeded_article)),
+        )
+        conn.commit()
+        conn.execute("ALTER TABLE articles DROP COLUMN fact_check_thesis")
+        conn.commit()
+
+        r = client.get(f"/api/articles/{seeded_article}")
+
+        assert r.status_code == 200
+        data = r.json()
+        assert data["fact_check_conclusion"] == "【待核实】"
+        assert data["fact_check_thesis"] is None
+
     def test_get_by_id_exposes_fact_check_fields(
         self, client: TestClient, seeded_article: int
     ):
