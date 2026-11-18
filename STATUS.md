@@ -4,6 +4,28 @@
 
 ---
 
+## 已发布: **v1.0.99 — Pin 质量分改 1 位小数** (2026-11-18 · PR #229 · tag `v1.0.99` · commit `a6e8e93`)
+
+实现记录 `docs/plans/2026-11-18_quality-scale-5.md` §6，设计稿 §5 已同步。
+
+- **口径**：`pin_heuristic_v3` 取整 `round(..., 1)`，Pin 列与 tooltip 明细 `toFixed(1)`。
+  公式每项都是 0.1 的整数倍（长度 1.4/1.0/0.6/0.2/−1.1、数字结构 0/0.2/0.4/0.6、
+  发布方 0.3、时间 0.2、底分 2.5），第二位小数恒为 0，故收掉。
+- **不重算**：取值集合不变（`1.4–5.0`），存量行无需 refresh。
+- **缓存**：`index.html` 的 `js/app.js?v=` 推进到 `20261118001`（上次 bump 停在 #219）。
+- **审计**：独立只读审计 **PASS WITH NITS**（3 P3，均为文案/注释）：验收用例 `3.10/5.00/4.80`、
+  css 注释、plan 前文旧口径，已在本 PR 修完。
+- **测试**：`test_scoring_heuristic` / `test_scoring_integration` / `test_scoring_store` /
+  `test_pins` 共 **51 passed**；前端守卫 4 文件 **84 passed**；CI `pytest · py3.12` pass。
+- **发布**：squash merge `a6e8e93` · annotated tag `v1.0.99` · 生产 ff 到 `a6e8e93` ·
+  `com.moni.web` 重启（PID 97496）· `/api/service/info` 报
+  `version=v1.0.99 / commit=a6e8e93 / schema=45 / worktree_dirty=false`。
+- **生产冒烟**：`/static/index.html` 返回 `app.js?v=20261118001`，JS 含 `toFixed(1)`；
+  36 篇 Pin 取值 `1.6–5.0` 全为 1 位小数；浏览器实测第 1 页 20 条、列值
+  `4.6 / 5.0 / 3.6 / 4.0 / 3.8`、分页「第 1 页 · 共 36 篇」。
+
+> 期间 v1.0.98（PR #226，分享 PNG prompt 限额修复）由另一条线发布，本文档只记录本线内容。
+
 ## 已发布: **v1.0.97 — 质量分 5 分制 + Pin 列头 + 分页修复** (2026-11-18 · PR #227 · tag `v1.0.97` · commit `57af0d3`)
 
 实现记录 `docs/plans/2026-11-18_quality-scale-5.md`，设计稿 §5 已同步。
