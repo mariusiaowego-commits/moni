@@ -75,11 +75,11 @@ def _insert_article(aid: str = "a1", *, method: str | None = None) -> None:
         """
         INSERT INTO articles
             (id, title, url, source, publisher, published_at, fetched_at,
-             fact_check_method)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             raw_content, fact_check_method)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (aid, f"Title {aid}", f"https://example.com/{aid}", "testsrc",
-         "Test Publisher", now, now, method),
+         "Test Publisher", now, now, "正文内容。" * 80, method),
     )
     conn.commit()
 
@@ -1087,10 +1087,11 @@ def test_failure_log_redacts_before_truncate(fresh_db, monkeypatch):
     conn = get_db()
     conn.execute(
         """INSERT INTO articles
-            (id, title, url, source, publisher, published_at, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (id, title, url, source, publisher, published_at, fetched_at,
+             raw_content)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         ("a-redact", "Title a-redact", "https://example.com/a-redact",
-         "testsrc", "Pub", now, now),
+         "testsrc", "Pub", now, now, "正文内容。" * 80),
     )
     conn.execute(
         """INSERT INTO llm_jobs (id, task_type, article_id, provider, model,

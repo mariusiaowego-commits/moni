@@ -4,6 +4,46 @@
 
 ---
 
+## 未发布: **数据清洗 clean_v1 + 前端清洗页** (2026-11-18 · 分支 `feat/content-cleaning` · PR #238)
+
+**做了什么**：内容进来后的劣质内容清理从「只剥 HTML 标签」扩成一套确定性清洗，
+并给出可预演、可执行、可导出报告的界面。
+
+**规则**（`moni/fetch/content.py`，纯函数、幂等）：YAML frontmatter → HTML 实体（循环解到稳定）
+→ HTML（仅当块级标签 ≥8 且标记占比 ≥5% 才走块级抽取，否则就地剥标签）→ 伪标签（只认真实 HTML 标签名）
+→ 零宽字符 → U+FFFD → 公众号尾巴（行首页脚整行删 / 短行版权声明整行删 / 行尾 CTA 截断）
+→ 空白压缩（含 `\u00a0`）。
+
+**修掉的真 bug**（全部在生产库上复现过）：
+
+- `extract_text()` 不幂等，二次清洗清空 32 篇纯文本正文；
+- 正文夹一行 `<h1>404 Not Found</h1>`，8,110 字正文被抽成 13 字；
+- 页脚/CTA 正则误删真句：「国际**商务合作**区」「乘客在车站**扫描二维码**后」「版权**归属**」；
+- bestblogs 把整篇正文塞进 `title: "…"`，frontmatter 剥离吃掉 1,333 字；
+- 空正文仍会进大模型（异步摘要无护栏）。
+
+**新增**：migration 049（`articles.content_state/chars/reasons/cleaner/cleaned_at`、
+`sources.content_contract`、`cleaning_runs`）；`moni/cleaning/service.py`；
+`/api/cleaning/*`；前端「数据清洗」页；`moni clean-articles`（默认 dry-run）+ `moni content-audit`；
+四条入库路径（抓取 / 手工新建 / 菜篮子 rescue / 手工导入全文）统一清洗。
+
+**生产口径**（库副本，5,335 篇）：正文改写 **880** 篇、只补状态 4,455 篇、
+净减 **47,551** 字、会清空长正文而跳过 0 篇、归档测试数据 4 条、二次执行 `changed=0`。
+杂质命中：公众号尾巴 494、实体 82、零宽 84、乱码 55、frontmatter 7（另有 1 篇内嵌正文未自动处理）、HTML 残留 8。
+
+**测试**：`pytest tests/` → **2089 passed, 2 skipped**（沙箱内；
+`test_039_upgrades_a_db_built_by_old_code` 需沙箱外跑，单跑 33 passed）。
+
+**文档**：`docs/specs/2026-11-18-content-cleaning.md`（方案+落地记录）、
+`docs/specs/2026-11-18-content-cleaning-options.md`（甲/乙/丙对比）、
+Obsidian `sprint-56-content-cleaning-2026-11-18/` 六件套。
+
+**未做**：自动丢弃空/短正文（合规常态）、LLM 质量打分（与 BV 十维重复）、
+跨源去重（约 1%）、全文抓取补齐（V2）、发布方归一（857 篇，另开）。
+
+
+---
+
 ## 已发布: **v1.0.101 — 事实核查提示词改人话结论 + 详情页两档展示** (2026-11-18 · PR #236 · tag `v1.0.101` · commit `70bc017`)
 
 **症状**：分享图里的核查行仍是「温度 [0,2]、top_p [0,1]…均与文档一致」；详情页接口
@@ -55,6 +95,11 @@ GitHub `mergeable_state=clean`。
 - 其它分支迁移号冲突：`feat/content-cleaning` 也占用 `048`；PR #225 的
   `046_bv_direction.sql` 与 main 的 `046_fact_check_summary.sql` 撞号。两者都需 rebase 后
   改为 049/050 并同步 `_CURRENT_VERSION`。
+
+---
+
+
+---
 
 ## 已发布: **分享事实核查改人话结论 + 核查器 summary** (2026-11-18 · PR #232/#233 · commit `f1c26da` · 未打 tag)
 

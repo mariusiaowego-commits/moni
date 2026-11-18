@@ -391,6 +391,117 @@ function app() {
       return map[reason] || reason;
     },
 
+    // ── Content cleaning (sprint-55) ──────────────────────────────
+    cleaningData: null,
+    cleaningRuns: [],
+    cleaningRun: null,
+    cleaningBusy: '',
+    cleaningError: '',
+
+    _cleaningNum(n) {
+      return Number(n || 0).toLocaleString('zh-CN');
+    },
+
+    async loadCleaning() {
+      try {
+        const [overview, runs] = await Promise.all([
+          fetch('/api/cleaning/overview', { credentials: 'same-origin' }).then(r => r.json()),
+          fetch('/api/cleaning/runs?limit=10', { credentials: 'same-origin' }).then(r => r.json()),
+        ]);
+        this.cleaningData = overview;
+        this.cleaningRuns = runs || [];
+        if (!this.cleaningRun && this.cleaningRuns.length) this.cleaningRun = this.cleaningRuns[0];
+        this.cleaningError = '';
+      } catch (e) {
+        this.cleaningError = '数据清洗概览加载失败';
+      }
+    },
+
+    async runCleaningPreview() {
+      if (this.cleaningBusy) return;
+      this.cleaningBusy = 'preview';
+      try {
+        const r = await fetch('/api/cleaning/preview', { method: 'POST', credentials: 'same-origin' });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        this.cleaningRun = await r.json();
+        this._notify('success', `预演完成：${this._cleaningNum(this.cleaningRun.changed)} 篇会变化（未写入）`);
+        await this.loadCleaning();
+      } catch (e) {
+        this._notify('error', `预演失败：${e.message}`);
+      } finally {
+        this.cleaningBusy = '';
+      }
+    },
+
+    async runCleaningApply() {
+      if (this.cleaningBusy) return;
+      const ok = await moniModal.confirm(
+        '执行后会重写命中的正文，并清掉这些文章已生成的摘要与简报正文（需重新生成）。' +
+        '预演里的数字就是这次的结果；重复执行不会二次破坏正文。',
+        { title: '执行数据清洗', okLabel: '执行清洗' }
+      );
+      if (!ok) return;
+      this.cleaningBusy = 'apply';
+      try {
+        const r = await fetch('/api/cleaning/apply', { method: 'POST', credentials: 'same-origin' });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        this.cleaningRun = await r.json();
+        this._notify('success', `清洗完成：${this._cleaningNum(this.cleaningRun.changed)} 篇正文已更新`);
+        await this.loadCleaning();
+      } catch (e) {
+        this._notify('error', `清洗失败：${e.message}`);
+      } finally {
+        this.cleaningBusy = '';
+      }
+    },
+
+    cleaningReportUrl(run) {
+      return run ? `/api/cleaning/runs/${run.id}/report.md` : '#';
+    },
+
+    async setCleaningContract(source, contract) {
+      try {
+        const r = await fetch(`/api/cleaning/sources/${encodeURIComponent(source)}/contract`, {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contract }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        await this.loadCleaning();
+        this._notify('success', `${source} 的交付形态已更新`);
+      } catch (e) {
+        this._notify('error', `更新失败：${e.message}`);
+      }
+    },
+
+    async copyCleaningDigest() {
+      const d = this.cleaningData;
+      const run = this.cleaningRun;
+      if (!d) return;
+      const lines = [
+        `数据清洗：共 ${this._cleaningNum(d.total)} 篇，` +
+        `待清洗 ${this._cleaningNum(d.pending)} 篇，` +
+        `空正文 ${this._cleaningNum(d.states.empty || 0)} 篇，` +
+        `短稿 ${this._cleaningNum(d.states.short || 0)} 篇。`,
+      ];
+      if (run) {
+        lines.push(
+          `最近一次${run.mode === 'apply' ? '执行' : '预演'}：` +
+          `扫描 ${this._cleaningNum(run.scanned)} 篇，` +
+          `正文变化 ${this._cleaningNum(run.changed)} 篇，` +
+          `仅补状态 ${this._cleaningNum(run.backfilled)} 篇，` +
+          `净减少 ${this._cleaningNum(run.chars_removed)} 字。`
+        );
+      }
+      try {
+        await navigator.clipboard.writeText(lines.join('\n'));
+        this._notify('success', '汇报文本已复制');
+      } catch (e) {
+        this._notify('error', '复制失败，请手动选择文本');
+      }
+    },
+
     // ── Navigation ────────────────────────────────────────────────
     currentView: 'articles',
 
@@ -407,6 +518,7 @@ function app() {
       llmJobs:  '/llmJobs',
       share:    '/share',
       basket:   '/basket',
+      cleaning: '/cleaning',
       config:   '/config',
       llmSettings: '/llmSettings',
     },
@@ -421,6 +533,7 @@ function app() {
       '/llmJobs':  'llmJobs',
       '/share':    'share',
       '/basket':   'basket',
+      '/cleaning': 'cleaning',
       '/config':   'config',
       '/llmSettings': 'llmSettings',
     },
@@ -510,6 +623,7 @@ function app() {
       else if (view === 'llmJobs') this.loadLlmJobs();  // v1.0.5.1
       else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
+      else if (view === 'cleaning') { this.loadCleaning(); }
       else if (view === 'calendar') { this.initCalendarPage(); }
       else if (view === 'cases')    { this.initCasesPage(); }
       else if (view === 'stats')    { this.loadAll(); }
@@ -555,6 +669,7 @@ function app() {
       else if (view === 'llmJobs') this.loadLlmJobs();
       else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
+      else if (view === 'cleaning') { this.loadCleaning(); }
       else if (view === 'calendar') { this.initCalendarPage(); }
       else if (view === 'cases')    { this.initCasesPage(); }
       else if (view === 'stats')    { this.loadAll(); }

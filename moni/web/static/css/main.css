@@ -5353,6 +5353,129 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
 }
 
 /* Reduced motion — consolidated tail. New animated rules go here, not in a new block. */
+/* ── Content cleaning (sprint-55) ─────────────────────────────── */
+.clean-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.clean-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-block-end: 16px;
+}
+.clean-card {
+  background: var(--card);
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.15));
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.clean-card-value {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.clean-card-label {
+  font-size: var(--font-12);
+  color: var(--muted-fg);
+}
+.clean-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 16px;
+}
+.clean-block {
+  background: var(--card);
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.15));
+  border-radius: 8px;
+  padding: 16px;
+  margin-block-end: 16px;
+}
+.clean-block h4 {
+  margin: 0 0 12px;
+  font-size: var(--font-14);
+  font-weight: 600;
+  color: var(--foreground);
+}
+.clean-muted {
+  font-size: var(--font-12);
+  font-weight: 400;
+  color: var(--muted-fg);
+}
+.clean-flag-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.clean-flag-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: var(--font-13);
+}
+.clean-flag-label { color: var(--muted-fg); }
+.clean-flag-value {
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+.clean-run-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 12px;
+  margin-block-end: 14px;
+}
+.clean-run-metrics div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.clean-run-metrics b {
+  font-size: var(--font-18, 18px);
+  font-weight: 600;
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+.clean-run-metrics span {
+  font-size: var(--font-12);
+  color: var(--muted-fg);
+}
+.clean-diff { display: grid; gap: 12px; }
+.clean-diff-item {
+  border-top: 1px solid var(--border, rgba(127, 127, 127, 0.15));
+  padding-top: 10px;
+}
+.clean-diff-item:first-child { border-top: 0; padding-top: 0; }
+.clean-diff-title {
+  font-size: var(--font-13);
+  font-weight: 600;
+  color: var(--foreground);
+  margin-block-end: 6px;
+}
+.clean-diff-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 8px;
+  font-size: var(--font-12);
+  color: var(--muted-fg);
+}
+.clean-diff-text {
+  color: var(--foreground);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.clean-src-table select { padding: 4px 8px; }
+
+@media (max-width: 900px) {
+  .clean-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 @media (prefers-reduced-motion: reduce) {
 
   /* ── 阅读器窄屏页签切换 ── */

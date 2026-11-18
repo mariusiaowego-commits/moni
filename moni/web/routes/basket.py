@@ -130,11 +130,20 @@ def rescue_basket_item(basket_id: str, body: BasketRescueRequest) -> dict:
 
     # INSERT INTO articles (INSERT OR IGNORE 防冲突)
     try:
+        from moni.fetch.content import apply_cleaning
+
+        art: dict = {
+            "title": basket["title"],
+            "content": basket.get("raw_content"),
+        }
+        apply_cleaning(art)
+
         conn.execute(
             """INSERT OR IGNORE INTO articles
                (id, title, url, source, publisher, published_at,
-                fetched_at, raw_content)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                fetched_at, raw_content, content_state, content_chars,
+                content_reasons, content_cleaner, content_cleaned_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 article_id,
                 basket["title"],
@@ -143,7 +152,12 @@ def rescue_basket_item(basket_id: str, body: BasketRescueRequest) -> dict:
                 basket.get("publisher"),
                 basket.get("published_at"),
                 now,
-                basket.get("raw_content"),
+                art["content"],
+                art["content_state"],
+                art["content_chars"],
+                art["content_reasons"],
+                art["content_cleaner"],
+                art["content_cleaned_at"],
             ),
         )
 

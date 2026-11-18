@@ -547,19 +547,35 @@ bash scripts/install_cron.sh uninstall
 - `dropped_blacklist` = 黑名单 filter drop 掉的
 - `parse_errors` = parse 失败 (单条 error 不阻塞)
 
-### 4.4 清洗历史 HTML 文章 (v1.0.3-html)
+### 4.4 数据清洗 (clean_v1)
 
-36kr_rss 抓的历史 30 篇 raw_content 仍是 HTML 格式, 跑一次 `clean-articles` 即可一次性清洗:
+清洗覆盖的不止 HTML：YAML frontmatter、HTML 实体、伪标签、零宽字符、乱码 `U+FFFD`、
+公众号尾巴，并给每篇打上 `content_state`（ok / short / empty）。
+
+**默认是预演，不写库**：
 
 ```bash
 python3 -m moni clean-articles
-# clean-articles: scanned=10, updated=10, unchanged=0
+# clean-articles (dry-run): scanned=5335 changed=880 backfilled=4455 emptied=0 ...
+# dry-run: 未写入任何文章。确认后加 --apply 执行。
 
-python3 -m moni clean-articles  # 再跑一次 = 幂等
-# clean-articles: scanned=0, updated=0, unchanged=0
+python3 -m moni clean-articles --apply     # 确认后执行
+python3 -m moni clean-articles --apply     # 再跑一次 = changed=0（幂等）
+
+python3 -m moni content-audit              # 只读：按源看 ok / short / empty
+python3 -m moni content-audit --issues-only
 ```
 
-清洗后 `articles.raw_content` 字段从 `<h2>...</h2><p>...</p>` 变成纯文本段落, LLM 摘要质量显著提升.
+页面上「数据清洗」菜单提供同样的能力：概览卡、预演对照、执行前二次确认、历史记录、
+导出 Markdown 报告、按源设置交付形态（`full_text / snippet / short_form / title_only`）、
+一键复制汇报文本。
+
+两条护栏：
+
+- 清洗后若正文为空而原文 ≥200 字，**跳过不写**，计入 `emptied`；
+- 正文一旦变化，旧的摘要/简报正文作废并重建排版，需要重新生成摘要。
+
+`short_form` / `snippet` / `title_only` 的源本来就没有长正文，不会再被当成抓取故障。
 
 ---
 

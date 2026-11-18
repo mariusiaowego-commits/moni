@@ -604,11 +604,34 @@ def import_fulltext(article_id: str, body: ImportFulltextRequest) -> dict[str, A
     if not content.strip():
         raise BadRequestError(message="File is empty")
 
-    # Update article content
-    now = datetime.now(timezone.utc).isoformat()
+    # A manually imported body still goes through the cleaner: markdown files
+    # copied out of wechat/websites carry the same CTAs and zero-width chars.
+    from moni.fetch.content import apply_cleaning
+
+    art: dict = {"title": "", "content": content}
+    apply_cleaning(art)
+
     conn.execute(
-        "UPDATE articles SET raw_content = ?, summary = NULL, summary_at = NULL WHERE id = ?",
-        (content, article_id),
+        """
+        UPDATE articles
+           SET raw_content = ?, content_state = ?, content_chars = ?,
+               content_reasons = ?, content_cleaner = ?, content_cleaned_at = ?,
+               summary = NULL, summary_at = NULL,
+                       ai_summary = NULL, ai_summary_at = NULL,
+                       has_ai_summary = 0,
+               brief_summary = NULL, brief_summary_at = NULL,
+               brief_body_md = NULL, brief_body_at = NULL
+         WHERE id = ?
+        """,
+        (
+            art["content"],
+            art["content_state"],
+            art["content_chars"],
+            art["content_reasons"],
+            art["content_cleaner"],
+            art["content_cleaned_at"],
+            article_id,
+        ),
     )
     conn.commit()
 
@@ -618,11 +641,15 @@ def import_fulltext(article_id: str, body: ImportFulltextRequest) -> dict[str, A
 
     recompute_quality_if_pinned(conn, article_id)
 
-    logger.info("Imported full-text for article %s from %s (%d chars)", article_id, file_path, len(content))
+    logger.info(
+        "Imported full-text for article %s from %s (%d chars)",
+        article_id, file_path, art["content_chars"],
+    )
 
     return {
         "article_id": article_id,
         "file_path": str(file_path),
-        "char_count": len(content),
-        "content_preview": content[:500],
+        "char_count": art["content_chars"],
+        "content_state": art["content_state"],
+        "content_preview": art["content"][:500],
     }

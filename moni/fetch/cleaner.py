@@ -183,7 +183,14 @@ def extract_text(raw_html: str) -> str:
         if text:
             paragraphs.append(text)
 
-    # 4. Walk through and remove consecutive duplicate paragraphs
+    # 4. No block-level tags at all: this is already plain text that happens
+    #    to contain angle brackets (``<ENV_ID>``, ``营收 < 100 亿``).  Returning
+    #    "" here used to destroy the article on a second cleaning pass —
+    #    ``extract_text`` must be idempotent.
+    if not paragraphs:
+        return _clean_text(soup)
+
+    # 5. Walk through and remove consecutive duplicate paragraphs
     #    (some 36kr entries repeat the headline in <p><strong>...</strong></p>
     #    and then again in the next <p>).
     deduped: list[str] = []

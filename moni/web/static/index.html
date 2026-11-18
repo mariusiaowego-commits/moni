@@ -56,6 +56,7 @@
         <a href="/cases"    @click.prevent="navigate('cases')"    :class="{ active: currentView === 'cases'    }">案例库</a>
         <a href="/stats"    @click.prevent="navigate('stats')"    :class="{ active: currentView === 'stats'    }">量化看板</a>
         <a href="/crud"     @click.prevent="navigate('crud')"     :class="{ active: currentView === 'crud'     }">数据维护</a>
+        <a href="/cleaning" @click.prevent="navigate('cleaning')" :class="{ active: currentView === 'cleaning' }">数据清洗</a>
         <a href="/llmJobs"  @click.prevent="navigate('llmJobs')"  :class="{ active: currentView === 'llmJobs'  }">
           大模型任务
           <span class="nav-chip" x-show="llmJobsStats.pending + llmJobsStats.running > 0"
@@ -1602,6 +1603,180 @@
           </div>
         </div>
       </div>
+
+      <!-- ══ 数据清洗 (sprint-55) ═════════════════════════════════ -->
+      <section x-show="currentView === 'cleaning'" x-cloak>
+        <div class="panel-header">
+          <div class="panel-title-row">
+            <h3>数据清洗</h3>
+            <p class="panel-title-hint">正文去杂质、短稿/空稿体检、信源交付契约。先预演，再执行，可重复跑。</p>
+          </div>
+          <div class="clean-actions">
+            <button class="btn btn-secondary" @click="runCleaningPreview()" :disabled="!!cleaningBusy">
+              <span x-text="cleaningBusy === 'preview' ? '预演中…' : '预演'"></span>
+            </button>
+            <button class="btn btn-primary" @click="runCleaningApply()" :disabled="!!cleaningBusy">
+              <span x-text="cleaningBusy === 'apply' ? '清洗中…' : '执行清洗'"></span>
+            </button>
+            <a class="btn btn-secondary" :href="safeHref(cleaningReportUrl(cleaningRun))"
+               target="_blank" rel="noopener noreferrer" x-show="cleaningRun">导出报告</a>
+            <button class="btn btn-secondary" @click="copyCleaningDigest()">复制汇报文本</button>
+          </div>
+        </div>
+
+        <div x-show="cleaningError" class="stats-error" x-text="cleaningError"></div>
+
+        <div class="clean-cards" x-show="cleaningData">
+          <div class="clean-card">
+            <div class="clean-card-value" x-text="_cleaningNum(cleaningData?.total)"></div>
+            <div class="clean-card-label">文章总数</div>
+          </div>
+          <div class="clean-card">
+            <div class="clean-card-value" x-text="_cleaningNum(cleaningData?.pending)"></div>
+            <div class="clean-card-label">待清洗（未跑过或旧版本）</div>
+          </div>
+          <div class="clean-card">
+            <div class="clean-card-value" x-text="_cleaningNum(cleaningData?.states?.empty)"></div>
+            <div class="clean-card-label">空正文（多为合规仅标题）</div>
+          </div>
+          <div class="clean-card">
+            <div class="clean-card-value" x-text="_cleaningNum(cleaningData?.states?.short)"></div>
+            <div class="clean-card-label">短稿（不足 200 字）</div>
+          </div>
+          <div class="clean-card">
+            <div class="clean-card-value" x-text="_cleaningNum(cleaningData?.test_rows)"></div>
+            <div class="clean-card-label">无信源测试数据</div>
+          </div>
+        </div>
+
+        <div class="clean-grid" x-show="cleaningData">
+          <section class="clean-block">
+            <h4>
+              杂质命中
+              <span class="clean-muted"
+                    x-text="cleaningData?.flags?.boilerplate || cleaningData?.flags?.entities ? '（全库已清洗）' : '（本次预演）'"></span>
+            </h4>
+            <div class="clean-flag-list">
+              <template x-for="item in [
+                { key: 'boilerplate', label: '公众号尾巴' },
+                { key: 'entities',    label: 'HTML 实体' },
+                { key: 'zero_width',  label: '零宽字符' },
+                { key: 'replacement', label: '乱码 U+FFFD' },
+                { key: 'frontmatter', label: 'YAML frontmatter' },
+                { key: 'frontmatter_embedded', label: 'frontmatter 内嵌正文（未自动处理）' },
+                { key: 'html',        label: 'HTML 残留' }
+              ]" :key="item.key">
+                <div class="clean-flag-row">
+                  <span class="clean-flag-label" x-text="item.label"></span>
+                  <span class="clean-flag-value"
+                        x-text="_cleaningNum(cleaningData?.flags?.[item.key] || cleaningRun?.details?.flags?.[item.key])"></span>
+                </div>
+              </template>
+            </div>
+          </section>
+
+          <section class="clean-block" x-show="cleaningRun">
+            <h4>
+              最近一次
+              <span x-text="cleaningRun?.mode === 'apply' ? '执行' : '预演'"></span>
+              <span class="clean-muted" x-text="formatTime(cleaningRun?.started_at)"></span>
+            </h4>
+            <div class="clean-run-metrics">
+              <div><b x-text="_cleaningNum(cleaningRun?.scanned)"></b><span>扫描</span></div>
+              <div><b x-text="_cleaningNum(cleaningRun?.changed)"></b><span>正文变化</span></div>
+              <div><b x-text="_cleaningNum(cleaningRun?.backfilled)"></b><span>仅补状态</span></div>
+              <div><b x-text="_cleaningNum(cleaningRun?.chars_removed)"></b><span>净减少字数</span></div>
+              <div><b x-text="_cleaningNum(cleaningRun?.emptied)"></b><span>安全跳过</span></div>
+              <div><b x-text="_cleaningNum(cleaningRun?.archived_test_rows)"></b><span>归档测试数据</span></div>
+            </div>
+            <div class="clean-diff" x-show="(cleaningRun?.details?.samples || []).length">
+              <template x-for="s in (cleaningRun?.details?.samples || []).slice(0, 5)" :key="s.id">
+                <div class="clean-diff-item">
+                  <div class="clean-diff-title" x-text="s.title + '（' + s.source + '）'"></div>
+                  <div class="clean-diff-row">
+                    <span>清洗前</span>
+                    <span class="clean-diff-text" x-text="s.before || '（空）'"></span>
+                  </div>
+                  <div class="clean-diff-row">
+                    <span>清洗后</span>
+                    <span class="clean-diff-text" x-text="s.after || '（空）'"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+            <p class="clean-muted" x-show="!(cleaningRun?.details?.samples || []).length">
+              这次没有需要改写的正文。
+            </p>
+          </section>
+        </div>
+
+        <section class="clean-block" x-show="cleaningData">
+          <h4>信源交付契约 <span class="clean-muted">决定空/短正文是否算问题</span></h4>
+          <div class="table-container">
+            <table class="clean-src-table">
+              <thead>
+                <tr>
+                  <th>信源</th><th>总数</th><th>ok</th><th>短稿</th><th>空正文</th>
+                  <th>待处理</th><th>交付形态</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="s in (cleaningData?.sources || [])" :key="s.source">
+                  <tr>
+                    <td x-text="s.source"></td>
+                    <td x-text="_cleaningNum(s.total)"></td>
+                    <td x-text="_cleaningNum(s.ok)"></td>
+                    <td x-text="_cleaningNum(s.short)"></td>
+                    <td x-text="_cleaningNum(s.empty)"></td>
+                    <td>
+                      <span class="badge" :class="s.issues > 0 ? 'badge-warning' : 'badge-success'"
+                            x-text="s.contract === 'full_text' ? _cleaningNum(s.issues) : '符合预期'"></span>
+                    </td>
+                    <td>
+                      <select :value="s.contract" @change="setCleaningContract(s.source, $event.target.value)">
+                        <option value="full_text">full_text 应有正文</option>
+                        <option value="snippet">snippet 只给摘要</option>
+                        <option value="short_form">short_form 一句话快讯</option>
+                        <option value="title_only">title_only 合规仅标题</option>
+                      </select>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="clean-block" x-show="(cleaningRuns || []).length">
+          <h4>清洗历史</h4>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>时间</th><th>模式</th><th>扫描</th><th>正文变化</th>
+                  <th>仅补状态</th><th>净减少字数</th><th>报告</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="run in cleaningRuns" :key="run.id">
+                  <tr>
+                    <td x-text="formatTime(run.started_at)"></td>
+                    <td>
+                      <span class="badge" :class="run.mode === 'apply' ? 'badge-info' : 'badge'"
+                            x-text="run.mode === 'apply' ? '执行' : '预演'"></span>
+                    </td>
+                    <td x-text="_cleaningNum(run.scanned)"></td>
+                    <td x-text="_cleaningNum(run.changed)"></td>
+                    <td x-text="_cleaningNum(run.backfilled)"></td>
+                    <td x-text="_cleaningNum(run.chars_removed)"></td>
+                    <td><a class="link-btn" :href="safeHref(cleaningReportUrl(run))" target="_blank" rel="noopener noreferrer">Markdown</a></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
 
       <!-- ══ 行业日历 (v1.0.16 F5) ════════════════════════════════ -->
       <section x-show="currentView === 'calendar'" x-cloak>
@@ -4468,7 +4643,8 @@
   <script src="js/theme.js?v=20260813019"></script>
   <script src="vendor/marked-16.4.2.umd.js?v=20261116001"></script>
   <script src="vendor/dompurify-3.4.17.min.js?v=20261116001"></script>
-  <script src="js/app.js?v=20261119001"></script>
+  <!-- app.js 在 #238 又改了（数据清洗页），版本号必须高于 main 的 20261119001。 -->
+  <script src="js/app.js?v=20261119002"></script>
   <script src="js/reader.js?v=20261119001"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind

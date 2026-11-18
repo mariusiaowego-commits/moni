@@ -315,6 +315,22 @@ def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> N
 
     article_dict = dict(article_row)
 
+    # clean_v1 gate: title-only articles (compliance-limited sources) have no
+    # body to summarise.  Calling the model on an empty prompt burns tokens and
+    # produces a hallucinated summary, so fail the job here.  Briefs and share
+    # tasks treat a failed per-article job as "missing body", never as a
+    # whole-brief failure.
+    if article_dict.get("content_state") == "empty" or not str(
+        article_dict.get("raw_content") or ""
+    ).strip():
+        _mark_failed(
+            job_id,
+            "no_body: 正文为空（仅标题或纯标点），跳过大模型调用",
+            attempts=attempt,
+            handle=handle,
+        )
+        return
+
     # v1.0.5.24: get article tags for perspective selection
     tag_rows = conn.execute(
         "SELECT tag_name FROM article_tags WHERE article_id = ?",

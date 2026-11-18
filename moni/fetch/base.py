@@ -230,23 +230,27 @@ class BaseFetcher(ABC):
         logger.info("[%s] parsed %d/%d articles (%d parse errors)",
                     source, len(parsed_articles), len(raw_articles), parse_errors)
 
-        # ── HTML cleaner (v1.0.3) ────────────────────────────────────────
-        # 36kr_rss 等源 raw_content 是 HTML (<h2>/<p>/<strong>). 清洗成纯文本
-        # 让下游 keyword filter 和 LLM 摘要都看到干净内容. 已在 DB 的历史
-        # 记录可由 `moni clean-articles` retroactively 跑一次.
-        from .cleaner import extract_text
+        # ── content cleaner (v1.0.3 / clean_v1) ──────────────────────────
+        # 所有源统一走 moni.fetch.content: HTML、实体、frontmatter、零宽、
+        # 乱码、公众号尾巴一次清掉，并打上 content_state/chars 供下游与体检用。
+        # 清洗在关键词过滤之前，避免尾巴里的泛词误命中 tag。
+        from .content import apply_cleaning
+
         cleaned_count = 0
+        content_empty = 0
+        content_short = 0
         for article in parsed_articles:
-            content = article.get("content")
-            if isinstance(content, str) and content and "<" in content:
-                cleaned = extract_text(content)
-                if cleaned != content:
-                    article["content"] = cleaned
-                    cleaned_count += 1
+            cleaned, verdict = apply_cleaning(article)
+            if cleaned.changed:
+                cleaned_count += 1
+            if verdict.state == "empty":
+                content_empty += 1
+            elif verdict.state == "short":
+                content_short += 1
         if cleaned_count:
             logger.info(
-                "[%s] HTML cleaner: %d article(s) cleaned to plain text",
-                source, cleaned_count,
+                "[%s] content cleaner: %d article(s) cleaned (%d empty, %d short)",
+                source, cleaned_count, content_empty, content_short,
             )
 
         # ── keyword filter (v1.0.2) ──────────────────────────────
@@ -316,6 +320,8 @@ class BaseFetcher(ABC):
             "inserted": inserted,
             "parse_errors": parse_errors,
             "cleaned": cleaned_count,
+            "content_empty": content_empty,
+            "content_short": content_short,
             "filtered": filter_stats["kept"],
             "dropped_blacklist": filter_stats["dropped_blacklist"],
             "dropped_whitelist": filter_stats["dropped_whitelist"],
@@ -336,6 +342,8 @@ _SUM_STAT_FIELDS = (
     "inserted",
     "parse_errors",
     "cleaned",
+    "content_empty",
+    "content_short",
     "filtered",
     "dropped_blacklist",
     "dropped_whitelist",

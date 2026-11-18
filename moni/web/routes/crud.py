@@ -70,11 +70,18 @@ def create_article(body: ArticleCreate) -> Article:
     if body.published_at is not None:
         published_at = body.published_at.isoformat()
 
+    from moni.fetch.content import apply_cleaning
+
+    art: dict = {"title": body.title, "content": body.content}
+    apply_cleaning(art)
+
     cursor = conn.execute(
         """
         INSERT OR IGNORE INTO articles
-            (id, title, url, source, publisher, published_at, fetched_at, raw_content)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (id, title, url, source, publisher, published_at, fetched_at,
+             raw_content, content_state, content_chars, content_reasons,
+             content_cleaner, content_cleaned_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             article_id,
@@ -84,7 +91,12 @@ def create_article(body: ArticleCreate) -> Article:
             body.author,
             published_at,
             now,
-            body.content,
+            art["content"],
+            art["content_state"],
+            art["content_chars"],
+            art["content_reasons"],
+            art["content_cleaner"],
+            art["content_cleaned_at"],
         ),
     )
     conn.commit()
@@ -132,8 +144,36 @@ def update_article(article_id: str, body: ArticleUpdate) -> Article:
             else body.published_at
         )
     if body.content is not None:
-        updates.append("raw_content = ?")
-        params.append(body.content)
+        from moni.fetch.content import apply_cleaning
+
+        art: dict = {"title": body.title or "", "content": body.content}
+        apply_cleaning(art)
+        updates += [
+            "raw_content = ?",
+            "content_state = ?",
+            "content_chars = ?",
+            "content_reasons = ?",
+            "content_cleaner = ?",
+            "content_cleaned_at = ?",
+            # A new body invalidates every derived text product.
+            "summary = NULL",
+            "summary_at = NULL",
+            "ai_summary = NULL",
+            "ai_summary_at = NULL",
+            "has_ai_summary = 0",
+            "brief_summary = NULL",
+            "brief_summary_at = NULL",
+            "brief_body_md = NULL",
+            "brief_body_at = NULL",
+        ]
+        params += [
+            art["content"],
+            art["content_state"],
+            art["content_chars"],
+            art["content_reasons"],
+            art["content_cleaner"],
+            art["content_cleaned_at"],
+        ]
     if body.summary is not None:
         updates.append("summary = ?")
         params.append(body.summary)
