@@ -169,8 +169,12 @@ class TestArticles:
         self, client: TestClient, seeded_article: int
     ):
         """半迁移库（缺 thesis 列）仍应返回已有的核查结论。"""
+        import sqlite3
+
         from moni.db.connection import get_db
 
+        if sqlite3.sqlite_version_info < (3, 35):
+            pytest.skip("DROP COLUMN needs SQLite >= 3.35")
         conn = get_db()
         conn.execute(
             "UPDATE articles SET fact_check_conclusion = ? WHERE id = ?",
@@ -956,6 +960,30 @@ class TestShare:
         )
         assert r2.status_code == 200
         assert r2.json()["articles_missing_web_fact_check"] == 0
+
+        # 有 ai_summary + 已有 web_search 结论 → 两项都不算缺。
+        from moni.db.connection import get_db
+
+        get_db().execute(
+            "UPDATE articles SET ai_summary = ?, fact_check_method = ? WHERE id = ?",
+            ("已有摘要", "web_search", seeded_article),
+        )
+        get_db().commit()
+        r3 = client.post(
+            "/api/share/estimate",
+            json={
+                "format": "report_png",
+                "version": "1.0",
+                "payload": {
+                    "article_ids": [seeded_article],
+                    "include_abstract": True,
+                    "include_fact_check": True,
+                },
+            },
+        )
+        assert r3.status_code == 200
+        assert r3.json()["articles_missing_summary"] == 0
+        assert r3.json()["articles_missing_web_fact_check"] == 0
 
     def test_estimate_400_for_missing_article_ids(
         self, client: TestClient, seeded_article: str,

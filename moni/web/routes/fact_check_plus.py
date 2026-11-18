@@ -369,6 +369,8 @@ def fact_check_plus_evidence(article_id: str) -> dict[str, Any]:
         "days_old", "claim", "verdict", "source_date",
     )
     cols = [c for c in wanted if c in existing]
+    if not cols:
+        return {"article_id": article_id, "items": [], "total": 0}
     rows = conn.execute(
         f"SELECT {', '.join(cols)} FROM fact_check_evidence "
         "WHERE article_id = ? ORDER BY evidence_seq ASC",
