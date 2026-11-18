@@ -107,3 +107,19 @@ def test_split_never_breaks_a_code_fence():
     body = m.group(1)
     assert "```" in body, "the split must count code fences"
     assert "% 2 === 0" in body, "the split must only cut where fences are balanced"
+
+
+def test_cancel_and_failure_finalise_the_message():
+    """失败模式 8：取消 / 失败也要整段定稿。
+
+    否则 is-streaming 去掉后，tail 里那半截列表会突然套上 ai-list-in，
+    又变成一次「发白」。
+    """
+    js = _read(READER_JS)
+    assert "readerFinaliseMessage" in js, "no finalise helper"
+    for marker in ("active.status = 'cancelled'", "msg.status = data.status || 'failed'"):
+        idx = js.find(marker)
+        assert idx > 0, f"marker not found: {marker}"
+        assert "readerFinaliseMessage" in js[idx : idx + 260], (
+            f"{marker} must finalise the message"
+        )

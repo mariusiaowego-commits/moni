@@ -750,10 +750,13 @@
      */
     readerSplitStream(msg) {
       const text = String(msg.content || '');
+      const fences = [];
+      for (let i = text.indexOf('```'); i !== -1; i = text.indexOf('```', i + 3)) fences.push(i);
       let idx = text.lastIndexOf('\n\n');
       while (idx > 0) {
-        const head = text.slice(0, idx);
-        if ((head.match(/```/g) || []).length % 2 === 0) {
+        let before = 0;
+        while (before < fences.length && fences[before] < idx) before += 1;
+        if (before % 2 === 0) {
           msg.settled = text.slice(0, idx).trimEnd();
           msg.tail = text.slice(idx).trimStart();
           return;
@@ -917,6 +920,7 @@
             this.readerFlushDelta(msg);
             msg.status = data.status || 'failed';
             msg.error = data.message || '生成失败';
+            this.readerFinaliseMessage(msg);
           }
           this.readerStreaming = false;
           this.readerStreamMsgId = null;
@@ -956,6 +960,13 @@
       step();
     },
 
+    /** 结束（完成 / 失败 / 取消）后把全文定稿，避免 tail 半截留在流式容器里。 */
+    readerFinaliseMessage(msg) {
+      msg.settled = String(msg.content || '');
+      msg.tail = '';
+      msg._typing = false;
+    },
+
     readerFlushDelta(msg) {
       if (msg._pending) {
         msg.content = (msg.content || '') + msg._pending;
@@ -973,7 +984,11 @@
       }).catch(() => {});
       const active = (this.readerMessages || []).find(
         (m) => m.job_id === this.readerStreamJobId && m.role === 'assistant');
-      if (active) active.status = 'cancelled';
+      if (active) {
+        this.readerFlushDelta(active);
+        active.status = 'cancelled';
+        this.readerFinaliseMessage(active);
+      }
       this.readerStreaming = false;
       this.readerStreamMsgId = null;
       this.readerCloseStream();
