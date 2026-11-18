@@ -61,6 +61,8 @@ recover_artifact() {
     local artifacts_dir="$4"
     local reason="${5:-timeout}"
     local recovered recovered_out
+    local output_dir="${MONI_OUTPUT_DIR:-$HOME/.moni/output}"
+    output_dir="${output_dir/#\~/$HOME}"
 
     recovered=$("$PYTHON_BIN" "$REPO_ROOT/moni/share/timeout_recovery.py" \
         --format "$format" \
@@ -68,7 +70,7 @@ recover_artifact() {
         --repo-root "$REPO_ROOT" \
         --artifacts-dir "$artifacts_dir" \
         --profile-dir "$HOME/.hermes/profiles/${MONI_HERMES_PROFILE:-moni}" \
-        --extra-dir "${MONI_OUTPUT_DIR:-$HOME/.moni/output}" \
+        --extra-dir "$output_dir" \
         2>/dev/null) || true
     [[ -n "$recovered" && -f "$recovered" ]] || return 1
 
@@ -1157,7 +1159,7 @@ print(p.get('generation_approach',''))
         # 不是 done。 保留 v1.0.30 的本地文件兜底 (hermes 直接写本地
         # PNG 的场景)。
         local png_urls=""
-        png_urls=$(/usr/local/bin/python3 - "$hermes_out_file" <<'PYEOF'
+        png_urls=$("$PYTHON_BIN" - "$hermes_out_file" <<'PYEOF'
 import re, sys
 urls = re.findall(r"https?://[^\s<>\"']+?\.png(?:\?[^\s<>\"']*)?", open(sys.argv[1], encoding="utf-8", errors="replace").read())
 seen = []

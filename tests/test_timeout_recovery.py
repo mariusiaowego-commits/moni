@@ -109,6 +109,14 @@ def test_png_paths_from_text_skips_stale_and_excluded(tmp_path):
     )
 
 
+def test_png_paths_from_text_accepts_freshly_written_file(tmp_path):
+    """成品可能就在回复前 <1s 落盘，显式路径分支不能套稳定窗。"""
+    png = tmp_path / "reports" / "fresh.png"
+    png.parent.mkdir(parents=True, exist_ok=True)
+    png.write_bytes(PNG_MAGIC + b"\x00\x00\x00\rIHDR" + b"\x00" * 2000 + b"IEND\xaeB`\x82")
+    assert png_paths_from_text(str(png), not_before=time.time() - 60) == [png.resolve()]
+
+
 def test_ignore_png_from_before_run(tmp_path):
     png = _write_png(tmp_path / "infographic" / "old.png")
     old = time.time() - 3600

@@ -143,8 +143,11 @@ def png_paths_from_text(
 
     比 mtime 猜测可靠：agent 通常会把成品路径直接写在回复里。
     ``exclude_dir`` 用来排除本任务自己的 artifacts 目录。
+
+    这里不设「刚写完 1 秒内不认」的稳定窗：路径是 agent 自己报的，且
+    ``is_valid_png`` 已校验完整，文件可能就在回复前 <1s 落盘。
     """
-    deadline = (now if now is not None else time.time()) - 1.0
+    deadline = now if now is not None else time.time()
     exclude = exclude_dir.resolve() if exclude_dir is not None else None
     found: dict[str, tuple[float, Path]] = {}
 

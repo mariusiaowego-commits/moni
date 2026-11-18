@@ -13,7 +13,6 @@ v1.0.9.3: caught 3 related bugs in one debug session:
 """
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 from unittest.mock import patch
