@@ -47,7 +47,7 @@ Your Nous subscription may be disconnected. Please reconnect and retry."
      - No lists of 3+ items, no semicolons, no colon-then-list.
      - Write the meaning, not the comparison you ran.
      - Bad: 「温度 [0,2]、top_p [0,1]、频率惩罚 [-2,2] 均与官方文档一致」
-     - Good: 「参数表与官方文档一致；这些参数该怎么设仍是作者判断」
+     - Good: 「这套配置建议有官方文档支撑，落到实际调参仍取决于作者经验」
 
 3. **Footer**
    - Thin separator line

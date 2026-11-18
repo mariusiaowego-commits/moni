@@ -147,6 +147,18 @@ def test_include_fact_check_false_omits_block(fresh_db: Path):
     assert "核查要点" not in text
 
 
+def test_brief_flag_false_skips_evidence_footer(fresh_db: Path):
+    """brief 模式也不再无条件追加「事实核查证据」脚注."""
+    _insert_article(fresh_db, note=_evidence_note(), summary="参数一致，其余为观点")
+
+    text = rebuild_article_content(
+        str(fresh_db), ["a1"], brief=True, include_fact_check=False
+    )
+
+    assert "事实核查" not in text
+    assert "事实核查证据" not in text
+
+
 def test_non_json_note_falls_back_to_single_line(fresh_db: Path):
     _insert_article(fresh_db, note="claim1 【已核实】: 监管文件已发布")
 
@@ -163,6 +175,8 @@ def test_report_png_prompt_has_copy_ban():
     assert "≤60 Chinese characters" in prompt
     assert "Never copy numbers, ranges, parameter names" in prompt
     assert "Override content-structure" in prompt
+    good_example = prompt.split("Good: ")[1].splitlines()[0]
+    assert "；" not in good_example
 
 
 def test_content_structure_scopes_per_claim_to_long_form():

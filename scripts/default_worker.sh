@@ -1075,7 +1075,8 @@ print(p.get('generation_approach',''))
 
     # MONI_PROMPT_DUMP=<path>: write the assembled prompt for audit/tests.
     if [[ -n "${MONI_PROMPT_DUMP:-}" ]]; then
-        printf '%s' "$prompt" > "$MONI_PROMPT_DUMP"
+        printf '%s' "$prompt" > "$MONI_PROMPT_DUMP" 2>/dev/null \
+            || log "WARN prompt dump failed: $MONI_PROMPT_DUMP"
     fi
 
     # Plain-text is a no-LLM pass per PRD §9 decision: worker

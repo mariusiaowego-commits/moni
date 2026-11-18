@@ -31,7 +31,11 @@
 - `writing-style-compact.md`：禁止把核查素材（参数区间、字段名、「逐项一致」）搬进结论。
 - `scripts/default_worker.sh`：单图格式也加载风格提示；新增 `MONI_PROMPT_DUMP` 便于审计组装结果。
 
-**测试**：`pytest tests/` → **2015 passed, 2 skipped**；唯一失败 `test_039_upgrades_a_db_built_by_old_code`
+**审计**：独立只读审计 CHANGES REQUESTED（2 P2 + 3 P2 建议）：已修好示例与规则自相矛盾、
+Gate 2 降级后 summary 与逐条判定不同步、brief 脚注不受 flag 控制、异常兜底过宽、summary 超 60 字；
+新增 5 条回归用例。剩余 P3（非 JSON 历史 note 回灌）留后续。
+
+**测试**：`pytest tests/` → **2020 passed, 2 skipped**；唯一失败 `test_039_upgrades_a_db_built_by_old_code`
 是沙箱无法在主仓库 `.git` 建临时 worktree，沙箱外单跑 **1 passed**。
 
 **验收（待部署）**：`python3 -m moni.db.migrate` → schema 46；重跑同一篇文章的 `report_png`，

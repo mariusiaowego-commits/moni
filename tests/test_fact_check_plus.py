@@ -418,6 +418,111 @@ def test_fact_check_plus_verdict_defaults_to_conclusion(fresh_db, monkeypatch):
     assert row["verdict"] == "【已核实】"
 
 
+def test_fact_check_plus_demotion_drops_summary_and_verdicts(fresh_db, monkeypatch):
+    """Gate 2 降级后 summary 必须清空、逐条【已核实】降为【待核实】."""
+    _insert_article("a1")
+    _insert_job("job-dem", "a1")
+    payload = json.dumps({
+        "conclusion": "【已核实】",
+        "summary": "参数与官方文档一致",
+        "evidence": [
+            {"claim": "某个参数范围", "verdict": "【已核实】",
+             "query": "q", "url": "https://36kr.com/p/1",
+             "snippet": "s", "rationale": "r"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-dem", "task_type": "fact_check_plus", "article_id": "a1",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    conn = get_db()
+    art = conn.execute(
+        "SELECT fact_check_summary, fact_check_conclusion FROM articles WHERE id = 'a1'"
+    ).fetchone()
+    assert art["fact_check_conclusion"] == "【待核实】"
+    assert art["fact_check_summary"] is None
+    assert conn.execute(
+        "SELECT verdict FROM fact_check_evidence WHERE article_id = 'a1'"
+    ).fetchone()["verdict"] == "【待核实】"
+
+
+def test_fact_check_plus_invalid_verdict_falls_back(fresh_db, monkeypatch):
+    _insert_article("a1")
+    _insert_job("job-bad-verdict", "a1")
+    payload = json.dumps({
+        "conclusion": "【待核实】",
+        "evidence": [
+            {"claim": "某个说法", "verdict": "maybe",
+             "query": "q", "url": "https://www.pbc.gov.cn/notice/1",
+             "snippet": "s", "rationale": "r"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-bad-verdict", "task_type": "fact_check_plus",
+              "article_id": "a1", "provider": "minimax-cn",
+              "model": "MiniMax-M3", "attempts": 0})
+
+    row = get_db().execute(
+        "SELECT verdict FROM fact_check_evidence WHERE article_id = 'a1'"
+    ).fetchone()
+    assert row["verdict"] == "【待核实】"
+
+
+def test_fact_check_plus_no_check_needed_keeps_summary(fresh_db, monkeypatch):
+    _insert_article("a1")
+    _insert_job("job-nocheck", "a1")
+    payload = json.dumps({
+        "conclusion": "【无需核查】",
+        "summary": "纯观点文，没有可验证的具体主张",
+        "evidence": [],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-nocheck", "task_type": "fact_check_plus",
+              "article_id": "a1", "provider": "minimax-cn",
+              "model": "MiniMax-M3", "attempts": 0})
+
+    row = get_db().execute(
+        "SELECT fact_check_summary FROM articles WHERE id = 'a1'"
+    ).fetchone()
+    assert row["fact_check_summary"] == "纯观点文，没有可验证的具体主张"
+
+
+def test_fact_check_plus_rerun_without_summary_clears_old(fresh_db, monkeypatch):
+    _insert_article("a1")
+    _insert_job("job-r1", "a1")
+    first = json.dumps({
+        "conclusion": "【待核实】",
+        "summary": "旧的人话结论",
+        "evidence": [
+            {"query": "q", "url": "https://www.pbc.gov.cn/notice/1",
+             "snippet": "s", "rationale": "r"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: first)
+    _run_job({"id": "job-r1", "task_type": "fact_check_plus", "article_id": "a1",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    _insert_job("job-r2", "a1")
+    second = json.dumps({
+        "conclusion": "【待核实】",
+        "evidence": [
+            {"query": "q", "url": "https://www.pbc.gov.cn/notice/2",
+             "snippet": "s2", "rationale": "r2"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: second)
+    _run_job({"id": "job-r2", "task_type": "fact_check_plus", "article_id": "a1",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    row = get_db().execute(
+        "SELECT fact_check_summary FROM articles WHERE id = 'a1'"
+    ).fetchone()
+    assert row["fact_check_summary"] is None
+
+
 def test_fact_check_plus_double_gate_domain_whitelist(fresh_db, monkeypatch):
     """无白名单域源时【已核实】强制降级为【待核实】; 白名单域保持【已核实】."""
     _insert_article("a-36kr")

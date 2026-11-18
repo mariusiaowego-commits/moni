@@ -1534,7 +1534,7 @@ def _fact_check_items(note: str) -> list[str]:
         entries = None
     if not isinstance(entries, list):
         text = _normalize_fact_tags(note).strip()
-        return [f"- {text[:240]}"] if text else []
+        return [f"- {text[:160]}"] if text else []
 
     lines: list[str] = []
     for entry in entries[:8]:
@@ -1609,7 +1609,7 @@ def rebuild_article_content(
         rows = _article_rows(conn, article_ids)
         fact_check_summaries = _fact_check_summaries(conn, article_ids)
         evidence_md = ""
-        if brief and article_ids:
+        if brief and include_fact_check and article_ids:
             try:
                 ctx = load_evidence_context(conn, article_ids)
                 evidence_md = build_evidence_section_md(ctx)
