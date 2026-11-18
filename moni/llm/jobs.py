@@ -820,12 +820,14 @@ def _persist_fact_check_plus(
         # let the writer fall back to per-claim verdicts instead.
         if gate2_demoted or timeliness == "90d_demote":
             summary = ""
+        for e in valid:
+            e["verdict"] = _normalize_verdict(e["verdict"], conclusion)
         if gate2_demoted:
+            # Normalize first: the prompt's content-structure section teaches
+            # English tags, so a raw "Supported" must not escape the demotion.
             for e in valid:
                 if e["verdict"] == "【已核实】":
                     e["verdict"] = "【待核实】"
-        for e in valid:
-            e["verdict"] = _normalize_verdict(e["verdict"], conclusion)
         if timeliness == "90d_demote":
             logger.info(
                 "[llm_jobs] fact_check_plus job %s: evidence days_old=%s → 90d_demote 【存疑】",

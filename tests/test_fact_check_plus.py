@@ -470,6 +470,34 @@ def test_fact_check_plus_invalid_verdict_falls_back(fresh_db, monkeypatch):
     assert row["verdict"] == "【待核实】"
 
 
+def test_fact_check_plus_english_verdict_is_demoted(fresh_db, monkeypatch):
+    """英文 Supported 也必须被 Gate 2 降级，不能绕过白名单检查."""
+    _insert_article("a1")
+    _insert_job("job-en-verdict", "a1")
+    payload = json.dumps({
+        "conclusion": "【已核实】",
+        "summary": "参数与官方文档一致",
+        "evidence": [
+            {"claim": "某个参数范围", "verdict": "Supported",
+             "query": "q", "url": "https://36kr.com/p/1",
+             "snippet": "s", "rationale": "r"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-en-verdict", "task_type": "fact_check_plus",
+              "article_id": "a1", "provider": "minimax-cn",
+              "model": "MiniMax-M3", "attempts": 0})
+
+    conn = get_db()
+    assert conn.execute(
+        "SELECT verdict FROM fact_check_evidence WHERE article_id = 'a1'"
+    ).fetchone()["verdict"] == "【待核实】"
+    assert conn.execute(
+        "SELECT fact_check_summary FROM articles WHERE id = 'a1'"
+    ).fetchone()["fact_check_summary"] is None
+
+
 def test_fact_check_plus_no_check_needed_keeps_summary(fresh_db, monkeypatch):
     _insert_article("a1")
     _insert_job("job-nocheck", "a1")
