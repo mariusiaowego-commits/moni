@@ -112,13 +112,17 @@ def test_llm_error_text_maps_breaker_to_human_wording():
 
 
 def test_late_job_result_cannot_overwrite_other_article():
-    """失败模式 7：迟到结果要按 articleId 守卫。"""
+    """失败模式 7：迟到结果要按 articleId 守卫，且阅读器已关时不能把模态弹回来。"""
     js = _read(APP_JS)
     assert "readerRefreshDetail" in js
     m = re.search(r"readerRefreshDetail\(articleId, detail\)\s*\{(.*?)\n    \}", js, re.S)
     assert m, "readerRefreshDetail missing"
-    assert "articleDetail.id !== articleId" in m.group(1), (
+    body = m.group(1)
+    assert "articleDetail.id !== articleId" in body, (
         "late job result must not replace the article the user is reading"
+    )
+    assert "!this.articleDetail" in body, (
+        "a late result must not reopen the reader after it was closed"
     )
 
 
@@ -135,7 +139,7 @@ def test_opening_article_loads_evidence_chain():
 def test_narrow_mode_ai_pane_is_not_an_overlay():
     """失败模式 9：窄屏 AI 面板不能再是绝对定位盖在正文上。"""
     css = _read(MAIN_CSS)
-    block = _css_block(css, ".reader-split")
+    block = _css_block(css, ".reader-split.mobile-read")
     ai_rule = re.search(r"\.ai-pane\s*\{(.*?)\}", block, re.S)
     assert ai_rule, "no .ai-pane rule inside the narrow media block"
     assert "position: absolute" not in ai_rule.group(1), (

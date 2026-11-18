@@ -4875,10 +4875,11 @@ function app() {
           };
         })
         .catch(err => {
+          const raw = String(err.message || '').trim();
           this._notify(
             'error',
             this._llmErrorText(err.message, '事实核查没能排上队，可以稍后重试。'),
-            { detail: err.message }
+            raw && raw !== 'unknown' ? { detail: raw } : undefined
           );
         })
         .finally(() => { self.factCheckLoading = false; });
@@ -4991,7 +4992,8 @@ function app() {
     /** 迟到的核查结果不能盖掉用户已经翻开的另一篇。 */
     readerRefreshDetail(articleId, detail) {
       if (!detail) return;
-      if (this.articleDetail && this.articleDetail.id !== articleId) return;
+      // 阅读器已关（articleDetail 为 null）时也不能把模态弹回来。
+      if (!this.articleDetail || this.articleDetail.id !== articleId) return;
       this.articleDetail = detail;
     },
 
