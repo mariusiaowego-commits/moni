@@ -110,7 +110,7 @@ def overview(conn=None) -> dict[str, Any]:
         """
         SELECT COUNT(*) FROM articles a
         LEFT JOIN sources s ON s.name = a.source
-        WHERE s.name IS NULL
+        WHERE a.source IN ('testsrc', 's') AND s.name IS NULL
         """
     ).fetchone()[0]
 
@@ -166,7 +166,8 @@ def _scan(conn) -> dict[str, Any]:
         "SELECT id, title, source, raw_content, content_cleaner FROM articles"
     ).fetchall()
 
-    updates: list[tuple] = []
+    updates: list[dict[str, Any]] = []
+    empties: list[dict[str, Any]] = []
     flags: dict[str, int] = {}
     samples: list[dict[str, Any]] = []
     weak_samples: list[dict[str, Any]] = []
@@ -199,6 +200,14 @@ def _scan(conn) -> dict[str, Any]:
             # Safety net: never let cleaning empty a substantial body.
             # Short bodies (16-char CTAs) are allowed to collapse to empty.
             emptied += 1
+            empties.append({
+                "content_state": art["content_state"],
+                "content_chars": art["content_chars"],
+                "content_reasons": art["content_reasons"],
+                "content_cleaner": art["content_cleaner"],
+                "content_cleaned_at": art["content_cleaned_at"],
+                "id": row["id"],
+            })
             continue
 
         if new != old:
@@ -206,15 +215,17 @@ def _scan(conn) -> dict[str, Any]:
         else:
             backfilled += 1
         chars_removed += max(0, len(old) - len(new))
-        updates.append((
-            new,
-            art["content_state"],
-            art["content_chars"],
-            art["content_reasons"],
-            art["content_cleaner"],
-            art["content_cleaned_at"],
-            row["id"],
-        ))
+        updates.append({
+            "text_changed": new != old,
+            "old_text": old,
+            "raw_content": new,
+            "content_state": art["content_state"],
+            "content_chars": art["content_chars"],
+            "content_reasons": art["content_reasons"],
+            "content_cleaner": art["content_cleaner"],
+            "content_cleaned_at": art["content_cleaned_at"],
+            "id": row["id"],
+        })
         removed = len(old) - len(new)
         if len(samples) < SAMPLE_LIMIT or len(weak_samples) < SAMPLE_LIMIT:
             before, after = _sample_pair(old, new)
@@ -240,7 +251,7 @@ def _scan(conn) -> dict[str, Any]:
             """
             SELECT a.id FROM articles a
             LEFT JOIN sources s ON s.name = a.source
-            WHERE s.name IS NULL
+            WHERE a.source IN ('testsrc', 's') AND s.name IS NULL
             """
         ).fetchall()
     ]
@@ -248,6 +259,7 @@ def _scan(conn) -> dict[str, Any]:
     return {
         "scanned": len(rows),
         "updates": updates,
+        "empties": empties,
         "changed": len(updates),
         "text_changed": text_changed,
         "backfilled": backfilled,
@@ -374,21 +386,47 @@ def apply_cleaning_run(conn=None, run_id: str | None = None) -> dict[str, Any]:
     conn.commit()
 
     try:
-        for update in scan["updates"]:
+        for u in scan["updates"]:
             conn.execute(
                 """
                 UPDATE articles
-                   SET raw_content = ?, content_state = ?, content_chars = ?,
-                       content_reasons = ?, content_cleaner = ?,
-                       content_cleaned_at = ?,
-                       summary = NULL, summary_at = NULL,
-                       ai_summary = NULL, ai_summary_at = NULL,
-                       has_ai_summary = 0,
-                       brief_summary = NULL, brief_summary_at = NULL,
-                       brief_body_md = NULL, brief_body_at = NULL
-                 WHERE id = ?
+                   SET raw_content = :raw_content,
+                       content_state = :content_state,
+                       content_chars = :content_chars,
+                       content_reasons = :content_reasons,
+                       content_cleaner = :content_cleaner,
+                       content_cleaned_at = :content_cleaned_at
+                 WHERE id = :id AND COALESCE(raw_content, '') = :old_text
                 """,
-                update,
+                u,
+            )
+            if u["text_changed"]:
+                if conn.execute("SELECT changes()").fetchone()[0] == 0:
+                    continue
+                conn.execute(
+                    """
+                    UPDATE articles
+                       SET summary = NULL, summary_at = NULL,
+                           ai_summary = NULL, ai_summary_at = NULL,
+                           has_ai_summary = 0,
+                           brief_summary = NULL, brief_summary_at = NULL,
+                           brief_body_md = NULL, brief_body_at = NULL
+                     WHERE id = :id
+                    """,
+                    {"id": u["id"]},
+                )
+        for e in scan["empties"]:
+            conn.execute(
+                """
+                UPDATE articles
+                   SET content_state = :content_state,
+                       content_chars = :content_chars,
+                       content_reasons = :content_reasons,
+                       content_cleaner = :content_cleaner,
+                       content_cleaned_at = :content_cleaned_at
+                 WHERE id = :id
+                """,
+                e,
             )
         archived = _archive_test_rows(conn, scan["test_row_ids"])
         conn.execute(
@@ -425,7 +463,7 @@ def apply_cleaning_run(conn=None, run_id: str | None = None) -> dict[str, Any]:
         conn.commit()
         raise
 
-    touched = [u[-1] for u in scan["updates"]]
+    touched = [u["id"] for u in scan["updates"]]
     if touched:
         try:
             from moni.share.enrichment import apply_local_body_layout_for_ids

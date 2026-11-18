@@ -152,6 +152,42 @@ class TestApply:
         assert "正文。" in brief_body
         assert "点击关注" not in brief_body
 
+    def test_backfill_keeps_derived_text(self, db):
+        _add("a1", "qbitai", "字" * 300)
+        conn = get_db()
+        conn.execute(
+            "UPDATE articles SET summary = 's', ai_summary = 'a', has_ai_summary = 1,"
+            " brief_summary = 'b', brief_body_md = 'c' WHERE id = 'a1'"
+        )
+        conn.commit()
+        run = apply_cleaning_run()
+        assert run["changed"] == 0
+        assert run["backfilled"] == 1
+        with sqlite3.connect(db) as c:
+            row = c.execute(
+                "SELECT summary, ai_summary, has_ai_summary, brief_summary, brief_body_md"
+                " FROM articles WHERE id = 'a1'"
+            ).fetchone()
+        assert row == ("s", "a", 1, "b", "c")
+
+    def test_backfill_null_body_row_stamps_cleaner(self, db):
+        conn = get_db()
+        conn.execute(
+            """
+            INSERT INTO articles (id, title, url, source, fetched_at, raw_content)
+            VALUES ('n1', '标题 n1', 'https://e.com/n1', 'qbitai', ?, NULL)
+            """,
+            (datetime.now(timezone.utc).isoformat(),),
+        )
+        conn.commit()
+        run = apply_cleaning_run()
+        assert run["backfilled"] >= 1
+        with sqlite3.connect(db) as c:
+            cleaner = c.execute(
+                "SELECT content_cleaner FROM articles WHERE id = 'n1'"
+            ).fetchone()[0]
+        assert cleaner == "clean_v1"
+
 
 class TestOrphanRows:
     def test_orphan_source_rows_are_archived_not_deleted(self, db):

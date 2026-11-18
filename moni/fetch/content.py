@@ -47,11 +47,14 @@ _HTML_TAGS = (
     "source|span|strong|sub|sup|style|table|tbody|td|textarea|tfoot|th|thead|"
     "tr|u|ul|video"
 )
-#: Only real HTML tag names.  A loose ``<[A-Za-z/]…>`` also eats code
-#: (``i < customerNum; i++``) and XML samples (``<bean id="…">``), which mangles
-#: technical posts far worse than leaving a stray tag in place.
+#: Only real HTML tag names with plausible attribute syntax.  A loose
+#: ``<[A-Za-z/]…>`` also eats code (``i < customerNum; i++``,
+#: ``当 a<b 且 b>c 时``) and XML samples, which mangles technical posts far
+#: worse than leaving a stray tag in place.  The body deliberately excludes
+#: CJK and comparison prose; ``content`` is just a variable name.
+_ATTR = r"""(?:\s+[A-Za-z_:][-\w:.]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)"""
 _PSEUDO_TAG_RE = re.compile(
-    rf"<\s*/?\s*(?:{_HTML_TAGS})\b(?:[^<>\n]{{0,200}})?/?>",
+    rf"<\s*/?\s*(?:{_HTML_TAGS})\b{_ATTR}{{0,8}}\s*/?>",
     re.I,
 )
 _ANY_TAG_RE = re.compile(r"<[^>\n]{0,200}>")
@@ -71,8 +74,8 @@ _HTML_MIN_BLOCK_TAGS = 8
 _HTML_MIN_TAG_SHARE = 0.05
 _HTML_KEEP_RATIO = 0.8
 _BLOCK_BOUNDARY_RE = re.compile(
-    r"<\s*/?\s*(?:p|div|br|h[1-6]|li|ul|ol|tr|td|th|section|article|"
-    r"blockquote|pre|figure|header|footer)\b[^<>\n]{0,200}/?>",
+    rf"<\s*/?\s*(?:p|div|br|h[1-6]|li|ul|ol|tr|td|th|section|article|"
+    rf"blockquote|pre|figure|header|footer)\b{_ATTR}{{0,8}}\s*/?>",
     re.I,
 )
 
@@ -97,13 +100,13 @@ _FOOTER_START = (
     "本文来自",
     "本文版权归",
     "原标题",
-    "编辑",
-    "责编",
-    "校对",
     "点击上方",
     "戳「",
     "分享到朋友圈",
     "喜欢这篇文章",
+)
+_FOOTER_BYLINE_RE = re.compile(
+    r"^(编辑|责编|校对)\s*(?:[|｜丨:：]\s*\S{1,12}|[：:]\s*\S{1,12})$"
 )
 #: Attribution boilerplate, but only in its footer *shape*: ``版权归属、内容合规性``
 #: is a real sentence in a compliance article and must survive.
@@ -162,6 +165,7 @@ def clean_boilerplate(text: str) -> str:
         stripped = line.strip()
         if stripped and len(stripped) <= _FOOTER_LINE_MAX and (
             stripped.startswith(_FOOTER_START)
+            or bool(_FOOTER_BYLINE_RE.match(stripped))
             or _FOOTER_CONTAINS_RE.search(stripped)
         ):
             continue
@@ -205,7 +209,10 @@ def _strip_frontmatter(text: str) -> tuple[str, str]:
             continue
         header = lines[1:i]
         if not all(
-            not ln.strip() or ln.strip().startswith("#") or _YAML_KEY_RE.match(ln)
+            not ln.strip()
+            or ln.strip().startswith("#")
+            # Q:/A:/Note: are common prose questions, not YAML metadata.
+            or (_YAML_KEY_RE.match(ln) and ln.strip().split(":", 1)[0] not in ("Q", "A", "Note"))
             for ln in header
         ):
             return text, ""
@@ -259,6 +266,29 @@ def _collapse(text: str) -> str:
     return text.strip()
 
 
+def _protect_fences(text: str) -> tuple[str, dict[str, str]]:
+    """Hide Markdown code fences so CTA/tag rules never touch code samples."""
+    parts = text.split("```")
+    if len(parts) < 3:
+        return text, {}
+    protected: dict[str, str] = {}
+    out: list[str] = []
+    for i, part in enumerate(parts):
+        if i % 2 == 1:
+            ph = f"\x00F{i}\x00"
+            protected[ph] = part
+            out.append(ph)
+        else:
+            out.append(part)
+    return "".join(out), protected
+
+
+def _restore_fences(text: str, protected: dict[str, str]) -> str:
+    for ph, val in protected.items():
+        text = text.replace(ph, val)
+    return text
+
+
 def normalize(raw: str, *, title: str = "") -> Cleaned:
     """Return plain text with deterministic artifacts removed.
 
@@ -270,7 +300,7 @@ def normalize(raw: str, *, title: str = "") -> Cleaned:
         return Cleaned("")
 
     flags: list[str] = []
-    text = raw
+    text, protected = _protect_fences(_collapse(raw))
 
     text, fm_flag = _strip_frontmatter(text)
     if fm_flag:
@@ -279,7 +309,7 @@ def normalize(raw: str, *, title: str = "") -> Cleaned:
     # Loop until stable: feeds double-escape (`&amp;lt;` → `&lt;` → `<`), and
     # a single pass would leave the second layer for the *next* run to strip —
     # which is exactly how a "second cleaning empties the body" bug hides.
-    for _ in range(5):
+    for _ in range(10):
         unescaped = html.unescape(text)
         if unescaped == text:
             break
@@ -320,6 +350,7 @@ def normalize(raw: str, *, title: str = "") -> Cleaned:
         flags.append("boilerplate")
 
     text = _collapse(text)
+    text = _restore_fences(text, protected)
     return Cleaned(
         text=text,
         flags=tuple(dict.fromkeys(flags)),
@@ -363,6 +394,18 @@ def apply_cleaning(art: dict) -> tuple[Cleaned, ContentVerdict]:
     return cleaned, verdict
 
 
+def clean_for_write(art: dict, old_text: str = "") -> Cleaned | None:
+    """Clean a replacement body, but refuse to empty substantial prose.
+
+    ``old_text`` is only needed for paths replacing an existing body (manual
+    edit, full-text import, basket rescue).  New inserts pass ``""``.
+    """
+    cleaned, verdict = apply_cleaning(art)
+    if verdict.state == "empty" and len(old_text.strip()) >= SHORT_CHARS:
+        return None
+    return cleaned
+
+
 __all__ = [
     "CLEANER_ID",
     "SHORT_CHARS",
@@ -371,6 +414,7 @@ __all__ = [
     "ContentVerdict",
     "apply_cleaning",
     "assess",
+    "clean_for_write",
     "clean_boilerplate",
     "normalize",
 ]

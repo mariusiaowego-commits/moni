@@ -144,10 +144,21 @@ def update_article(article_id: str, body: ArticleUpdate) -> Article:
             else body.published_at
         )
     if body.content is not None:
-        from moni.fetch.content import apply_cleaning
+        from moni.fetch.content import clean_for_write
+
+        row = conn.execute(
+            "SELECT raw_content FROM articles WHERE id = ?", (article_id,)
+        ).fetchone()
+        if row is None:
+            raise NotFoundError(message=f"Article {article_id!r} not found")
+
+        old_text = row["raw_content"] or ""
 
         art: dict = {"title": body.title or "", "content": body.content}
-        apply_cleaning(art)
+        if clean_for_write(art, old_text) is None:
+            raise BadRequestError(
+                message="导入的正文清洗后为空，已拒绝写入；请检查文件内容",
+            )
         updates += [
             "raw_content = ?",
             "content_state = ?",

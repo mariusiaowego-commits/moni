@@ -606,10 +606,19 @@ def import_fulltext(article_id: str, body: ImportFulltextRequest) -> dict[str, A
 
     # A manually imported body still goes through the cleaner: markdown files
     # copied out of wechat/websites carry the same CTAs and zero-width chars.
-    from moni.fetch.content import apply_cleaning
+    from moni.fetch.content import clean_for_write
+
+    row = conn.execute(
+        "SELECT raw_content FROM articles WHERE id = ?", (article_id,)
+    ).fetchone()
+    if row is None:
+        raise NotFoundError(message=f"Article {article_id!r} not found")
 
     art: dict = {"title": "", "content": content}
-    apply_cleaning(art)
+    if clean_for_write(art, row["raw_content"] or "") is None:
+        raise BadRequestError(
+            message="导入的正文清洗后为空，已拒绝写入；请检查文件内容",
+        )
 
     conn.execute(
         """

@@ -16,6 +16,7 @@ from __future__ import annotations
 import pytest
 
 from moni.fetch.content import clean_boilerplate, normalize
+from moni.fetch.content import clean_for_write
 
 
 class TestFrontmatter:
@@ -38,6 +39,11 @@ class TestFrontmatter:
         cleaned = normalize(raw)
         assert cleaned.text == raw
         assert cleaned.flags == ()
+
+    def test_qa_lines_are_not_frontmatter(self):
+        raw = "---\nQ: 什么是 moni？\nA: 一个资讯聚合工具。\n---\n正文开始。"
+        assert normalize(raw).text == raw
+        assert normalize(raw).flags == ()
 
 
 class TestEntities:
@@ -91,6 +97,10 @@ class TestHtml:
         raw = "营收 < 100 亿，同比 +12%"
         assert normalize(raw).text == raw
 
+    def test_cjk_comparison_prose_survives(self):
+        raw = "当 a<b 且 b>c 时，说明序列单调递增，可用于二分查找。"
+        assert normalize(raw).text == raw
+
 
 class TestInvisibleCharacters:
     def test_zero_width_removed(self):
@@ -125,6 +135,14 @@ class TestBoilerplate:
         raw = "正文第一段。\n编辑｜张雨忻\n正文第二段。"
         assert normalize(raw).text == "正文第一段。\n正文第二段。"
 
+    def test_editor_sentence_survives(self):
+        raw = "编辑完规则后，如果你想让它们在系统重启后仍然生效，需要持久化配置。"
+        assert normalize(raw).text == raw
+
+    def test_proofread_sentence_survives(self):
+        raw = "校对工作通常由资深编辑完成，需要在付印前完成三轮。"
+        assert normalize(raw).text == raw
+
     @pytest.mark.parametrize(
         "line",
         [
@@ -157,6 +175,17 @@ class TestIdempotency:
         assert normalize(once.text).flags == ()
 
 
+class TestWriteGuard:
+    def test_refuses_to_empty_a_long_body(self):
+        art = {"title": "t", "content": "本文来源：某某公众号\n" * 25}
+        assert clean_for_write(art, "正文" * 300) is None
+
+    def test_allows_new_short_cta_to_collapse(self):
+        art = {"title": "t", "content": "点击关注公众号「x」"}
+        assert clean_for_write(art, "") is not None
+        assert art["content_state"] == "empty"
+
+
 class TestPlainTextKept:
     def test_mid_text_dashes_kept(self):
         raw = "第一部分\n\n---\n\n第二部分"
@@ -164,3 +193,15 @@ class TestPlainTextKept:
 
     def test_blank_lines_collapsed(self):
         assert normalize("甲\n\n\n\n乙").text == "甲\n\n乙"
+
+    def test_code_fence_kept_verbatim(self):
+        raw = (
+            "正文开头。\n\n"
+            "```html\n<div class=\"box\"><p>hello</p></div>\n```\n\n"
+            "正文结尾。"
+        )
+        cleaned = normalize(raw)
+        assert "<div class=\"box\">" in cleaned.text
+        assert "<p>hello</p>" in cleaned.text
+        assert "正文开头。" in cleaned.text
+        assert cleaned.flags == ()

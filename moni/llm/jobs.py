@@ -320,9 +320,11 @@ def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> N
     # produces a hallucinated summary, so fail the job here.  Briefs and share
     # tasks treat a failed per-article job as "missing body", never as a
     # whole-brief failure.
-    if article_dict.get("content_state") == "empty" or not str(
-        article_dict.get("raw_content") or ""
-    ).strip():
+    has_body = bool(
+        article_dict.get("content_state") != "empty"
+        and str(article_dict.get("raw_content") or "").strip()
+    )
+    if task_type in ("summary", "brief") and not has_body:
         _mark_failed(
             job_id,
             "no_body: 正文为空（仅标题或纯标点），跳过大模型调用",

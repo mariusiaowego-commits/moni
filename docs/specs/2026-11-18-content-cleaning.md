@@ -314,3 +314,32 @@ frontmatter 内嵌正文 1、HTML 残留 8。
 
 测试：`tests/test_content_normalize.py`、`test_content_assess.py`、`test_content_upgrade.py`、
 `test_cleaning_service.py`、`test_cleaning_api.py`。
+
+### 10.5 独立 audit 修复记录（PR #238）
+
+独立 read-only audit 结论：无 P0，4 条 P1 必修。全部修复并有回归：
+
+| finding | 修复 | 回归 |
+| --- | --- | --- |
+| 只补状态的行也清空 `summary/ai_summary/brief_*`（生产副本 37/125/48 → 0） | UPDATE 拆成「内容列」与「派生文本列」两组，只有 `new != old` 才清派生文本 | `test_backfill_keeps_derived_text` |
+| 「会清空长正文」护栏只在清洗服务里，导入全文/手工编辑/菜篮子 rescue/批量 HTML 清洗裸写 | 新增 `clean_for_write(art, old_text)`，五条写路径统一调用 | `TestWriteGuard` + `test_import_fulltext_guard_rejects_empty_result` |
+| 「编辑/责编/校对」按前缀误删正文（真实案例：`3978a92ddfe933d3` 的「编辑完规则后…」） | 从 `_FOOTER_START` 移除这三个词，改为短署名形态正则 | `test_editor_sentence_survives` / `test_proofread_sentence_survives` |
+| `a<b 且 b>c` 被当 HTML 标签闭合吃掉 | 标签体只允许属性形态，不接受比较表达式正文 | `test_cjk_comparison_prose_survives` |
+
+顺手修复的 P2：Markdown 代码围栏原样保留；`Q:/A:` 不当 YAML frontmatter；
+测试数据只按 `source IN ('testsrc','s')` 白名单归档；`no_body` 只拦 `summary/brief`，
+不再影响 `fact_check/fact_check_plus`；前端 `loadCleaning` 校验 HTTP 状态、`states` 缺失防崩；
+migration 048 只在 `content_contract IS NULL` 时写入；emptied 行也打 `content_cleaner`，
+避免「待清洗」永不收敛；UPDATE 带 `raw_content` 旧值条件（lost-update 防护）。
+
+生产库最新副本复演（修复后，5,330 行）：
+
+| 步骤 | changed | backfilled | emptied | 摘要保留 |
+| --- | ---: | ---: | ---: | --- |
+| apply1 | 875 | 4,455 | 0 | `summary/ai/brief` 只按正文变化清 |
+| apply2 | 5 | 0 | 0 | 不再变化 |
+| apply3 | 0 | 0 | 0 | 幂等 |
+
+> `changed=875/872` 与 §10.3 的 `880` 差异来自 audit 修复后规则更保守：
+> 署名形态、属性形态标签、代码围栏和 `Q:/A:` 防护少删了少量文本；apply2 的 5 篇是
+> 旧 cleaner 输出中残留的多余空白，第三次为 0。

@@ -405,12 +405,20 @@ function app() {
     async loadCleaning() {
       try {
         const [overview, runs] = await Promise.all([
-          fetch('/api/cleaning/overview', { credentials: 'same-origin' }).then(r => r.json()),
-          fetch('/api/cleaning/runs?limit=10', { credentials: 'same-origin' }).then(r => r.json()),
+          fetch('/api/cleaning/overview', { credentials: 'same-origin' }).then(async r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+          }),
+          fetch('/api/cleaning/runs?limit=10', { credentials: 'same-origin' }).then(async r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+          }),
         ]);
         this.cleaningData = overview;
-        this.cleaningRuns = runs || [];
-        if (!this.cleaningRun && this.cleaningRuns.length) this.cleaningRun = this.cleaningRuns[0];
+        this.cleaningRuns = Array.isArray(runs) ? runs : [];
+        if (!this.cleaningRun && this.cleaningRuns.length) {
+          this.cleaningRun = this.cleaningRuns[0];
+        }
         this.cleaningError = '';
       } catch (e) {
         this.cleaningError = '数据清洗概览加载失败';
@@ -482,8 +490,8 @@ function app() {
       const lines = [
         `数据清洗：共 ${this._cleaningNum(d.total)} 篇，` +
         `待清洗 ${this._cleaningNum(d.pending)} 篇，` +
-        `空正文 ${this._cleaningNum(d.states.empty || 0)} 篇，` +
-        `短稿 ${this._cleaningNum(d.states.short || 0)} 篇。`,
+        `空正文 ${this._cleaningNum(d.states?.empty || 0)} 篇，` +
+        `短稿 ${this._cleaningNum(d.states?.short || 0)} 篇。`,
       ];
       if (run) {
         lines.push(

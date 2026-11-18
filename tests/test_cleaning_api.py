@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -117,3 +119,29 @@ class TestEndpoints:
             json={"contract": "full_text"},
         )
         assert response.status_code == 404
+
+    def test_import_fulltext_guard_rejects_empty_result(self, client):
+        file_path = Path.home() / "Documents" / "moni-clean-import-empty.md"
+        content = "本文来源：某某公众号\n" * 25
+        conn = get_db()
+        conn.execute(
+            "UPDATE articles SET raw_content = ? WHERE id = 'a1'",
+            ("正文" * 300,),
+        )
+        conn.commit()
+
+        with (
+            patch("moni.web.routes.articles._resolve_user_home", return_value=Path("/tmp")),
+            patch.object(Path, "exists", return_value=True),
+            patch.object(Path, "read_text", return_value=content),
+        ):
+            response = client.post(
+                "/api/articles/a1/import-fulltext",
+                json={"file_path": str(file_path)},
+            )
+        assert response.status_code == 400
+        conn = get_db()
+        row = conn.execute(
+            "SELECT raw_content FROM articles WHERE id = 'a1'"
+        ).fetchone()
+        assert row[0] == "正文" * 300

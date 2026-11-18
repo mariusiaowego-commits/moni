@@ -112,11 +112,11 @@ class ArticleRepository:
         # v1.0.5.20: 建立 url -> article_id 的映射，用于记录 keyword_hits
         url_to_id: dict[str, str] = {}
 
-        from ..fetch.content import UPGRADE_MIN_CHARS, apply_cleaning
+        from ..fetch.content import UPGRADE_MIN_CHARS, clean_for_write
 
         for art in articles:
             if not art.get("content_cleaner"):
-                apply_cleaning(art)
+                clean_for_write(art)
 
             title: str = art["title"]
             url: str = art["url"]
@@ -455,7 +455,7 @@ class ArticleRepository:
         writes that wouldn't change anything).
         """
         # Local import: avoid pulling bs4 at module-import time.
-        from ..fetch.content import CLEANER_ID, apply_cleaning
+        from ..fetch.content import CLEANER_ID, clean_for_write
 
         conn = get_db()
         rows = conn.execute(
@@ -475,7 +475,8 @@ class ArticleRepository:
             scanned += 1
             old = row["raw_content"] or ""
             art = {"title": row["title"], "raw_content": old}
-            apply_cleaning(art)
+            if clean_for_write(art, old) is None:
+                continue
             new = art["content"]
             if new != old or row["content_cleaner"] != CLEANER_ID:
                 conn.execute(

@@ -12,7 +12,7 @@
 **规则**（`moni/fetch/content.py`，纯函数、幂等）：YAML frontmatter → HTML 实体（循环解到稳定）
 → HTML（仅当块级标签 ≥8 且标记占比 ≥5% 才走块级抽取，否则就地剥标签）→ 伪标签（只认真实 HTML 标签名）
 → 零宽字符 → U+FFFD → 公众号尾巴（行首页脚整行删 / 短行版权声明整行删 / 行尾 CTA 截断）
-→ 空白压缩（含 `\u00a0`）。
+→ 空白压缩（含 `\u00a0`，Markdown 代码围栏内容原样保留）。
 
 **修掉的真 bug**（全部在生产库上复现过）：
 
@@ -31,8 +31,16 @@
 净减 **47,551** 字、会清空长正文而跳过 0 篇、归档测试数据 4 条、二次执行 `changed=0`。
 杂质命中：公众号尾巴 494、实体 82、零宽 84、乱码 55、frontmatter 7（另有 1 篇内嵌正文未自动处理）、HTML 残留 8。
 
-**测试**：`pytest tests/` → **2089 passed, 2 skipped**（沙箱内；
-`test_039_upgrades_a_db_built_by_old_code` 需沙箱外跑，单跑 33 passed）。
+**独立 audit 后修复**（2026-11-18，4 条 P1 全修并各有回归）：
+只补状态的行不再误清 `summary/ai_summary/brief_*`；五条写路径统一「会清空长正文就拒绝写入」护栏；
+「编辑完规则后…」等正文句不再被当署名行删除；`a<b 且 b>c` 不再被当 HTML 标签吃掉。
+顺手修复：代码围栏原样保留、`Q:/A:` 不当 YAML、测试数据只按 `testsrc/s` 白名单归档、
+`no_body` 只拦摘要/简报不再拦事实核查、前端错误 JSON 与 `states` 缺失防崩、
+migration 048 只在 `content_contract IS NULL` 时写入。
+
+**测试**：`pytest tests/ --deselect <2 条环境失败>` → **2108 passed, 2 skipped**。
+`test_showcase…` 因当前虚拟环境缺 `PIL` 失败（与 PR 无关）；`test_039…` 需主仓 `.git` 建临时 worktree，
+沙箱内失败原因与既有记录一致，audit 单跑 33 passed。
 
 **文档**：`docs/specs/2026-11-18-content-cleaning.md`（方案+落地记录）、
 `docs/specs/2026-11-18-content-cleaning-options.md`（甲/乙/丙对比）、

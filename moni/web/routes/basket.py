@@ -130,13 +130,14 @@ def rescue_basket_item(basket_id: str, body: BasketRescueRequest) -> dict:
 
     # INSERT INTO articles (INSERT OR IGNORE 防冲突)
     try:
-        from moni.fetch.content import apply_cleaning
+        from moni.fetch.content import clean_for_write
 
         art: dict = {
             "title": basket["title"],
             "content": basket.get("raw_content"),
         }
-        apply_cleaning(art)
+        # Basket rescue must not turn a substantive body into an empty row.
+        clean_for_write(art, basket.get("raw_content") or "")
 
         conn.execute(
             """INSERT OR IGNORE INTO articles

@@ -19,10 +19,11 @@ CREATE INDEX IF NOT EXISTS idx_articles_content_state ON articles(content_state)
 
 ALTER TABLE sources ADD COLUMN content_contract TEXT;
 UPDATE sources SET content_contract = 'snippet'
- WHERE name IN ('bestblogs', 'bestblog-x', 'bestblog-podcast', 'bestblog-yt', 'qbitai');
+ WHERE name IN ('bestblogs', 'bestblog-x', 'bestblog-podcast', 'bestblog-yt', 'qbitai')
+   AND content_contract IS NULL;
 UPDATE sources SET content_contract = 'short_form'
- WHERE name IN ('xbot_feed', 'xwatch', 'follow_builders')
-    OR url LIKE '%36kr.com%';
+ WHERE (name IN ('xbot_feed', 'xwatch', 'follow_builders') OR url LIKE '%36kr.com%')
+   AND content_contract IS NULL;
 
 CREATE TABLE IF NOT EXISTS cleaning_runs (
     id                  TEXT PRIMARY KEY,
