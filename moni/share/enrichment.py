@@ -1004,7 +1004,7 @@ def _ensure_quality(
     bb_score is display-preferred but we still store a quality_score when
     missing so brief templates never show empty 「—」.
     """
-    # 045: quality_score now belongs to the Pin column (pin_heuristic_v2).
+    # 045+: quality_score now belongs to the Pin column (pin_heuristic_v3).
     if "quality_formula" in row.keys() and row["quality_formula"]:
         return True
     if row["quality_score"] is not None:
