@@ -4,6 +4,58 @@
 
 ---
 
+## 已发布: **v1.0.101 — 事实核查提示词改人话结论 + 详情页两档展示** (2026-11-18 · PR #236 · tag `v1.0.101` · commit `70bc017`)
+
+**症状**：分享图里的核查行仍是「温度 [0,2]、top_p [0,1]…均与文档一致」；详情页接口
+`GET /api/articles/{id}` 的返回 key 里没有任何 `fact_check_*`，20 篇有结论的文章前端一直空白。
+
+**改动**：
+
+- `fact_check.md`：1-3 条最值得核的主张；依据类型四档（文内矛盾 / 公开常识 / 模型记忆 /
+  无依据）；无证据只能「无法验证」，不许判「错误」；全文 ≤600 字。
+- `fact_check_plus.md`：`conclusion` 只出标签；新增 `thesis`（≤40 字）与
+  `evidence.source_date`；`summary` 2-3 句 ≤150 汉字，回答"能不能引用 / 依据多硬 / 注意什么"。
+- `jobs.py` + migration 048：落库 `fact_check_thesis`；摘要上限 120→150；【无需核查】档也写 thesis。
+- `enrichment.py`：离线档禁【已核实】；勾「深度事实核查」时补齐联网核查（最多等 180 秒）。
+- web：`Article` 增加 9 个 fact_check 字段；结论框标「联网核查 · 有出处」/「快速核查 ·
+  未联网，模型推断」，显示 `fact_check_how` 与 `thesis`；证据项显示 verdict / claim / 来源日期。
+- `share/estimate`：新增 `articles_missing_summary` 与 `articles_missing_web_fact_check` 预检。
+
+**审计**：grok 只读三轮 —— `APPROVE WITH NITS`（5 条 P2）→ 修完 → `APPROVE WITH NITS`
+（3 条 P3）→ 修完 → 终审 **`APPROVE`**。合并前确认 `base = main@e5975a3`（最新 main）、
+GitHub `mergeable_state=clean`。
+
+**测试**：定向 185 passed；全量 **2039 passed + 2 skipped + 2 环境性 failed**（共 2043 项）。
+`test_migration_039` 在沙箱内因
+`git worktree add` 无权限失败，沙箱外 **33 passed**；`test_worker_lock` 满载偶发一次，
+单跑 **1 passed**。
+
+**发布**：squash `70bc017` · tag `v1.0.101` · 备份
+`data/backups/news.db.pre-v1.0.101-20261118-163420` · `python3 -m moni.db.migrate`
+→ schema **48** · 重启 8900（PID **54877**）→ `/api/service/info` 报
+`v1.0.101 / 70bc017 / schema 48 / 5330 articles / worktree_dirty=false`。
+
+**生产实测**：
+
+- 详情接口：`/api/articles/7ab82a579114a88d` 返回 9 个 fact 字段；`fact_checked_at`
+  可被 Pydantic 解析，脏值回退 `null`。
+- 证据接口：`/api/fact-check-plus/evidence/7ab82a579114a88d` 返回 `claim/verdict/source_date/
+  days_old/timeliness`。
+- UI：首页实际返回「联网核查 · 有出处」「快速核查 · 未联网，模型推断」「生成前提示」三段文案。
+- 预检：`report_png` + `include_fact_check=true` 返回 `articles_missing_summary=0 /
+  articles_missing_web_fact_check=0`。
+- 真实联网核查：`POST /api/articles/13525e80d88e7816/fact-check-plus` 两次均 `failed`，
+  原因是 hermes `session_replay_gap` → 熔断器打开（`reset in 583s`），不是本 PR 代码路径；
+  该项标 **failed**，待熔断恢复后重跑。
+
+**已知边界**：
+
+- 历史行不回填：旧 `fact_check_summary` 仍 ≤120 字，旧 evidence 的 `days_old` 仍是 0
+  （展示为 fresh），只有新跑的核查才用新规则。
+- 其它分支迁移号冲突：`feat/content-cleaning` 也占用 `048`；PR #225 的
+  `046_bv_direction.sql` 与 main 的 `046_fact_check_summary.sql` 撞号。两者都需 rebase 后
+  改为 049/050 并同步 `_CURRENT_VERSION`。
+
 ## 已发布: **分享事实核查改人话结论 + 核查器 summary** (2026-11-18 · PR #232/#233 · commit `f1c26da` · 未打 tag)
 
 **症状**：PNG 报告的事实核查行变成「温度 [0,2]、top_p [0,1]、频率惩罚 [-2,2] …均与官方文档一致」。
