@@ -45,45 +45,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["fact-check-plus"])
 
-# ── Domain whitelist (服务端常量, 双闸 #2) ──────────────────────────────
-# Day 2 从 moni/llm/jobs.py 抽出到这里 (单一职责: 端点路由才拥有).
+# ── Domain tiers (服务端判定, 双闸 #2) ────────────────────────────────
+# v1.0.100: 白名单搬进 config/fact_check_domains.toml，按三档判定。
+# 这里只做兼容再导出，判定逻辑在 moni/llm/domains.py。
 # Spec: docs/specs/2026-08-11-fact-check-plus-v1.0.22.md §3.2
-DOMAIN_WHITELIST: set[str] = {
-    # 监管机构
-    "pbc.gov.cn",
-    "cbirc.gov.cn",
-    "csrc.gov.cn",
-    "samr.gov.cn",
-    "stats.gov.cn",
-    "gov.cn",
-    "miit.gov.cn",
-    # 交易所
-    "sse.com.cn",
-    "szse.cn",
-    "hkex.com.hk",
-    # 主流财经媒体
-    "stcn.com",
-    "cs.com.cn",
-    "cnstock.com",
-    "jjckb.cn",
-    "xinhuanet.com",
-    "people.com.cn",
-    "cctv.com",
-    "china.com.cn",
-    "gmw.cn",
-    "cls.cn",
-    "yicai.com",
-    "caixin.com",
-    "21jingji.com",
-    # 央广/财经
-    "cnr.cn",
-    "jrj.sh.gov.cn",
-}
-DOMAIN_WHITELIST_REGEX: list[str] = [
-    r".*\.gov\.cn$",
-    r".*\.sse\.com\.cn$",
-    r".*\.szse\.cn$",
-]
+from moni.llm.domains import (  # noqa: E402
+    DOMAIN_WHITELIST,
+    DOMAIN_WHITELIST_REGEX,
+    evaluate_authority,
+    registrable_domain,
+)
+from moni.llm.fact_check_tags import with_tag  # noqa: E402
 
 MAX_BATCH_SIZE: int = 20
 
@@ -139,37 +111,29 @@ def compute_timeliness(days_old: int | None) -> str:
 
 
 def apply_timeliness(conclusion: str, days_old: int | None) -> str:
-    """闸 3: 31-90 天加后缀, 91+ 强降级为【存疑】. NULL/≤30 不动."""
+    """闸 3: 31-90 天加后缀, 91+ 降级为【存疑】. NULL/≤30 不动.
+
+    v1.0.100: 降级保留原说明文字（与 Gate 2 的降级行为一致），
+    不再把整段结论替换成一个标签。
+    """
     if days_old is None or days_old <= TIMELINESS_FRESH_MAX_DAYS:
         return conclusion
     if days_old <= TIMELINESS_WARN_MAX_DAYS:
         if TIMELINESS_STALE_SUFFIX in (conclusion or ""):
             return conclusion
         return f"{conclusion}{TIMELINESS_STALE_SUFFIX}"
-    return "【存疑】"
+    return with_tag("【存疑】", conclusion)
 
 
 def is_in_whitelist(domain: str) -> bool:
-    """双闸 #2 判定: 域名精确 / 后缀匹配 / 正则匹配其一即视为权威源.
+    """单域是否属于一手来源（tier A）。
 
-    Examples:
-        is_in_whitelist("pbc.gov.cn")             -> True
-        is_in_whitelist("www.pbc.gov.cn")         -> True  (后缀)
-        is_in_whitelist("sub.stats.gov.cn")       -> True  (regex .gov.cn)
-        is_in_whitelist("36kr.com")               -> False
+    v1.0.100 起不再等同于"过了 Gate 2"——Gate 2 走
+    ``evaluate_authority``（≥2 注册域且 ≥1 一手源，或 ≥3 编辑制媒体）。
     """
-    d = (domain or "").lower().lstrip(".")
-    if not d:
-        return False
-    if d in DOMAIN_WHITELIST:
-        return True
-    for w in DOMAIN_WHITELIST:
-        if d == w or d.endswith("." + w):
-            return True
-    for pat in DOMAIN_WHITELIST_REGEX:
-        if re.fullmatch(pat, d):
-            return True
-    return False
+    from moni.llm.domains import is_in_whitelist as _is_tier_a
+
+    return _is_tier_a(domain)
 
 
 # ── Pydantic request models ──────────────────────────────────────────────

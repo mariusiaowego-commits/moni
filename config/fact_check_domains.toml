@@ -1,0 +1,121 @@
+# 事实核查交叉验证域名分档（v1.0.100）
+#
+# tier_a  一手来源：1 个即可作为权威支撑
+# tier_a_brand  业务方/主办方官方页：只对其自身公告算一手
+# tier_b  编辑制媒体：计独立域，但需要凑够数量
+# tier_c  不计入（显式列出只为报表可读；未收录域名同样按不计处理）
+#
+# 判定：≥2 个不同注册域且 ≥1 个 tier_a，或 ≥3 个不同 tier_b 且口径一致。
+# 注册域按 eTLD+1 计算，weixin.qq.com 与 news.qq.com 视作同一个 qq.com，
+# 避免同一集团的多个页面被当成独立来源。
+#
+# 维护：每月跑 `moni fact-check-domains --report` 出未收录域名 Top 20，
+# 出现 ≥2 次的进人工定级队列。不自动收录。
+
+tier_a = [
+  # 监管与政府
+  "pbc.gov.cn",
+  "nfra.gov.cn",
+  "cbirc.gov.cn",
+  "csrc.gov.cn",
+  "samr.gov.cn",
+  "stats.gov.cn",
+  "miit.gov.cn",
+  "mof.gov.cn",
+  "safe.gov.cn",
+  "gov.cn",
+  # 交易所与公告
+  "sse.com.cn",
+  "szse.cn",
+  "hkex.com.hk",
+  "cninfo.com.cn",
+  # 公告 wire
+  "businesswire.com",
+  "prnewswire.com",
+  "globenewswire.com",
+  # 论文原文
+  "arxiv.org",
+]
+
+tier_a_brand = [
+  "weixin.qq.com",
+  "tencent.com",
+  "cmbchina.com",
+  "boc.cn",
+  "icbc.com.cn",
+  "ccb.com",
+  "abchina.com",
+  "bankcomm.com",
+  "cmbc.com.cn",
+  "spdb.com.cn",
+  "citicbank.com",
+  "cib.com.cn",
+  "hxb.com.cn",
+  "pab.com.cn",
+  "cebbank.com",
+  "bankofbbg.com",
+  "qualcomm.cn",
+  "apple.com",
+  "anthropic.com",
+  "openai.com",
+  "google.com",
+  "microsoft.com",
+]
+
+tier_a_regex = [
+  '.*\.gov\.cn$',
+  '.*\.sse\.com\.cn$',
+  '.*\.szse\.cn$',
+]
+
+tier_b = [
+  # 央媒与党媒
+  "xinhuanet.com",
+  "news.cn",
+  "people.com.cn",
+  "cctv.com",
+  "cnr.cn",
+  "gmw.cn",
+  "china.com.cn",
+  "chinanews.com.cn",
+  # 财经主流
+  "jjckb.cn",
+  "stcn.com",
+  "cs.com.cn",
+  "cnstock.com",
+  "yicai.com",
+  "caixin.com",
+  "21jingji.com",
+  "cls.cn",
+  "nbd.com.cn",
+  # 门户财经
+  "sina.com.cn",
+  "sina.cn",
+  "eastmoney.com",
+  "qq.com",
+  "163.com",
+  "ifeng.com",
+  "sohu.com",
+  # 科技与同业
+  "36kr.com",
+  "huxiu.com",
+  "qbitai.com",
+  "mpaypass.com.cn",
+  "weforum.org",
+  "asianbankingandfinance.net",
+  "zhiding.cn",
+  "fintechinchina.com",
+  "unbank.info",
+]
+
+tier_c = [
+  "baike.baidu.com",
+  "zhihu.com",
+  "toutiao.com",
+  "wikipedia.org",
+  "weibo.com",
+  "xueqiu.com",
+  "csdn.net",
+  "jianshu.com",
+  "bilibili.com",
+]
