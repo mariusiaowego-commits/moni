@@ -5145,6 +5145,8 @@ body.has-float-layer .tags-overflow { display: none !important; }
 }
 .ai-msg-body.markdown p { margin: 0 0 0.7em; }
 .ai-msg-body.markdown p:last-child { margin-bottom: 0; }
+.ai-msg-body.is-streaming .ai-structured-list > li { animation: none; }
+.ai-stream-tail:empty { display: none; }
 .ai-msg-body.markdown h1, .ai-msg-body.markdown h2, .ai-msg-body.markdown h3 { font-size: 14px; margin: 0.8em 0 0.4em; }
 .ai-msg-body.markdown ul, .ai-msg-body.markdown ol { margin: 0.4em 0 0.7em; padding-left: 1.3em; }
 .ai-msg-body.markdown code { background: var(--muted); padding: 1px 4px; border-radius: 3px; font-size: 0.9em; }

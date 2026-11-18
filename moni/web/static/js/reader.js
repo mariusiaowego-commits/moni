@@ -591,6 +591,8 @@
     readerStreamJobId: null,
     readerStreamMsgId: null,
     readerStreamSource: null,
+    // 用户是否贴着底部：贴着才跟着流式输出滚动，上滑阅读时不被拽回。
+    readerAiPinned: true,
     readerBankParts: [],
     readerRawOpen: false,
     readerImportOpen: false,
@@ -719,14 +721,47 @@
         .then((r) => r.json())
         .then((data) => {
           this.readerConversation = data.conversation || null;
-          this.readerMessages = Array.isArray(data.messages) ? data.messages : [];
+          this.readerMessages = Array.isArray(data.messages)
+            ? data.messages.map((m) => this.readerInitMessage(m))
+            : [];
           if (this.readerConversation) {
             this.readerMarkRead();
             this.readerResumeStream();
+            this.readerAiPinned = true;
             this.readerScrollToBottom();
           }
         })
         .catch((err) => console.error('readerLoadConversation failed:', err));
+    },
+
+    /**
+     * settled / tail 必须一开始就存在 —— Alpine 3 对后加的属性不响应。
+     * settled = 已经成型的块（渲染一次就冻结），tail = 还在写的最后一块。
+     */
+    readerInitMessage(m) {
+      const msg = { ...m, settled: '', tail: '' };
+      if (msg.role === 'assistant') msg.settled = String(msg.content || '');
+      return msg;
+    },
+
+    /**
+     * 在空行处切一刀，且只切代码围栏成对的位置 —— 否则 settled 里会留下
+     * 一个没闭合的 ```，整段会被渲染成代码块。
+     */
+    readerSplitStream(msg) {
+      const text = String(msg.content || '');
+      let idx = text.lastIndexOf('\n\n');
+      while (idx > 0) {
+        const head = text.slice(0, idx);
+        if ((head.match(/```/g) || []).length % 2 === 0) {
+          msg.settled = text.slice(0, idx).trimEnd();
+          msg.tail = text.slice(idx).trimStart();
+          return;
+        }
+        idx = text.lastIndexOf('\n\n', idx - 1);
+      }
+      msg.settled = '';
+      msg.tail = text;
     },
 
     readerResumeStream() {
@@ -746,7 +781,9 @@
       if (!res.ok) throw new Error('创建会话失败');
       const data = await res.json();
       this.readerConversation = data.conversation;
-      this.readerMessages = Array.isArray(data.messages) ? data.messages : [];
+      this.readerMessages = Array.isArray(data.messages)
+        ? data.messages.map((m) => this.readerInitMessage(m))
+        : [];
       return this.readerConversation;
     },
 
@@ -798,6 +835,8 @@
           id: data.assistant_message_id,
           role: 'assistant',
           content: '',
+          settled: '',
+          tail: '',
           job_id: data.job_id,
           status: 'pending',
           reasoning: this.readerReasoning,
@@ -833,8 +872,9 @@
             msg._pending = '';
             msg.content = data.content || '';
             msg.status = data.status || 'streaming';
+            this.readerSplitStream(msg);
           }
-          this.readerScrollToBottom();
+          this.readerFollowStream();
         } catch (e) { /* ignore */ }
       });
       source.addEventListener('delta', (ev) => {
@@ -842,7 +882,6 @@
           const data = JSON.parse(ev.data);
           const msg = message();
           if (msg) this.readerPushDelta(msg, data.text || '');
-          this.readerScrollToBottom();
         } catch (e) { /* ignore */ }
       });
       source.addEventListener('done', (ev) => {
@@ -852,6 +891,8 @@
           if (msg) {
             this.readerFlushDelta(msg);
             msg.status = 'done';
+            msg.settled = String(msg.content || '');
+            msg.tail = '';
             msg.outputTokens = data.output_tokens || 0;
           }
           this.readerStreaming = false;
@@ -859,7 +900,7 @@
           this.readerStreamMsgId = null;
           this.readerCloseStream();
           this.readerMarkRead();
-          this.readerScrollToBottom();
+          this.readerFollowStream();
           if (data.input_tokens || data.output_tokens) {
             this._notify('info', `AI 完成 · ${data.input_tokens || 0} in / ${data.output_tokens || 0} out`);
           }
@@ -908,7 +949,8 @@
         }
         msg.content = (msg.content || '') + msg._pending.slice(0, 3);
         msg._pending = msg._pending.slice(3);
-        this.readerScrollToBottom();
+        this.readerSplitStream(msg);
+        this.readerFollowStream();
         setTimeout(step, 12);
       };
       step();
@@ -920,6 +962,7 @@
         msg._pending = '';
       }
       msg._typing = false;
+      this.readerSplitStream(msg);
     },
 
     readerStop() {
@@ -953,10 +996,23 @@
     },
 
     readerScrollToBottom() {
-      setTimeout(() => {
+      if (this._scrollFrame) return;
+      this._scrollFrame = requestAnimationFrame(() => {
+        this._scrollFrame = 0;
         const box = this.$refs?.aiMessages || document.querySelector('.ai-messages');
         if (box) box.scrollTop = box.scrollHeight;
-      }, 40);
+      });
+    },
+
+    /** 用户上滑阅读时不再被流式输出拽回底部。 */
+    readerTrackAiScroll(ev) {
+      const box = ev.target;
+      this.readerAiPinned = (box.scrollHeight - box.scrollTop - box.clientHeight) < 48;
+    },
+
+    readerFollowStream() {
+      if (!this.readerAiPinned) return;
+      this.readerScrollToBottom();
     },
 
     readerUpdateProgress(ev) {
