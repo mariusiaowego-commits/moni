@@ -39,7 +39,8 @@
 ③ basket 恢复**有损**（派生数据 / FTS 索引 / 原 `fetched_at` 不恢复）；④ FTS 探针**只报告不自愈**
 （external-content 表无 trigger ⇒ 会漂移，rebuild 需 dad 单独 GO）；⑤ 规则阈值全是**暂定值**，未经标注集标定。
 
-**状态**：**未发布**。代码 + 测试已就绪，**未 commit / 未 push / 未开 PR / 未 merge / 未 tag / 未部署**。
+**状态**：**未发布**。代码 + 测试已就绪并**已 commit**（`0e3f587` + merge `9e38f7a`），
+**PR 待 dad 审批**（未 push / 未开 PR / 未 merge / 未 tag / 未部署）。
 产物 `artifacts/xbot-quality-2026-11-18/`（脱敏候选 41 / 标注模板 41 / 不确定案例 35）**已 gitignore，不入库**
 ⇒ dad 要看请**只读查看**，**填 `annotation-template.json` 的 `dad_verdict`** ⇒ 填完才有真值与指标。
 **待 dad GO**：commit → PR → merge → tag/部署 → G2 配置 → G3 批量处置。

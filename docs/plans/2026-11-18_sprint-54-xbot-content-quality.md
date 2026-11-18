@@ -1,8 +1,10 @@
 # sprint-54 — xbot_feed 劣质内容治理（阶段一）
 
-> **状态：代码与测试已就绪，停在 commit gate 等 dad 批准。**
-> 未 commit / push / PR / merge / tag / 部署 / 未改生产配置 / 未对生产写。
-> sprint-54 · id `26111703` · 2026-11-17 ~ 2026-11-18 · base `fd611761027d5bcacfffb19ee34ec76baf06c477`
+> **状态：已 commit（`0e3f587`）+ 已 merge 最新 `origin/main`（merge commit `9e38f7a`），PR 待 dad 审批。**
+> 未 push / 未开 PR / 未 merge / 未 tag / 未部署 / 未改生产配置 / 未对生产写。
+> sprint-54 · id `26111703` · 2026-11-17 ~ 2026-11-18
+> **base `e5975a3593c69a88c2828f70739b18e4c2adc6c0`**（合并前为 `fd611761027d5bcacfffb19ee34ec76baf06c477`，
+> 已 merge 最新 `origin/main`；`merge-base(head, origin/main)` = `e5975a3` ⇒ **落后 0**）
 
 ## 一句话
 
