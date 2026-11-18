@@ -35,11 +35,11 @@ def test_full_house_is_five():
     assert result.breakdown["scale"] == "0-5"
 
 
-def test_score_never_exceeds_two_decimals_or_five():
+def test_score_never_exceeds_one_decimal_or_five():
     snap = _snap(raw_content=_rich_body(), publisher="某行", published_at="2024-12-31")
     result = heuristic.score_quality(snap)
     assert result.score is not None
-    assert round(result.score, 2) == result.score
+    assert round(result.score, 1) == result.score
     assert 0.0 <= result.score <= 5.0
 
 

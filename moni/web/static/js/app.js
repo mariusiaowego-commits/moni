@@ -4675,7 +4675,7 @@ function app() {
       const q = a.quality || {};
       if (q.status === 'failed') return '—';
       if (q.formula === 'pin_heuristic_v3' && q.status === 'ready' && q.score != null) {
-        return Number(q.score).toFixed(2);
+        return Number(q.score).toFixed(1);
       }
       return '…';
     },
@@ -4687,16 +4687,16 @@ function app() {
       const items = q.breakdown.items || [];
       const rows = [
         '本地算的完整度，5 分制，不评内容好坏',
-        '四项全满才到 5.00，满分即 5.00',
+        '四项全满才到 5.0，满分即 5.0',
       ];
       const byKey = {};
       items.forEach(i => { byKey[i.key] = i; });
-      const fmt = d => `${d >= 0 ? '+' : ''}${Number(d).toFixed(2)}`;
+      const fmt = d => `${d >= 0 ? '+' : ''}${Number(d).toFixed(1)}`;
       if (byKey.length) rows.push(`正文长度：${byKey.length.detail || '—'}，${fmt(byKey.length.delta)}`);
       if (byKey.substance) rows.push(`数字与结构：${byKey.substance.detail || '无'}，${fmt(byKey.substance.delta)}`);
       if (byKey.publisher) rows.push(`发布方：${byKey.publisher.delta ? fmt(byKey.publisher.delta) : '无'}`);
       if (byKey.published_at) rows.push(`发布时间：${byKey.published_at.delta ? fmt(byKey.published_at.delta) : '无'}`);
-      rows.push(`底分 ${Number(q.breakdown.base || 2.5).toFixed(2)}`);
+      rows.push(`底分 ${Number(q.breakdown.base || 2.5).toFixed(1)}`);
       return rows.join('\n');
     },
 
