@@ -232,7 +232,7 @@
               <tr>
                 <th><input type="checkbox" :checked="articlesSubTab === 'all' ? articleAllSelectedOnPage() : pinnedAllSelectedOnPage()" @change="articlesSubTab === 'all' ? articleToggleAllOnPage($event) : pinnedToggleAllOnPage($event)"></th>
                 <th class="pin-col-head" x-show="articlesSubTab === 'all'">Pin</th>
-                <th>标题</th><th>来源</th><th>命中标签</th><th class="quality-col-head" x-show="articlesSubTab === 'pinned'" style="text-align: right;">质量</th><th>原文时间</th><th>抓取时间</th><th style="text-align: right;">操作</th>
+                <th>标题</th><th>来源</th><th>命中标签</th><th class="quality-col-head" x-show="articlesSubTab === 'pinned'" style="text-align: right;">质量分</th><th>原文时间</th><th>抓取时间</th><th style="text-align: right;">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -312,7 +312,15 @@
 
         <div class="pagination-bar">
           <div class="pagination-left">
-            <label class="pagination-label">
+            <label class="pagination-label" x-show="articlesSubTab === 'pinned'">
+              每页:
+              <select x-model.number="pinnedPageSize" @change="pinnedChangePageSize()" class="pagination-select">
+                <template x-for="n in articlesPageSizeOptions" :key="n">
+                  <option :value="n" x-text="n + ' 条'"></option>
+                </template>
+              </select>
+            </label>
+            <label class="pagination-label" x-show="articlesSubTab === 'all'">
               每页:
               <select x-model.number="articlesPageSize" @change="articlesChangePageSize()" class="pagination-select">
                 <template x-for="n in articlesPageSizeOptions" :key="n">
@@ -320,11 +328,14 @@
                 </template>
               </select>
             </label>
-            <span class="pagination-info" x-text="'第 ' + articlesPage + ' 页' + (articlesTotal ? ' · 共 ' + articlesTotal + ' 篇' : '')"></span>
+            <span class="pagination-info" x-show="articlesSubTab === 'pinned'" x-text="'第 ' + pinnedPage + ' 页 · 共 ' + (pinnedTotal || 0) + ' 篇'"></span>
+            <span class="pagination-info" x-show="articlesSubTab === 'all'" x-text="'第 ' + articlesPage + ' 页' + (articlesTotal ? ' · 共 ' + articlesTotal + ' 篇' : '')"></span>
           </div>
           <div class="pagination-right">
-            <button class="btn btn-secondary btn-sm" @click="articlesPrevPage()" :disabled="articlesPage <= 1">上一页</button>
-            <button class="btn btn-secondary btn-sm" @click="articlesNextPage()" :disabled="!articlesHasMore">下一页</button>
+            <button class="btn btn-secondary btn-sm" x-show="articlesSubTab === 'pinned'" @click="pinnedPrevPage()" :disabled="pinnedPage <= 1">上一页</button>
+            <button class="btn btn-secondary btn-sm" x-show="articlesSubTab === 'pinned'" @click="pinnedNextPage()" :disabled="!pinnedHasMore">下一页</button>
+            <button class="btn btn-secondary btn-sm" x-show="articlesSubTab === 'all'" @click="articlesPrevPage()" :disabled="articlesPage <= 1">上一页</button>
+            <button class="btn btn-secondary btn-sm" x-show="articlesSubTab === 'all'" @click="articlesNextPage()" :disabled="!articlesHasMore">下一页</button>
           </div>
         </div>
       </section>
