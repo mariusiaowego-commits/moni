@@ -4,18 +4,52 @@
 
 ---
 
-## 进行中: **v1.0.97 — 质量分 5 分制 + Pin 列头 + 分页修复** (2026-11-18 · 分支 `feat/quality-scale-5`)
+## 已发布: **v1.0.99 — Pin 质量分改 1 位小数** (2026-11-18 · PR #229 · tag `v1.0.99` · commit `a6e8e93`)
+
+实现记录 `docs/plans/2026-11-18_quality-scale-5.md` §6，设计稿 §5 已同步。
+
+- **口径**：`pin_heuristic_v3` 取整 `round(..., 1)`，Pin 列与 tooltip 明细 `toFixed(1)`。
+  公式每项都是 0.1 的整数倍（长度 1.4/1.0/0.6/0.2/−1.1、数字结构 0/0.2/0.4/0.6、
+  发布方 0.3、时间 0.2、底分 2.5），第二位小数恒为 0，故收掉。
+- **不重算**：取值集合不变（`1.4–5.0`），存量行无需 refresh。
+- **缓存**：`index.html` 的 `js/app.js?v=` 推进到 `20261118001`（上次 bump 停在 #219）。
+- **审计**：独立只读审计 **PASS WITH NITS**（3 P3，均为文案/注释）：验收用例 `3.10/5.00/4.80`、
+  css 注释、plan 前文旧口径，已在本 PR 修完。
+- **测试**：`test_scoring_heuristic` / `test_scoring_integration` / `test_scoring_store` /
+  `test_pins` 共 **51 passed**；前端守卫 4 文件 **84 passed**；CI `pytest · py3.12` pass。
+- **发布**：squash merge `a6e8e93` · annotated tag `v1.0.99` · 生产 ff 到 `a6e8e93` ·
+  `com.moni.web` 重启（PID 97496）· `/api/service/info` 报
+  `version=v1.0.99 / commit=a6e8e93 / schema=45 / worktree_dirty=false`。
+- **生产冒烟**：`/static/index.html` 返回 `app.js?v=20261118001`，JS 含 `toFixed(1)`；
+  36 篇 Pin 取值 `1.6–5.0` 全为 1 位小数；浏览器实测第 1 页 20 条、列值
+  `4.6 / 5.0 / 3.6 / 4.0 / 3.8`、分页「第 1 页 · 共 36 篇」。
+
+## 已发布: **v1.0.98 — 分享 PNG prompt 限额与产物回收** (2026-11-18 · PR #226 · tag `v1.0.98` · commit `3b15660`)
+
+另一条线发布。观察证据：tag `v1.0.98` → `3b15660`；生产运行窗口内 `/api/service/info` 报
+`version=v1.0.98 / commit=3b15660 / schema=45 / worktree_dirty=false`（PID 89688）。实现细节见 PR #226。
+
+## 已发布: **v1.0.97 — 质量分 5 分制 + Pin 列头 + 分页修复** (2026-11-18 · PR #227 · tag `v1.0.97` · commit `57af0d3`)
 
 实现记录 `docs/plans/2026-11-18_quality-scale-5.md`，设计稿 §5 已同步。
 
 - **5 分制**：`pin_heuristic_v3`，底分 2.50 + 长度 ≤1.40 + 数字结构 ≤0.60 + 发布方 0.30 +
-  发布时间 0.20，四项全满 5.00，两位小数，仍不设调整分。公式名升版，存量 `v2` 行下次
-  Pin 页加载/refresh 时重算。
+  发布时间 0.20，四项全满 5.00，仍不设调整分（当时两位小数，v1.0.99 起改 1 位）。
+  公式名升版，存量 `v2` 行加载/refresh 时重算。
 - **列头**：「质量」→「质量分」，Pin tab 内显示。
-- **分页**：修掉 Pin 子标签复用「全部文章」分页状态的问题（原来点上一页/下一页只翻全部，
-  36 篇 Pin 只能看到第一页 20 条）；现在 Pin 用自己的 `pinnedPage/ pinnedPageSize/
-  pinnedHasMore`，文案「第 N 页 · 共 M 篇」。
-- **测试**：scoring/pins/brief 相关 76 passed；全量见 PR。
+- **分页**：修掉 Pin 子标签复用「全部文章」分页状态的问题；现在 Pin 用自己的
+  `pinnedPage / pinnedPageSize / pinnedHasMore`，文案「第 N 页 · 共 M 篇」。
+- **审计**：独立只读审计 **PASS WITH NITS**（4 P3）。已修 3 项：`enrichment._ensure_quality`
+  不再把 0–100 写进 Pin 列（改为只对 Pin 集合内行调 `pin_heuristic_v3`）、删除死导入
+  `compute_heuristic_quality`、Pin 子标签隐藏顶部「共 5330 篇」；migration 020 历史注释保留不改。
+- **测试**：全量 **1975 passed / 2 skipped**（`test_brief.py` / `test_brief_html.py` 写死生产路径，
+  单独跑 19 passed；混跑会串库），2 项既有环境性失败；CI `pytest · py3.12` pass。
+- **发布**：squash merge `57af0d3` · annotated tag `v1.0.97` · 生产 `/Users/mt16/dev/moni`
+  ff 到 `57af0d3` · `com.moni.web` 重启（PID 85688）· `/api/service/info` 报
+  `version=v1.0.97 / commit=57af0d3 / schema=45 / worktree_dirty=false`（本次无迁移）。
+- **生产冒烟**：`/static/index.html` 含「质量分」；36 篇 Pin 全部 `pin_heuristic_v3 / ready`，
+  分值 **1.60–5.00**、全部两位小数、12 篇满分；`page=1` 20 条、`page=2` 16 条；
+  refresh 返回 `updated=36 / unchanged=0 / skipped=0`。
 
 ## 已发布: **v1.0.96 — Pin 质量列 + 业务价值 harness** (2026-11-17 · PR #223 · tag `v1.0.96` · commit `5316f05`)
 
@@ -81,7 +115,7 @@ CRUD/CLI 写路径补重算、长文 4 窗取证、5 次调用硬上限、引文
 生产实测：迁移后三类孤儿全部 0，`article_tags` 8396 → 8091，文章数不变 5262，schema 43 → 44；
 浮层 320×356，1440 宽右边界 1268、1280 宽 1093，移开鼠标收起，`worktree_dirty=false`。
 
-## 进行中: **xbot_feed 上游 git 临时网络失败的退避重试** (2026-11-16 · Sprint 51 · 分支 `feat/xbot-git-retry-v1.0.95` · 目标版本 v1.0.95)
+## 已发布: **v1.0.95 — xbot_feed 上游 git 临时网络失败的退避重试** (2026-11-16 · Sprint 51 · PR #221 · tag `v1.0.95` · commit `60a2a06`)
 
 上游私有仓库经本机代理访问时**隧道建立后 TLS 握手被重置**（`LibreSSL SSL_connect: SSL_ERROR_SYSCALL`），
 `_sync_clone` 对 `git pull --ff-only` 单次尝试无重试 ⇒ 一次抖动整轮失败。
@@ -172,7 +206,7 @@ PR #207 把文章查阅、筛选与文内 AI 合进 `main` 后，生产验收又
 
 ---
 
-## 进行中: **文章查阅阅读 / 筛选 / AI 对话** (2026-11-16 · Sprint 47 · PR #207)
+## 已发布: **文章查阅阅读 / 筛选 / AI 对话** (2026-11-16 · Sprint 47 · PR #207 · 随 v1.0.91 发布)
 
 分支 `feat/articles-reading-ai`。开发起点是 v1.0.87（`d7e6680`），未包含当时还在别的分支上的提交。2026-11-16 已把 `origin/main` 后到的 5 个提交合进来：#206 v1.0.88、#208/#209 v1.0.89、#210/#211 v1.0.90。v1.0.88/89/90 已被占用，本功能尚未打 tag、未重启 8900。
 
@@ -395,7 +429,7 @@ pytest 1630 passed / 2 skipped。移动端按 dad 决定不做。
 第一版把 5 个官网塞进一次 `hermes -z`，实测 600s 没跑完 → 5 个官网**全丢**，
 只剩媒体 RSS 的 4 条。改成一页一次调用后同样的输入拿到 58 条官网条目（+3 条媒体，共 61）。
 
-## 进行中: **X-bot 精选「屏蔽作者」** (2026-11-12 · 分支 `feat/xbot-author-block-v1.0.75` · PR #206)
+## 已发布: **v1.0.88 — X-bot 精选「屏蔽作者」** (2026-11-12 · PR #206 · tag `v1.0.88` · commit `fa651fb`)
 
 在 X-bot 精选（`xbot_feed`）的文章详情弹窗里，按 `@handle` 一键屏蔽作者。
 被屏蔽的作者以后不再入库；旧文章**物理删除**（不可恢复，屏蔽前确认框显示
@@ -432,7 +466,7 @@ round 2 复审判 **PASS**（P0=0 / P1=0），仅余 1 项 P2 残留：确认框
 
 ---
 
-## 进行中: **分享产物 worker 修复** (2026-11-12 · 分支 `feature/v1.0.73-share-maintenance`)
+## 已发布: **v1.0.74 — 分享产物 worker 修复** (2026-11-12 · PR #183 / #184 · tag `v1.0.74` · commit `7375e84`)
 
 v1.0.42 起 `worker_llm.py` 把 prompt 从 `-z` 后面挪到 argv 末尾，hermes argparse
 把 `--usage-file` 当成 `-z` 的值后 exit 2；worker 只记录 stdout，导致
