@@ -18,11 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-<<<<<<< HEAD
 _CURRENT_VERSION = 49  # + 049 content_cleaning (content_state / cleaning_runs / source contract)
-=======
-_CURRENT_VERSION = 48  # + 048 content_cleaning (content_state / cleaning_runs / source contract)
->>>>>>> bfaa5fd (feat(clean): 数据清洗 clean_v1 + 前端清洗页)
 
 # Migrations <= this version were applied by the old "max(schema_version)"
 # rule, which did not record every intermediate row.  Never re-run them.

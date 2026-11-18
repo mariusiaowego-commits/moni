@@ -329,7 +329,7 @@ frontmatter 内嵌正文 1、HTML 残留 8。
 顺手修复的 P2：Markdown 代码围栏原样保留；`Q:/A:` 不当 YAML frontmatter；
 测试数据只按 `source IN ('testsrc','s')` 白名单归档；`no_body` 只拦 `summary/brief`，
 不再影响 `fact_check/fact_check_plus`；前端 `loadCleaning` 校验 HTTP 状态、`states` 缺失防崩；
-migration 048 只在 `content_contract IS NULL` 时写入；emptied 行也打 `content_cleaner`，
+migration 049 只在 `content_contract IS NULL` 时写入；emptied 行也打 `content_cleaner`，
 避免「待清洗」永不收敛；UPDATE 带 `raw_content` 旧值条件（lost-update 防护）。
 
 生产库最新副本复演（修复后，5,330 行）：

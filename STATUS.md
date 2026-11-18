@@ -36,7 +36,7 @@
 「编辑完规则后…」等正文句不再被当署名行删除；`a<b 且 b>c` 不再被当 HTML 标签吃掉。
 顺手修复：代码围栏原样保留、`Q:/A:` 不当 YAML、测试数据只按 `testsrc/s` 白名单归档、
 `no_body` 只拦摘要/简报不再拦事实核查、前端错误 JSON 与 `states` 缺失防崩、
-migration 048 只在 `content_contract IS NULL` 时写入。
+migration 049 只在 `content_contract IS NULL` 时写入。
 
 **测试**：`pytest tests/ --deselect <2 条环境失败>` → **2108 passed, 2 skipped**。
 `test_showcase…` 因当前虚拟环境缺 `PIL` 失败（与 PR 无关）；`test_039…` 需主仓 `.git` 建临时 worktree，
