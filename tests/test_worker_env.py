@@ -13,14 +13,15 @@ v1.0.9.3: caught 3 related bugs in one debug session:
 """
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-sys.path.insert(0, os.path.expanduser("~/dev/moni"))
+# 只能插当前 checkout：硬编码 ~/dev/moni 会让同一次 pytest 进程里
+# `moni.*` 从另一份代码解析，测试结果随收集顺序变化。
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from moni.share import worker as sw
 

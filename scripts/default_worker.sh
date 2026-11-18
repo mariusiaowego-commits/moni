@@ -51,14 +51,18 @@ task_timeout_for_format() {
     esac
 }
 
-# 超时回收：agent 常在收尾自检阶段超过 worker 上限，但文件已经落盘。
+# 产物回收：agent 直接写文件，可能落在 artifacts_dir 之外的 profile cache。
 # 找「本次运行开始之后」新出现且内容校验通过的产物，复制成标准输出名。
-recover_artifact_after_timeout() {
+# reason 只用于日志，区分超时回收和「LLM 正常结束但产物不在 artifacts」。
+recover_artifact() {
     local task_id="$1"
     local format="$2"
     local not_before="$3"
     local artifacts_dir="$4"
+    local reason="${5:-timeout}"
     local recovered recovered_out
+    local output_dir="${MONI_OUTPUT_DIR:-$HOME/.moni/output}"
+    output_dir="${output_dir/#\~/$HOME}"
 
     recovered=$("$PYTHON_BIN" "$REPO_ROOT/moni/share/timeout_recovery.py" \
         --format "$format" \
@@ -66,6 +70,7 @@ recover_artifact_after_timeout() {
         --repo-root "$REPO_ROOT" \
         --artifacts-dir "$artifacts_dir" \
         --profile-dir "$HOME/.hermes/profiles/${MONI_HERMES_PROFILE:-moni}" \
+        --extra-dir "$output_dir" \
         2>/dev/null) || true
     [[ -n "$recovered" && -f "$recovered" ]] || return 1
 
@@ -74,13 +79,16 @@ recover_artifact_after_timeout() {
     else
         recovered_out="$artifacts_dir/${task_id}-${format}-0.png"
     fi
-    cp "$recovered" "$recovered_out"
-    update_progress "$task_id" "writing_artifact" 95 "超时后回收已产出产物: $recovered"
+    cp -- "$recovered" "$recovered_out" 2>>"$LOG_FILE" || {
+        log "FAIL $task_id — copy artifact failed: $recovered"
+        return 1
+    }
+    update_progress "$task_id" "writing_artifact" 95 "回收已产出产物: $recovered"
     task_status_update "$task_id" "done" "$recovered_out"
     sqlite3 "$DB_PATH" \
         "UPDATE share_tasks SET progress_pct=100 WHERE id='$task_id'" \
         >/dev/null 2>&1 || true
-    log "RECOVERED $task_id — timeout, $recovered -> $recovered_out"
+    log "RECOVERED $task_id — $reason, $recovered -> $recovered_out"
     return 0
 }
 
@@ -935,7 +943,7 @@ print(p.get('title') or ('同业简报 — ' + date.today().isoformat()))
     escaped_content=$(python3 -c "
 import json, sys
 content = '''$article_content'''
-print(json.dumps(content))
+print(json.dumps(content, ensure_ascii=False))
 " 2>/dev/null || echo "\"\"")
 
     # v1.0.5.17: stage 2 → 3 transition.  Article content is now in
@@ -1125,7 +1133,7 @@ print(p.get('generation_approach',''))
     hermes_output=$(cat "$hermes_out_file" 2>/dev/null) || true
 
     if [[ $hermes_exit -eq 124 ]]; then
-        if recover_artifact_after_timeout "$task_id" "$format" \
+        if recover_artifact "$task_id" "$format" \
             "$llm_started_epoch" "$artifacts_dir"; then
             return 0
         fi
@@ -1151,7 +1159,7 @@ print(p.get('generation_approach',''))
         # 不是 done。 保留 v1.0.30 的本地文件兜底 (hermes 直接写本地
         # PNG 的场景)。
         local png_urls=""
-        png_urls=$(/usr/local/bin/python3 - "$hermes_out_file" <<'PYEOF'
+        png_urls=$("$PYTHON_BIN" - "$hermes_out_file" <<'PYEOF'
 import re, sys
 urls = re.findall(r"https?://[^\s<>\"']+?\.png(?:\?[^\s<>\"']*)?", open(sys.argv[1], encoding="utf-8", errors="replace").read())
 seen = []
@@ -1179,18 +1187,33 @@ PYEOF
             fi
         done
         if [[ $png_count -eq 0 ]]; then
+            # v1.0.97: agent 回复里通常写明成品绝对路径，优先按它取。
+            # 只靠 mtime 会挑到 cache/scratch 里的中间截图（手机预览）。
+            local explicit_pngs=""
+            explicit_pngs=$(PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" \
+                "$REPO_ROOT/moni/share/timeout_recovery.py" \
+                --from-output "$hermes_out_file" \
+                --not-before "$llm_started_epoch" 2>/dev/null) || true
+            local cand
+            while IFS= read -r cand; do
+                [[ -n "$cand" ]] || continue
+                local out_png="$artifacts_dir/${task_id}-${format}-${png_count}.png"
+                cp -- "$cand" "$out_png" 2>>"$LOG_FILE" || {
+                    log "FAIL $task_id — copy artifact failed: $cand"
+                    continue
+                }
+                log "PNG artifact copied from $cand -> $out_png"
+                png_count=$((png_count + 1))
+            done <<< "$explicit_pngs"
+        fi
+        if [[ $png_count -eq 0 ]]; then
             # v1.0.30 本地文件兜底: hermes 直接写本地 PNG 的场景。
-            local real_pngs=""
-            real_pngs=$(find "${ARTIFACTS_DIR:-$REPO_ROOT/data/artifacts}" "$REPO_ROOT/data/briefings" -name '*.png' -mmin -30 -type f 2>/dev/null | head -5)
-            for cand in $real_pngs; do
-                if [[ -f "$cand" && $(file -b "$cand") == *"PNG"* ]]; then
-                    local out_png="$artifacts_dir/${task_id}-${format}-${png_count}.png"
-                    cp "$cand" "$out_png"
-                    log "PNG artifact copied from $cand -> $out_png"
-                    output_path="$out_png"
-                    png_count=$((png_count + 1))
-                fi
-            done
+            # v1.0.97: 复用 timeout_recovery 的搜索根（含 profile cache），
+            # 并做真 PNG 校验；旧的 find + file 会在缺目录时被 set -e 杀掉。
+            if recover_artifact "$task_id" "$format" \
+                "$llm_started_epoch" "$artifacts_dir" "local PNG outside artifacts dir"; then
+                return 0
+            fi
         fi
         if [[ $png_count -gt 0 ]]; then
             # keep last copied as primary output_path (UI shows one link)
