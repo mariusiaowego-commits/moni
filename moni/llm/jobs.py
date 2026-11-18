@@ -56,6 +56,7 @@ from moni.db.connection import get_db
 from moni.db import leases
 from moni.llm.client import call_llm
 from moni.llm.domains import evaluate_authority
+from moni.llm.fact_check_tags import conclusion_tag, with_tag
 from moni.llm.prompts import render_fact_check, render_fact_check_plus, render_summary
 # Re-export for backwards compat (Day 1 had DOMAIN_WHITELIST defined here;
 # Day 2 moves the canonical definition to moni.web.routes.fact_check_plus).
@@ -688,26 +689,6 @@ def _clip_sentence(text: str, limit: int = 120) -> str:
     return clipped
 
 
-_CONCLUSION_TAG_RE = re.compile(r"【(已核实|待核实|存疑|无需核查)】")
-
-
-def _conclusion_tag(conclusion: str) -> str:
-    """取结论里的档位标签，忽略后面的自由说明。
-
-    v1.0.100: 闸门以前用 ``==`` 比较整个字符串，模型写
-    「【已核实】核心事实多源一致」就整条绕过白名单检查。
-    """
-    m = _CONCLUSION_TAG_RE.search(conclusion or "")
-    return f"【{m.group(1)}】" if m else ""
-
-
-def _with_tag(tag: str, conclusion: str) -> str:
-    """把结论改写为指定档位，保留模型原来的说明文字。"""
-    original = (conclusion or "").strip()
-    detail = _CONCLUSION_TAG_RE.sub("", original).strip(" ：:，,")
-    return f"{tag}{detail}" if detail else tag
-
-
 def _build_how(authority: Any, valid: list[dict[str, Any]], timeliness: str) -> str:
     """从证据行派生「怎么核的」，不交给模型自述。
 
@@ -850,9 +831,9 @@ def _persist_fact_check_plus(
         # Gate 2 (v1.0.100): 按档位标签判定，带说明的结论不再绕过白名单。
         # 两条路径: ≥2 个注册域且 ≥1 个一手源，或 ≥3 个编辑制媒体。
         authority = evaluate_authority([e["domain"] for e in valid])
-        gate2_demoted = _conclusion_tag(conclusion) == "【已核实】" and not authority.passed
+        gate2_demoted = conclusion_tag(conclusion) == "【已核实】" and not authority.passed
         if gate2_demoted:
-            conclusion = _with_tag("【待核实】", conclusion)
+            conclusion = with_tag("【待核实】", conclusion)
             logger.info(
                 "[llm_jobs] fact_check_plus job %s: demoted 【已核实】→【待核实】 (%s)",
                 job_id,
@@ -865,7 +846,8 @@ def _persist_fact_check_plus(
         now_dt = datetime.now(timezone.utc)
         worst_days: int | None = None
         for e in valid:
-            source_date = (e.get("source_date") or e.get("fetched_at") or "").strip() or None
+            # 只用来源日期；fetched_at 只做审计留痕，不能顶替（否则又把抓取时刻当今天）。
+            source_date = (e.get("source_date") or "").strip() or None
             e["source_date"] = source_date
             e["fetched_at"] = (e.get("fetched_at") or "").strip() or finished_at
             days_old = compute_days_old(source_date, now=now_dt)

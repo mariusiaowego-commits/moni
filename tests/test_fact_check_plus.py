@@ -817,7 +817,7 @@ def _fc_plus_payload(fetched_at: str | None, *, conclusion: str = "【已核实�
     ):
         ev: dict = {"query": "央行", "url": url, "snippet": snippet, "rationale": "官方公告"}
         if fetched_at is not None:
-            ev["fetched_at"] = fetched_at
+            ev["source_date"] = fetched_at
         evidence.append(ev)
     return json.dumps({"conclusion": conclusion, "evidence": evidence}, ensure_ascii=False)
 
@@ -1515,6 +1515,8 @@ def test_domain_tiers_classify_and_registrable_dedup():
     assert registrable_domain("news.qq.com") == "qq.com"
     assert registrable_domain("contest.weixin.qq.com") == "qq.com"
     assert registrable_domain("finance.sina.com.cn") == "sina.com.cn"
+    assert registrable_domain("x.com.cn") == "x.com.cn"
+    assert registrable_domain("bj.news.com.cn") == "news.com.cn"
 
 
 def test_evaluate_authority_two_paths():
@@ -1645,3 +1647,32 @@ def test_source_date_drives_timeliness(fresh_db, monkeypatch):
     ).fetchone()
     assert art["fact_check_timeliness"] == "90d_demote"
     assert art["fact_check_conclusion"] == "【存疑】"
+
+
+def test_conclusion_tag_helpers():
+    """标签读写：带说明、空串、双标签、全角括号都要稳定。"""
+    from moni.llm.fact_check_tags import conclusion_tag, with_tag
+
+    assert conclusion_tag("【已核实】") == "【已核实】"
+    assert conclusion_tag("【已核实】核心事实多源一致") == "【已核实】"
+    assert conclusion_tag("") == ""
+    assert conclusion_tag("核心事实成立") == ""
+    assert conclusion_tag("【待核实】【已核实】") == "【待核实】"
+
+    assert with_tag("【待核实】", "【已核实】核心事实多源一致") == "【待核实】核心事实多源一致"
+    assert with_tag("【待核实】", "【已核实】") == "【待核实】"
+    assert with_tag("【待核实】", "") == "【待核实】"
+    assert with_tag("【存疑】", "【已核实】：某个说法") == "【存疑】某个说法"
+
+
+def test_timeliness_90d_keeps_detail():
+    """91 天降级为【存疑】时保留原说明，不能整段替换成标签。"""
+    from moni.web.routes.fact_check_plus import apply_timeliness
+
+    assert apply_timeliness("【已核实】核心数据与监管口径一致", 120) == (
+        "【存疑】核心数据与监管口径一致"
+    )
+    assert apply_timeliness("【已核实】", 120) == "【存疑】"
+    assert apply_timeliness("【已核实】核心数据", 60) == (
+        "【已核实】核心数据(已过期 30-90 天)"
+    )
