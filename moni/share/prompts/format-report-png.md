@@ -34,10 +34,20 @@ Your Nous subscription may be disconnected. Please reconnect and retry."
    - Source + date: one line, muted, small
    - Key insight: 2-3 sentences capturing the most important takeaway
      (not the full abstract — pick the one thing the reader should remember)
-   - Fact check (only if results exist): one-line verdict with colored marker
+   - Fact check (only if results exist): colored marker + ONE plain sentence,
+     ≤60 Chinese characters, saying whether the article's core claim holds up
+     and what that means for the reader.
      - Green ● = Supported
      - Amber ● = Unverified
      - Red ● = Disputed
+     Override content-structure §3 for this one-image format: no per-claim
+     detail. Hard rules:
+     - Never copy numbers, ranges, parameter names, file names, URLs, domains
+       or quoted text from the fact-check material.
+     - No lists of 3+ items, no semicolons, no colon-then-list.
+     - Write the meaning, not the comparison you ran.
+     - Bad: 「温度 [0,2]、top_p [0,1]、频率惩罚 [-2,2] 均与官方文档一致」
+     - Good: 「参数表与官方文档一致；这些参数该怎么设仍是作者判断」
 
 3. **Footer**
    - Thin separator line

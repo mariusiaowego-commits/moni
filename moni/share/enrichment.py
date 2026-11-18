@@ -1494,22 +1494,120 @@ def run_enrichment(
     return stats
 
 
+_FACT_CHECK_HEADER = (
+    "**事实核查**（仅作判断依据；报告只写一句 ≤60 字人话结论，"
+    "禁止照抄数字、区间、参数名、字段名或原文）"
+)
+
+
+def _row_text(row: sqlite3.Row, key: str) -> str:
+    """Read an optional column without breaking pre-migration rows."""
+    try:
+        value = row[key]
+    except (KeyError, IndexError, TypeError):
+        return ""
+    return str(value or "").strip()
+
+
+def _normalize_fact_tags(text: str) -> str:
+    return (
+        text.replace("[supported]", "【已核实】")
+        .replace("[Supported]", "【已核实】")
+        .replace("[unverified]", "【待核实】")
+        .replace("[Unverified]", "【待核实】")
+        .replace("[disputed]", "【存疑】")
+        .replace("[Disputed]", "【存疑】")
+    )
+
+
+def _fact_check_items(note: str) -> list[str]:
+    """Compact the stored evidence JSON into claim lines.
+
+    Drops query/snippet/url: the writer only needs to know what was checked
+    and how it came out, not the raw web-search payload.
+    """
+    if not note:
+        return []
+    try:
+        entries = json.loads(note)
+    except (json.JSONDecodeError, TypeError):
+        entries = None
+    if not isinstance(entries, list):
+        text = _normalize_fact_tags(note).strip()
+        return [f"- {text[:240]}"] if text else []
+
+    lines: list[str] = []
+    for entry in entries[:8]:
+        if not isinstance(entry, dict):
+            continue
+        claim = str(entry.get("claim") or entry.get("rationale") or "").strip()
+        if not claim:
+            continue
+        verdict = str(entry.get("verdict") or "").strip()
+        domain = str(entry.get("domain") or "").strip()
+        line = f"- {f'[{verdict}] ' if verdict else ''}{claim[:120]}"
+        if domain:
+            line += f"（{domain}）"
+        lines.append(line)
+    return lines
+
+
+def _fact_check_summaries(conn: sqlite3.Connection, article_ids: list[str]) -> dict[str, str]:
+    """Read 046's human summary if the column exists (pre-046 → empty)."""
+    if not article_ids:
+        return {}
+    placeholders = ",".join("?" * len(article_ids))
+    try:
+        rows = conn.execute(
+            f"SELECT id, fact_check_summary FROM articles WHERE id IN ({placeholders})",
+            article_ids,
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    return {str(r[0]): str(r[1] or "").strip() for r in rows}
+
+
+def _fact_check_material(row: sqlite3.Row, summary: str = "") -> str:
+    """Render the fact-check section handed to the report model.
+
+    New rows carry a human ``fact_check_summary``; when present it is the
+    only prose the model sees, so it cannot copy rationale snippets.
+    Legacy rows fall back to the compact claim list.
+    """
+    conclusion = _row_text(row, "fact_check_conclusion")
+    if not conclusion:
+        return ""
+
+    block = f"\n\n{_FACT_CHECK_HEADER}: {conclusion}"
+    if summary:
+        return block + f"\n**核查要点**: {summary}"
+
+    items = _fact_check_items(_row_text(row, "fact_check_note"))
+    if items:
+        block += "\n**逐条记录**（供判断，勿转写）:\n" + "\n".join(items)
+    return block
+
+
 def rebuild_article_content(
     db_path: str,
     article_ids: list[str],
     *,
     brief: bool = False,
     bb_summary_source: str = "moni_ai",
+    include_fact_check: bool = True,
 ) -> str:
     """Re-read articles and build prompt body blocks (post-enrichment).
 
     Brief mode: sort by business_value_score DESC, then original order.
     v1.0.24: append 事实核查证据 section (MD) when brief=True.
+    include_fact_check=False: omit the fact-check block entirely (a BV-only
+    report used to inherit historical fact-check rows).
     """
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         rows = _article_rows(conn, article_ids)
+        fact_check_summaries = _fact_check_summaries(conn, article_ids)
         evidence_md = ""
         if brief and article_ids:
             try:
@@ -1609,20 +1707,8 @@ def rebuild_article_content(
             if show_bb and str(row["bb_summary"]).strip():
                 block += f"\n\n**BestBlogs 摘要**: {row['bb_summary']}"
 
-        if row["fact_check_conclusion"] and str(row["fact_check_conclusion"]).strip():
-            block += f"\n\n**事实核查结论**: {row['fact_check_conclusion']}"
-            if row["fact_check_note"] and str(row["fact_check_note"]).strip():
-                # normalize english tags if any slipped through
-                note = str(row["fact_check_note"])
-                note = (
-                    note.replace("[supported]", "【已核实】")
-                    .replace("[Supported]", "【已核实】")
-                    .replace("[unverified]", "【待核实】")
-                    .replace("[Unverified]", "【待核实】")
-                    .replace("[disputed]", "【存疑】")
-                    .replace("[Disputed]", "【存疑】")
-                )
-                block += f"\n**事实核查明细**: {note}"
+        if include_fact_check:
+            block += _fact_check_material(row, fact_check_summaries.get(str(row["id"]), ""))
 
         parts.append(block)
 
@@ -1678,6 +1764,7 @@ def main(argv: list[str] | None = None) -> int:
             ids,
             brief=bool(flags.get("brief")),
             bb_summary_source=str(flags.get("bb_summary_source") or "moni_ai"),
+            include_fact_check=bool(flags.get("include_fact_check")),
         )
         print(text)
     return 0

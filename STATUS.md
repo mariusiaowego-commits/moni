@@ -4,6 +4,39 @@
 
 ---
 
+## 待发布: **分享事实核查改人话结论 + 核查器 summary** (2026-11-18 · branch `share-fix`)
+
+**症状**：PNG 报告的事实核查行变成「温度 [0,2]、top_p [0,1]、频率惩罚 [-2,2] …均与官方文档一致」。
+
+**根因（实测）**：
+
+- `moni/share/enrichment.py` 把 `fact_check_note` 的 6 条 `query/url/snippet/rationale` 原样拼进正文，
+  单篇 7327 字节里约 5.9KB 是核查 JSON（`7ab82a579114a88d`）。
+- 该文 `fact_check_conclusion` 只有「【待核实】」5 个字；枚举句来自 rationale，不是结论字段。
+- `format-report-png.md` 只定义颜色、`content-structure.md` 要求逐条 1-2 句理由；
+  `writing-style-compact.md` 只在 brief 模式加载，普通 PNG 无风格约束。
+- `fact_check_evidence.conclusion` 逐条都写总体标签（`moni/llm/jobs.py`），没有逐条判定；
+  核查器输出结构也没有一句人话 summary。
+
+**改动**：
+
+- migration 046：`articles.fact_check_summary` + `fact_check_evidence.claim/verdict`（additive）。
+- `moni/llm/prompts/fact_check_plus.md`：新增 `summary`（≤60 字人话）与逐条 `claim/verdict`。
+- `moni/llm/jobs.py`：解析/落库 summary 与逐条判定；缺 verdict 回退总体标签；90 天降级时 summary 加过期提示。
+- `moni/share/enrichment.py`：有 summary 只注入「结论 + 核查要点」，历史行回退到
+  `claim/verdict/domain` 紧凑列表；丢掉 query/snippet/url；`include_fact_check=false` 不再注入。
+- `format-report-png.md`：一句 ≤60 汉字、禁抄数字/区间/参数名/域名/原文、禁 3 项以上列举；
+  明确 override content-structure §3。
+- `content-structure.md`：逐条理由只给长文格式，单图格式一句话。
+- `writing-style-compact.md`：禁止把核查素材（参数区间、字段名、「逐项一致」）搬进结论。
+- `scripts/default_worker.sh`：单图格式也加载风格提示；新增 `MONI_PROMPT_DUMP` 便于审计组装结果。
+
+**测试**：`pytest tests/` → **2015 passed, 2 skipped**；唯一失败 `test_039_upgrades_a_db_built_by_old_code`
+是沙箱无法在主仓库 `.git` 建临时 worktree，沙箱外单跑 **1 passed**。
+
+**验收（待部署）**：`python3 -m moni.db.migrate` → schema 46；重跑同一篇文章的 `report_png`，
+事实核查行 ≤60 字、不含参数区间/字段名；`include_fact_check=false` 的报告不再出现核查段。
+
 ## 已发布: **v1.0.99 — Pin 质量分改 1 位小数** (2026-11-18 · PR #229 · tag `v1.0.99` · commit `a6e8e93`)
 
 实现记录 `docs/plans/2026-11-18_quality-scale-5.md` §6，设计稿 §5 已同步。

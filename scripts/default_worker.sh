@@ -1011,19 +1011,24 @@ PYEOF
         local format_prompt_file="$PROMPT_DIR/$pf"
         [[ -f "$format_prompt_file" ]] && format_prompt=$(<"$format_prompt_file")
     fi
-    # brief mode: persona + compressed writing style (AI 自写部分)
-    if [[ "$brief_val" == "true" ]]; then
+    # writing style: brief mode + one-image reports.  Non-brief report_png
+    # used to skip this file, so "no AI tone / no data enumeration" never
+    # reached the model.
+    local prepend=""
+    if [[ "$brief_val" == "true" || "$format" == "report_png" || "$format" == "info_graphic_png" ]]; then
         local style_file="$PROMPT_DIR/writing-style-compact.md"
-        local bv_prompt_file="$PROMPT_DIR/business-value.md"
-        local prepend=""
         [[ -f "$style_file" ]] && prepend+="$(<"$style_file")
 
 "
+    fi
+    # brief mode also gets the business-value persona
+    if [[ "$brief_val" == "true" ]]; then
+        local bv_prompt_file="$PROMPT_DIR/business-value.md"
         [[ -f "$bv_prompt_file" ]] && prepend+="$(<"$bv_prompt_file")
 
 "
-        [[ -n "$prepend" ]] && content_prompt="${prepend}${content_prompt}"
     fi
+    [[ -n "$prepend" ]] && content_prompt="${prepend}${content_prompt}"
 
     # Skill clause — for non-png formats, we use the format's
     # own skill_for_format() mapping.  For report_png and info_graphic_png,
@@ -1067,6 +1072,11 @@ print(p.get('generation_approach',''))
     fi
     prompt+="---\n\n"
     prompt+="## 文章数据\n\n${escaped_content}"
+
+    # MONI_PROMPT_DUMP=<path>: write the assembled prompt for audit/tests.
+    if [[ -n "${MONI_PROMPT_DUMP:-}" ]]; then
+        printf '%s' "$prompt" > "$MONI_PROMPT_DUMP"
+    fi
 
     # Plain-text is a no-LLM pass per PRD §9 decision: worker
     # writes the article content directly to the output file,

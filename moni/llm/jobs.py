@@ -639,6 +639,24 @@ _FACT_CHECK_PLUS_PARSE_REASONS = frozenset(
     }
 )
 
+_FACT_CHECK_VERDICTS = ("【已核实】", "【待核实】", "【存疑】")
+
+
+def _normalize_verdict(raw: Any, fallback: str) -> str:
+    """Keep a per-evidence verdict inside the three allowed tags.
+
+    Older prompts never emitted ``verdict``; fall back to the article-level
+    conclusion so historical behaviour is unchanged.
+    """
+    text = str(raw or "").strip()
+    for tag in _FACT_CHECK_VERDICTS:
+        if text.startswith(tag):
+            return tag
+    for tag in _FACT_CHECK_VERDICTS:
+        if str(fallback or "").startswith(tag):
+            return tag
+    return "【待核实】"
+
 
 def _truncate_utf8(s: str, max_bytes: int) -> str:
     """Truncate string to max_bytes without splitting a multi-byte UTF-8 char."""
@@ -703,6 +721,9 @@ def _persist_fact_check_plus(
         # (模板 fact_check_plus.md:42 规定 evidence 必须空) 跟其他 3 档 (缺 snippet 失败).
         # 原 L644 的同一行赋值删除, 避免重复.
         conclusion = str(parsed.get("conclusion") or "【待核实】").strip()
+        # 046: 给读者看的一句人话结论。历史提示词没有这个字段 → 空串，
+        # share 注入层回退到 rationale 渲染。
+        summary = str(parsed.get("summary") or "").strip()[:120]
 
         # Gate 1: drop rows without snippet / invalid URL
         valid: list[dict[str, Any]] = []
@@ -717,6 +738,8 @@ def _persist_fact_check_plus(
             ev_fetched = (e.get("fetched_at") or "").strip() or None
             valid.append(
                 {
+                    "claim": (e.get("claim") or "").strip()[:120],
+                    "verdict": _normalize_verdict(e.get("verdict"), conclusion),
                     "query": (e.get("query") or "").strip() or "",
                     "url": url,
                     "domain": domain,
@@ -735,7 +758,7 @@ def _persist_fact_check_plus(
             if not conclusion.startswith("【已核实】"):
                 _persist_no_check_needed(
                     conn, article_id=article_id, conclusion=conclusion,
-                    finished_at=finished_at,
+                    finished_at=finished_at, summary=summary,
                 )
                 return
             raise ValueError("no evidence with snippet")
@@ -761,6 +784,8 @@ def _persist_fact_check_plus(
                 worst_days = days_old
         timeliness = compute_timeliness(worst_days)
         conclusion = apply_timeliness(conclusion, worst_days)
+        if timeliness == "90d_demote" and summary:
+            summary = f"{summary}（来源已过期，仅供参考）"
         if timeliness == "90d_demote":
             logger.info(
                 "[llm_jobs] fact_check_plus job %s: evidence days_old=%s → 90d_demote 【存疑】",
@@ -820,6 +845,15 @@ def _persist_fact_check_plus(
                     (conclusion, finished_at, note, article_id),
                 )
 
+        try:
+            conn.execute(
+                "UPDATE articles SET fact_check_summary = ? WHERE id = ?",
+                (summary or None, article_id),
+            )
+        except Exception:
+            # Pre-046 schema: the column does not exist yet.
+            pass
+
         # Replace prior evidence for this article (re-run overwrite).
         conn.execute(
             "DELETE FROM fact_check_evidence WHERE article_id = ?",
@@ -866,6 +900,14 @@ def _persist_fact_check_plus(
                     """,
                     vals,
                 )
+            try:
+                conn.execute(
+                    "UPDATE fact_check_evidence SET claim = ?, verdict = ? WHERE id = ?",
+                    (e.get("claim") or None, e.get("verdict") or None, row_id),
+                )
+            except Exception:
+                # Pre-046 schema: claim / verdict columns do not exist yet.
+                pass
     except ValueError as exc:
         # B5: log truncated raw_output into llm_jobs.error for the 3 parse
         # failure branches; re-raise with full message so outer _mark_failed
@@ -882,6 +924,7 @@ def _persist_no_check_needed(
     article_id: str,
     conclusion: str,
     finished_at: str,
+    summary: str = "",
 ) -> None:
     """【无需核查】档: 写 articles 结论, 不插 evidence, 跳过 Gate 2/3.
 
@@ -937,6 +980,15 @@ def _persist_no_check_needed(
                 """,
                 (conclusion, finished_at, article_id),
             )
+
+    try:
+        conn.execute(
+            "UPDATE articles SET fact_check_summary = ? WHERE id = ?",
+            (summary or None, article_id),
+        )
+    except Exception:
+        # Pre-046 schema: the column does not exist yet.
+        pass
 
     # Clear prior evidence for this article (re-run overwrite), even though
     # 【无需核查】 never inserts new rows. Keeps behavior consistent with the
