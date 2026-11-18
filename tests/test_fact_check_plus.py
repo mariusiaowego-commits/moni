@@ -1676,3 +1676,34 @@ def test_timeliness_90d_keeps_detail():
     assert apply_timeliness("【已核实】核心数据", 60) == (
         "【已核实】核心数据(已过期 30-90 天)"
     )
+
+
+def test_fetched_at_does_not_substitute_source_date(fresh_db, monkeypatch):
+    """只有 fetched_at、没有 source_date → 年龄仍是未知（禁止用抓取时刻顶替）。"""
+    _insert_article("a-fa")
+    _insert_job("job-fa", "a-fa")
+    payload = json.dumps({
+        "conclusion": "【待核实】",
+        "evidence": [
+            {"query": "q", "url": "https://www.pbc.gov.cn/notice/1", "snippet": "央行",
+             "fetched_at": _ago(5)},
+            {"query": "q", "url": "https://www.nfra.gov.cn/notice/2", "snippet": "监管"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-fa", "task_type": "fact_check_plus", "article_id": "a-fa",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT days_old, source_date, fetched_at FROM fact_check_evidence "
+        "WHERE article_id = 'a-fa' ORDER BY evidence_seq"
+    ).fetchall()
+    assert [r["days_old"] for r in rows] == [None, None]
+    assert [r["source_date"] for r in rows] == [None, None]
+    # fetched_at 仍然留痕，但不再参与年龄计算。
+    assert rows[0]["fetched_at"]
+    assert conn.execute(
+        "SELECT fact_check_timeliness FROM articles WHERE id = 'a-fa'"
+    ).fetchone()["fact_check_timeliness"] == "unknown"
