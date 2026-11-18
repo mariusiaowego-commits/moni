@@ -4637,6 +4637,19 @@ function app() {
       if (tab === 'pinned') this.loadPinnedArticles();
     },
 
+    pinnedPrevPage() {
+      if (this.pinnedPage > 1) { this.pinnedPage -= 1; this.loadPinnedArticles(); }
+    },
+
+    pinnedNextPage() {
+      if (this.pinnedHasMore) { this.pinnedPage += 1; this.loadPinnedArticles(); }
+    },
+
+    pinnedChangePageSize() {
+      this.pinnedPage = 1;
+      this.loadPinnedArticles();
+    },
+
     loadPinnedArticles() {
       const params = new URLSearchParams();
       params.set('page', this.pinnedPage);
@@ -4661,8 +4674,8 @@ function app() {
     pinQualityCell(a) {
       const q = a.quality || {};
       if (q.status === 'failed') return '—';
-      if (q.formula === 'pin_heuristic_v2' && q.status === 'ready' && q.score != null) {
-        return String(q.score);
+      if (q.formula === 'pin_heuristic_v3' && q.status === 'ready' && q.score != null) {
+        return Number(q.score).toFixed(2);
       }
       return '…';
     },
@@ -4670,19 +4683,20 @@ function app() {
     pinQualityTip(a) {
       const q = a.quality || {};
       if (q.status === 'failed') return q.error || '质量分计算失败';
-      if (q.formula !== 'pin_heuristic_v2' || !q.breakdown) return '尚未计算';
+      if (q.formula !== 'pin_heuristic_v3' || !q.breakdown) return '尚未计算';
       const items = q.breakdown.items || [];
       const rows = [
-        '本地算的完整度，不评内容好坏',
-        '四项全满才到 90，满分即 90',
+        '本地算的完整度，5 分制，不评内容好坏',
+        '四项全满才到 5.00，满分即 5.00',
       ];
       const byKey = {};
       items.forEach(i => { byKey[i.key] = i; });
-      if (byKey.length) rows.push(`正文长度：${byKey.length.detail || '—'}，${byKey.length.delta >= 0 ? '+' : ''}${byKey.length.delta}`);
-      if (byKey.substance) rows.push(`数字与结构：${byKey.substance.detail || '无'}，${byKey.substance.delta >= 0 ? '+' : ''}${byKey.substance.delta}`);
-      if (byKey.publisher) rows.push(`发布方：${byKey.publisher.delta ? '+5' : '无'}`);
-      if (byKey.published_at) rows.push(`发布时间：${byKey.published_at.delta ? '+3' : '无'}`);
-      rows.push('底分 45');
+      const fmt = d => `${d >= 0 ? '+' : ''}${Number(d).toFixed(2)}`;
+      if (byKey.length) rows.push(`正文长度：${byKey.length.detail || '—'}，${fmt(byKey.length.delta)}`);
+      if (byKey.substance) rows.push(`数字与结构：${byKey.substance.detail || '无'}，${fmt(byKey.substance.delta)}`);
+      if (byKey.publisher) rows.push(`发布方：${byKey.publisher.delta ? fmt(byKey.publisher.delta) : '无'}`);
+      if (byKey.published_at) rows.push(`发布时间：${byKey.published_at.delta ? fmt(byKey.published_at.delta) : '无'}`);
+      rows.push(`底分 ${Number(q.breakdown.base || 2.5).toFixed(2)}`);
       return rows.join('\n');
     },
 
@@ -4691,7 +4705,7 @@ function app() {
       // Only rows whose formula is missing/outdated are refreshed; `failed`
       // rows keep the dash + error tip instead of looping the endpoint.
       const stale = (this.pinnedArticles || []).filter(
-        a => (a.quality || {}).formula !== 'pin_heuristic_v2'
+        a => (a.quality || {}).formula !== 'pin_heuristic_v3'
       );
       if (!stale.length) return;
       this._qualityRefreshing = true;

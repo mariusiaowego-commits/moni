@@ -76,14 +76,14 @@ def test_pin_scores_quality_and_list_shape(client):
     r = client.post("/api/articles/q1/pin?on=true")
     assert r.status_code == 200
     body = r.json()
-    assert body["quality_score"] == 87
-    assert body["quality_formula"] == "pin_heuristic_v2"
+    assert body["quality_score"] == 4.8
+    assert body["quality_formula"] == "pin_heuristic_v3"
     assert body["quality_status"] == "ready"
-    assert body["quality_breakdown"]["total"] == 87
+    assert body["quality_breakdown"]["total"] == 4.8
 
     pinned = client.get("/api/articles/pinned").json()["items"]
-    assert pinned[0]["quality"]["score"] == 87
-    assert pinned[0]["quality"]["formula"] == "pin_heuristic_v2"
+    assert pinned[0]["quality"]["score"] == 4.8
+    assert pinned[0]["quality"]["formula"] == "pin_heuristic_v3"
 
     # The shared article listing must not grow quality columns.
     listed = client.get("/api/articles").json()
@@ -113,8 +113,8 @@ def test_refresh_endpoint_is_idempotent_and_body_sensitive(client):
         "SELECT quality_score, quality_formula, quality_input_hash FROM articles "
         "WHERE id='legacy'"
     ).fetchone()
-    assert row["quality_formula"] == "pin_heuristic_v2"
-    assert row["quality_score"] == 30  # 45 base − 20 thin body + 5 publisher
+    assert row["quality_formula"] == "pin_heuristic_v3"
+    assert row["quality_score"] == 1.7  # 2.5 base − 1.1 thin body + 0.3 publisher
     first_hash = row["quality_input_hash"]
 
     second = client.post(
@@ -131,7 +131,7 @@ def test_refresh_endpoint_is_idempotent_and_body_sensitive(client):
     row = get_db().execute(
         "SELECT quality_score, quality_input_hash FROM articles WHERE id='legacy'"
     ).fetchone()
-    assert row["quality_score"] == 87
+    assert row["quality_score"] == 4.8
     assert row["quality_input_hash"] != first_hash
 
     skipped = client.post(
@@ -157,6 +157,27 @@ def test_pinned_get_is_read_only_for_legacy_rows(client):
     ).fetchone()
     assert row["quality_score"] == 96
     assert row["quality_formula"] is None
+
+
+def test_pinned_list_pages_cover_the_whole_pin_set(client):
+    now = datetime.now(timezone.utc).isoformat()
+    for i in range(25):
+        _insert(f"page-{i:02d}", body="正文" * 200)
+        get_db().execute(
+            "INSERT INTO article_pins (article_id, pinned_at) VALUES (?, ?)",
+            (f"page-{i:02d}", now),
+        )
+    get_db().commit()
+
+    first = client.get("/api/articles/pinned?page=1&page_size=20").json()
+    second = client.get("/api/articles/pinned?page=2&page_size=20").json()
+    assert first["total"] == 25
+    assert len(first["items"]) == 20
+    assert len(second["items"]) == 5
+    assert {i["id"] for i in first["items"]} & {i["id"] for i in second["items"]} == set()
+    assert {i["id"] for i in first["items"]} | {i["id"] for i in second["items"]} == {
+        f"page-{i:02d}" for i in range(25)
+    }
 
 
 def test_budget_skip_persists_null_score_and_retries(fresh_db):
@@ -189,7 +210,7 @@ def test_crud_put_recomputes_pinned_quality(client):
         "SELECT quality_score FROM articles WHERE id='edit'"
     ).fetchone()["quality_score"]
     assert before != after
-    assert after == 87
+    assert after == 4.8
 
 
 def test_crud_title_only_does_not_recompute(client):
