@@ -4,18 +4,26 @@
 
 ---
 
-## 进行中: **v1.0.97 — 质量分 5 分制 + Pin 列头 + 分页修复** (2026-11-18 · 分支 `feat/quality-scale-5`)
+## 已发布: **v1.0.97 — 质量分 5 分制 + Pin 列头 + 分页修复** (2026-11-18 · PR #227 · tag `v1.0.97` · commit `57af0d3`)
 
 实现记录 `docs/plans/2026-11-18_quality-scale-5.md`，设计稿 §5 已同步。
 
 - **5 分制**：`pin_heuristic_v3`，底分 2.50 + 长度 ≤1.40 + 数字结构 ≤0.60 + 发布方 0.30 +
-  发布时间 0.20，四项全满 5.00，两位小数，仍不设调整分。公式名升版，存量 `v2` 行下次
-  Pin 页加载/refresh 时重算。
+  发布时间 0.20，四项全满 5.00，两位小数，仍不设调整分。公式名升版，存量 `v2` 行加载/refresh 时重算。
 - **列头**：「质量」→「质量分」，Pin tab 内显示。
-- **分页**：修掉 Pin 子标签复用「全部文章」分页状态的问题（原来点上一页/下一页只翻全部，
-  36 篇 Pin 只能看到第一页 20 条）；现在 Pin 用自己的 `pinnedPage/ pinnedPageSize/
-  pinnedHasMore`，文案「第 N 页 · 共 M 篇」。
-- **测试**：scoring/pins/brief 相关 76 passed；全量见 PR。
+- **分页**：修掉 Pin 子标签复用「全部文章」分页状态的问题；现在 Pin 用自己的
+  `pinnedPage / pinnedPageSize / pinnedHasMore`，文案「第 N 页 · 共 M 篇」。
+- **审计**：独立只读审计 **PASS WITH NITS**（4 P3）。已修 3 项：`enrichment._ensure_quality`
+  不再把 0–100 写进 Pin 列（改为只对 Pin 集合内行调 `pin_heuristic_v3`）、删除死导入
+  `compute_heuristic_quality`、Pin 子标签隐藏顶部「共 5330 篇」；migration 020 历史注释保留不改。
+- **测试**：全量 **1975 passed / 2 skipped**（`test_brief.py` / `test_brief_html.py` 写死生产路径，
+  单独跑 19 passed；混跑会串库），2 项既有环境性失败；CI `pytest · py3.12` pass。
+- **发布**：squash merge `57af0d3` · annotated tag `v1.0.97` · 生产 `/Users/mt16/dev/moni`
+  ff 到 `57af0d3` · `com.moni.web` 重启（PID 85688）· `/api/service/info` 报
+  `version=v1.0.97 / commit=57af0d3 / schema=45 / worktree_dirty=false`（本次无迁移）。
+- **生产冒烟**：`/static/index.html` 含「质量分」；36 篇 Pin 全部 `pin_heuristic_v3 / ready`，
+  分值 **1.60–5.00**、全部两位小数、12 篇满分；`page=1` 20 条、`page=2` 16 条；
+  refresh 返回 `updated=36 / unchanged=0 / skipped=0`。
 
 ## 已发布: **v1.0.96 — Pin 质量列 + 业务价值 harness** (2026-11-17 · PR #223 · tag `v1.0.96` · commit `5316f05`)
 
