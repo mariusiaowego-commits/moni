@@ -4,7 +4,7 @@
 
 ---
 
-## 待发布: **分享事实核查改人话结论 + 核查器 summary** (2026-11-18 · branch `share-fix`)
+## 已发布: **分享事实核查改人话结论 + 核查器 summary** (2026-11-18 · PR #232/#233 · commit `f1c26da` · 未打 tag)
 
 **症状**：PNG 报告的事实核查行变成「温度 [0,2]、top_p [0,1]、频率惩罚 [-2,2] …均与官方文档一致」。
 
@@ -40,8 +40,22 @@ Gate 2 降级后 summary 与逐条判定不同步、brief 脚注不受 flag 控�
 **测试**：`pytest tests/` → **2022 passed, 2 skipped**；唯一失败 `test_039_upgrades_a_db_built_by_old_code`
 是沙箱无法在主仓库 `.git` 建临时 worktree，沙箱外单跑 **1 passed**。
 
-**验收（待部署）**：`python3 -m moni.db.migrate` → schema 46；重跑同一篇文章的 `report_png`，
-事实核查行 ≤60 字、不含参数区间/字段名；`include_fact_check=false` 的报告不再出现核查段。
+**发布**：squash `b434943`（#232）+ `f1c26da`（#233） · 生产 `git pull --ff-only` ·
+`python3 -m moni.db.migrate` → schema **46** · `com.moni.web` 重启（PID 41774）·
+`/api/service/info` 报 `commit=f1c26da / schema_version=46 / worktree_dirty=false`。
+
+**生产实测**：
+
+- 注入块：`7ab82a579114a88d` 从 7327 字节（约 5.9KB 核查 JSON）降到 **404 字节**，
+  只剩「结论 + 核查要点」，`"snippet"` / `"query"` / URL 均为 0 命中。
+- 重跑联网核查：`fact_check_summary` 落库 66 字；逐条 verdict 分开为
+  `已核实 / 待核实 / 存疑`（11 条）。
+- PNG E2E：任务 `1-fGf5pB9WBuGNBuyuOD8Q` → `data/artifacts/1-fGf5pB9WBuGNBuyuOD8Q-report_png-0.png`，
+  事实核查行 **33 字**：「文中引用的事实都查得到，主体是个人管理观点，引用时宜标为观点。」
+  无数字区间、无参数名、无分号、无冒号后枚举。
+
+**已知边界（未修，P3）**：`fact_check_conclusion` 若带「≤20 字说明」后缀（如
+`【已核实】仅指可查事实部分`），Gate 2 的白名单检查用精确等值比较会跳过。属既有逻辑，待单独处理。
 
 ## 已发布: **v1.0.99 — Pin 质量分改 1 位小数** (2026-11-18 · PR #229 · tag `v1.0.99` · commit `a6e8e93`)
 
