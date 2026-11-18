@@ -65,45 +65,46 @@ def _search_dirs(
     repo_root: Path,
     artifacts_dir: Path,
     profile_dir: Path,
-) -> list[Path]:
+    extra_dirs: tuple[Path, ...] = (),
+) -> tuple[list[Path], list[Path]]:
+    """返回 (主搜索根, 兜底搜索根)。
+
+    ``cache/scratch`` 放兜底：agent 在里面写手机预览/中间截图，mtime 往往
+    比成品新，混在主搜索里会抢走成品（2026-11-17 实测 phone.png 390x1317
+    被当成报告图）。只有主搜索根一个候选都没有时才看它。
+    """
+    scratch = [profile_dir / "cache" / "scratch"]
     if format_name in ("info_graphic_png", "report_png"):
-        return [
+        main = [
             repo_root / "infographic",
             repo_root / "data" / "briefings",
             artifacts_dir,
             profile_dir / "reports",
-            profile_dir / "cache" / "scratch",
             # 2026-11-17: agent 用 kami 技能时把成品写进自己的 cache，
             # 不在 repo 内。不扫这两个目录会出现「图已出、任务判 failed」。
             profile_dir / "cache" / "artifacts",
             profile_dir / "cache" / "documents",
         ]
-    return [
-        repo_root / "data" / "briefings",
-        artifacts_dir,
-        profile_dir / "reports",
-        profile_dir / "cache" / "scratch",
-        profile_dir / "cache" / "artifacts",
-        profile_dir / "cache" / "documents",
-    ]
+    else:
+        main = [
+            repo_root / "data" / "briefings",
+            artifacts_dir,
+            profile_dir / "reports",
+            profile_dir / "cache" / "artifacts",
+            profile_dir / "cache" / "documents",
+        ]
+    return [*main, *extra_dirs], scratch
 
 
-def find_recent_artifact(
-    format_name: str,
+def _scan_roots(
+    roots: list[Path],
+    suffixes: tuple[str, ...],
+    validate,
     not_before: float,
-    *,
-    repo_root: Path,
-    artifacts_dir: Path,
-    profile_dir: Path,
-    now: float | None = None,
-) -> Path | None:
-    """返回 ``not_before`` 之后修改、且校验通过的最新文件。"""
-    suffixes, validate = _validators(format_name)
-    if not validate:
-        return None
-    deadline = (now if now is not None else time.time()) - 1.0
+    deadline: float,
+) -> tuple[float, Path] | None:
     best: tuple[float, Path] | None = None
-    for root in _search_dirs(format_name, repo_root, artifacts_dir, profile_dir):
+    for root in roots:
         if not root.is_dir():
             continue
         for dirpath, dirnames, filenames in os.walk(root):
@@ -111,7 +112,7 @@ def find_recent_artifact(
             for name in filenames:
                 if not name.lower().endswith(suffixes):
                     continue
-                if root == artifacts_dir and _CANONICAL_ARTIFACT_RE.search(name):
+                if _CANONICAL_ARTIFACT_RE.search(name):
                     continue
                 path = Path(dirpath) / name
                 try:
@@ -124,17 +125,113 @@ def find_recent_artifact(
                     continue
                 if best is None or mtime > best[0]:
                     best = (mtime, path)
+    return best
+
+
+#: agent 回复里常见 ``/abs/path/x.png``：不含空白与引号括号，或行首独占一行。
+_PNG_PATH_RE = re.compile(r"(/(?:[^\s\"'()<>`，。；：])+\.png)")
+
+
+def png_paths_from_text(
+    text: str,
+    *,
+    not_before: float,
+    exclude_dir: Path | None = None,
+    now: float | None = None,
+) -> list[Path]:
+    """从 agent 回复里取出本次运行产出的 PNG 绝对路径，按 mtime 升序。
+
+    比 mtime 猜测可靠：agent 通常会把成品路径直接写在回复里。
+    ``exclude_dir`` 用来排除本任务自己的 artifacts 目录。
+    """
+    deadline = (now if now is not None else time.time()) - 1.0
+    exclude = exclude_dir.resolve() if exclude_dir is not None else None
+    found: dict[str, tuple[float, Path]] = {}
+
+    def consider(raw: str) -> None:
+        candidate = raw.strip().strip("`'\"<>()[]{} ")
+        if not candidate or candidate.startswith(("http://", "https://", "//")):
+            return
+        path = Path(candidate)
+        if not path.is_absolute() or path.suffix.lower() != ".png":
+            return
+        resolved = path.resolve()
+        if exclude is not None:
+            try:
+                resolved.relative_to(exclude)
+                return
+            except ValueError:
+                pass
+        if str(resolved) in found:
+            return
+        try:
+            mtime = resolved.stat().st_mtime
+        except OSError:
+            return
+        if mtime < not_before or mtime > deadline or not is_valid_png(resolved):
+            return
+        found[str(resolved)] = (mtime, resolved)
+
+    for line in text.splitlines():
+        consider(line)
+    for match in _PNG_PATH_RE.finditer(text):
+        consider(match.group(1))
+    return [path for _, path in sorted(found.values())]
+
+
+def find_recent_artifact(
+    format_name: str,
+    not_before: float,
+    *,
+    repo_root: Path,
+    artifacts_dir: Path,
+    profile_dir: Path,
+    extra_dirs: tuple[Path, ...] = (),
+    now: float | None = None,
+) -> Path | None:
+    """返回 ``not_before`` 之后修改、且校验通过的最新文件。"""
+    suffixes, validate = _validators(format_name)
+    if not validate:
+        return None
+    deadline = (now if now is not None else time.time()) - 1.0
+    main_roots, fallback_roots = _search_dirs(
+        format_name, repo_root, artifacts_dir, profile_dir, extra_dirs
+    )
+    best = _scan_roots(main_roots, suffixes, validate, not_before, deadline)
+    if best is None:
+        best = _scan_roots(fallback_roots, suffixes, validate, not_before, deadline)
     return best[1].resolve() if best else None
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="timeout_recovery")
-    parser.add_argument("--format", required=True)
+    parser.add_argument("--format")
+    parser.add_argument("--from-output")
     parser.add_argument("--not-before", type=float, required=True)
-    parser.add_argument("--repo-root", required=True)
-    parser.add_argument("--artifacts-dir", required=True)
-    parser.add_argument("--profile-dir", required=True)
+    parser.add_argument("--repo-root")
+    parser.add_argument("--artifacts-dir")
+    parser.add_argument("--profile-dir")
+    parser.add_argument("--exclude-dir")
+    parser.add_argument("--extra-dir", action="append", default=[])
     args = parser.parse_args(argv)
+
+    if args.from_output:
+        text = Path(args.from_output).read_text(encoding="utf-8", errors="replace")
+        found_paths = png_paths_from_text(
+            text,
+            not_before=args.not_before,
+            exclude_dir=Path(args.exclude_dir) if args.exclude_dir else None,
+        )
+        sys.stdout.write("\n".join(str(p) for p in found_paths))
+        return 0
+
+    missing = [
+        name
+        for name in ("format", "repo_root", "artifacts_dir", "profile_dir")
+        if not getattr(args, name)
+    ]
+    if missing:
+        parser.error(f"missing required args: {', '.join('--' + m.replace('_', '-') for m in missing)}")
 
     found = find_recent_artifact(
         args.format,
@@ -142,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
         repo_root=Path(args.repo_root),
         artifacts_dir=Path(args.artifacts_dir),
         profile_dir=Path(args.profile_dir),
+        extra_dirs=tuple(Path(p) for p in args.extra_dir),
     )
     if found:
         sys.stdout.write(str(found))

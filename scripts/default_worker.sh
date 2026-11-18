@@ -68,6 +68,7 @@ recover_artifact() {
         --repo-root "$REPO_ROOT" \
         --artifacts-dir "$artifacts_dir" \
         --profile-dir "$HOME/.hermes/profiles/${MONI_HERMES_PROFILE:-moni}" \
+        --extra-dir "${MONI_OUTPUT_DIR:-$HOME/.moni/output}" \
         2>/dev/null) || true
     [[ -n "$recovered" && -f "$recovered" ]] || return 1
 
@@ -76,7 +77,10 @@ recover_artifact() {
     else
         recovered_out="$artifacts_dir/${task_id}-${format}-0.png"
     fi
-    cp "$recovered" "$recovered_out"
+    cp -- "$recovered" "$recovered_out" 2>>"$LOG_FILE" || {
+        log "FAIL $task_id — copy artifact failed: $recovered"
+        return 1
+    }
     update_progress "$task_id" "writing_artifact" 95 "回收已产出产物: $recovered"
     task_status_update "$task_id" "done" "$recovered_out"
     sqlite3 "$DB_PATH" \
@@ -1184,33 +1188,19 @@ PYEOF
             # v1.0.97: agent 回复里通常写明成品绝对路径，优先按它取。
             # 只靠 mtime 会挑到 cache/scratch 里的中间截图（手机预览）。
             local explicit_pngs=""
-            explicit_pngs=$(PYTHONPATH="$REPO_ROOT" /usr/local/bin/python3 - "$hermes_out_file" "$artifacts_dir" <<'PYEOF'
-import re, sys
-from pathlib import Path
-from moni.share.timeout_recovery import is_valid_png
-
-text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
-artifacts_dir = Path(sys.argv[2]).resolve()
-seen, out = set(), []
-for match in re.finditer(r"(/[^\s\"'()<>，。；：]+\.png)", text):
-    path = Path(match.group(1))
-    if path in seen:
-        continue
-    seen.add(path)
-    if not path.is_file() or not is_valid_png(path):
-        continue
-    try:
-        path.resolve().relative_to(artifacts_dir)
-    except ValueError:
-        out.append(str(path))
-print("\n".join(out))
-PYEOF
-) || true
+            explicit_pngs=$(PYTHONPATH="$REPO_ROOT" "$PYTHON_BIN" \
+                "$REPO_ROOT/moni/share/timeout_recovery.py" \
+                --from-output "$hermes_out_file" \
+                --not-before "$llm_started_epoch" \
+                --exclude-dir "$artifacts_dir" 2>/dev/null) || true
             local cand
             while IFS= read -r cand; do
                 [[ -n "$cand" ]] || continue
                 local out_png="$artifacts_dir/${task_id}-${format}-${png_count}.png"
-                cp "$cand" "$out_png"
+                cp -- "$cand" "$out_png" 2>>"$LOG_FILE" || {
+                    log "FAIL $task_id — copy artifact failed: $cand"
+                    continue
+                }
                 log "PNG artifact copied from $cand -> $out_png"
                 png_count=$((png_count + 1))
             done <<< "$explicit_pngs"

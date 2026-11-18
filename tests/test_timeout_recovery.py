@@ -12,6 +12,7 @@ from moni.share.timeout_recovery import (
     find_recent_artifact,
     is_valid_html,
     is_valid_png,
+    png_paths_from_text,
 )
 
 
@@ -59,6 +60,53 @@ def test_find_png_in_hermes_profile_cache(subdir, tmp_path):
     png = _write_png(tmp_path / "profile" / subdir / "report.png")
     started = time.time() - 60
     assert _search("report_png", started, tmp_path) == png.resolve()
+
+
+def test_scratch_preview_never_beats_real_artifact(tmp_path):
+    """cache/scratch 里是手机预览，mtime 更新也不能顶替主搜索根的成品。"""
+    final = _write_png(tmp_path / "profile" / "reports" / "final.png")
+    preview = _write_png(tmp_path / "profile" / "cache" / "scratch" / "phone.png")
+    os.utime(preview, (time.time() - 2, time.time() - 2))
+    assert _search("report_png", time.time() - 60, tmp_path) == final.resolve()
+
+
+def test_scratch_used_only_when_nothing_else(tmp_path):
+    preview = _write_png(tmp_path / "profile" / "cache" / "scratch" / "phone.png")
+    assert _search("report_png", time.time() - 60, tmp_path) == preview.resolve()
+
+
+def test_extra_dir_is_searched(tmp_path):
+    png = _write_png(tmp_path / "moni-output" / "moni-report.png")
+    assert find_recent_artifact(
+        "report_png",
+        time.time() - 60,
+        repo_root=tmp_path,
+        artifacts_dir=tmp_path / "data" / "artifacts",
+        profile_dir=tmp_path / "profile",
+        extra_dirs=(tmp_path / "moni-output",),
+    ) == png.resolve()
+
+
+def test_png_paths_from_text_prefers_reported_path(tmp_path):
+    png = _write_png(tmp_path / "reports" / "行业跟踪.png")
+    text = f"输出文件：\n`{png}`\n参考 https://fal.media/files/abc/x.png\n"
+    assert png_paths_from_text(text, not_before=time.time() - 60) == [png.resolve()]
+
+
+def test_png_paths_from_text_skips_stale_and_excluded(tmp_path):
+    stale = _write_png(tmp_path / "reports" / "old.png")
+    old = time.time() - 3600
+    os.utime(stale, (old, old))
+    own = _write_png(tmp_path / "artifacts" / "own.png")
+    text = f"{stale}\n{own}\n"
+    assert (
+        png_paths_from_text(
+            text,
+            not_before=time.time() - 120,
+            exclude_dir=tmp_path / "artifacts",
+        )
+        == []
+    )
 
 
 def test_ignore_png_from_before_run(tmp_path):
