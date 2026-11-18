@@ -4,6 +4,19 @@
 
 ---
 
+## 进行中: **v1.0.97 — 质量分 5 分制 + Pin 列头 + 分页修复** (2026-11-18 · 分支 `feat/quality-scale-5`)
+
+实现记录 `docs/plans/2026-11-18_quality-scale-5.md`，设计稿 §5 已同步。
+
+- **5 分制**：`pin_heuristic_v3`，底分 2.50 + 长度 ≤1.40 + 数字结构 ≤0.60 + 发布方 0.30 +
+  发布时间 0.20，四项全满 5.00，两位小数，仍不设调整分。公式名升版，存量 `v2` 行下次
+  Pin 页加载/refresh 时重算。
+- **列头**：「质量」→「质量分」，Pin tab 内显示。
+- **分页**：修掉 Pin 子标签复用「全部文章」分页状态的问题（原来点上一页/下一页只翻全部，
+  36 篇 Pin 只能看到第一页 20 条）；现在 Pin 用自己的 `pinnedPage/ pinnedPageSize/
+  pinnedHasMore`，文案「第 N 页 · 共 M 篇」。
+- **测试**：scoring/pins/brief 相关 76 passed；全量见 PR。
+
 ## 已发布: **v1.0.96 — Pin 质量列 + 业务价值 harness** (2026-11-17 · PR #223 · tag `v1.0.96` · commit `5316f05`)
 
 设计稿 `docs/specs/2026-11-16-pin-quality-bv-harness.md`（v4 已拍板 B/C/C/B），实现记录

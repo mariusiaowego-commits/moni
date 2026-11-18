@@ -1,7 +1,13 @@
 """Cache-hit rules for the two score families (design §4.4, §6.5)."""
 from __future__ import annotations
 
-from moni.scoring import content_hash, quality_fingerprint, needs_bv_rescore, needs_quality_refresh
+from moni.scoring import (
+    content_hash,
+    heuristic,
+    needs_bv_rescore,
+    needs_quality_refresh,
+    quality_fingerprint,
+)
 from moni.scoring.rubric import RUBRIC_V1
 from moni.scoring.snapshot import ArticleSnapshot
 
@@ -13,7 +19,7 @@ def _snap(body: str = "正文内容足够长，用于哈希测试。") -> Articl
 def test_quality_refresh_only_when_formula_or_fingerprint_drift():
     snap = _snap()
     row = {
-        "quality_formula": "pin_heuristic_v2",
+        "quality_formula": heuristic.PIN_FORMULA,
         "quality_status": "ready",
         "quality_breakdown_json": "{}",
         "quality_input_hash": quality_fingerprint(snap),
