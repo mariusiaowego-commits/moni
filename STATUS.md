@@ -25,7 +25,8 @@
 （3 条 P3）→ 修完 → 终审 **`APPROVE`**。合并前确认 `base = main@e5975a3`（最新 main）、
 GitHub `mergeable_state=clean`。
 
-**测试**：定向 185 passed；全量 **2039 passed + 2 skipped**。`test_migration_039` 在沙箱内因
+**测试**：定向 185 passed；全量 **2039 passed + 2 skipped + 2 环境性 failed**（共 2043 项）。
+`test_migration_039` 在沙箱内因
 `git worktree add` 无权限失败，沙箱外 **33 passed**；`test_worker_lock` 满载偶发一次，
 单跑 **1 passed**。
 
