@@ -1956,6 +1956,7 @@ label { font-size: var(--font-14); }
 }
 .toast {
   display: inline-flex; align-items: center; gap: 10px;
+  flex-wrap: wrap;
   padding: 10px 16px; border-radius: 8px;
   background: var(--card); color: var(--card-fg);
   border: 1px solid var(--border);
@@ -1982,6 +1983,15 @@ label { font-size: var(--font-14); }
   padding: 2px 4px; border-radius: 4px;
 }
 .toast .toast-close:hover { background: var(--muted); color: var(--foreground); }
+.toast-detail { flex-basis: 100%; font-size: var(--font-12); font-weight: 400; }
+.toast-detail summary { cursor: pointer; color: var(--muted-fg); }
+.toast-detail pre {
+  margin: 6px 0 0; padding: 8px 10px; max-height: 180px; overflow: auto;
+  background: var(--muted); border: 1px solid var(--border); border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--font-12); line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word; color: var(--muted-fg);
+}
 
 .toast.show { opacity: 1; transform: translateY(0); }
 .toast.dismissing { opacity: 0; transform: translateY(-6px); }
@@ -2668,6 +2678,46 @@ label { font-size: var(--font-14); }
 }
 .summary-box h4 { font-size: var(--font-14); font-weight: 600; margin-bottom: 6px; }
 .summary-box p { font-size: var(--font-14); line-height: 1.6; margin: 0; }
+
+/* ── 阅读器内容页签（正文 / 摘要 / 事实核查） ── */
+.reader-view { min-height: 0; }
+.reader-panel { display: flex; flex-direction: column; gap: 12px; max-width: 880px; }
+.reader-panel-head { display: flex; align-items: center; gap: 10px; }
+.reader-panel-head h4 { font-size: var(--font-15); font-weight: 620; margin: 0; }
+.reader-tier-note {
+  margin: 0; padding: 10px 12px; font-size: var(--font-13); line-height: 1.6;
+  color: var(--muted-fg); background: var(--muted);
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.fact-lead {
+  padding: 12px 14px; background: var(--muted);
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.fact-lead-label { font-size: var(--font-12); color: var(--muted-fg); }
+.fact-lead p { margin: 4px 0 0; font-size: var(--font-15); line-height: 1.65; }
+.reader-facts { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.reader-facts > div { display: flex; gap: 10px; font-size: var(--font-13); line-height: 1.6; }
+.reader-facts dt { flex: none; width: 68px; color: var(--muted-fg); }
+.reader-facts dd { margin: 0; }
+.reader-fold-toggle { margin-bottom: 8px; }
+.reader-fact-report { max-height: 58vh; overflow-y: auto; }
+
+/* 摘要 / 核查详情里的 markdown 正文 */
+.summary-box .markdown { font-size: var(--font-14); line-height: 1.7; }
+.summary-box .markdown p { margin: 0 0 .6em; }
+.summary-box .markdown p:last-child { margin-bottom: 0; }
+.summary-box .markdown h1, .summary-box .markdown h2, .summary-box .markdown h3 {
+  font-size: var(--font-15); margin: .9em 0 .4em;
+}
+.summary-box .markdown ul, .summary-box .markdown ol { margin: .4em 0 .7em; padding-left: 1.3em; }
+.summary-box .markdown code { background: var(--card); padding: 1px 4px; border-radius: 3px; font-size: .9em; }
+.summary-box .markdown pre {
+  background: var(--card); padding: 10px; border-radius: var(--radius-sm); overflow: auto;
+}
+.summary-box .markdown table { width: 100%; border-collapse: collapse; font-size: var(--font-13); }
+.summary-box .markdown th, .summary-box .markdown td {
+  border: 1px solid var(--border); padding: 6px 8px; text-align: left;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    Config / LLM helpers
@@ -4872,7 +4922,12 @@ body.has-float-layer .tags-overflow { display: none !important; }
   border-radius: 16px; box-shadow: 0 24px 64px oklch(0 0 0 / 0.24);
   transform: translateY(14px) scale(0.98); transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
-.reader-modal.is-expanded { width: calc(100vw - 24px); height: calc(100vh - 24px); }
+.reader-modal.is-expanded {
+  position: fixed; inset: 0;
+  width: 100vw; height: 100vh;
+  border-radius: 0; border: 0;
+  transform: none;
+}
 .reader-head {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
   padding: 16px 20px 12px; border-bottom: 1px solid var(--border);
@@ -4885,11 +4940,34 @@ body.has-float-layer .tags-overflow { display: none !important; }
 .reader-head-actions .pin-btn { font-size: var(--font-13); }
 .reader-head-actions .modal-close { position: static; }
 .reader-expand-btn { color: var(--muted-fg); }
-.reader-split { display: grid; grid-template-columns: minmax(0, 1fr) 390px; min-height: 0; flex: 1; }
-.reader-split { column-gap: 12px; padding: 12px; }
+.reader-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 390px;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0; flex: 1;
+  column-gap: 12px; row-gap: 10px; padding: 12px;
+}
+.reader-tabs {
+  grid-column: 1 / -1; grid-row: 1;
+  display: flex; align-items: center; gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.reader-tab {
+  position: relative; border: 0; background: transparent;
+  border-radius: var(--radius-sm); padding: 7px 12px;
+  color: var(--muted-fg); font: inherit; font-size: var(--font-13);
+  cursor: pointer; transition: color .15s ease, background .15s ease;
+}
+.reader-tab:hover { color: var(--foreground); background: var(--muted); }
+.reader-tab.is-active { color: var(--foreground); font-weight: 600; }
+.reader-tab.is-active::after {
+  content: ''; position: absolute; left: 12px; right: 12px; bottom: -1px;
+  height: 2px; border-radius: 2px; background: var(--accent);
+}
 .reader-pane {
   position: relative; background: var(--card);
   border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden;
+  grid-column: 1; grid-row: 2;
 }
 .reader-pane-split { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
 .reader-scroll {
@@ -5025,6 +5103,7 @@ body.has-float-layer .tags-overflow { display: none !important; }
   display: flex; flex-direction: column; min-height: 0;
   border: 1px solid var(--border); border-radius: var(--radius-lg);
   background: var(--card); overflow: hidden;
+  grid-column: 2; grid-row: 2;
 }
 .ai-head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -5234,22 +5313,29 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
 .reader-prompt-item-main p { margin: 3px 0 0; color: var(--muted-fg); font-size: 12px; line-height: 1.5; }
 .reader-prompt-item-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .reader-prompt-item-actions .danger { color: var(--destructive); }
-.reader-mobile-tabs { display: none; }
-
 @media (max-width: 1100px) {
   .reader-split { grid-template-columns: minmax(0, 1fr); }
   .ai-pane {
-    position: absolute; z-index: 5; top: 0; right: 0; bottom: 0; width: min(420px, 92vw);
-    box-shadow: -12px 0 32px oklch(0 0 0 / 0.16); border-left: 1px solid var(--border);
+    grid-column: 1; grid-row: 2;
+    position: relative; width: auto;
+    box-shadow: none; border-left: 0;
   }
-  .reader-mobile-tabs { display: flex; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--border); }
-  .reader-mobile-tabs button {
-    border: 0; background: transparent; border-radius: var(--radius-sm);
-    padding: 5px 10px; color: var(--muted-fg); font: inherit; font-size: var(--font-13); cursor: pointer;
+  /* 窄屏：正文与对话叠在同一网格单元，靠位移+淡入切换，不再是「盖上去」 */
+  .reader-pane, .ai-pane {
+    transition: opacity .22s ease, transform .22s cubic-bezier(.22, 1, .36, 1), visibility 0s;
   }
-  .reader-mobile-tabs button.is-active { background: var(--muted); color: var(--foreground); }
-  .reader-split.mobile-read .ai-pane { display: none; }
-  .reader-split.mobile-ai .reader-pane { visibility: hidden; }
+  .reader-split.mobile-read .ai-pane {
+    opacity: 0; transform: translateX(18px); pointer-events: none; visibility: hidden;
+    transition: opacity .22s ease, transform .22s cubic-bezier(.22, 1, .36, 1), visibility 0s linear .22s;
+  }
+  .reader-split.mobile-ai .reader-pane {
+    opacity: 0; transform: translateX(-18px); pointer-events: none; visibility: hidden;
+    transition: opacity .22s ease, transform .22s cubic-bezier(.22, 1, .36, 1), visibility 0s linear .22s;
+  }
+}
+@media (min-width: 1101px) {
+  /* 宽屏右侧常驻 AI 对话，不需要「对话」页签 */
+  .reader-tab-ai { display: none; }
 }
 @media (max-width: 760px) {
   .reader-backdrop { padding: 0; }
@@ -5266,6 +5352,12 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
 
 /* Reduced motion — consolidated tail. New animated rules go here, not in a new block. */
 @media (prefers-reduced-motion: reduce) {
+
+  /* ── 阅读器窄屏页签切换 ── */
+  .reader-pane,
+  .ai-pane {
+    transition: none;
+  }
 
   /* ── status dots (infinite pulse) ── */
   .svc-dot-on,

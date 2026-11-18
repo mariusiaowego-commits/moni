@@ -573,6 +573,9 @@
     // ── reader detail ───────────────────────────────────────────
     readerExpanded: false,
     readerMobileTab: 'read',
+    // 正文 / 摘要 / 事实核查 三个内容页签（与窄屏的「对话」页签正交）。
+    readerContentTab: 'read',
+    readerFactReportOpen: false,
     readerMessages: [],
     readerConversation: null,
     readerPrompts: [],
@@ -606,6 +609,8 @@
       this.readerQuote = '';
       this.readerInput = '';
       this.readerMobileTab = 'read';
+      this.readerContentTab = 'read';
+      this.readerFactReportOpen = false;
       fetch(`/api/articles/${article.id}`, { credentials: 'same-origin' })
         .then((r) => {
           if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -616,6 +621,9 @@
           this.readerRendered = renderArticle(data.content || '');
           this.readerBodyEmpty = plainTextLength(this.readerRendered) < 80;
           this.readerBankParts = parseBankMeta(data.content || '');
+          // 证据链此前只在核查任务跑完的那一次会话里加载，直接打开文章会看到空列表。
+          this.articleEvidenceList = [];
+          if (data.has_web_fact_check) this.loadArticleEvidence(data.id);
           this.readerLoadPrompts();
           this.readerLoadConversation();
         })
@@ -630,8 +638,57 @@
       this.readerRawOpen = false;
       this.readerImportOpen = false;
       this.readerSelectionVisible = false;
+      this.readerExpanded = false;
+      this.readerMobileTab = 'read';
+      this.readerContentTab = 'read';
+      this.readerFactReportOpen = false;
       this.summaryLoading = false;
       this.factCheckLoading = false;
+    },
+
+    /** Esc 先退出全屏，再关闭阅读器。 */
+    readerHandleEscape() {
+      if (this.readerExpanded) {
+        this.readerExpanded = false;
+        return;
+      }
+      this.closeArticleDetail();
+    },
+
+    readerSwitchContentTab(tab) {
+      this.readerContentTab = tab;
+      this.readerFactReportOpen = false;
+      this.$nextTick(() => {
+        const box = this.$refs?.readerScroll || document.querySelector('.reader-scroll');
+        if (box) box.scrollTop = 0;
+      });
+    },
+
+    readerSwitchToAi() {
+      this.readerMobileTab = 'ai';
+      this.readerScrollToBottom();
+    },
+
+    /**
+     * 历史联网核查结论是整篇 markdown 报告（## 核查结论 + ## 逐条核查）。
+     * 结论段直接显示，逐条核查折叠起来，否则页签里只剩一个按钮。
+     */
+    get readerFactSplit() {
+      const text = String(this.articleDetail?.fact_check_conclusion || '');
+      if (!text || text.length <= 200) return { preview: text, rest: '' };
+      const cut = text.search(/\n##\s+\S/);
+      if (cut > 0) return { preview: text.slice(0, cut).trim(), rest: text.slice(cut).trim() };
+      const para = text.indexOf('\n\n');
+      if (para > 0) return { preview: text.slice(0, para).trim(), rest: text.slice(para).trim() };
+      return { preview: text.slice(0, 160).trim() + '…', rest: text };
+    },
+
+    get readerFactPreviewText() {
+      return this.readerFactSplit.preview;
+    },
+
+    get readerFactRestText() {
+      return this.readerFactSplit.rest;
     },
 
     readerLoadPrompts() {
