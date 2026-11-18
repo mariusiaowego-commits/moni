@@ -1,7 +1,8 @@
 """Local, model-free scores.
 
 ``pin_heuristic_v3`` answers "is this draft complete enough to work with?" on
-a 0–5 scale (two decimals).  The five-point form exists so the Pin column can
+a 0–5 scale (one decimal).  Every term is a multiple of 0.1, so a second
+decimal would always be zero.  The five-point form exists so the Pin column can
 never be confused with the 0–100 business-value score or BestBlogs ``bb_score``.
 ``reading_heuristic`` is the legacy completeness/attention score used by the
 brief card when no BestBlogs score exists.  They share the length tiers but
@@ -67,13 +68,13 @@ def score_quality(snap: ArticleSnapshot) -> QualityResult:
     paragraphs = count_paragraphs(body)
     number_pts = 0.4 if numbers >= 3 else (0.2 if numbers >= 1 else 0.0)
     para_pts = 0.2 if paragraphs >= 4 else 0.0
-    substance_pts = round(min(0.6, number_pts + para_pts), 2)
+    substance_pts = round(min(0.6, number_pts + para_pts), 1)
     publisher_pts = 0.3 if snap.publisher.strip() else 0.0
     published_pts = 0.2 if snap.published_at.strip() else 0.0
     length_pts = _length_tier(n)[1]
 
     total = PIN_BASE + length_pts + substance_pts + publisher_pts + published_pts
-    total = round(max(0.0, min(PIN_MAX, total)), 2)
+    total = round(max(0.0, min(PIN_MAX, total)), 1)
 
     detail_parts = []
     if number_pts:
@@ -91,28 +92,28 @@ def score_quality(snap: ArticleSnapshot) -> QualityResult:
                 "label": "正文长度",
                 "hit": length_pts > 0,
                 "detail": f"{n} 字",
-                "delta": round(length_pts, 2),
+                "delta": round(length_pts, 1),
             },
             {
                 "key": "substance",
                 "label": "数字与结构",
                 "hit": substance_pts > 0,
                 "detail": "，".join(detail_parts),
-                "delta": round(substance_pts, 2),
+                "delta": round(substance_pts, 1),
             },
             {
                 "key": "publisher",
                 "label": "发布方",
                 "hit": publisher_pts > 0,
                 "detail": "有发布方" if publisher_pts else "",
-                "delta": round(publisher_pts, 2),
+                "delta": round(publisher_pts, 1),
             },
             {
                 "key": "published_at",
                 "label": "发布时间",
                 "hit": published_pts > 0,
                 "detail": "有发布时间" if published_pts else "",
-                "delta": round(published_pts, 2),
+                "delta": round(published_pts, 1),
             },
         ],
     }
