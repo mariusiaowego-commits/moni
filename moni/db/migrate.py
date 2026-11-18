@@ -18,7 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 45  # + 045 scoring (pin quality + business-value harness)
+_CURRENT_VERSION = 46  # + 046 fact_check_summary / evidence claim+verdict
 
 # Migrations <= this version were applied by the old "max(schema_version)"
 # rule, which did not record every intermediate row.  Never re-run them.
