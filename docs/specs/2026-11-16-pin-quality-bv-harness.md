@@ -413,7 +413,7 @@ V1 不建方向表。
 
 ## 9. 验收断言
 
-1. `bb_score=96`，正文 strip 后 1000 字、数字 0 处、分段 <4、无发布方、无发布时间 → Pin 后 `quality_score=3.10`，`bb_score` 仍 96，`base+Σdelta=3.10`。
+1. `bb_score=96`，正文 strip 后 1000 字、数字 0 处、分段 <4、无发布方、无发布时间 → Pin 后 `quality_score=3.1`，`bb_score` 仍 96，`base+Σdelta=3.1`。
 2. 历史行 `quality_score=96`、`quality_formula` 为空：`GET /pinned` 返回该行公式为空、库不变；Pin 页显示省略号并对该 id 发一次 refresh；refresh 后公式是 `pin_heuristic_v3`、分数重算、`bb_score` 不变。
 3. 摘要和核查有无不影响质量分；breakdown 不含 `ai_summary`/`fact_check`/`source_prior`/`bb_score`。
 4. 正文不变，第二次 refresh 落在 `unchanged`；改 `raw_content` 后 refresh 落在 `updated`。
@@ -429,10 +429,10 @@ V1 不建方向表。
 14. 缺 `adoption_cost`，两次都缺 → `needs_review`、`cap_reason=missing`；十 key 齐且全 0 → 可 `ready`。
 15. 卡片：`通用 72` + 标签「规则约束、同业动作、决策窗口」；标签不带数字；超过 3 个只显示权重最高的 3 个。
 16. 决策窗口 10 分、评分日距生效 52 天；把渲染日改到 120 天后 → 分数不变、status 不变、界面出现「窗口已过（评分时 52 天）」，排序不掉档。
-17. `_quality()` 对 `quality_score=5.00` 但无 `bb_score` 的文章返回 `reading_heuristic` 的值（夹具：strip≥5000 含内部空行、摘要+核查齐 → 93），不返回 5.00，chip 是「阅读 93」。
+17. `_quality()` 对 `quality_score=5.0` 但无 `bb_score` 的文章返回 `reading_heuristic` 的值（夹具：strip≥5000 含内部空行、摘要+核查齐 → 93），不返回 5.0，chip 是「阅读 93」。
 18. `GET /api/articles` JSON 不含 `quality_*`；Pin 响应含。
 19. `_ensure_quality` 不再把 `bb_score` 写进 `quality_score`。
-20. 夹具：正文 strip 后 5230 字、数字 6 处、分段 5 段、有发布方、无发布时间 → `base+Σdelta = 2.50+1.40+0.60+0.30+0 = 4.80`，breakdown 的 `total` 与之一致，且 `publisher.detail` 不带「封顶前」。
+20. 夹具：正文 strip 后 5230 字、数字 6 处、分段 5 段、有发布方、无发布时间 → `base+Σdelta = 2.5+1.4+0.6+0.3+0 = 4.8`，breakdown 的 `total` 与之一致，且 `publisher.detail` 不带「封顶前」。
 
 ## 10. V2 附录：方向分
 
