@@ -53,6 +53,14 @@ def test_find_png_written_during_run(tmp_path):
     assert _search("info_graphic_png", started, tmp_path) == png.resolve()
 
 
+@pytest.mark.parametrize("subdir", ["cache/artifacts", "cache/documents"])
+def test_find_png_in_hermes_profile_cache(subdir, tmp_path):
+    """kami 技能把成品写进 profile cache，不在 repo 内也要能回收。"""
+    png = _write_png(tmp_path / "profile" / subdir / "report.png")
+    started = time.time() - 60
+    assert _search("report_png", started, tmp_path) == png.resolve()
+
+
 def test_ignore_png_from_before_run(tmp_path):
     png = _write_png(tmp_path / "infographic" / "old.png")
     old = time.time() - 3600

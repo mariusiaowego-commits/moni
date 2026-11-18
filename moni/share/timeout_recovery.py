@@ -73,12 +73,18 @@ def _search_dirs(
             artifacts_dir,
             profile_dir / "reports",
             profile_dir / "cache" / "scratch",
+            # 2026-11-17: agent 用 kami 技能时把成品写进自己的 cache，
+            # 不在 repo 内。不扫这两个目录会出现「图已出、任务判 failed」。
+            profile_dir / "cache" / "artifacts",
+            profile_dir / "cache" / "documents",
         ]
     return [
         repo_root / "data" / "briefings",
         artifacts_dir,
         profile_dir / "reports",
         profile_dir / "cache" / "scratch",
+        profile_dir / "cache" / "artifacts",
+        profile_dir / "cache" / "documents",
     ]
 
 
