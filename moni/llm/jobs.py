@@ -333,6 +333,21 @@ def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> N
         )
         return
 
+    # sprint-58 闸门: 已被人工确认（或自动标注）为劣质内容的文章不再花 token
+    # 做摘要。`dismissed` 是人工改判，必须放行。
+    if task_type in ("summary", "brief"):
+        from moni.moderation.service import gated_map
+
+        gated = gated_map(conn, [article_id])
+        if article_id in gated:
+            _mark_failed(
+                job_id,
+                f"moderation.gated: 命中 {gated[article_id]}，跳过模型调用",
+                attempts=attempt,
+                handle=handle,
+            )
+            return
+
     # v1.0.5.24: get article tags for perspective selection
     tag_rows = conn.execute(
         "SELECT tag_name FROM article_tags WHERE article_id = ?",

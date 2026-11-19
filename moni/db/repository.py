@@ -208,6 +208,22 @@ class ArticleRepository:
             for aid in refreshed_ids:
                 recompute_quality_if_pinned(conn, aid)
 
+        # sprint-58: 入库后标注内容分级。异常只记日志（label_and_store 自己
+        # 吞掉），绝不回滚入库；也不写 label_runs —— 那是批任务的表。
+        if new_ids or refreshed_ids:
+            from moni.moderation.service import label_and_store
+
+            for aid in dict.fromkeys([*new_ids, *refreshed_ids]):
+                row = conn.execute(
+                    "SELECT title, raw_content FROM articles WHERE id = ?", (aid,)
+                ).fetchone()
+                if row is None:
+                    continue
+                label_and_store(
+                    aid, row["title"] or "", row["raw_content"] or "", conn=conn
+                )
+            conn.commit()
+
         return inserted
 
     @staticmethod

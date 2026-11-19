@@ -211,6 +211,12 @@ def update_article(article_id: str, body: ArticleUpdate) -> Article:
 
         recompute_quality_if_pinned(conn, article_id)
 
+    # sprint-58: 标题或正文变了就得重标（涨粉规则看正文，强信号看标题）。
+    if body.title is not None or body.content is not None:
+        from moni.moderation.service import relabel_article
+
+        relabel_article(article_id, conn=conn)
+
     row = conn.execute(
         """
         SELECT id, title, url, source, publisher, published_at,

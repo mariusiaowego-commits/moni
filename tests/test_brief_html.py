@@ -237,3 +237,52 @@ def test_fc_badge_has_label_and_inline_claim(fresh_db: Path):
     assert "65分" in html_doc
     assert "has-tip" in html_doc
     assert "fc-inline" in html_doc
+
+
+def test_gate_off_by_default_keeps_article(fresh_db: Path):
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """
+        INSERT INTO articles (id, title, url, source, fetched_at, raw_content)
+        VALUES ('g1', '标题', 'https://e.com/g1', 'bestblogs', ?, ?)
+        """,
+        (now, "正文" * 100),
+    )
+    conn.execute(
+        """
+        INSERT INTO content_labels
+            (article_id, category, severity, confidence, evidences, rule_version, labeled_at)
+        VALUES ('g1', 'pure_ad', 'strong', 0.8, '[]', 'labels-v1', ?)
+        """,
+        (now,),
+    )
+    conn.commit()
+    html_doc = render_brief_html(str(fresh_db), ["g1"], title="t")
+    assert "g1" in html_doc or "标题" in html_doc
+
+
+def test_gate_filters_when_enabled(fresh_db: Path, monkeypatch):
+    from moni.moderation import service
+
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """
+        INSERT INTO articles (id, title, url, source, fetched_at, raw_content)
+        VALUES ('g2', '应当被拦下的文章', 'https://e.com/g2', 'bestblogs', ?, ?)
+        """,
+        (now, "正文" * 100),
+    )
+    conn.execute(
+        """
+        INSERT INTO content_labels
+            (article_id, category, severity, confidence, evidences, rule_version, labeled_at)
+        VALUES ('g2', 'pure_ad', 'strong', 0.8, '[]', 'labels-v1', ?)
+        """,
+        (now,),
+    )
+    conn.commit()
+    monkeypatch.setattr(service, "GATE_ENABLED", True)
+    html_doc = render_brief_html(str(fresh_db), ["g2"], title="t")
+    assert "应当被拦下的文章" not in html_doc

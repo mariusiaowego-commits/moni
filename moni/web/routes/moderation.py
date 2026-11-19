@@ -4,13 +4,16 @@
 
     GET /api/moderation/xbot/candidates
 
-⚠️ **只读端点**：
+⚠️ ``/xbot/candidates`` 是**只读端点**：
 
-* 本模块**只**跑 ``SELECT``（外加只读 ``PRAGMA``）；
+* 该端点**只**跑 ``SELECT``（外加只读 ``PRAGMA``）；
 * **不** INSERT / UPDATE / DELETE / DDL；
 * **不** rebuild / repair / FTS integrity 写命令；
 * **不**屏蔽作者、**不**归档、不触发任何处置；
-* **没有** POST / PUT / DELETE 路由 —— **不得**挂载写库方法。
+* 该端点**没有** POST / PUT / DELETE 路由。
+
+标注相关端点（sprint-58）在 ``routes/moderation_labels.py``，前缀
+``/api/moderation/labels``；本模块保持只读。
 
 ⚠️ **候选 ≠ 处置**：本端点只是给 dad **看**候选清单。
 隔离 / 屏蔽 / 归档都**不在**这里，且都还需要 dad 单独 GO。

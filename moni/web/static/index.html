@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261119002">
+  <link rel="stylesheet" href="css/main.css?v=20261119004">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -198,6 +198,12 @@
               <option value="published_at_desc">原文时间</option>
               <option value="title_asc">标题 A-Z</option>
             </select>
+            <select class="filter-select" x-model="articlesLabel" @change="onArticlesFilterChange()" title="内容分级">
+              <option value="">全部分级</option>
+              <template x-for="cat in labelCategories" :key="'flt-' + cat.code">
+                <option :value="cat.code" x-text="cat.label"></option>
+              </template>
+            </select>
           </div>
         </div>
 
@@ -255,6 +261,11 @@
                       </button>
                       <span class="title-tip" x-text="a.title"></span>
                       <span class="badge badge-new" x-show="a.is_fresh || isNew(a.created_at)" :title="a.is_fresh ? '本次抓取新增' : '24 小时内抓取'">新</span>
+                      <template x-for="lb in (a.labels || []).slice(0, 2)" :key="lb.category">
+                        <span class="badge badge-label" :class="'badge-label-' + lb.severity"
+                              :title="labelName(lb.category) + '（' + (lb.review_state === 'confirmed' ? '已确认' : lb.review_state === 'dismissed' ? '已改判' : '待复核') + '）'"
+                              x-text="labelBadge(lb.category)"></span>
+                      </template>
                       <span class="ai-unread-pill" x-show="a.reader_unread" @click.stop="showArticleDetail(a)" title="AI 有新结果，点击查看">
                         <svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"></path></svg>
                         AI 有新结果
@@ -1774,6 +1785,72 @@
                 </template>
               </tbody>
             </table>
+          </div>
+        </section>
+
+        <section class="clean-block label-block" x-show="labelSummary">
+          <div class="label-head">
+            <h4>
+              内容分级标注
+              <span class="clean-muted">只标注、不改正文；S 类默认打码</span>
+            </h4>
+            <div class="clean-actions">
+              <button class="btn btn-secondary" @click="runLabelPreview()" :disabled="!!labelBusy">
+                <span x-text="labelBusy === 'preview' ? '预演中…' : '预演'"></span>
+              </button>
+              <button class="btn btn-primary" @click="runLabelApply()" :disabled="!!labelBusy">
+                <span x-text="labelBusy === 'apply' ? '标注中…' : '执行标注'"></span>
+              </button>
+              <a class="btn btn-secondary" :href="safeHref(labelReportUrl())"
+                 target="_blank" rel="noopener noreferrer" x-show="labelRun">导出报告</a>
+              <button class="btn btn-secondary" @click="copyLabelDigest()">复制汇报文本</button>
+            </div>
+          </div>
+
+          <div x-show="labelError" class="stats-error" x-text="labelError"></div>
+
+          <div class="label-cards">
+            <template x-for="cat in labelCategories" :key="cat.code">
+              <button type="button" class="label-card"
+                      :class="{ active: labelCategory === cat.code }"
+                      @click="selectLabelCategory(cat.code)">
+                <div class="label-card-value" x-text="_cleaningNum(labelSummary?.categories?.[cat.code]?.total)"></div>
+                <div class="label-card-label" x-text="cat.label"></div>
+                <div class="label-card-sub"
+                     x-text="'待复核 ' + _cleaningNum(labelSummary?.categories?.[cat.code]?.pending)"></div>
+              </button>
+            </template>
+          </div>
+
+          <div class="label-toolbar">
+            <span class="clean-muted"
+                  x-text="'规则版本 ' + (labelSummary?.rule_version || '') + ' · 闸门' + (labelSummary?.gate_enabled ? '已开' : '未开')"></span>
+            <button class="btn btn-secondary btn-xs" @click="toggleLabelRevealAll()"
+                    x-text="labelRevealAll ? '恢复打码' : '解除打码（本次有效）'"></button>
+          </div>
+
+          <p class="clean-muted" x-show="!(labelSamples || []).length">这一类目前没有样本。</p>
+
+          <div class="label-samples" x-show="(labelSamples || []).length">
+            <template x-for="s in labelSamples" :key="s.article_id + s.category">
+              <div class="label-sample">
+                <div class="label-sample-main">
+                  <span class="label-sample-title" :class="{ masked: labelMasked(s) }" x-text="s.title"></span>
+                  <span class="label-sample-meta"
+                        x-text="'· ' + s.source + ' · ' + s.severity + ' · ' + Math.round((s.confidence || 0) * 100) + '%'"></span>
+                </div>
+                <div class="label-sample-ev" x-text="'证据：' + (s.evidences || []).join('、')"></div>
+                <div class="label-sample-actions">
+                  <button class="btn btn-secondary btn-xs" x-show="s.category === 'nsfw_gamble'"
+                          @click="revealLabelSample(s)"
+                          x-text="labelMasked(s) ? '显示' : '收起'"></button>
+                  <button class="btn btn-secondary btn-xs"
+                          @click="reviewLabelSample(s, 'confirmed')">确认</button>
+                  <button class="btn btn-secondary btn-xs"
+                          @click="reviewLabelSample(s, 'dismissed')">误判</button>
+                </div>
+              </div>
+            </template>
           </div>
         </section>
       </section>
@@ -4645,7 +4722,7 @@
   <script src="vendor/dompurify-3.4.17.min.js?v=20261116001"></script>
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
-  <script src="js/app.js?v=20261119003"></script>
+  <script src="js/app.js?v=20261119004"></script>
   <script src="js/reader.js?v=20261119001"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
