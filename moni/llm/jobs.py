@@ -739,12 +739,16 @@ def _build_how(authority: Any, valid: list[dict[str, Any]], timeliness: str) -> 
     else:
         parts.append("无权威来源")
     dates = sorted(e["source_date"][:10] for e in valid if e.get("source_date"))
-    parts.append(f"最新来源日期 {dates[-1]}" if dates else "来源日期未知")
+    days = sorted(e["days_old"] for e in valid if e.get("days_old") is not None)
+    if dates:
+        parts.append(f"最新来源日期 {dates[-1]}")
+    if days:
+        parts.append(f"最新来源距今 {min(days)} 天；最早来源距今 {max(days)} 天")
     parts.append(
         {
             "fresh": "时效在 30 天内",
             "30d_warn": "最新来源已过 30 天",
-            "90d_demote": "最新来源超过 90 天",
+            "90d_demote": "时效降级 · 含超 90 天旧证",
             "unknown": "时效未知",
         }.get(timeliness, "时效未知")
     )
@@ -798,7 +802,7 @@ def _persist_fact_check_plus(
     """Parse + 闸 1/2/3 + write articles + fact_check_evidence rows.
 
     闸 3 (v1.0.26): days_old 31-90 结论加 ``(已过期 30-90 天)``;
-    91+ 强制【存疑】. 取本批最大 days_old (最严).
+    91+ 把【已核实】降为【待核实】. 聚合聚合见下方 Gate 3 块.
 
     Raises ValueError on parse / empty-evidence so caller marks job failed.
     On the three parse-failure branches, logs truncated raw_output into
@@ -874,11 +878,12 @@ def _persist_fact_check_plus(
                 authority.reason,
             )
 
-        # Gate 3: timeliness — 31-90 加后缀, 91+ 强制【存疑】
-        # Gate 3 (v1.0.100): 年龄按来源日期算。以前缺省取 finished_at，
-        # 于是 days_old 恒为 0，时效闸从未生效。
+        # Gate 3: timeliness — 31-90 加后缀, 91+ 【已核实】降为【待核实】
+        # v1.0.104: 年龄按来源日期算（v1.0.100 修复后）。
+        # 历史背景证据（旧文）不应把近期事实拖垮：
+        # - 存在【已核实】证据时，取它们的 max(days_old)（最严支撑结论证据）；
+        # - 否则取全批 min(days_old)（最新一条证据距今，与 how 文案一致）。
         now_dt = datetime.now(timezone.utc)
-        worst_days: int | None = None
         for e in valid:
             # 只用来源日期；fetched_at 只做审计留痕，不能顶替（否则又把抓取时刻当今天）。
             source_date = (e.get("source_date") or "").strip() or None
@@ -886,15 +891,24 @@ def _persist_fact_check_plus(
             e["fetched_at"] = (e.get("fetched_at") or "").strip() or finished_at
             days_old = compute_days_old(source_date, now=now_dt)
             e["days_old"] = days_old
-            if days_old is not None and (worst_days is None or days_old > worst_days):
-                worst_days = days_old
+        verified_days = [
+            e["days_old"] for e in valid
+            if e["days_old"] is not None and conclusion_tag(e["verdict"]) == "【已核实】"
+        ]
+        newest_days = [e["days_old"] for e in valid if e["days_old"] is not None]
+        if verified_days:
+            worst_days = max(verified_days)
+        elif newest_days:
+            worst_days = min(newest_days)
+        else:
+            worst_days = None
         timeliness = compute_timeliness(worst_days)
         conclusion = apply_timeliness(conclusion, worst_days)
-        # A demotion makes the one-sentence summary unreliable: "与官方文档一致"
-        # next to an amber badge is exactly what we are removing.  Drop it and
-        # let the writer fall back to per-claim verdicts instead.
-        if gate2_demoted or timeliness == "90d_demote":
-            summary = ""
+        # v1.0.104: 降级不再清空人话结论（enrichment.py 分享预检依赖它非空，
+        # 清空会导致刚核查完的文章被判“缺 summary”反复重跑）。
+        # Gate 2 降级只对原始【已核实】在 summary 开头标注门禁原因。
+        if gate2_demoted and summary:
+            summary = _clip_sentence(f"【门禁降级：权威源不足】{summary}")
         for e in valid:
             e["verdict"] = _normalize_verdict(e["verdict"], conclusion)
         if gate2_demoted:
@@ -905,7 +919,7 @@ def _persist_fact_check_plus(
                     e["verdict"] = "【待核实】"
         if timeliness == "90d_demote":
             logger.info(
-                "[llm_jobs] fact_check_plus job %s: evidence days_old=%s → 90d_demote 【存疑】",
+                "[llm_jobs] fact_check_plus job %s: evidence days_old=%s → 90d_demote（已核实→待核实/保留原结论）",
                 job_id,
                 worst_days,
             )

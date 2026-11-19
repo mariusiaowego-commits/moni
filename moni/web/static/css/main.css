@@ -771,6 +771,8 @@ tbody tr:last-child td { border-bottom: none; }
 .badge-warning { background: var(--warning-muted); color: var(--warning-muted-fg); }
 .badge-info { background: var(--info-muted); color: var(--info-muted-fg); }
 .badge-success { background: var(--success-muted); color: var(--success-muted-fg); }
+.badge-timeliness { background: var(--warning-muted); color: var(--warning-muted-fg); }
+.badge-timeliness.demote { background: oklch(from var(--destructive) l c h / 0.14); color: var(--destructive); }
 .status-badge {
   padding: 2px 8px;
   border-radius: 4px;
