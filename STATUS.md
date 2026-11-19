@@ -3,6 +3,27 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
+## 已发布: **v1.0.108 — 已核查文章提供重跑入口** (2026-11-19 · PR #256 → `a907492` · tag `v1.0.108`)
+
+**问题**：底部操作条的核查按钮用 `x-show="!articleDetail?.has_fact_check"` / `!has_web_fact_check` 控制，**一旦核查过就永久消失**。v1.0.107 扩充白名单后，历史上跑过的文章没有任何入口重跑，用户只能看着旧结论。
+
+**修法**：
+- 联网核查按钮**常驻**，文案在「联网核查 / 重新联网核查」之间切换。
+- 快速核查仅在**没有联网结果**时出现（`!has_web_fact_check`），文案「事实核查 / 重新核查」。
+  原因：快速核查写 `fact_check_method='llm_inference'` 并覆盖 `fact_check_conclusion`，但不会把
+  `has_web_fact_check` 置 0 → 会出现「徽标显示联网核查、结论却是单模型推断」。
+- 两个按钮加 `title` 说明旧结论 / 旧证据链会被替换。
+- 审计 P2：快速核查端点补 `_has_active_job` 409 防重复入队（与联网核查共用闸门）。
+
+**审计**（agy）：主改动 APPROVE WITH NITS（唯一 P2 已修）→ 增量审计 `88910fe` APPROVE，无 findings。
+
+**验证**：全量 **2335 passed, 2 skipped, 1 failed**（唯一失败 `test_worker_lock` 时序用例，单跑 2 passed，load 22.5）；定向 `test_api + test_fact_check_plus + test_frontend_article_job_watch` **178 passed**。
+
+**生产真机验收**（8900）：文章 `4a111c743cb775e3` 点「重新联网核查」→ `⏳ (job 67bfab67)`，**不刷新** 1m45s 后自动更新为新的可读结论 + `核查时间 20:11` + `时效在 30 天内`（旧徽章「时效降级 · 超 90 天旧证」消失）。
+
+**部署**：8900 PID **50414**，`v1.0.108 / a907492`；备份 `news.db.pre-v1.0.108-*`。
+后续 `#257`（`8da2829`）删除误提交的审计产物 `result.md`，无代码变更。
+
 ## 已发布: **v1.0.107 — 事实核查白名单扩充 + 域名维护报表** (2026-11-19 · PR #254 → `46a2ad6` · tag `v1.0.107`)
 
 **问题**：`config/fact_check_domains.toml` 停在 v1.0.100 快照。生产库实测 132 个证据域名里有 **58 个未收录**（60 条证据，占 25%），包括 `shengjingbank.com.cn`、`psbc.com`、`unionpay.com`、`bloomberg.com`、`cnbc.com`。配置头注释承诺的维护入口 `moni fact-check-domains --report` **在 CLI 里根本不存在**。
