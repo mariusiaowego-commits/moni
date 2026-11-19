@@ -64,6 +64,14 @@ class TestFrontmatter:
         assert cleaned.text == "正文第一段"
         assert "frontmatter" in cleaned.flags
 
+    def test_indented_block_without_keys_is_body(self):
+        """``---`` around an indented code block is a rule, not a header."""
+        raw = "---\n    代码块第一行\n    代码块第二行\n---\n正文第一段"
+        cleaned = normalize(raw)
+        assert "代码块第一行" in cleaned.text
+        assert "代码块第二行" in cleaned.text
+        assert "frontmatter" not in cleaned.flags
+
 
 class TestEntities:
     def test_named_entities_decoded(self):

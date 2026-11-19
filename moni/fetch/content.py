@@ -240,9 +240,9 @@ def _strip_frontmatter(text: str) -> tuple[str, str]:
         # ``Q:`` / ``A:`` / ``Note:`` are common prose openers, so a block made
         # only of those is a question, not a header.  Alongside real keys it is
         # metadata and gets stripped with the rest.
-        if keyed and all(
-            _key_of(ln) in ("Q", "A", "Note") for ln in keyed
-        ):
+        # No top-level key at all — an indented code block or a nested list
+        # fenced by ``---`` lines — is body text, not metadata.
+        if not keyed or all(_key_of(ln) in ("Q", "A", "Note") for ln in keyed):
             return text, ""
         block_chars = sum(len(ln) for ln in header)
         dumped = block_chars > _FRONTMATTER_MAX_CHARS or (

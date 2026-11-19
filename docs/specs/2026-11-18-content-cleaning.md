@@ -386,6 +386,16 @@ apply3: changed=0   backfilled=0    emptied=0                                whi
 - 摘要保留 `summary=13 / ai_summary=84 / brief_summary=21`（ai 比上一轮多留 2 篇）。
 - 含 ` ``` ` 的 5 篇围栏计数 `16/4/18/6/116` 不变。
 
+增量复审又抓到两条，已在本 PR 修掉：
+
+| finding | 现象 | 修复 | 回归 |
+| --- | --- | --- | --- |
+| P2 放宽过头 | `---` 之间若全是缩进行（4 空格代码块 / 缩进段落），`keyed` 为空仍被当 header 整段剥掉（构造用例 72→7、173→0 字） | `if not keyed: return text, ""` —— 没有顶层键就不是 header | `test_indented_block_without_keys_is_body` |
+| P3 预演读数 | dry-run 的 `details.whitespace_only` 恒为 0（只有 apply 分支写），预演与执行数字对不上 | `_record_run` 统一写该字段 | `test_preview_reports_whitespace_only` |
+
+修复后生产副本复演不变：`changed=875 / emptied=0 / chars_removed=54,683 / whitespace_only=195`，
+以 `---` 开头仍有 33 篇被剥、1 篇 `frontmatter_embedded` 保留，三态 `ok 2,653 / short 2,008 / empty 665`。
+
 生产库副本（`sqlite3 .backup` → `/private/tmp/clean-replay/news.db`，5,330 行）复演：
 
 | 步骤 | scanned | changed | backfilled | emptied |

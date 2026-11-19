@@ -288,6 +288,7 @@ def _record_run(conn, mode: str, scope: str, scan: dict[str, Any],
         "flags": scan["flags"],
         "samples": scan["samples"],
         "test_rows": len(scan["test_row_ids"]),
+        "whitespace_only": scan["whitespace_only"],
     }
     conn.execute(
         """

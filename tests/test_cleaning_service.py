@@ -97,6 +97,11 @@ class TestPreview:
         assert len(list_runs()) == 1
         assert load_run(list_runs()[0]["id"])["mode"] == "preview"
 
+    def test_preview_reports_whitespace_only(self, db):
+        """The dry run must show the same split as the apply run."""
+        _add("a1", "qbitai", "字" * 300 + "\n\n\n\n")
+        assert preview()["details"]["whitespace_only"] == 1
+
 
 class TestApply:
     def test_apply_writes_and_is_idempotent(self, db):
