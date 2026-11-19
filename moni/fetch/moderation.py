@@ -644,10 +644,11 @@ def _strong_label(text: str) -> Label | None:
 
     windows: list[tuple[str, str]] = []
     for name, pattern in _LABEL_CONTACT_RES:
-        for m in pattern.finditer(text):
+        # 同一类联系方式最多看前 5 次出现：前段正常提及「加微信」、
+        # 后段才是「加微信…稳赚」的长文不能被前面的 break 漏掉。
+        for m in list(pattern.finditer(text))[:5]:
             start = max(0, m.start() - LABEL_WINDOW)
             windows.append((name, text[start : m.end() + LABEL_WINDOW]))
-            break
     if not windows:
         return None
 

@@ -42,6 +42,13 @@ def test_contact_without_promise_does_not_trigger():
     assert _cats(content=text) == set()
 
 
+def test_second_mention_in_long_article_still_counts():
+    """第一篇「加微信」只是正常提及，真正招揽在后面（agy 审计 P2）。"""
+    filler = "正文内容。" * 80
+    text = "有疑问可以加微信咨询客服。" + filler + "想赚快钱的加微信，内部渠道稳赚。"
+    assert "pure_ad" in _cats(content=text)
+
+
 def test_nsfw_cluster_routes_to_s_category():
     text = "加微信，博彩平台内部渠道，日入三百。"
     labels = evaluate_labels(content=text)
