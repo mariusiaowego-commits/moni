@@ -57,7 +57,7 @@ def _css_rule(css: str, selector: str) -> str:
 
 
 def test_reader_tab_strip_has_no_rule_line():
-    """失败模式 10：选中态下划线已足够，页签条不再画全宽分隔线。"""
+    """失败模式 10：选中态靠填充底色表达，页签条不画分隔线、也不画下划线。"""
     css = _read(MAIN_CSS)
     tabs = _css_rule(css, ".reader-tabs")
     assert "border-bottom" not in tabs, (
@@ -65,17 +65,15 @@ def test_reader_tab_strip_has_no_rule_line():
         "pane card's top border (10px gap = double line) and also runs across "
         "the always-on AI pane on wide screens, where no tab boundary exists"
     )
-    underline = _css_rule(css, ".reader-tab.is-active::after")
-    assert "bottom: 0" in underline, "underline must sit on the tab's own bottom edge"
-    assert "left: var(--reader-tab-pad-x); right: var(--reader-tab-pad-x)" in underline, (
-        "underline must be inset by the tab's horizontal padding so it matches the "
-        "label width instead of the padded button box"
+    assert ".reader-tab.is-active::after" not in css, (
+        "active tab must be marked by its filled background, not an underline"
     )
-    tab = _css_rule(css, ".reader-tab")
-    assert "--reader-tab-pad-x: 12px" in tab and "padding: 7px var(--reader-tab-pad-x)" in tab, (
-        "tab padding and underline inset must share --reader-tab-pad-x, "
-        "otherwise they silently drift apart"
+    active = _css_rule(css, ".reader-tab.is-active")
+    assert "background: var(--muted)" in active, (
+        "without the underline the active tab needs the filled background, "
+        "otherwise nothing distinguishes it from the idle tabs"
     )
+    assert "font-weight: 600" in active, "active tab keeps the heavier label as a second cue"
 
 
 def test_narrow_tab_switch_resets_fullscreen_ai_pane():

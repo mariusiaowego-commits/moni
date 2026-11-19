@@ -4953,19 +4953,17 @@ body.has-float-layer .tags-overflow { display: none !important; }
   display: flex; align-items: center; gap: 4px;
 }
 .reader-tab {
-  --reader-tab-pad-x: 12px;
   position: relative; border: 0; background: transparent;
-  border-radius: var(--radius-sm); padding: 7px var(--reader-tab-pad-x);
+  border-radius: var(--radius-sm); padding: 7px 12px;
   color: var(--muted-fg); font: inherit; font-size: var(--font-13);
   cursor: pointer; transition: color .15s ease, background .15s ease;
 }
-.reader-tab:hover { color: var(--foreground); background: var(--muted); }
-.reader-tab.is-active { color: var(--foreground); font-weight: 600; }
-.reader-tab.is-active::after {
-  content: ''; position: absolute; bottom: 0;
-  left: var(--reader-tab-pad-x); right: var(--reader-tab-pad-x);
-  height: 2px; border-radius: 2px; background: var(--foreground);
+.reader-tab:hover {
+  color: var(--foreground);
+  background: color-mix(in oklch, var(--muted) 35%, transparent);
 }
+.reader-tab.is-active { color: var(--foreground); font-weight: 600; background: var(--muted); }
+.reader-tab.is-active:hover { background: var(--muted); }
 .reader-pane {
   position: relative; background: var(--card);
   border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden;
