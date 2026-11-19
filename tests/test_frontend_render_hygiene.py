@@ -846,7 +846,11 @@ VERSIONED_ASSETS = ["css/main.css", "js/toast.js", "js/app.js", "js/reader.js"]
 def test_versioned_assets_busted_after_their_last_commit():
     """v1.0.102 线上踩过：文件改了但 ?v= 没动，浏览器整版用旧缓存。
 
-    判据：?v= 的 8 位日期前缀不得早于该文件最后一次提交的日期。
+    两条判据：
+    1. ?v= 当值必须与「该资源最后一次被改动之前」的 ?v= 不同 —— 这条不依赖
+       日期，同一天连续改两次也拦得住；
+    2. ?v= 的 8 位日期前缀不得早于该资源最后一次提交的日期 —— 兜住「提交时
+       bump 了但后来回退」的写法。
     沙箱/浅克隆里拿不到 git 历史时跳过，不假装通过。
     """
     html = INDEX_HTML.read_text(encoding="utf-8")
@@ -861,23 +865,40 @@ def test_versioned_assets_busted_after_their_last_commit():
     if probe.returncode != 0:
         pytest.skip("not a git checkout")
 
+    def _git(*args: str) -> str | None:
+        out = subprocess.run(
+            ["git", *args], cwd=root, capture_output=True, text=True, timeout=20,
+        )
+        return out.stdout if out.returncode == 0 else None
+
     stale, unknown = [], []
     for rel in VERSIONED_ASSETS:
         m = re.search(rf"{re.escape(rel)}\?v=(\d{{8}})", html)
         if not m:
             unknown.append(f"{rel}: no ?v= token")
             continue
-        log = subprocess.run(
-            ["git", "log", "-1", "--format=%cd", "--date=short", "--", f"moni/web/static/{rel}"],
-            cwd=root, capture_output=True, text=True, timeout=10,
-        )
-        stamp = log.stdout.strip()
-        if log.returncode != 0 or not stamp:
-            continue  # 文件在本克隆历史里没有提交记录，无从判定
-        if int(m.group(1)) < int(stamp.replace("-", "")):
-            stale.append(f"{rel}?v={m.group(1)} < last commit {stamp}")
+        token = m.group(1)
+        tracked = f"moni/web/static/{rel}"
 
-    assert not unknown, f"versioned asset without token: {unknown}"
+        # 判据 1：与资源「上一次被改动之前」的 token 必须不同。
+        sha = (_git("log", "-1", "--format=%H", "--", tracked) or "").strip()
+        if sha:
+            before = _git("show", f"{sha}^:moni/web/static/index.html")
+            if before:
+                prev = re.search(rf"{re.escape(rel)}\?v=(\d{{8}})", before)
+                if prev and prev.group(1) == token:
+                    stale.append(
+                        f"{rel}?v={token} 与该资源上次改动前的值相同（{sha[:7]} 起未 bump）"
+                    )
+
+        # 判据 2：日期前缀不得早于最后一次提交日期（提交自带时区，不受 CI TZ 影响）。
+        stamp = (_git("log", "-1", "--format=%cd", "--date=short", "--", tracked) or "").strip()
+        if stamp and int(token) < int(stamp.replace("-", "")):
+            stale.append(f"{rel}?v={token} < last commit {stamp}")
+
+    assert not unknown, (
+        f"versioned asset without token: {unknown}"
+    )
     assert not stale, (
         "asset changed without bumping ?v= — browsers keep serving the old file: "
         + "; ".join(stale)
