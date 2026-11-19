@@ -483,6 +483,190 @@ function app() {
       }
     },
 
+    // ── Content moderation labels (sprint-58) ─────────────────────
+    labelSummary: null,
+    labelRuns: [],
+    labelRun: null,
+    labelSamples: [],
+    labelCategory: 'nsfw_gamble',
+    labelBusy: '',
+    labelError: '',
+    labelRevealed: {},
+    labelRevealAll: false,
+    labelCategories: [
+      { code: 'nsfw_gamble', label: 'S 类', badge: 'S' },
+      { code: 'fin_crypto_ad', label: '交易引流', badge: '引流' },
+      { code: 'spam_service', label: '灰产服务', badge: '灰产' },
+      { code: 'pure_ad', label: '商业推广', badge: '推广' },
+      { code: 'engagement_bait', label: '涨粉话术', badge: '涨粉' },
+      { code: 'low_value_rant', label: '低质情绪', badge: '情绪' },
+    ],
+
+    labelName(code) {
+      const found = this.labelCategories.find(c => c.code === code);
+      return found ? found.label : code;
+    },
+
+    labelBadge(code) {
+      const found = this.labelCategories.find(c => c.code === code);
+      return found ? found.badge : code;
+    },
+
+    labelReportUrl() {
+      return this.labelRun ? `/api/moderation/labels/runs/${this.labelRun.id}/report.md` : '#';
+    },
+
+    labelMasked(s) {
+      return s.category === 'nsfw_gamble' && !this.labelRevealAll && !this.labelRevealed[s.article_id];
+    },
+
+    async loadLabels() {
+      try {
+        const [summary, runs] = await Promise.all([
+          fetch('/api/moderation/labels/summary', { credentials: 'same-origin' }).then(async r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+          }),
+          fetch('/api/moderation/labels/runs?limit=10', { credentials: 'same-origin' }).then(async r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+          }),
+        ]);
+        this.labelSummary = summary;
+        this.labelRuns = Array.isArray(runs) ? runs : [];
+        if (!this.labelRun && this.labelRuns.length) this.labelRun = this.labelRuns[0];
+        this.labelError = '';
+        await this.loadLabelSamples(this.labelCategory);
+      } catch (e) {
+        this.labelError = '内容分级概览加载失败';
+      }
+    },
+
+    async loadLabelSamples(category, reveal) {
+      try {
+        const qs = new URLSearchParams({ category, limit: '20' });
+        if (reveal) qs.set('reveal', '1');
+        const r = await fetch(`/api/moderation/labels/samples?${qs}`, { credentials: 'same-origin' });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        this.labelSamples = await r.json();
+      } catch (e) {
+        this.labelSamples = [];
+      }
+    },
+
+    async selectLabelCategory(code) {
+      this.labelCategory = code;
+      this.labelRevealed = {};
+      this.labelRevealAll = false;
+      await this.loadLabelSamples(code);
+    },
+
+    async revealLabelSample(s) {
+      if (this.labelRevealed[s.article_id]) {
+        delete this.labelRevealed[s.article_id];
+        this.labelRevealed = { ...this.labelRevealed };
+        return;
+      }
+      // 明文只在用户明确点击时向后端要一次，不缓存到本地存储。
+      const qs = new URLSearchParams({ category: s.category, limit: '20', reveal: '1' });
+      try {
+        const r = await fetch(`/api/moderation/labels/samples?${qs}`, { credentials: 'same-origin' });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const revealed = await r.json();
+        const match = revealed.find(x => x.article_id === s.article_id);
+        if (match) s.title = match.title;
+        this.labelRevealed = { ...this.labelRevealed, [s.article_id]: true };
+      } catch (e) {
+        this._notify('error', `读取失败：${e.message}`);
+      }
+    },
+
+    async toggleLabelRevealAll() {
+      this.labelRevealAll = !this.labelRevealAll;
+      this.labelRevealed = {};
+      await this.loadLabelSamples(this.labelCategory, this.labelRevealAll);
+    },
+
+    async runLabelPreview() {
+      if (this.labelBusy) return;
+      this.labelBusy = 'preview';
+      try {
+        const r = await fetch('/api/moderation/labels/preview', { method: 'POST', credentials: 'same-origin' });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        this.labelRun = await r.json();
+        this._notify('success', `预演完成：命中 ${this._cleaningNum(this.labelRun.labeled)} 篇（未写入）`);
+        await this.loadLabels();
+      } catch (e) {
+        this._notify('error', `预演失败：${e.message}`);
+      } finally {
+        this.labelBusy = '';
+      }
+    },
+
+    async runLabelApply() {
+      if (this.labelBusy) return;
+      const ok = await moniModal.confirm(
+        '标注只写 content_labels 表，不改正文、不删文章。重复执行不会重复写入。',
+        { title: '执行内容标注', okLabel: '执行标注' }
+      );
+      if (!ok) return;
+      this.labelBusy = 'apply';
+      try {
+        const r = await fetch('/api/moderation/labels/apply', { method: 'POST', credentials: 'same-origin' });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        this.labelRun = await r.json();
+        this._notify('success', `标注完成：写入 ${this._cleaningNum(this.labelRun.new_rows)} 行`);
+        await this.loadLabels();
+      } catch (e) {
+        this._notify('error', `标注失败：${e.message}`);
+      } finally {
+        this.labelBusy = '';
+      }
+    },
+
+    async reviewLabelSample(sample, decision) {
+      try {
+        const r = await fetch(
+          `/api/moderation/labels/${encodeURIComponent(sample.article_id)}/${sample.category}/review`,
+          {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ decision, note: '' }),
+          }
+        );
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const idx = this.labelSamples.indexOf(sample);
+        if (idx >= 0) this.labelSamples.splice(idx, 1);
+        this._notify('success', decision === 'confirmed' ? '已确认' : '已记为误判');
+        await this.loadLabels();
+      } catch (e) {
+        this._notify('error', `提交失败：${e.message}`);
+      }
+    },
+
+    async copyLabelDigest() {
+      const s = this.labelSummary;
+      if (!s) return;
+      const parts = this.labelCategories.map(c => `${c.label} ${this._cleaningNum(s.categories?.[c.code]?.total || 0)}`);
+      const lines = [
+        `内容分级标注：${parts.join('，')}。规则版本 ${s.rule_version}。`,
+        '只标注、不改正文；S 类默认打码，需人工逐条确认。',
+      ];
+      if (this.labelRun) {
+        lines.push(
+          `最近一次${this.labelRun.mode === 'apply' ? '执行' : '预演'}：` +
+          `扫描 ${this._cleaningNum(this.labelRun.scanned)} 篇，命中 ${this._cleaningNum(this.labelRun.labeled)} 篇。`
+        );
+      }
+      try {
+        await navigator.clipboard.writeText(lines.join('\n'));
+        this._notify('success', '汇报文本已复制');
+      } catch (e) {
+        this._notify('error', '复制失败，请手动选择文本');
+      }
+    },
+
     async copyCleaningDigest() {
       const d = this.cleaningData;
       const run = this.cleaningRun;
@@ -631,7 +815,7 @@ function app() {
       else if (view === 'llmJobs') this.loadLlmJobs();  // v1.0.5.1
       else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
-      else if (view === 'cleaning') { this.loadCleaning(); }
+      else if (view === 'cleaning') { this.loadCleaning(); this.loadLabels(); }
       else if (view === 'calendar') { this.initCalendarPage(); }
       else if (view === 'cases')    { this.initCasesPage(); }
       else if (view === 'stats')    { this.loadAll(); }
@@ -677,7 +861,7 @@ function app() {
       else if (view === 'llmJobs') this.loadLlmJobs();
       else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
-      else if (view === 'cleaning') { this.loadCleaning(); }
+      else if (view === 'cleaning') { this.loadCleaning(); this.loadLabels(); }
       else if (view === 'calendar') { this.initCalendarPage(); }
       else if (view === 'cases')    { this.initCasesPage(); }
       else if (view === 'stats')    { this.loadAll(); }
@@ -1696,6 +1880,7 @@ function app() {
       // v1.0.5.10: source/tag filters — empty string means "all"
       if (this.articlesSource) params.set('source', this.articlesSource);
       if (this.articlesTag) params.set('tag', this.articlesTag);
+      if (this.articlesLabel) params.set('label_category', this.articlesLabel);
       // v1.0.5.14: pagination.  Backend default is 50; we explicitly
       // send the page size so the user can adjust it later.  Offset
       // comes from articlesPage (1-indexed in the UI, 0-indexed in
@@ -1710,6 +1895,7 @@ function app() {
     },
 
     // v1.0.5.14: pagination controls for the articles list.
+    articlesLabel: '',
     articlesPage: 1,
     articlesPageSize: 50,
     articlesPageSizeOptions: [20, 50, 100, 200],
@@ -1724,6 +1910,7 @@ function app() {
       if (this.articlesSearch) params.set('keyword', this.articlesSearch);
       if (this.articlesSource) params.set('source', this.articlesSource);
       if (this.articlesTag) params.set('tag', this.articlesTag);
+      if (this.articlesLabel) params.set('label_category', this.articlesLabel);
       const probe = parseInt(this.articlesPageSize, 10) || 50;
       params.set('limit', probe + 1);
       params.set('offset', (this.articlesPage - 1) * probe);

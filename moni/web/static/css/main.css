@@ -5557,3 +5557,80 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
   .ai-structured-list > li { animation: none; }
   .svc-panel { animation: none; }
 }
+
+/* sprint-58: 内容分级标注（内嵌在 /cleaning） */
+.label-block { margin-block-start: 16px; }
+.label-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+.label-head h4 { margin: 0; }
+.label-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-block: 12px;
+}
+.label-card {
+  background: var(--card);
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.15));
+  border-radius: 8px;
+  padding: 10px 12px;
+  text-align: start;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.label-card:hover { border-color: var(--accent, #6b7c93); }
+.label-card.active { border-color: var(--accent, #6b7c93); box-shadow: inset 0 0 0 1px var(--accent, #6b7c93); }
+.label-card-value {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.label-card-label { font-size: var(--font-12); color: var(--foreground); }
+.label-card-sub { font-size: var(--font-11, 11px); color: var(--muted-fg); }
+.label-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-block-end: 8px;
+}
+.label-samples { display: flex; flex-direction: column; gap: 8px; }
+.label-sample {
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.15));
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+}
+.label-sample-main { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.label-sample-title { font-weight: 500; }
+.label-sample-title.masked {
+  filter: blur(5px);
+  user-select: none;
+}
+.label-sample-meta { font-size: var(--font-12); color: var(--muted-fg); }
+.label-sample-ev { font-size: var(--font-12); color: var(--muted-fg); }
+.label-sample-actions { display: flex; gap: 6px; }
+.btn.btn-xs { padding: 2px 8px; font-size: var(--font-12); }
+/* sprint-58: 列表内容分级角标（中性色，不用红色警示） */
+.badge-label {
+  border: 1px solid rgba(127, 127, 127, 0.25);
+  background: rgba(127, 127, 127, 0.10);
+  color: var(--muted-fg);
+  font-size: var(--font-11, 11px);
+  padding: 0 6px;
+  border-radius: 10px;
+  line-height: 18px;
+}
+.badge-label-strong {
+  border-color: rgba(107, 124, 147, 0.45);
+  background: rgba(107, 124, 147, 0.14);
+  color: var(--foreground);
+}

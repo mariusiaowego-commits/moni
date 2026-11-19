@@ -3,7 +3,27 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
-## 进行中: **xbot_feed 劣质内容治理（主题 ≠ 准入）** (2026-11-18 · Sprint 54 · id `26111703` · 分支 `feature/sprint-54-xbot-content-quality`)
+## 进行中: **内容分级标注（S 类 / 广告 / 涨粉 / 情绪）** (2026-11-19 · Sprint 58 · id `26111901` · 分支 `feat/content-moderation-labels`)
+
+把「黄赌毒 / 纯广告 / 涨粉 / 情绪发泄」从入库关键词一刀切升级为**全语料标注层**：
+只判定、只标注、有限拦截，**永不自动删正文**。设计文档
+`docs/2026-11-19-content-moderation-labels.md`（两轮 agy 审计记录见 §18）。
+
+**已落地**：migration `050_content_moderation_labels.sql`（`content_labels` / `label_runs`，纯 additive）；
+`moni/fetch/moderation.py::evaluate_labels()`（80 字窗 + 三要素 + 六类路由）；
+`moni/moderation/service.py`（preview / apply / relabel / samples / review / gate）；
+CLI `moni label-articles`；API `/api/moderation/labels/*`（独立 router，`/api/moderation` 仍只读）；
+`/cleaning` 内嵌分级区块（S 类默认打码 + 单条揭示）；`/api/articles` 角标与 `label_category` 筛选；
+入库 / 导入全文 / 编辑正文三处重标；摘要与简报闸门（`GATE_ENABLED` 默认关闭）。
+
+**实测（生产库副本 4,663 篇非空正文）**：`spam_service=3`（全为 xbot 刷量广告）、
+`engagement_bait=2`、`low_value_rant=4`，其余三类为 0；扫描 0.44s；第二次 apply `new_rows=0`。
+直接复用 #237 的 `evaluate_article()` 会误杀 42+14 篇，故两入口共享词表但不合并。
+
+**不做**：自动删除 / 移菜篮子 / 封作者；图像识别；模型二审（只留设计位）。
+
+---
+## 已完成: **xbot_feed 劣质内容治理（主题 ≠ 准入）** (2026-11-18 · Sprint 54 · id `26111703` · PR #237 已合并 `10f3957`)
 
 把「xbot_feed 抓到的主题相关内容」与「该不该进库」**拆成两层**：只读文本规则判劣质 ⇒
 **只产候选清单**给 dad 审，**不自动处置**。另把 `bypass` 的两个闸门拆成独立开关（**零行为变化**）。

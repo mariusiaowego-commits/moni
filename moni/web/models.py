@@ -11,6 +11,18 @@ from pydantic import BaseModel, ConfigDict, Field
 # ---------------------------------------------------------------------------
 
 
+class ArticleLabel(BaseModel):
+    """One content label attached to an article (sprint-58).
+
+    Only the compact trio is exposed in the article list; ``evidences``
+    stays server-side so a S 类 sample cannot leak through the list API.
+    """
+
+    category: str
+    severity: str
+    review_state: str
+
+
 class TagRef(BaseModel):
     """Lightweight tag reference (v1.0.5.12).
 
@@ -71,6 +83,8 @@ class Article(BaseModel):
     fact_check_thesis: str | None = None
     fact_check_how: str | None = None
     fact_check_timeliness: str | None = None
+    # sprint-58: 内容分级角标（只给 category/severity/review_state）
+    labels: list[ArticleLabel] = []
     created_at: datetime
     updated_at: datetime
 

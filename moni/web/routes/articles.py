@@ -49,6 +49,39 @@ def _parse_iso_dt(value: Any) -> datetime | None:
         return None
 
 
+def _has_label_table(conn) -> bool:
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='content_labels'"
+    ).fetchone()
+    return row is not None
+
+
+def _labels_for(ids: list[str], conn) -> dict[str, list[dict[str, str]]]:
+    """每篇文章的标签角标（不含 evidences）。"""
+    if not ids or not _has_label_table(conn):
+        return {}
+    placeholders = ",".join("?" for _ in ids)
+    rows = conn.execute(
+        f"""
+        SELECT article_id, category, severity, review_state
+          FROM content_labels
+         WHERE article_id IN ({placeholders})
+         ORDER BY severity = 'weak', category
+        """,
+        ids,
+    ).fetchall()
+    out: dict[str, list[dict[str, str]]] = {}
+    for row in rows:
+        out.setdefault(row["article_id"], []).append(
+            {
+                "category": row["category"],
+                "severity": row["severity"],
+                "review_state": row["review_state"],
+            }
+        )
+    return out
+
+
 def _fact_check_fields(conn, article_id: str) -> dict[str, Any]:
     """Read whichever fact-check columns exist (pre-026/046/047/048 safe)."""
     existing = {r[1] for r in conn.execute("PRAGMA table_info(articles)")}
@@ -180,6 +213,8 @@ def list_articles(
     # debounces 300ms; we use a parameterized LIKE here to avoid SQL
     # injection through the search box.
     keyword: str | None = Query(None, description="Substring match against title + content"),
+    # sprint-58: 内容分级筛选（多值，逗号分隔）。
+    label_category: str | None = Query(None, description="Comma-separated label categories"),
     # v1.0.5.14: limit/offset pagination.  Default 50 (matches the share-card-grid
     # screen height), max 200 to keep the JSON payload reasonable.
     # v1.0.5.15: sort by fetched_at DESC (入库时间降序).  Previously used
@@ -235,6 +270,14 @@ def list_articles(
         like = f"%{keyword}%"
         params.append(like)
         params.append(like)
+    label_values = _csv_values(label_category, cap=6)
+    if label_values and _has_label_table(conn):
+        placeholders = ",".join("?" for _ in label_values)
+        where_clauses.append(
+            "EXISTS (SELECT 1 FROM content_labels cl WHERE cl.article_id = a.id "
+            f"AND cl.category IN ({placeholders}))"
+        )
+        params.extend(label_values)
     where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
     order_sql = _ARTICLE_SORTS.get(sort, _ARTICLE_SORTS["fetched_at_desc"])
@@ -292,7 +335,13 @@ def list_articles(
     for r in threshold_rows:
         fresh_thresholds[r["source"]] = r["max_fetched"]
 
-    return [_row_to_article(dict(row), fresh_thresholds) for row in rows]
+    label_map = _labels_for([row["id"] for row in rows], conn)
+    out = []
+    for row in rows:
+        data = dict(row)
+        data["labels"] = label_map.get(data["id"], [])
+        out.append(_row_to_article(data, fresh_thresholds))
+    return out
 
 
 @router.get("/facets")
@@ -649,6 +698,11 @@ def import_fulltext(article_id: str, body: ImportFulltextRequest) -> dict[str, A
     from moni.scoring import recompute_quality_if_pinned
 
     recompute_quality_if_pinned(conn, article_id)
+
+    # sprint-58: 正文换了，标签必须跟着重算（否则旧标签会一直挂着）。
+    from moni.moderation.service import relabel_article
+
+    relabel_article(article_id, conn=conn)
 
     logger.info(
         "Imported full-text for article %s from %s (%d chars)",

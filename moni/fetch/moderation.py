@@ -66,6 +66,8 @@ Category = Literal[
     "nsfw_gamble",       # 黄赌毒 / 招嫖 / 成人福利引流
     "fin_crypto_ad",     # 股票 / 期货 / BTC / 虚拟币 带单引流
     "spam_service",      # 代写 / 刷粉 / 拉票 / 代购 灰产
+    "pure_ad",           # 商品/课程/服务硬推销（无专项词，但三要素成立）
+    "engagement_bait",   # 涨粉 / 互关 / 求转发 / 集赞
     "low_value_rant",    # 感叹号密集 / 纯情绪发泄 / 极短水帖
 ]
 
@@ -94,16 +96,23 @@ class Decision:
 # ── 词簇 (全部为「待实测建议」起点, 未经标注集标定不得当作已验证阈值) ──────────
 
 #: 敏感词 (只说明「话题沾边」, **单独出现不违规**)
-_SENSITIVE_TERMS: tuple[str, ...] = (
-    # 黄赌毒
+#: 黄赌毒词簇（标注路由要单独用它，所以从敏感词里拆出来；
+#: ``_SENSITIVE_TERMS`` 仍是两者的并集，xbot 行为不变）。
+_NSFW_TERMS: tuple[str, ...] = (
     "招嫖", "上门", "约炮", "裸聊", "成人福利", "福利姬", "博彩", "网赌",
     "百家乐", "六合彩", "私彩", "毒品", "冰毒", "大麻", "摇头丸",
-    # ⚠️ 交易/币 词**不在**这里 —— 它们属于 `_MARKET_TERMS`。
-    # 放两处会让 crypto 类被 nsfw 分支抢走 (词表重叠 ⇒ 类别错判)。
-    # 灰产服务
+)
+
+#: 灰产服务词簇。
+_GRAY_TERMS: tuple[str, ...] = (
     "代写", "代做", "刷粉", "刷赞", "刷量", "拉票", "买票", "代购",
     "刷单", "兼职刷",
 )
+
+#: 敏感词 (只说明「话题沾边」, **单独出现不违规**)。
+#: ⚠️ 交易/币 词**不在**这里 —— 它们属于 `_MARKET_TERMS`。
+#: 放两处会让 crypto 类被 nsfw 分支抢走 (词表重叠 ⇒ 类别错判)。
+_SENSITIVE_TERMS: tuple[str, ...] = _NSFW_TERMS + _GRAY_TERMS
 
 #: 引流/招揽动作 (与敏感词**组合**才构成强证据)
 _SOLICIT_ACTIONS: tuple[str, ...] = (
@@ -536,3 +545,224 @@ def aggregate_author(
         strong_article_ids=tuple(strong_ids),
         author_candidate=candidate,
     )
+
+
+# ── 全语料标注 (sprint-58) ───────────────────────────────────────────────────
+#
+# 为什么不能直接复用 ``evaluate_article()``
+# ------------------------------------------
+# ``evaluate_article()`` 是 **xbot 准入** 判定：它默认"宁拦勿放"，并且把
+# 「敏感词 + 招揽动作」当作强证据。全语料里同一组词会大面积误杀：实测
+# 4,663 篇非空正文上跑 ``evaluate_article()``，``fin_crypto_ad`` 42 篇、
+# ``nsfw_gamble`` 14 篇，全部是正常文章（"股票 + 客服"、"杠杆 + 门槛"、
+# "代做 + 客服"、"上门 + 扫码"）—— 单词共现在这份语料里等于误杀。
+#
+# 因此标注路径用**同一套词表 + 更严的结构约束**：
+#   联系方式与利益承诺必须落在同一个 80 字窗内；先专项后通用。
+# 两个入口共享词簇与豁免表，不允许出现第三套词表。
+
+#: 标注规则版本 —— 与 xbot 的 ``RULE_VERSION`` 分开，两边可独立演进。
+LABEL_RULE_VERSION = "labels-v1"
+
+#: 局部窗半径：联系方式前后各 80 字。
+LABEL_WINDOW = 80
+
+
+@dataclass(frozen=True)
+class Label:
+    """一条内容标签（纯数据，可直接落库）。"""
+
+    category: str
+    severity: Literal["strong", "weak"]
+    confidence: float
+    #: 只记录"命中了哪一类信号"，**不存原文、不存账号**
+    evidences: tuple[str, ...] = ()
+
+
+#: 联系方式 —— 带边界，排除"参加/增加/加速"这类伪命中。
+_LABEL_CONTACT_RES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("add_wechat", re.compile(r"(?<![参增更追添])加(?:我)?微信|(?<![参增更追添])加微")),
+    ("wechat_id", re.compile(r"微信号[：:]\s*[A-Za-z][A-Za-z0-9_-]{4,19}")),
+    ("qq_id", re.compile(r"qq号[：:]\s*\d{5,}", re.IGNORECASE)),
+    ("group_qr", re.compile(r"扫码进群|进群(?:领|聊|获取)")),
+    ("dm", re.compile(r"私信我")),
+    ("telegram", re.compile(r"tg[：:]\s*@\w+", re.IGNORECASE)),
+)
+
+#: 利益承诺 —— 只保留强承诺，裸词"翻倍/必涨/收益"不算。
+_LABEL_PROMISE_RE = re.compile(
+    r"稳赚|保本保息|收益翻倍|本金翻倍|包过|日入\d|躺赚|内部渠道|免费领取"
+)
+
+#: 真实引流凭证 —— 强豁免的唯一例外。
+_REAL_CREDENTIAL_RE = re.compile(
+    r"微信号[：:]\s*[A-Za-z][A-Za-z0-9_-]{4,19}"
+    r"|qq号[：:]\s*\d{5,}"
+    r"|tg[：:]\s*@\w+",
+    re.IGNORECASE,
+)
+
+#: 强豁免（司法/反诈/禁毒语境）：命中即不产强标签。
+_LABEL_HARD_EXEMPT = re.compile(
+    r"反诈|禁毒|反洗钱|案件|判决|监管处罚|行政处罚|警方通报|查处|抓获"
+)
+
+#: 弱豁免：只压制弱标签。
+_LABEL_SOFT_EXEMPT = re.compile(r"科普|风险提示|合规声明|研报|白皮书")
+
+#: 涨粉模板（严格版）。"互关" 必须排除 "相互关联/相互关系" 这类正常词。
+_BAIT_RE = re.compile(r"涨粉|互关(?!联|系)|求关注|求转发|集赞")
+
+#: 结构豁免：长文 / 节目简介天然含"关注/订阅"。
+_PODCAST_RE = re.compile(r"本期|节目|嘉宾|EP\d+|播客")
+
+#: 低质情绪 ONLY 判定用的情绪词（含口语脏话，xbot 那份 `_RANT_TERMS` 不动）。
+_LABEL_RANT_RE = re.compile("|".join(_RANT_TERMS) + r"|卧槽|我靠")
+
+#: 各类别的强度与置信度。
+_LABEL_STRENGTH: dict[str, tuple[str, float]] = {
+    "nsfw_gamble": ("strong", 0.9),
+    "fin_crypto_ad": ("strong", 0.9),
+    "spam_service": ("strong", 0.9),
+    "pure_ad": ("strong", 0.8),
+    "engagement_bait": ("weak", 0.4),
+    "low_value_rant": ("weak", 0.4),
+}
+
+
+def _contact_evidence(window: str) -> str | None:
+    for name, pattern in _LABEL_CONTACT_RES:
+        if pattern.search(window):
+            return name
+    return None
+
+
+def _strong_label(text: str) -> Label | None:
+    """三要素 + 80 字窗；返回**一个**强标签（先专项后通用）。"""
+    if _LABEL_HARD_EXEMPT.search(text) and not _REAL_CREDENTIAL_RE.search(text):
+        return None
+
+    windows: list[tuple[str, str]] = []
+    for name, pattern in _LABEL_CONTACT_RES:
+        for m in pattern.finditer(text):
+            start = max(0, m.start() - LABEL_WINDOW)
+            windows.append((name, text[start : m.end() + LABEL_WINDOW]))
+            break
+    if not windows:
+        return None
+
+    def _hit(window: str, cluster: Sequence[str]) -> bool:
+        low = window.lower()
+        return any(term.lower() in low for term in cluster)
+
+    for contact, window in windows:
+        if _hit(window, _NSFW_TERMS):
+            severity, confidence = _LABEL_STRENGTH["nsfw_gamble"]
+            return Label(
+                category="nsfw_gamble",
+                severity=severity,
+                confidence=confidence,
+                evidences=(f"contact:{contact}", "cluster:nsfw_gamble"),
+            )
+        if _hit(window, _MARKET_TERMS) and _LABEL_PROMISE_RE.search(window):
+            severity, confidence = _LABEL_STRENGTH["fin_crypto_ad"]
+            return Label(
+                category="fin_crypto_ad",
+                severity=severity,
+                confidence=confidence,
+                evidences=(f"contact:{contact}", "cluster:fin_crypto_ad"),
+            )
+        if _hit(window, _GRAY_TERMS):
+            severity, confidence = _LABEL_STRENGTH["spam_service"]
+            return Label(
+                category="spam_service",
+                severity=severity,
+                confidence=confidence,
+                evidences=(f"contact:{contact}", "cluster:spam_service"),
+            )
+
+    for contact, window in windows:
+        if any(term.lower() in window.lower() for term in _NAME_STUFFING_TERMS):
+            severity, confidence = _LABEL_STRENGTH["spam_service"]
+            return Label(
+                category="spam_service",
+                severity=severity,
+                confidence=confidence,
+                evidences=(f"contact:{contact}", "cluster:spam_service"),
+            )
+
+    contact = next(
+        (
+            contact
+            for contact, window in windows
+            if _LABEL_PROMISE_RE.search(window)
+        ),
+        None,
+    )
+    if contact is None:
+        return None
+    severity, confidence = _LABEL_STRENGTH["pure_ad"]
+    return Label(
+        category="pure_ad",
+        severity=severity,
+        confidence=confidence,
+        evidences=(f"contact:{contact}", "promise:strong"),
+    )
+
+
+def _weak_labels(content: str) -> list[Label]:
+    """弱标签只看正文（标题里的'单日涨粉'是新闻，不是求关注）。"""
+    if not content:
+        return []
+    labels: list[Label] = []
+    if _LABEL_SOFT_EXEMPT.search(content):
+        return labels
+
+    long_form = len(content) > 800 or bool(_PODCAST_RE.search(content))
+    if not long_form:
+        bait = _BAIT_RE.search(content)
+        if bait:
+            severity, confidence = _LABEL_STRENGTH["engagement_bait"]
+            labels.append(
+                Label(
+                    category="engagement_bait",
+                    severity=severity,
+                    confidence=confidence,
+                    evidences=(f"bait_term:{bait.group(0)}",),
+                )
+            )
+
+    # 低质情绪要**三个条件同时成立**才标：情绪词 + 感叹号爆发 + 短帖。
+    # 只按"感叹号密度"会在真实语料上标出一堆正常科技标题（实测 39 篇，
+    # 其中 18 篇是 bestblogs/qbitai 的一行摘要），比不标更糟。
+    bangs = len(re.findall(r"[!！]", content))
+    if len(content) < 300 and bangs >= 3 and _LABEL_RANT_RE.search(content):
+        severity, confidence = _LABEL_STRENGTH["low_value_rant"]
+        labels.append(
+            Label(
+                category="low_value_rant",
+                severity=severity,
+                confidence=confidence,
+                evidences=(f"rant_term:{_LABEL_RANT_RE.search(content).group(0)}",),
+            )
+        )
+    return labels
+
+
+def evaluate_labels(*, title: str = "", content: str = "") -> tuple[Label, ...]:
+    """全语料内容分级 —— 纯函数，无 DB / 无网络 / 无随机。
+
+    Args:
+        title: 标题（只参与强信号；涨粉与情绪类只看正文）
+        content: 清洗后的正文
+
+    Returns:
+        0..N 条标签；顺序稳定（强标签在前，弱标签按类别固定顺序）。
+    """
+    text = f"{title or ''}\n{content or ''}"
+    labels: list[Label] = []
+    strong = _strong_label(text)
+    if strong is not None:
+        labels.append(strong)
+    labels.extend(_weak_labels(content or ""))
+    return tuple(labels)

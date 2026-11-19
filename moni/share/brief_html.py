@@ -187,6 +187,60 @@ def body_to_html(raw: str | None) -> str:
     return "\n".join(out) if out else f"<p>{_inline_md(text)}</p>"
 
 
+_GATED_CATEGORIES: tuple[str, ...] = (
+    "nsfw_gamble",
+    "fin_crypto_ad",
+    "spam_service",
+    "pure_ad",
+)
+
+
+def _gate_sql(conn: sqlite3.Connection) -> tuple[str, tuple[str, ...]]:
+    """简报闸门：命中且未 dismissed 的文章不进简报。
+
+    表不存在（老库）或闸门关闭时返回空片段，主查询与 fallback 查询
+    用同一份片段，不会出现"主查询拦了、fallback 没拦"的旁路。
+    """
+    from moni.moderation.service import GATE_ENABLED
+
+    if not GATE_ENABLED:
+        return "", ()
+    exists = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='content_labels'"
+    ).fetchone()
+    if exists is None:
+        return "", ()
+    placeholders = ",".join("?" for _ in _GATED_CATEGORIES)
+    return (
+        " AND NOT EXISTS (SELECT 1 FROM content_labels cl"
+        " WHERE cl.article_id = articles.id"
+        f" AND cl.category IN ({placeholders})"
+        " AND cl.review_state != 'dismissed')",
+        _GATED_CATEGORIES,
+    )
+
+
+def gated_articles(db_path: str, article_ids: list[str]) -> dict[str, str]:
+    """``{article_id: category}`` —— 供调用方把"被拦"写进响应而不是静默丢掉。"""
+    if not article_ids:
+        return {}
+    conn = sqlite3.connect(db_path)
+    try:
+        gate_sql, gate_params = _gate_sql(conn)
+        if not gate_sql:
+            return {}
+        ph = ",".join("?" * len(_GATED_CATEGORIES))
+        rows = conn.execute(
+            f"SELECT article_id, category FROM content_labels"
+            f" WHERE article_id IN ({','.join('?' * len(article_ids))})"
+            f" AND category IN ({ph}) AND review_state != 'dismissed'",
+            (*article_ids, *_GATED_CATEGORIES),
+        ).fetchall()
+        return {r[0]: r[1] for r in rows}
+    finally:
+        conn.close()
+
+
 def _load_rows(db_path: str, article_ids: list[str]) -> list[sqlite3.Row]:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -195,6 +249,7 @@ def _load_rows(db_path: str, article_ids: list[str]) -> list[sqlite3.Row]:
         return []
     ph = ",".join("?" * len(article_ids))
     order = " ".join(f"WHEN ? THEN {i}" for i in range(len(article_ids)))
+    gate_sql, gate_params = _gate_sql(conn)
     try:
         rows = list(
             conn.execute(
@@ -207,10 +262,10 @@ def _load_rows(db_path: str, article_ids: list[str]) -> list[sqlite3.Row]:
                        business_value_status, business_value_breakdown_json,
                        business_value_hash, business_value_rubric,
                        quality_score, bb_score
-                FROM articles WHERE id IN ({ph})
+                FROM articles WHERE id IN ({ph}){gate_sql}
                 ORDER BY CASE id {order} END
                 """,
-                (*article_ids, *article_ids),
+                (*article_ids, *gate_params, *article_ids),
             ).fetchall()
         )
     except sqlite3.OperationalError:
@@ -225,9 +280,9 @@ def _load_rows(db_path: str, article_ids: list[str]) -> list[sqlite3.Row]:
                        NULL as business_value_status, NULL as business_value_breakdown_json,
                        NULL as business_value_hash, NULL as business_value_rubric,
                        quality_score, bb_score
-                FROM articles WHERE id IN ({ph})
+                FROM articles WHERE id IN ({ph}){gate_sql}
                 """,
-                article_ids,
+                (*article_ids, *gate_params),
             ).fetchall()
         )
     conn.close()

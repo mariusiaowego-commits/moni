@@ -8,6 +8,7 @@ v1.0 subcommands:
     cron status       Show scheduler running state
     fetch [--source NAME] [--dry-run] [--health]
     clean-articles [--apply]   Preview (default) or apply content cleaning
+    label-articles [--apply]  Preview (default) or apply content labels
     content-audit     Read-only per-source content health
 """
 
@@ -115,6 +116,52 @@ def cmd_clean_articles(apply: bool) -> None:
     )
     if not apply:
         print("dry-run: 未写入任何文章。确认后加 --apply 执行。")
+
+
+# ── label-articles (sprint-58) ─────────────────────────────────────────────
+
+label_parser = SUB.add_parser(
+    "label-articles",
+    help="Label 黄赌毒/广告/涨粉/情绪 (dry-run by default; --apply writes)",
+)
+label_parser.add_argument(
+    "--apply",
+    action="store_true",
+    help="Write the labels (default only reports what would change)",
+)
+label_parser.add_argument(
+    "--category",
+    default=None,
+    help="Only re-label articles that already carry this category",
+)
+label_parser.add_argument(
+    "--limit",
+    type=int,
+    default=None,
+    help="Cap the number of scanned articles (debugging)",
+)
+
+
+def cmd_label_articles(apply: bool, category: str | None, limit: int | None) -> None:
+    """Preview (default) or apply the deterministic content labeller."""
+    migrate()
+    from ..moderation.service import apply_labels, preview
+
+    run = (
+        apply_labels(category=category, limit=limit)
+        if apply
+        else preview(category=category, limit=limit)
+    )
+    mode = "apply" if apply else "dry-run"
+    counts = " ".join(f"{k}={v}" for k, v in run["by_category"].items())
+    print(
+        f"label-articles ({mode}): scanned={run['scanned']} "
+        f"labeled={run['labeled']} new_rows={run['new_rows']} "
+        f"kept_manual={run['kept_manual']} rule={run['rule_version']}"
+    )
+    print(f"  {counts}")
+    if not apply:
+        print("dry-run: 未写入任何标签。确认后加 --apply 执行。")
 
 
 # ── content-audit (read-only) ──────────────────────────────────────────────
@@ -890,6 +937,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.subcmd == "clean-articles":
         cmd_clean_articles(apply=args.apply)
+        close_db()
+        return 0
+
+    if args.subcmd == "label-articles":
+        cmd_label_articles(
+            apply=args.apply, category=args.category, limit=args.limit
+        )
         close_db()
         return 0
 
