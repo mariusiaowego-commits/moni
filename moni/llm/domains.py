@@ -15,7 +15,11 @@ CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "fact_check_domai
 
 #: 需要按三段取注册域的后缀（eTLD+1 的粗略实现，覆盖本项目会遇到的域名）。
 _MULTI_LABEL_SUFFIXES = frozenset(
-    {"com.cn", "gov.cn", "org.cn", "net.cn", "edu.cn", "com.hk", "com.tw", "com.au", "co.uk"}
+    {
+        "com.cn", "gov.cn", "org.cn", "net.cn", "edu.cn",
+        "com.hk", "com.tw", "com.au", "com.sg", "com.my", "com.br", "com.mx",
+        "co.uk", "co.jp", "co.kr", "or.kr", "co.in",
+    }
 )
 
 _TIER_RANK = {"A": 0, "B": 1, "C": 2}

@@ -882,6 +882,28 @@ keyword_audit_p.add_argument(
 )
 
 
+# ── fact-check-domains (v1.0.107) ───────────────────────────────────────────
+# 只读报表：证据里出现过的域名 vs 白名单分档，按出现次数排序。
+# 配置头注释承诺的月度维护入口就是它。
+
+fact_check_domains_p = SUB.add_parser(
+    "fact-check-domains",
+    help="只读: 证据域名对照白名单分档报表（找未收录域名）",
+)
+fact_check_domains_p.add_argument(
+    "--report", action="store_true",
+    help="输出报表（默认行为，保留此开关便于脚本自描述）",
+)
+fact_check_domains_p.add_argument(
+    "--limit", type=int, default=20,
+    help="未收录域名列出多少条 (默认 20, 0=全部)",
+)
+fact_check_domains_p.add_argument(
+    "--json", dest="as_json", action="store_true",
+    help="输出 JSON（供脚本/看板消费）",
+)
+
+
 # ── dispatch ─────────────────────────────────────────────────────────────────
 
 def main(argv: list[str] | None = None) -> int:
@@ -932,6 +954,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.subcmd == "keyword-audit":
         from .keyword_audit import run_keyword_audit
         code = run_keyword_audit(args)
+        close_db()
+        return code
+
+    if args.subcmd == "fact-check-domains":
+        from moni.llm.domain_report import run_report
+        code = run_report(limit=args.limit, as_json=args.as_json)
         close_db()
         return code
 
