@@ -114,7 +114,10 @@ Obsidian `sprint-56-content-cleaning-2026-11-18/` 六件套。
 - 真实联网核查端到端没验成：本机 hermes 熔断器 OPEN（`breaker OPEN`），该项记 **failed**，不是 passed；
 - 历史长 markdown 核查结论不回填数据，靠前端折叠处理；
 - `test_versioned_assets_busted_after_their_last_commit` 在浅克隆 / 非 git checkout 下 skip；
-- 收尾时 `origin/main` 已前进到 `ef806ec`（#238 数据清洗，migration 049），生产停在 `a6a8b92`；#238 尚未打 tag，本 sprint 未部署它。
+- 上表「生产实测」的采集时点是 `a6a8b92`（schema 48、PID 24850）。收尾期间 `origin/main` 前进到
+  `ef806ec`（#238 数据清洗，migration 049），并由另一路部署到 8900（现 `version=v1.0.103 /
+  commit=ef806ec / schema 49 / PID 37003`）；#238 尚未打 tag。本 sprint 的页面结论不受影响，
+  但推进到该提交后应再点一遍。
 
 ## 已发布: **v1.0.101 — 事实核查提示词改人话结论 + 详情页两档展示** (2026-11-18 · PR #236 · tag `v1.0.101` · commit `70bc017`)
 
