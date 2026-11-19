@@ -4952,15 +4952,17 @@ body.has-float-layer .tags-overflow { display: none !important; }
   display: flex; align-items: center; gap: 4px;
 }
 .reader-tab {
+  --reader-tab-pad-x: 12px;
   position: relative; border: 0; background: transparent;
-  border-radius: var(--radius-sm); padding: 7px 12px;
+  border-radius: var(--radius-sm); padding: 7px var(--reader-tab-pad-x);
   color: var(--muted-fg); font: inherit; font-size: var(--font-13);
   cursor: pointer; transition: color .15s ease, background .15s ease;
 }
 .reader-tab:hover { color: var(--foreground); background: var(--muted); }
 .reader-tab.is-active { color: var(--foreground); font-weight: 600; }
 .reader-tab.is-active::after {
-  content: ''; position: absolute; left: 0; right: 0; bottom: 0;
+  content: ''; position: absolute; bottom: 0;
+  left: var(--reader-tab-pad-x); right: var(--reader-tab-pad-x);
   height: 2px; border-radius: 2px; background: var(--foreground);
 }
 .reader-pane {

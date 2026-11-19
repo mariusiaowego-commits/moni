@@ -67,8 +67,14 @@ def test_reader_tab_strip_has_no_rule_line():
     )
     underline = _css_rule(css, ".reader-tab.is-active::after")
     assert "bottom: 0" in underline, "underline must sit on the tab's own bottom edge"
-    assert "left: 0; right: 0" in underline, (
-        "underline must span the whole tab so it does not look like a floating dash"
+    assert "left: var(--reader-tab-pad-x); right: var(--reader-tab-pad-x)" in underline, (
+        "underline must be inset by the tab's horizontal padding so it matches the "
+        "label width instead of the padded button box"
+    )
+    tab = _css_rule(css, ".reader-tab")
+    assert "--reader-tab-pad-x: 12px" in tab and "padding: 7px var(--reader-tab-pad-x)" in tab, (
+        "tab padding and underline inset must share --reader-tab-pad-x, "
+        "otherwise they silently drift apart"
     )
 
 
