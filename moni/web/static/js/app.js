@@ -587,6 +587,30 @@ function app() {
       await this.loadLabelSamples(this.labelCategory, this.labelRevealAll);
     },
 
+    async toggleLabelGate() {
+      const next = !this.labelSummary?.gate_enabled;
+      const ok = await moniModal.confirm(
+        next
+          ? '打开后：命中且未改判（未被标记为误判）的文章，不再进简报、也不再生成摘要。'
+          : '关闭后：所有已标注文章恢复正常进入简报与摘要流程。',
+        { title: next ? '打开内容闸门' : '关闭内容闸门', okLabel: next ? '打开' : '关闭' }
+      );
+      if (!ok) return;
+      try {
+        const r = await fetch('/api/moderation/labels/gate', {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: next }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        await this.loadLabels();
+        this._notify('success', next ? '闸门已打开' : '闸门已关闭');
+      } catch (e) {
+        this._notify('error', `切换失败：${e.message}`);
+      }
+    },
+
     async runLabelPreview() {
       if (this.labelBusy) return;
       this.labelBusy = 'preview';

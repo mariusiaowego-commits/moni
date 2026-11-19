@@ -262,7 +262,7 @@ def test_gate_off_by_default_keeps_article(fresh_db: Path):
     assert "g1" in html_doc or "标题" in html_doc
 
 
-def test_gate_filters_when_enabled(fresh_db: Path, monkeypatch):
+def test_gate_filters_when_enabled(fresh_db: Path):
     from moni.moderation import service
 
     conn = get_db()
@@ -283,6 +283,6 @@ def test_gate_filters_when_enabled(fresh_db: Path, monkeypatch):
         (now,),
     )
     conn.commit()
-    monkeypatch.setattr(service, "GATE_ENABLED", True)
+    service.set_gate_enabled(True)
     html_doc = render_brief_html(str(fresh_db), ["g2"], title="t")
     assert "应当被拦下的文章" not in html_doc

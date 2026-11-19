@@ -98,8 +98,8 @@ def test_samples_mask_s_title_by_default(db):
     assert plain[0]["title"] == "露骨标题示例"
 
 
-def test_gate_respects_dismissed(db, monkeypatch):
-    monkeypatch.setattr(service, "GATE_ENABLED", True)
+def test_gate_respects_dismissed(db):
+    service.set_gate_enabled(True)
     _add("a1", "标题", "加微信稳赚，内部渠道名额有限。")
     service.apply_labels()
     assert service.gated_map(get_db(), ["a1"]) == {"a1": "pure_ad"}
@@ -107,12 +107,12 @@ def test_gate_respects_dismissed(db, monkeypatch):
     assert service.gated_map(get_db(), ["a1"]) == {}
 
 
-def test_gate_is_off_by_default(db, monkeypatch):
+def test_gate_is_off_by_default(db):
     _add("a1", "标题", "加微信稳赚，内部渠道名额有限。")
     service.apply_labels()
-    assert service.GATE_ENABLED is False
+    assert service.gate_enabled() is False
     assert service.gated_map(get_db(), ["a1"]) == {}
-    monkeypatch.setattr(service, "GATE_ENABLED", True)
+    service.set_gate_enabled(True)
     assert service.gated_map(get_db(), ["a1"]) == {"a1": "pure_ad"}
 
 
