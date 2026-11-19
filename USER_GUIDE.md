@@ -586,6 +586,28 @@ python3 -m moni content-audit --issues-only
 
 `short_form` / `snippet` / `title_only` 的源本来就没有长正文，不会再被当成抓取故障。
 
+**2026-11-19 全库落地**：`--apply` 跑了 5,323 篇、改写 872 篇、删字符 54,670、清空 0 篇；
+文末授权声明 200 → 0、零宽 16 → 0、`U+FFFD` 55 → 0。校验两条：
+
+```bash
+sqlite3 data/news.db "select count(*) from articles where raw_content like '%本文为作者授权发布%';"   # 0
+sqlite3 data/news.db "select mode,changed,emptied,chars_removed from cleaning_runs order by started_at desc limit 2;"
+```
+
+### 4.5 内容闸门（摘要 / 简报要不要挡）
+
+闸门是**运行时配置**，存 `app_settings` 表，改它不发版、不重启：
+
+```bash
+curl -s -X PUT http://127.0.0.1:8900/api/moderation/labels/gate \
+  -H 'Content-Type: application/json' -d '{"enabled":true}'
+curl -s http://127.0.0.1:8900/api/moderation/labels/summary | python3 -c "import sys,json;print(json.load(sys.stdin)['gate_enabled'])"
+```
+
+页面上在「数据清洗」页的分级区块点开关，有二次确认。
+打开后只挡 `nsfw_gamble / fin_crypto_ad / spam_service / pure_ad` 四类（未改判的）；
+`engagement_bait` / `low_value_rant` 只标注、不进闸门。
+
 ---
 
 ## 5. 分享菜单 (v1.0.5.11 起 · v1.0.10 一键简报)
