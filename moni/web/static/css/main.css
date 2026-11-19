@@ -4950,7 +4950,6 @@ body.has-float-layer .tags-overflow { display: none !important; }
 .reader-tabs {
   grid-column: 1 / -1; grid-row: 1;
   display: flex; align-items: center; gap: 4px;
-  border-bottom: 1px solid var(--border);
 }
 .reader-tab {
   position: relative; border: 0; background: transparent;
@@ -4961,8 +4960,8 @@ body.has-float-layer .tags-overflow { display: none !important; }
 .reader-tab:hover { color: var(--foreground); background: var(--muted); }
 .reader-tab.is-active { color: var(--foreground); font-weight: 600; }
 .reader-tab.is-active::after {
-  content: ''; position: absolute; left: 12px; right: 12px; bottom: -1px;
-  height: 2px; border-radius: 2px; background: var(--accent);
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0;
+  height: 2px; border-radius: 2px; background: var(--foreground);
 }
 .reader-pane {
   position: relative; background: var(--card);

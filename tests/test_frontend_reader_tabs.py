@@ -12,6 +12,7 @@
 7. 迟到的核查结果把用户正在看的另一篇盖掉。
 8. 打开一篇有联网核查的文章，证据链不加载（恒为 0 条）。
 9. 窄屏 .ai-pane 退回 position:absolute，对话框盖在正文上。
+10. 页签条又画一条全宽底色分隔线，和下方卡片上边框凑成双线。
 """
 
 from __future__ import annotations
@@ -46,6 +47,29 @@ def _css_block(css: str, selector: str) -> str:
         if selector in body:
             return body
     raise AssertionError(f"no @media block containing {selector!r}")
+
+
+def _css_rule(css: str, selector: str) -> str:
+    """取顶层（非 @media 内）某条规则正文。"""
+    m = re.search(rf"^{re.escape(selector)}\s*\{{(.*?)\}}", css, re.S | re.M)
+    assert m, f"css rule {selector} not found"
+    return m.group(1)
+
+
+def test_reader_tab_strip_has_no_rule_line():
+    """失败模式 10：选中态下划线已足够，页签条不再画全宽分隔线。"""
+    css = _read(MAIN_CSS)
+    tabs = _css_rule(css, ".reader-tabs")
+    assert "border-bottom" not in tabs, (
+        ".reader-tabs must not draw its own bottom rule — it duplicates the "
+        "pane card's top border (10px gap = double line) and also runs across "
+        "the always-on AI pane on wide screens, where no tab boundary exists"
+    )
+    underline = _css_rule(css, ".reader-tab.is-active::after")
+    assert "bottom: 0" in underline, "underline must sit on the tab's own bottom edge"
+    assert "left: 0; right: 0" in underline, (
+        "underline must span the whole tab so it does not look like a floating dash"
+    )
 
 
 def test_narrow_tab_switch_resets_fullscreen_ai_pane():
