@@ -9,8 +9,9 @@
 # 注册域按 eTLD+1 计算，weixin.qq.com 与 news.qq.com 视作同一个 qq.com，
 # 避免同一集团的多个页面被当成独立来源。
 #
-# 维护：每月跑 `moni fact-check-domains --report` 出未收录域名 Top 20，
-# 出现 ≥2 次的进人工定级队列。不自动收录。
+# 维护：每月跑 `moni fact-check-domains --report` 出未收录域名 Top 20
+# （`--limit 0` 看全部，`--json` 供脚本消费），出现 ≥2 次的进人工定级队列。
+# 不自动收录：未收录域名一律按「不计入」处理，宁可漏判也不虚抬权威性。
 
 tier_a = [
   # 监管与政府
@@ -24,6 +25,8 @@ tier_a = [
   "mof.gov.cn",
   "safe.gov.cn",
   "gov.cn",
+  # 标准与行业协会
+  "tc260.org.cn",
   # 交易所与公告
   "sse.com.cn",
   "szse.cn",
@@ -33,6 +36,7 @@ tier_a = [
   "businesswire.com",
   "prnewswire.com",
   "globenewswire.com",
+  "publicnow.com",
   # 论文原文
   "arxiv.org",
 ]
@@ -57,9 +61,29 @@ tier_a_brand = [
   "qualcomm.cn",
   "apple.com",
   "anthropic.com",
+  "claude.com",
   "openai.com",
   "google.com",
+  "googleblog.com",
   "microsoft.com",
+  # 银行 / 支付机构官网
+  "psbc.com",
+  "hsbank.com.cn",
+  "shengjingbank.com.cn",
+  "unionpay.com",
+  "tenpayglobal.com",
+  # 境外机构 / 厂商官网
+  "americanexpress.com",
+  "circle.com",
+  "isomorphiclabs.com",
+  "westpac.com.au",
+  "stripe.com",
+  "stripe.events",
+  "stripetour.com",
+  "trendmicro.com",
+  # 模型与研究院
+  "qwen.ai",
+  "hub.baai.ac.cn",
 ]
 
 tier_a_regex = [
@@ -106,6 +130,34 @@ tier_b = [
   "zhiding.cn",
   "fintechinchina.com",
   "unbank.info",
+  # 境外财经与科技
+  "bloomberg.com",
+  "cnbc.com",
+  "cnn.com",
+  "fortune.com",
+  "inc.com",
+  "techcrunch.com",
+  "business-standard.com",
+  "finextra.com",
+  "theblock.co",
+  "idnfinancials.com",
+  "asiae.co.kr",
+  "chosun.com",
+  "yna.co.kr",
+  "9to5mac.com",
+  "cnyes.com",
+  "yahoo.com",
+  # 国内科技与财经
+  "ithome.com",
+  "mydrivers.com",
+  "chinadaily.com.cn",
+  "bjd.com.cn",
+  "eeo.com.cn",
+  "oeeee.com",
+  "10jqka.com.cn",
+  "aiiaw.com",
+  # 零售券商资讯频道不属于一手来源，与媒体同档
+  "moomoo.com",
 ]
 
 tier_c = [
@@ -118,4 +170,20 @@ tier_c = [
   "csdn.net",
   "jianshu.com",
   "bilibili.com",
+  # 招聘 / 数据聚合 / 个人博客：显式列入只为报表可读，一律不计入
+  "zhiye.com",
+  "yinhangzhaopin.com",
+  "tradingview.com",
+  "gurufocus.com",
+  "fxbaogao.com",
+  "benchlm.ai",
+  "aiboss88.com",
+  "cddbxh.com",
+  "jlbkjt.com",
+  "xjjreview.com",
+  "pasqualepillitteri.it",
+  "yottalabs.ai",
+  # 导航/聚合与培训文档站：不具独立采编，不计入
+  "ai-bot.cn",
+  "kodekloud.com",
 ]
