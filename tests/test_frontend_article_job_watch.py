@@ -76,6 +76,15 @@ def test_reopen_resumes_active_jobs_by_article_id():
     for status in ("pending", "running"):
         assert f"'{status}'" in block, f"续跑没有覆盖 {status} 状态"
     assert "watchArticleJob(job.id, articleId, job.task_type)" in block, "查到在跑任务后没有接上跟随器"
+    assert "Promise.all(" in block, "两个 status 分开回写会并发覆盖 articleDetail"
+
+
+def test_missing_job_settles_instead_of_retrying():
+    """job 被清掉（404）时要收摊，不能再空转 30 分钟。"""
+    src = _read(APP_JS)
+    block = _watch_block(src)
+    assert "r.status === 404" in block, "没有识别 404"
+    assert "err.status === 404" in block and "settle();" in block, "404 后没有停止轮询"
 
 
 def test_reader_and_modal_call_resume_on_open():

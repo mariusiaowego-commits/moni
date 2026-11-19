@@ -5321,7 +5321,15 @@ function app() {
       const settle = () => { self._articleJobWatchers.delete(jobId); };
       const tick = () => {
         fetch(`/api/llm/jobs/${jobId}`, { credentials: 'same-origin' })
-          .then(r => r.json())
+          .then(r => {
+            if (r.status === 404) {
+              const gone = new Error('job not found');
+              gone.status = 404;
+              throw gone;
+            }
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+          })
           .then(job => {
             if (job.status === 'done') {
               settle();
@@ -5350,7 +5358,13 @@ function app() {
             }
             setTimeout(tick, elapsed < 60000 ? 3000 : elapsed < 180000 ? 6000 : 15000);
           })
-          .catch(() => {
+          .catch(err => {
+            if (err && err.status === 404) {
+              // 任务被清掉了（例如清理脚本或误传 jobId）：不要再空转 30 分钟。
+              settle();
+              self._reloadArticleAfterJob(articleId);
+              return;
+            }
             if (Date.now() - startedAt > budgetMs) { settle(); return; }
             setTimeout(tick, 5000);
           });
@@ -5371,23 +5385,24 @@ function app() {
     resumeArticleJobs(articleId) {
       if (!articleId) return;
       const self = this;
-      ['pending', 'running'].forEach(status => {
-        fetch(
-          `/api/llm/jobs?article_id=${encodeURIComponent(articleId)}&status=${status}&limit=20`,
-          { credentials: 'same-origin' },
-        )
-          .then(r => r.ok ? r.json() : [])
-          .then(jobs => {
-            (Array.isArray(jobs) ? jobs : []).forEach(job => {
-              if (!job || !job.id || !self._isArticleJobType(job.task_type)) return;
-              if (self._articleJobWatchers.has(job.id)) return;
-              if (!self.isCurrentReaderArticle(articleId)) return;
-              self.articleDetail = { ...self.articleDetail, ...self._articleJobPlaceholder(job.task_type, job.id) };
-              self.watchArticleJob(job.id, articleId, job.task_type);
-            });
-          })
-          .catch(() => {});
-      });
+      const load = status => fetch(
+        `/api/llm/jobs?article_id=${encodeURIComponent(articleId)}&status=${status}&limit=20`,
+        { credentials: 'same-origin' },
+      )
+        .then(r => r.ok ? r.json() : [])
+        .catch(() => []);
+      // 两个 status 合并成一次赋值：并发回调各自展开 articleDetail 会互相覆盖。
+      Promise.all([load('pending'), load('running')]).then(results => {
+        if (!self.isCurrentReaderArticle(articleId)) return;
+        const jobs = [].concat(...results.filter(Array.isArray)).filter(
+          job => job && job.id && self._isArticleJobType(job.task_type) && !self._articleJobWatchers.has(job.id),
+        );
+        if (!jobs.length) return;
+        const placeholders = {};
+        jobs.forEach(job => Object.assign(placeholders, self._articleJobPlaceholder(job.task_type, job.id)));
+        self.articleDetail = { ...self.articleDetail, ...placeholders };
+        jobs.forEach(job => self.watchArticleJob(job.id, articleId, job.task_type));
+      }).catch(() => {});
     },
 
     /** 这条异步结果是否还属于阅读器里正在看的那篇。 */
