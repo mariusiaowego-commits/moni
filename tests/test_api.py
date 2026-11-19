@@ -259,6 +259,23 @@ class TestArticles:
         assert r.status_code == 202
         assert r.json()["status"] == "pending"
 
+    def test_factcheck_rejects_duplicate_while_job_active(
+        self, client: TestClient, seeded_article: int, monkeypatch
+    ):
+        """重跑入口常驻后：已有排队/运行中的核查任务 → 409，不再重复入队。
+
+        没有这道闸门时，刷新页面再点「重新核查」会给同一文章插两条
+        pending，后完成的覆盖前一个，白烧一次 LLM 调用。
+        """
+        import moni.llm.jobs as jobs_module
+
+        monkeypatch.setattr(jobs_module, "ensure_worker_started", lambda: None)
+        url = f"/api/articles/{seeded_article}/fact-check"
+        body = {"article_id": str(seeded_article)}
+
+        assert client.post(url, json=body).status_code == 202
+        assert client.post(url, json=body).status_code == 409
+
     def test_summary_profile_mode_needs_no_active_model(
         self, client: TestClient, seeded_article: int, monkeypatch
     ):
