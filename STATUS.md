@@ -3,7 +3,7 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
-## 未发布: **信源管理改版（v1.0.106）** (2026-11-19 · Sprint 26111901 · 分支 `feat/source-management-ui`)
+## 未发布: **信源管理改版（v1.0.107）** (2026-11-19 · Sprint 26111901 · 分支 `feat/source-management-ui`)
 
 dad 在生产 `/fetch` 页实测提了 7 条（弹窗多重滚动条 + 滚轮穿透 + 完成态占位过大、
 「抓取」措辞、同步中关弹窗找不回进度、信源隐藏未做、执行状态区 slop、刷新按钮底色描边、
@@ -38,7 +38,32 @@ hermes（profile `pixel`）+ unslop 技能改版。
 
 **测试**：`tests/test_source_hidden.py` 5 passed；前端 120 passed；全量 `pytest tests/` 见 verify 文档。
 
----
+## 已发布: **v1.0.106 — 摘要/核查任务完成后页面自动同步** (2026-11-19 · PR #250 → `b9d8b15` · tag `v1.0.106`)
+
+**问题**：点「联网核查」后面板一直停在 `⏳ 联网核查中... (job xxx)`，任务完成后也不变，用户只能自己刷新或重进页面。
+
+**根因**：老 `_pollFactCheckPlusJob` 只轮询 30 次 × 2s = **60 秒**，而线上同类任务实测 **2.2 / 2.7 / 4.4 分钟**；`generateSummary` / `generateFactCheck` 两个入口压根不轮询，只放 `⏳` 占位符。
+
+**修法**：三个入口统一 `watchArticleJob`——3s → 6s → 15s 退避、预算 30 分钟；`done` / `failed` / `cancelled` / `404` / 超时**所有出口**都回读文章详情；打开文章时 `resumeArticleJobs` 按 `/api/llm/jobs?article_id=&status=pending|running` 自动续上未完成任务；占位符收敛到 `_articleJobPlaceholder` 单一来源。agy 审计 P2（404 空转）/ P3（续跑并发写 `articleDetail`）同 PR 修掉。
+
+**验证**：定向 `test_frontend_article_job_watch + render_hygiene + reader_tabs` → **55 passed**；全量 → **2326 passed, 2 skipped, 1 failed**（唯一失败 `test_worker_lock::test_sigterm_kills_blocking_child_that_ignores_term`，单跑 3 次全绿，机器 load 12–14 时时序抖动，与本改动无关）；GitHub CI `pytest · py3.12` **success**。
+
+**生产验收**（8901 隔离端口，两次真实 LLM 任务）：任务 1m14s，**不刷新页面**自动从 `⏳` 变成 `【待核实】` + 核查时间 + `证据链 4 条`；续跟路径 21s 自动更新。
+
+**部署**：8900 重启 PID **81875**，`version v1.0.106 / commit b9d8b15 / schema 51 / worktree_dirty=false`；静态资源 `app.js?v=20261119007`、`reader.js?v=20261119007`；备份 `data/backups/news.db.pre-v1.0.106-20261119-162648`。
+
+## 已发布: **v1.0.104 — 联网核查 Gate 3 时效误判修复** (2026-11-19 · PR #246 → `c0363e3` · tag `v1.0.104`)
+
+**生产事故**：文章 `4a111c743cb775e3`（央行公示辽宁第四批金融科技创新应用）联网核查后 UI 只显示「【存疑】」两个字。
+
+**根因**：6 条证据里 4 条核心证据 13/13/13/29 天，2 条历史背景证据 787/651 天。原 Gate 3 取全批 `max(days_old)=787` → 触发 `90d_demote`，把 `【待核实】` 改成 `【存疑】`（旧 ≠ 矛盾），并清空 `summary`（导致分享预检反复判缺 summary）。
+
+**修法**（agy 只读评审 **APPROVE WITH EDITS**）：时效聚合改代码侧判定——有【已核实】证据取 `max`，否则取 `min(days_old)`（最新一条）；91+ 只把【已核实】降【待核实】，【待核实】/【存疑】不动；**不再清空 summary**；Gate 2 只在开头加【门禁降级：权威源不足】；how 文案改报最新/最早来源距今；UI 加时效徽章（`30d_warn` / `90d_demote`）。
+
+**验证**：`pytest tests/ -q` → **2316 passed, 2 skipped**；`-k 'fact_check or frontend'` → **213 passed**；新增 6 条语义契约 + 生产场景回归（4 近期 + 2 历史背景）；UI 实测旧数据 `timeliness=90d_demote` 显示「时效降级 · 含超 90 天旧证」。
+
+**已知边界**：历史已落库的 `fact_check_conclusion/summary` 不回填，需重跑联网核查生效。
+
 ## 已完成: **全库正文清洗落地 + 闸门打开** (2026-11-19 · Sprint 58 收尾 · tag `v1.0.105`)
 
 dad 授权后在生产库执行了两件此前挂起的事。
@@ -131,47 +156,72 @@ CLI `moni label-articles`；API `/api/moderation/labels/*`（独立 router，`/a
 **不做**：自动删除 / 移菜篮子 / 封作者；图像识别；模型二审（只留设计位）。
 
 ---
-## 已完成: **xbot_feed 劣质内容治理（主题 ≠ 准入）** (2026-11-18 · Sprint 54 · id `26111703` · PR #237 已合并 `10f3957`)
+## 已完成: **xbot_feed 劣质内容治理（主题 ≠ 准入）** (2026-11-19 · Sprint 54 · id `26111703` · PR #237 已合并 `10f3957`)
 
 把「xbot_feed 抓到的主题相关内容」与「该不该进库」**拆成两层**：只读文本规则判劣质 ⇒
 **只产候选清单**给 dad 审，**不自动处置**。另把 `bypass` 的两个闸门拆成独立开关（**零行为变化**）。
 
-**改法**（26 个文件，全部**未 commit**）：决策纯函数 `moni/fetch/moderation.py`（**纯函数、零 DB 依赖**）；
+**改法**（**28 个文件**，**已合并**）：决策纯函数 `moni/fetch/moderation.py`（**纯函数、零 DB 依赖**）；
 保护资产只读护栏 `moni/fetch/protected_assets.py`（10 类，**零新表**）；
 `bypass` 拆分到新键 **`bypass_tag_or_gate`**（旧 deprecated alias `bypass_tag_filter` 的归一/pop **一行未动**，
 `tests/test_fetch_config.py` **一行未改**）；只读预演器 `scripts/xbot_quality_candidates.py`；
 脱敏产物生成器 `scripts/xbot_quality_artifacts.py`；离线验证器 `scripts/xbot_quality_validate.py`；
 只读端点 `moni/web/routes/moderation.py`（`GET /api/moderation/xbot/candidates`）；
 只读 FTS 探针 `scripts/verify_fts_index_criteria.py`。
-**本 sprint 不新增任何 migration**（**不抢迁移号**）；已把最新 `origin/main`
-（`e5975a3`）merge 进本分支 ⇒ **直接继承 main 的 `_CURRENT_VERSION` 47**
+**本 sprint 不新增任何 migration**（**不抢迁移号**）；合并当时把最新 `origin/main`
+（`e5975a3`）merge 进本分支 ⇒ **继承 main 的 `_CURRENT_VERSION` 47**
 （含 `046_fact_check_summary.sql` / `047_fact_check_gate.sql`），本分支**未新建、未重编号**任何迁移。
+⚠️ **口径**：上面 **47** 是**合并当时**的快照；**当前** repo main 与生产运行版本是**更晚的快照**
+（生产 schema 已到 **51**）—— 两者**不要**混成同一个「当前」。
 
 **不做**：任何**生产处置**（隔离 / 屏蔽作者 / 归档 execute / rescue —— 属阶段二）、改生产配置
-（`bypass_keyword_filters` 仍 true，新键**未启用**）、启黑名单、改词表阈值、前端 UI 入口
+（`bypass_keyword_filters` 仍 true，本 sprint 的新键 `bypass_tag_or_gate` **从未启用**）、
+启黑名单、改词表阈值、前端 UI 入口
 （I8 **只是 API**，界面**没有**真实用户入口 ⇒ **不能称「阶段二执行已开发」**）。
+⚠️ **后续事件（不是本 sprint 的动作）**：内容闸门由 **#249 / `v1.0.105`** 打开
+（`PUT /api/moderation/labels/gate {"enabled":true}`，见**本文档首节**「全库正文清洗落地 + 闸门打开」）。
+那是**后续 sprint 的发布动作**，**不冒认**为本 sprint 的交付；本 sprint 自己的
+`bypass_tag_or_gate` **至今未启用**。
 
-✅ **schema 落差已处理**：合并前本地是 **45**、`origin/main` 已是 **46/47**
+✅ **schema 落差已处理**（合并当时口径）：合并前本地是 **45**、`origin/main` 已是 **46/47**
 （`046_fact_check_summary.sql` / `047_fact_check_gate.sql`）⇒ 本分支**未新建、未重编号**迁移，
 已通过 merge 干净继承 main 的 **`_CURRENT_VERSION` = 47** ⇒ **不会带着旧版本号**合并。
 
-**测试**：全量 **2114 passed / 2 skipped**（p7 独立复跑一致）；5 个既有文件**原位**单跑 **61 passed**
-（改用相对定位 ⇒ 消除「原位跑假绿」，**绿灯现可直接引用**）；本 sprint 新增 7 个测试文件 **120 passed**。
+**测试**（**2026-11-19 14:28** p7 warden 对**已合并树** head `271a35b` 的**独立实跑**；
+该 head 与 squash merge `10f3957` **树等价**（`8d917c4387c5b515e655763c0d809618ea5ec17f`））：
+全量 **2277 passed / 2 skipped**（399.59s，一次跑绿）；5 个既有文件**原位**单跑 **61 passed**
+（改用相对定位 ⇒ 消除「原位跑假绿」，**绿灯现可直接引用**）；本 sprint 新增 7 个测试文件 **123 passed**。
 变异负控**打中**（注入 `moni/db/migrate.py` MUTANT ⇒ 原位单跑红）⇒ 证明原位跑真在测 worktree 代码。
+⚠️ 本段数字**均为 2026-11-19 14:28 那次实跑**，**不是**本次文档收尾重跑（文档收尾**本地测试 NOT_RUN**）。
 
-**审计**：p7 warden 五轮 —— 初审 P0=3/P1=6 → 复核 P0=0/P1=1 → 第三轮 P0=0/P1=1 → 第四轮 PASS → **终审 PASS（P0=0/P1=0）**
-⇒ 4 条 P2 全消项；13:44 又派**最终 diff 复核**（26 个文件全纳审，含 14 个 untracked）。
+**审计**：p7 warden 多轮 —— 初审 P0=3/P1=6 → 复核 P0=0/P1=1 → 第三轮 P0=0/P1=1 → 第四轮 PASS → 终审 PASS（P0=0/P1=0）
+⇒ 4 条 P2 全消项；13:44 又派**最终 diff 复核**（**26 个文件**全纳审，含 14 个 untracked）；
+**2026-11-19 14:2x 对已合并树再审一次**（审 **28 个文件**）：`GATE: PASS / P0=0 / P1=0 / P2=3`
+（3 条 P2 全是本段这类**叙述过时**，不影响代码、配置、迁移与生产行为）。
 
 **⚠️ 已知限制（随包读）**：① 候选是 **agent 草标，不是 dad 人工真值** ⇒ **没有真值就没有精确率/召回率/误杀率**；
 ② 上游 feed **零媒体字段** ⇒ **媒体类劣质内容是硬盲区**，本方案不覆盖，也不得声称「已清干净」；
 ③ basket 恢复**有损**（派生数据 / FTS 索引 / 原 `fetched_at` 不恢复）；④ FTS 探针**只报告不自愈**
 （external-content 表无 trigger ⇒ 会漂移，rebuild 需 dad 单独 GO）；⑤ 规则阈值全是**暂定值**，未经标注集标定。
 
-**状态**：**未发布**。代码 + 测试已就绪并**已 commit**（`0e3f587` + merge `9e38f7a`），
-**PR 待 dad 审批**（未 push / 未开 PR / 未 merge / 未 tag / 未部署）。
+**状态**：**阶段一已完成并已合并**。PR **#237** 已 squash 合入 `main` ——
+**squash merge commit `10f39571e33a2a39244950d0a9e313a6abbe0440`**（单亲 `9b07c9f`），
+合并时间 **2026-11-19 12:39:54 CST**；PR head `271a35b` 与该 merge commit **树等价**
+（`8d917c4387c5b515e655763c0d809618ea5ec17f`）⇒ 合并未丢内容。
+⚠️ **squash 后的 ancestry 用 `10f3957` 验证**（`git merge-base --is-ancestor 10f3957 <main>`），
+**不要**把 PR head `271a35b` 说成 main 的祖先。
+
+**版本证据**：含本 sprint 代码的**首个正式 tag 是 `v1.0.104`**（tag 对象 `6dd9301`，peeled → `c0363e3`，
+由 **#246** 发布，但**已包含** #237）；其后 **`v1.0.105`**（peeled → `26a3502`）与
+**`v1.0.106`**（peeled → `b9d8b15`）**同样包含** #237。
+⇒ 按事实记：**本 sprint 不是任一 tag 的专属发布**，只是**随**这些 tag 进入正式发布。
+
 产物 `artifacts/xbot-quality-2026-11-18/`（脱敏候选 41 / 标注模板 41 / 不确定案例 35）**已 gitignore，不入库**
 ⇒ dad 要看请**只读查看**，**填 `annotation-template.json` 的 `dad_verdict`** ⇒ 填完才有真值与指标。
-**待 dad GO**：commit → PR → merge → tag/部署 → G2 配置 → G3 批量处置。
+
+**待 dad GO**（**本 sprint 范围内未做**）：阶段二（自动拦截 / 屏蔽作者 / 归档 execute）、
+G2 配置、G3 批量处置 —— 各自需**单独 GO**；另**阶段一已关闭**，但上述 P0 限制
+（缺 dad 人工真值 ⇒ 无准确率）**不因阶段一关闭而解除**。
 
 
 ## 未发布: **数据清洗 clean_v1 + 前端清洗页** (2026-11-18 · 分支 `feat/content-cleaning` · PR #238)

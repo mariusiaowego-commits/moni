@@ -220,7 +220,7 @@ body {
   transition: background 0.3s, color 0.3s;
 }
 
-/* v1.0.106: 弹窗打开时锁住页面滚动。
+/* v1.0.107: 弹窗打开时锁住页面滚动。
    之前滚轮会穿透到背后的信源管理页，弹窗里滚一层、背后又滚一层。 */
 body.modal-locked { overflow: hidden; }
 
@@ -666,7 +666,7 @@ h5, h6 { font-size: var(--font-14); }
    用 flex + gap 替代全局 .btn + .btn 的兄弟 margin-left (row-actions 内部更紧凑) */
 .row-actions { display: inline-flex; align-items: center; gap: 8px; }
 
-/* v1.0.106: 全局 icon 按钮基线。
+/* v1.0.107: 全局 icon 按钮基线。
    之前只有 .row-actions .icon-btn 有样式，独立 .icon-btn（页面右上角刷新等）
    走的是浏览器默认样式 —— 灰底 + 描边，跟整个设计语言对不上。
    现在默认透明无框，hover 才给底色。 */
@@ -1572,7 +1572,7 @@ label { font-size: var(--font-14); }
   background: oklch(from var(--foreground) l c h / 0.3);
   backdrop-filter: blur(8px);
   display: flex; align-items: center; justify-content: center;
-  /* v1.0.106: 滚到边界不要外溢到背后页面 */
+  /* v1.0.107: 滚到边界不要外溢到背后页面 */
   overscroll-behavior: contain;
   transition: opacity 0.25s ease, background 0.25s ease;
   will-change: opacity;
@@ -1582,7 +1582,7 @@ label { font-size: var(--font-14); }
   background: var(--surface-modal); border: 1px solid var(--border);
   border-radius: 16px; padding: 24px;
   width: 90%; max-width: 520px; max-height: 85vh; overflow-y: auto;
-  /* v1.0.106: 弹窗内是唯一的滚动容器，滚到底不带动背后页面 */
+  /* v1.0.107: 弹窗内是唯一的滚动容器，滚到底不带动背后页面 */
   overscroll-behavior: contain;
   transform: translateY(14px) scale(0.97);
   transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
@@ -1643,7 +1643,7 @@ label { font-size: var(--font-14); }
   box-shadow: inset 0 2px 8px oklch(from var(--foreground) l c h / 0.06);
   transition: height 0.25s ease;
 }
-/* v1.0.106: 同步完成的那一刻，重点是结果而不是动画 —— 舞台收成一条窄带，
+/* v1.0.107: 同步完成的那一刻，重点是结果而不是动画 —— 舞台收成一条窄带，
    把空间让给下面的结果列表。 */
 .particle-stage.is-complete { height: 128px; }
 .particle-stage.is-complete .completion-check {

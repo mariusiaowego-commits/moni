@@ -1,4 +1,4 @@
-# 信源管理改版（v1.0.106）· sprint 26111901
+# 信源管理改版（v1.0.107）· sprint 26111901
 
 > 完整 sprint 文档（prd / plan / tech-spec / test-plan / verify）在 Obsidian：
 > `tqob/05-Coding/project-moni/sprints/sprint-26111901-source-management/`
