@@ -12,6 +12,8 @@
 7. 迟到的核查结果把用户正在看的另一篇盖掉。
 8. 打开一篇有联网核查的文章，证据链不加载（恒为 0 条）。
 9. 窄屏 .ai-pane 退回 position:absolute，对话框盖在正文上。
+10. 页签条又画一条全宽底色分隔线，和下方卡片上边框凑成双线。
+11. 迟到的证据链结果写进另一篇文章的证据区。
 """
 
 from __future__ import annotations
@@ -46,6 +48,49 @@ def _css_block(css: str, selector: str) -> str:
         if selector in body:
             return body
     raise AssertionError(f"no @media block containing {selector!r}")
+
+
+def _css_rule(css: str, selector: str) -> str:
+    """取顶层（非 @media 内）某条规则正文。"""
+    m = re.search(rf"^{re.escape(selector)}\s*\{{(.*?)\}}", css, re.S | re.M)
+    assert m, f"css rule {selector} not found"
+    return m.group(1)
+
+
+def test_late_evidence_cannot_overwrite_another_article():
+    """失败模式 11：A 的证据 GET 迟到，不能写进正在看的 B。"""
+    js = _read(APP_JS)
+    m = re.search(r"loadArticleEvidence\(articleId\)\s*\{(.*?)\n    \},", js, re.S)
+    assert m, "loadArticleEvidence missing"
+    body = m.group(1)
+    assert "isCurrentReaderArticle(articleId)" in body, (
+        "loadArticleEvidence must drop results for an article the reader has "
+        "already left — otherwise article B shows article A's evidence rows"
+    )
+    assert js.count("this.isCurrentReaderArticle(") + js.count("self.isCurrentReaderArticle(") >= 2, (
+        "readerRefreshDetail and loadArticleEvidence must share one predicate, "
+        "not two hand-written id comparisons that can drift"
+    )
+
+
+def test_reader_tab_strip_has_no_rule_line():
+    """失败模式 10：选中态靠填充底色表达，页签条不画分隔线、也不画下划线。"""
+    css = _read(MAIN_CSS)
+    tabs = _css_rule(css, ".reader-tabs")
+    assert "border-bottom" not in tabs, (
+        ".reader-tabs must not draw its own bottom rule — it duplicates the "
+        "pane card's top border (10px gap = double line) and also runs across "
+        "the always-on AI pane on wide screens, where no tab boundary exists"
+    )
+    assert ".reader-tab.is-active::after" not in css, (
+        "active tab must be marked by its filled background, not an underline"
+    )
+    active = _css_rule(css, ".reader-tab.is-active")
+    assert "background: var(--muted)" in active, (
+        "without the underline the active tab needs the filled background, "
+        "otherwise nothing distinguishes it from the idle tabs"
+    )
+    assert "font-weight: 600" in active, "active tab keeps the heavier label as a second cue"
 
 
 def test_narrow_tab_switch_resets_fullscreen_ai_pane():
@@ -118,11 +163,18 @@ def test_late_job_result_cannot_overwrite_other_article():
     m = re.search(r"readerRefreshDetail\(articleId, detail\)\s*\{(.*?)\n    \}", js, re.S)
     assert m, "readerRefreshDetail missing"
     body = m.group(1)
-    assert "articleDetail.id !== articleId" in body, (
-        "late job result must not replace the article the user is reading"
+    assert "isCurrentReaderArticle(articleId)" in body, (
+        "late job result must not replace the article the user is reading, "
+        "nor reopen the reader after it was closed — both live in "
+        "isCurrentReaderArticle"
     )
-    assert "!this.articleDetail" in body, (
-        "a late result must not reopen the reader after it was closed"
+    predicate = re.search(r"isCurrentReaderArticle\(articleId\)\s*\{(.*?)\n    \},", js, re.S)
+    assert predicate, "isCurrentReaderArticle missing"
+    assert "articleDetail.id === articleId" in predicate.group(1), (
+        "the shared predicate must compare ids"
+    )
+    assert "!!this.articleDetail" in predicate.group(1), (
+        "the shared predicate must also treat a closed reader (null detail) as stale"
     )
 
 

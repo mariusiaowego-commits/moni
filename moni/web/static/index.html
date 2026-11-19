@@ -3425,7 +3425,7 @@
               </div>
             </header>
 
-            <div class="ai-messages" x-ref="aiMessages">
+            <div class="ai-messages" x-ref="aiMessages" @scroll="readerTrackAiScroll($event)">
               <div class="ai-empty" x-show="!readerMessages.length">
                 <svg viewBox="0 0 64 64" width="64" height="64" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 14h30a4 4 0 0 1 4 4v24a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V18a4 4 0 0 1 4-4Z"></path><path d="M20 26h18"></path><path d="M20 33h12"></path><path d="M46 22h6a4 4 0 0 1 4 4v22a4 4 0 0 1-4 4H24"></path></svg>
                 <p>选中正文一段可直接对它提问；回答只依据本文。</p>
@@ -3435,7 +3435,12 @@
                   <div class="ai-msg-role" x-text="m.role === 'user' ? '你' : 'AI'"></div>
                   <div class="ai-msg-quote" x-show="m.quote_text" x-text="m.quote_text"></div>
                   <div class="ai-msg-body" x-show="m.role === 'user'" x-text="m.content"></div>
-                  <div class="ai-msg-body markdown" x-show="m.role === 'assistant'" x-html="readerRenderMarkdown(m.content)"></div>
+                  <div class="ai-msg-body markdown"
+                       :class="{ 'is-streaming': m.role === 'assistant' && (m.status === 'streaming' || m.status === 'pending') }"
+                       x-show="m.role === 'assistant'">
+                    <div class="ai-stream-settled" x-html="readerRenderMarkdown(m.settled)"></div>
+                    <div class="ai-stream-tail" x-html="readerRenderMarkdown(m.tail)"></div>
+                  </div>
                   <span class="ai-caret" x-show="readerStreamMsgId === m.id && m.status !== 'done'" aria-hidden="true"></span>
                   <div class="ai-thinking" x-show="readerStreamMsgId === m.id && !m.content && m.status !== 'failed'">
                     <span class="ai-orb" aria-hidden="true">

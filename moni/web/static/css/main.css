@@ -1,8 +1,9 @@
 
-/* Sprint 42: Global focus-visible token */
-:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible,
-:where(a, button, input, select, textarea, summary, [tabindex]):focus {
-  outline: 2px solid var(--accent);
+/* Sprint 42: Global focus-visible token
+   只挂 :focus-visible —— 鼠标点击不留环；键盘 Tab 才留。颜色用中性蟹壳灰，
+   accent(浅紫藤萝) 当描边在奶油底上像选中态，和交互反馈打架。 */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--muted-fg);
   outline-offset: 2px;
   border-radius: inherit;
 }
@@ -907,7 +908,7 @@ section[x-show*="config"] table thead th {
   flex: none;
 }
 .title-link:hover .title-text { color: var(--accent); }
-.title-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.title-link:focus-visible { outline: 2px solid var(--muted-fg); outline-offset: 2px; border-radius: 4px; }
 .reader-chat-mark {
   display: inline-flex;
   align-items: center;
@@ -4416,7 +4417,7 @@ label { font-size: var(--font-14); }
 .toast-action:focus-visible,
 .toast-close:focus-visible,
 .modal-close:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--muted-fg);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -4428,7 +4429,7 @@ label { font-size: var(--font-14); }
   .icon-btn:focus,
   .tag-chip:focus,
   .subtab:focus {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--muted-fg);
     outline-offset: 2px;
   }
 }
@@ -4590,7 +4591,7 @@ body.has-float-layer .tags-overflow { display: none !important; }
 .share-tab .icon { width: 16px; height: 16px; }
 /* 鼠标点击不留框；键盘导航仍保留可见焦点环 */
 .share-tab:focus { outline: none; }
-.share-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.share-tab:focus-visible { outline: 2px solid var(--muted-fg); outline-offset: 2px; }
 .share-tab-count {
   min-width: 18px; height: 18px; padding: 0 5px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -4950,7 +4951,6 @@ body.has-float-layer .tags-overflow { display: none !important; }
 .reader-tabs {
   grid-column: 1 / -1; grid-row: 1;
   display: flex; align-items: center; gap: 4px;
-  border-bottom: 1px solid var(--border);
 }
 .reader-tab {
   position: relative; border: 0; background: transparent;
@@ -4958,12 +4958,12 @@ body.has-float-layer .tags-overflow { display: none !important; }
   color: var(--muted-fg); font: inherit; font-size: var(--font-13);
   cursor: pointer; transition: color .15s ease, background .15s ease;
 }
-.reader-tab:hover { color: var(--foreground); background: var(--muted); }
-.reader-tab.is-active { color: var(--foreground); font-weight: 600; }
-.reader-tab.is-active::after {
-  content: ''; position: absolute; left: 12px; right: 12px; bottom: -1px;
-  height: 2px; border-radius: 2px; background: var(--accent);
+.reader-tab:hover {
+  color: var(--foreground);
+  background: color-mix(in oklch, var(--muted) 35%, transparent);
 }
+.reader-tab.is-active { color: var(--foreground); font-weight: 600; background: var(--muted); }
+.reader-tab.is-active:hover { background: var(--muted); }
 .reader-pane {
   position: relative; background: var(--card);
   border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden;
@@ -5145,6 +5145,8 @@ body.has-float-layer .tags-overflow { display: none !important; }
 }
 .ai-msg-body.markdown p { margin: 0 0 0.7em; }
 .ai-msg-body.markdown p:last-child { margin-bottom: 0; }
+.ai-msg-body.is-streaming .ai-structured-list > li { animation: none; }
+.ai-stream-tail:empty { display: none; }
 .ai-msg-body.markdown h1, .ai-msg-body.markdown h2, .ai-msg-body.markdown h3 { font-size: 14px; margin: 0.8em 0 0.4em; }
 .ai-msg-body.markdown ul, .ai-msg-body.markdown ol { margin: 0.4em 0 0.7em; padding-left: 1.3em; }
 .ai-msg-body.markdown code { background: var(--muted); padding: 1px 4px; border-radius: 3px; font-size: 0.9em; }
@@ -5355,7 +5357,8 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
 
   /* ── 阅读器窄屏页签切换 ── */
   .reader-pane,
-  .ai-pane {
+  .ai-pane,
+  .reader-tab {
     transition: none;
   }
 

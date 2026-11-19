@@ -182,6 +182,33 @@ def test_global_focus_visible_ring_exists():
         assert "none" not in val, f"focus ring must not be outline: {val}"
 
 
+def test_mouse_click_leaves_no_focus_ring():
+    """点击就出紫框是回归过的问题（#186 的全局 token 把 :focus 也挂上了环）。
+
+    失败模式：全局焦点规则里出现裸 `:focus` 选择器 —— 鼠标点任何按钮都会
+    留一圈描边，看起来像选中态；正确做法是只挂 :focus-visible。
+    """
+    css = _strip_css_comments(MAIN_CSS.read_text(encoding="utf-8"))
+    globals_ = [sel for sel, _ in _css_rules(css) if ":where(" in sel and "focus" in sel]
+    assert globals_, "global :where(...):focus-visible token not found"
+    bare = [p.strip() for sel in globals_ for p in sel.split(",") if p.strip().endswith(":focus")]
+    assert not bare, (
+        f"global focus rule targets bare :focus {bare} — mouse clicks would "
+        "leave a ring behind"
+    )
+
+
+def test_focus_ring_is_not_accent_coloured():
+    """焦点环用中性色；accent(浅紫藤萝) 当描边和选中态撞脸。"""
+    css = _strip_css_comments(MAIN_CSS.read_text(encoding="utf-8"))
+    offenders = [
+        sel.strip()
+        for sel, body in _css_rules(css)
+        if "focus" in sel and re.search(r"outline\s*:\s*[^;}]*var\(--accent\)", body)
+    ]
+    assert not offenders, f"focus rings still use --accent: {offenders}"
+
+
 def test_focus_ring_covers_the_interactive_controls():
     css = _strip_css_comments(MAIN_CSS.read_text(encoding="utf-8"))
     selectors_needed = [".btn", ".pin-btn", ".link-btn", ".tag-chip", ".subtab"]
@@ -211,6 +238,16 @@ def test_focus_ring_survives_reduced_motion():
     )
     assert not re.search(r"outline\s*:\s*(none|0)\s*;?\s*\}", body), (
         "reduced-motion block zeroes outlines globally"
+    )
+
+
+def test_reader_tab_transition_disabled_under_reduced_motion():
+    """页签底色/文字色有 0.15s 过渡，reduce 下必须一起关掉。"""
+    blk = _consolidated_reduce_block()
+    assert blk is not None, "consolidated reduced-motion block not found"
+    assert ".reader-tab" in blk[1], (
+        "reduced-motion block must disable the .reader-tab colour/background "
+        "transition, not just the narrow-screen pane slide"
     )
 
 
