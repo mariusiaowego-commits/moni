@@ -3,6 +3,51 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
+## 已完成: **全库正文清洗落地 + 闸门打开** (2026-11-19 · Sprint 58 收尾 · tag `v1.0.105`)
+
+dad 授权后在生产库执行了两件此前挂起的事。
+
+**① `clean-articles --apply`（872 篇正文重写）**
+
+```text
+dry-run: scanned=5323 changed=872 backfilled=4451 emptied=0 chars_removed=54670
+apply  : scanned=5323 changed=872 backfilled=4451 emptied=0 chars_removed=54670
+run id : 7f739a070b334867（耗时 0.21s）
+```
+
+只重写 `articles.raw_content` 一列（外加 `content_state/chars/reasons/cleaner/cleaned_at`）。
+删的是：文末授权声明 / 免责声明 / 投稿邮箱 / 编辑署名行、行内 CTA 尾巴、
+HTML 标签与实体、零宽字符、`U+FFFD` 乱码、YAML frontmatter。**不删正文段落。**
+
+**清洗前后对照（全库计数）**
+
+| 检查项 | 清洗前 | 清洗后 |
+|---|---|---|
+| 文末授权声明残留 | 200 | **0** |
+| 零宽字符 | 16 | **0** |
+| `U+FFFD` 乱码 | 55 | **0** |
+| YAML frontmatter | 34 | **1**（YAML 头无闭合标记，按安全策略跳过） |
+
+**改写幅度核对**：872 篇中 848 篇变短、24 篇等长原地替换（去零宽/空格），
+**0 篇正文增长**；变空的只有 3 篇，原本就是 1 字 / 40 字的纯样板文字。
+可见文本变化的文章，其 `summary`/`ai_summary`/`brief_body_md` 已置空待重生成。
+备份：`/private/tmp/moni-pre-clean-20261119-145347.db`（119MB，保留待 dad 确认后再删）。
+
+**② 打开内容闸门**
+
+```text
+PUT /api/moderation/labels/gate {"enabled":true} → {"gate_enabled": true}
+summary.gate_enabled = True
+```
+
+实测拦截：`spam_service` 3 篇（`3e40069e` 本人诚信经营长期合作 / `dd68ae11` 二十年商家做的是一个信用 /
+`fceab32a` 视频号点赞刷量）已从简报与摘要流程中剔除。
+`engagement_bait` / `low_value_rant` **不在拦截范围**（只标注，不改流程）。
+
+**测试**：`test_moderation_labels/service/labels_api/brief_html` 39 passed；
+`-k "clean or content"` 156 passed。
+
+---
 ## 已完成: **闸门改成运行时配置** (2026-11-19 · Sprint 58 补丁 · PR #247 → `c5f1bc8`)
 
 把「分级标注闸门」从代码常量 `GATE_ENABLED` 改成**数据库配置**，以后开关不再发版、不再走 PR。
@@ -44,8 +89,8 @@ CLI `moni label-articles`；API `/api/moderation/labels/*`（独立 router，`/a
 生产预演 `scanned=5323 labeled=9`（分布同上）。sprint 留档见
 `sprints/sprint-58-content-moderation-labels-2026-11-19/`（含 `verify-`）。
 
-**待 dad 点头（未做）**：`clean-articles --apply` 全库重写（872 篇）；闸门打开
-（已可配置，见上一条 PR #247，默认关闭）。
+**已执行（2026-11-19 收尾）**：`clean-articles --apply` 全库重写 872 篇、闸门打开，
+详见本文档首节。
 
 **不做**：自动删除 / 移菜篮子 / 封作者；图像识别；模型二审（只留设计位）。
 
