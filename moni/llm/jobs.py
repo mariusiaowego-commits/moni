@@ -1011,7 +1011,7 @@ def _persist_fact_check_plus(
                     "tier_a": list(authority.tier_a_domains),
                     "tier_b": list(authority.tier_b_domains),
                 },
-                "demoted_from": "【已核实】" if gate2_demoted else None,
+                "demoted_from": "【已核实】" if (gate2_demoted or gate3_demoted) else None,
                 "timeliness": timeliness,
             },
             ensure_ascii=False,

@@ -826,6 +826,10 @@ def _ago(days: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
 
+def art_row(conn, aid: str):
+    return conn.execute("SELECT * FROM articles WHERE id = ?", (aid,)).fetchone()
+
+
 def test_web_check_persists_thesis(fresh_db, monkeypatch):
     """048: thesis 跟着联网结论一起落库，分享图才有「文章主张」。"""
     _insert_article("a1")
@@ -1799,6 +1803,11 @@ def test_english_verified_old_evidence_still_triggers_demotion(fresh_db, monkeyp
     assert art["fact_check_conclusion"] == "【待核实】"
     assert art["fact_check_timeliness"] == "90d_demote"
     assert art["fact_check_summary"] == "【时效降级：核心证据超 90 天】核心数据与监管口径一致"
+    note = json.loads(art_row(conn, "a-english-old")["fact_check_note"])
+    assert all(row["verdict"] == "【待核实】" for row in note)
+    gate = json.loads(art_row(conn, "a-english-old")["fact_check_gate"])
+    assert gate["demoted_from"] == "【已核实】"
+    assert gate["timeliness"] == "90d_demote"
     verdicts = [
         r["verdict"] for r in conn.execute(
             "SELECT verdict FROM fact_check_evidence WHERE article_id='a-english-old' ORDER BY evidence_seq"
