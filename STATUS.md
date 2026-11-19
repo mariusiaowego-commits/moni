@@ -3,7 +3,7 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
-## 未发布: **信源管理改版（v1.0.109）** (2026-11-19 · Sprint 26111901 · 分支 `feat/source-management-ui`)
+## 已发布: **v1.0.109 — 信源管理改版** (2026-11-19 · PR #253 → `1993082` · tag `v1.0.109` · Sprint 26111901)
 
 dad 在生产 `/fetch` 页实测提了 7 条（弹窗多重滚动条 + 滚轮穿透 + 完成态占位过大、
 「抓取」措辞、同步中关弹窗找不回进度、信源隐藏未做、执行状态区 slop、刷新按钮底色描边、
@@ -42,9 +42,15 @@ hermes（profile `pixel`）+ unslop 技能改版。
 `Scheduler.batch_sources()` 同口径（隐藏照跑），并加单测锁死。
 `USER_GUIDE.md` / `docs/OPERATION_GUIDE.md` 的「抓取」一并改为「同步」。
 
-**测试**：全量 `pytest tests/` → **2330 passed, 2 skipped, 2 failed**（`test_migration_039` 在沙箱内无法建
-worktree，提权单跑 passed；`test_showcase_*` 缺 PIL，与改动无关）；定向 `frontend/source_hidden/migration`
-→ **271 passed**。浏览器实测见 sprint verify。
+**测试**：合并最新 main 后全量 `pytest tests/` → **2341 passed, 2 skipped, 2 failed**
+（`test_migration_039` 沙箱内无法建 worktree，提权单跑 **1 passed**；`test_showcase_*` 缺 PIL，与改动无关）；
+定向 `frontend/source_hidden/migration` → **271 passed**。浏览器实测见 sprint verify。
+
+**部署**：8900 重启 PID **61574**，`version v1.0.109 / commit 1993082 / schema 52 / worktree_dirty=false`；
+备份 `data/backups/news.db.pre-v1.0.109-20261119-204943`；迁移显式执行（服务启动不跑 migration）
+`Applying migration 052_source_hidden.sql (v51 → v52)`。
+**线上冒烟**：`/fetch` 200；`/api/config/sources` 18 条全部带 `is_hidden`（hidden=0）；
+静态资源 `app.js?v=20261119012`、`main.css?v=20261119011`、新图标 `bank_feed.png` 200；页面「抓取」计数 0。
 
 ## 已发布: **v1.0.108 — 已核查文章提供重跑入口** (2026-11-19 · PR #256 → `a907492` · tag `v1.0.108`)
 
