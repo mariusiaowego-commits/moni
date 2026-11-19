@@ -43,6 +43,21 @@ _YAML_KEY_RE = re.compile(r"^[A-Za-z_][\w-]*\s*:")
 def _key_of(line: str) -> str:
     return line.strip().split(":", 1)[0].strip()
 
+
+def _is_header_line(line: str) -> bool:
+    """A YAML header line: blank, comment, top-level key, or nested continuation.
+
+    Nested lists (``author:\\n  - "[[虎嗅网]]"``) and indented maps are as much
+    part of the header as ``title:``, and rejecting them kept whole frontmatter
+    blocks in the body (27 of 34 real samples).
+    """
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return True
+    if line[:1] in (" ", "\t"):
+        return True
+    return bool(_YAML_KEY_RE.match(line))
+
 _ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\ufeff\u2060"), None)
 _REPLACEMENT_CHAR = "\ufffd"
 _HTML_TAGS = (
@@ -213,11 +228,15 @@ def _strip_frontmatter(text: str) -> tuple[str, str]:
         if lines[i].strip() != "---":
             continue
         header = lines[1:i]
-        keyed = [
-            ln for ln in header if ln.strip() and not ln.strip().startswith("#")
-        ]
-        if not all(_YAML_KEY_RE.match(ln) for ln in keyed):
+        if not all(_is_header_line(ln) for ln in header):
             return text, ""
+        keyed = [
+            ln
+            for ln in header
+            if ln[:1] not in (" ", "\t")
+            and ln.strip()
+            and not ln.strip().startswith("#")
+        ]
         # ``Q:`` / ``A:`` / ``Note:`` are common prose openers, so a block made
         # only of those is a question, not a header.  Alongside real keys it is
         # metadata and gets stripped with the rest.
@@ -273,6 +292,16 @@ def _collapse(text: str) -> str:
     text = re.sub(r"[ \t\r\f\v\u00a0]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+def same_visible_text(a: str, b: str) -> bool:
+    """True when two bodies differ only in whitespace.
+
+    ``_collapse`` rewrites blank lines and trailing spaces on every body, so a
+    first cleaning pass produces hundreds of whitespace-only diffs.  Those must
+    not invalidate summaries or briefs built from identical words.
+    """
+    return a == b or re.sub(r"\s+", "", a) == re.sub(r"\s+", "", b)
 
 
 _FENCE_BLOCK_RE = re.compile(r"```.*?```", re.S)
@@ -434,4 +463,5 @@ __all__ = [
     "clean_for_write",
     "clean_boilerplate",
     "normalize",
+    "same_visible_text",
 ]

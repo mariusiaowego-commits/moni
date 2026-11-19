@@ -52,6 +52,18 @@ class TestFrontmatter:
         assert cleaned.text == "正文第一段"
         assert "frontmatter" in cleaned.flags
 
+    def test_nested_yaml_list_is_part_of_the_header(self):
+        """``author:`` + indented list items: 27 of 34 real samples kept it."""
+        raw = (
+            '---\ntitle: "腾讯研究院AI每周关键词Top50"\n'
+            'source: "https://mp.weixin.qq.com/s?x=1"\n'
+            'author:\n  - "[[腾讯研究院]]"\n  - "[[另一家]]"\n'
+            'tags: [AI, 周报]\n---\n正文第一段'
+        )
+        cleaned = normalize(raw)
+        assert cleaned.text == "正文第一段"
+        assert "frontmatter" in cleaned.flags
+
 
 class TestEntities:
     def test_named_entities_decoded(self):

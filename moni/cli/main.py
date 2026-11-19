@@ -110,7 +110,8 @@ def cmd_clean_articles(apply: bool) -> None:
         f"changed={run['changed']} backfilled={run['backfilled']} "
         f"emptied={run['emptied']} chars_removed={run['chars_removed']} "
         f"empty={run['content_empty']} short={run['content_short']} "
-        f"test_rows={run['archived_test_rows']}"
+        f"test_rows={run['archived_test_rows']} "
+        f"whitespace_only={(run.get('details') or {}).get('whitespace_only', 0)}"
     )
     if not apply:
         print("dry-run: 未写入任何文章。确认后加 --apply 执行。")

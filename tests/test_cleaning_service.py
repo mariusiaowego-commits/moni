@@ -170,6 +170,25 @@ class TestApply:
             ).fetchone()
         assert row == ("s", "a", 1, "b", "c")
 
+    def test_whitespace_only_rewrite_keeps_derived_text(self, db):
+        """Collapsing blank lines must not invalidate summaries of same words."""
+        _add("a1", "qbitai", "字" * 300 + "\n\n\n\n")
+        conn = get_db()
+        conn.execute(
+            "UPDATE articles SET summary = 's', ai_summary = 'a', has_ai_summary = 1,"
+            " brief_summary = 'b', brief_body_md = 'c' WHERE id = 'a1'"
+        )
+        conn.commit()
+        run = apply_cleaning_run()
+        assert run["changed"] == 1
+        assert run["details"]["whitespace_only"] == 1
+        with sqlite3.connect(db) as c:
+            row = c.execute(
+                "SELECT summary, ai_summary, has_ai_summary, brief_summary, brief_body_md"
+                " FROM articles WHERE id = 'a1'"
+            ).fetchone()
+        assert row == ("s", "a", 1, "b", "c")
+
     def test_backfill_null_body_row_stamps_cleaner(self, db):
         conn = get_db()
         conn.execute(

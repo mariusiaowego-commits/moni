@@ -144,7 +144,7 @@ def update_article(article_id: str, body: ArticleUpdate) -> Article:
             else body.published_at
         )
     if body.content is not None:
-        from moni.fetch.content import clean_for_write
+        from moni.fetch.content import clean_for_write, same_visible_text
 
         row = conn.execute(
             "SELECT raw_content FROM articles WHERE id = ?", (article_id,)
@@ -175,7 +175,7 @@ def update_article(article_id: str, body: ArticleUpdate) -> Article:
             art["content_cleaner"],
             art["content_cleaned_at"],
         ]
-        if art["content"] != old_text:
+        if not same_visible_text(art["content"], old_text):
             # Only a real body change invalidates the derived text products;
             # re-importing the same file must not wipe summaries and briefs.
             updates += [

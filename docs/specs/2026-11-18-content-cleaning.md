@@ -363,6 +363,29 @@ migration 049 只在 `content_contract IS NULL` 时写入；emptied 行也打 `c
 - `test_import_fulltext_guard_rejects_empty_result` 之前 400 来自路径白名单（守卫从未被测到），修正为真实 home 后再断言「清洗后为空」；
 - migration 049 头注释从 `048` 改正。
 
+### 10.7 审计 P2 并入（2026-11-19，dad 选 B 修完再合）
+
+第二轮 audit 的 4 条 P2 里挑两条有实际损耗的修掉：
+
+| P2 | 现象 | 修复 | 回归 |
+| --- | --- | --- | --- |
+| frontmatter 剥不掉 | 生产 34 篇以 `---` 开头的正文只剥了 7 篇；YAML 嵌套列表行（`author:` 换行 `  - "[[虎嗅网]]"`）不匹配 `^[A-Za-z_][\w-]*\s*:`，整段 header 留在正文里，随后 `_collapse` 把 `  - ` 压成 ` - `，只产生纯空白 diff | 新增 `_is_header_line()`：空行 / 注释 / 顶层键 / **缩进续行**都算 header；`Q:`/`A:`/`Note:` 散文判定只看顶层键 | `test_nested_yaml_list_is_part_of_the_header` |
+| 纯空白 diff 失效派生产物 | 875 篇改动里 213 篇只差空白，其中 6 篇白清 `summary` | 新增 `same_visible_text()`（去空白后比较）；`apply` 只在**可见文本**变化时清摘要/重建 layout；`changed` 语义不变（仍按 `raw_content` 是否变化计），另记 `whitespace_only` 子计数 | `test_whitespace_only_rewrite_keeps_derived_text`、`test_put_whitespace_only_body_keeps_derived_text` |
+
+生产库副本复演（5,330 行）：
+
+```
+apply1: changed=875 backfilled=4455 emptied=0 chars_removed=54683 whitespace_only=195 test_rows=4
+apply2: changed=0   backfilled=0    emptied=0                                whitespace_only=0
+apply3: changed=0   backfilled=0    emptied=0                                whitespace_only=0
+```
+
+- 以 `---` 开头的 34 篇：修复前只剥 7 篇，修复后 **33 篇**剥掉；剩 1 篇是 `frontmatter_embedded`（整篇正文被塞进 `title:`，按设计保留并打标）。
+- 净减字数 46,928 → **54,683**（多出的 7,755 字正是之前没剥掉的 header）。
+- 34 篇里最长一篇 `35,012 → 34,710`，其余同量级，无正文被误删；`emptied=0`。
+- 摘要保留 `summary=13 / ai_summary=84 / brief_summary=21`（ai 比上一轮多留 2 篇）。
+- 含 ` ``` ` 的 5 篇围栏计数 `16/4/18/6/116` 不变。
+
 生产库副本（`sqlite3 .backup` → `/private/tmp/clean-replay/news.db`，5,330 行）复演：
 
 | 步骤 | scanned | changed | backfilled | emptied |

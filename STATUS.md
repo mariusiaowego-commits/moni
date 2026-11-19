@@ -46,6 +46,13 @@ Markdown 代码围栏改为整块（含 ` ``` `）保护，二次清洗不再删
 导入全文守卫测试不再被路径白名单短路、migration 049 注释改正。
 全量 `2124 passed / 2 skipped`；生产副本 5,330 行三次 apply = `875/0/0`，`emptied=0`，围栏与摘要均未丢。
 
+**审计 P2 并入**（2026-11-19，两条有实际损耗的修进本 PR）：
+frontmatter 现在允许 YAML 缩进续行，生产 34 篇以 `---` 开头的正文由「只剥 7 篇」变为「剥 33 篇」
+（剩 1 篇是整篇正文塞进 `title:` 的 `frontmatter_embedded`，按设计保留）；
+纯空白 diff 不再清 `summary/ai_summary/brief_*`、也不再重建 layout，另记 `whitespace_only` 子计数。
+生产副本 5,330 行：`changed=875 / emptied=0 / chars_removed=54,683 / whitespace_only=195`，
+二次三次 `changed=0`；摘要保留 `13/84/21`。全量 `2127 passed / 2 skipped`。
+
 **测试**：`pytest tests/ --deselect <2 条环境失败>` → **2108 passed, 2 skipped**。
 `test_showcase…` 因当前虚拟环境缺 `PIL` 失败（与 PR 无关）；`test_039…` 需主仓 `.git` 建临时 worktree，
 沙箱内失败原因与既有记录一致，audit 单跑 33 passed。

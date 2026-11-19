@@ -423,6 +423,28 @@ class TestCRUD:
         ).fetchone()
         assert tuple(row) == (None, None, None)
 
+    def test_put_whitespace_only_body_keeps_derived_text(
+        self, client: TestClient, seeded_article: int
+    ):
+        body = "正文" * 120
+        conn = get_db()
+        conn.execute(
+            """UPDATE articles SET raw_content = ?, summary = 's',
+                      ai_summary = 'a', brief_summary = 'b' WHERE id = ?""",
+            (body, seeded_article),
+        )
+        conn.commit()
+
+        r = client.put(
+            f"/api/articles/{seeded_article}", json={"content": body + "\n\n\n\n"}
+        )
+        assert r.status_code == 200
+        row = conn.execute(
+            "SELECT summary, ai_summary, brief_summary FROM articles WHERE id = ?",
+            (seeded_article,),
+        ).fetchone()
+        assert tuple(row) == ("s", "a", "b")
+
     def test_delete_preview_200(self, client: TestClient, seeded_article: int):
         r = client.get(f"/api/articles/{seeded_article}/delete-preview")
         assert r.status_code == 200

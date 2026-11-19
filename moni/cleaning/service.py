@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from moni.db.connection import get_db
-from moni.fetch.content import CLEANER_ID, SHORT_CHARS, apply_cleaning
+from moni.fetch.content import CLEANER_ID, SHORT_CHARS, apply_cleaning, same_visible_text
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +173,7 @@ def _scan(conn) -> dict[str, Any]:
     weak_samples: list[dict[str, Any]] = []
     chars_removed = 0
     text_changed = 0
+    whitespace_only = 0
     backfilled = 0
     emptied = 0
     empty = 0
@@ -210,13 +211,18 @@ def _scan(conn) -> dict[str, Any]:
             })
             continue
 
+        visible_changed = not same_visible_text(new, old)
         if new != old:
             text_changed += 1
+            if not visible_changed:
+                whitespace_only += 1
         else:
             backfilled += 1
         chars_removed += max(0, len(old) - len(new))
         updates.append({
             "text_changed": new != old,
+            # Whitespace-only rewrites must not invalidate summaries.
+            "visible_changed": visible_changed,
             "old_text": old,
             "raw_content": new,
             "content_state": art["content_state"],
@@ -262,6 +268,7 @@ def _scan(conn) -> dict[str, Any]:
         "empties": empties,
         "changed": len(updates),
         "text_changed": text_changed,
+        "whitespace_only": whitespace_only,
         "backfilled": backfilled,
         "emptied": emptied,
         "content_empty": empty,
@@ -400,9 +407,9 @@ def apply_cleaning_run(conn=None, run_id: str | None = None) -> dict[str, Any]:
                 """,
                 u,
             )
-            if u["text_changed"]:
-                if conn.execute("SELECT changes()").fetchone()[0] == 0:
-                    continue
+            if u["text_changed"] and conn.execute("SELECT changes()").fetchone()[0] == 0:
+                continue
+            if u["visible_changed"]:
                 conn.execute(
                     """
                     UPDATE articles
@@ -447,6 +454,7 @@ def apply_cleaning_run(conn=None, run_id: str | None = None) -> dict[str, Any]:
                         "flags": scan["flags"],
                         "samples": scan["samples"],
                         "test_rows": len(scan["test_row_ids"]),
+                        "whitespace_only": scan["whitespace_only"],
                     },
                     ensure_ascii=False,
                 ),
@@ -470,7 +478,7 @@ def apply_cleaning_run(conn=None, run_id: str | None = None) -> dict[str, Any]:
 
             # Bodies that only gained metadata do not need a layout rebuild.
             apply_local_body_layout_for_ids(
-                [u["id"] for u in scan["updates"] if u["text_changed"]]
+                [u["id"] for u in scan["updates"] if u["visible_changed"]]
             )
         except Exception as exc:
             logger.warning("layout after cleaning failed: %s", exc)
