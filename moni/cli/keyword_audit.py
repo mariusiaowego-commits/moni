@@ -18,7 +18,7 @@ import json
 from typing import Any
 
 from moni.db.connection import get_db
-from moni.fetch.filters import _is_source_bypassed
+from moni.fetch.filters import _bypass_tag_or_gate
 from moni.fetch.keyword_match import (
     SHORT_CJK_MAX_LEN,
     keyword_matches,
@@ -119,7 +119,7 @@ def _iter_articles(source: str | None):
 
 
 def _bypassed_sources() -> set[str]:
-    """Sources whose ``bypass_keyword_filters`` short-circuits every gate.
+    """Sources that short-circuit **every** gate the audit replays.
 
     They must be excluded from the delta, otherwise the report blames
     the matcher for articles no gate ever looked at (``follow_builders``
@@ -129,11 +129,32 @@ def _bypassed_sources() -> set[str]:
     inserted while the source was on, so they still bypassed the gate.
     ``follow_builders`` is inactive today and its 38 stored rows would
     otherwise be scored as if a matcher had seen them.
+
+    sprint-54 / id 26111703: the exclusion is keyed on the **tag gate**
+    alone (``_bypass_tag_or_gate``), because that is the gate this audit
+    replays.
+
+    The audit replays the **generic** ``source_tags``-bound tag filter
+    (``_load_bound_tags_for_source``).  A source that skips *that* gate is
+    excluded — its stored articles were never judged by the matcher the
+    audit is re-running, so including it would blame the matcher for
+    articles no generic gate ever saw.
+
+    ``xbot_feed`` is the live example: it is bound to 7 tags in
+    ``source_tags`` but computes its tags through its **own**
+    ``_match_topic_tags()`` (per-topic, keyword-driven) and always skips
+    the generic gate.  Keying the exclusion on the *keyword* gate instead
+    would start auditing ``xbot_feed`` against ``source_tags`` the moment
+    its keyword-gate bypass is turned off — auditing a gate that source
+    never runs.
+
+    ⇒ Use ``_bypass_tag_or_gate`` here, **not** the combined helper and
+    **not** ``_bypass_keyword_filters``.
     """
     conn = get_db()
     out: set[str] = set()
     for row in conn.execute("SELECT name FROM sources"):
-        if _is_source_bypassed(row["name"]):
+        if _bypass_tag_or_gate(row["name"]):
             out.add(row["name"])
     return out
 

@@ -33,15 +33,8 @@ from .keyword_match import matched_keywords
 logger = logging.getLogger(__name__)
 
 
-def _is_source_bypassed(source_name: str) -> bool:
-    """Return True if a source has ``bypass_keyword_filters`` (or the
-    alias ``bypass_tag_filter``) set in its ``sources.fetch_config``.
-
-    Used to short-circuit the keyword (filters.py) AND tag (tag_filter.py)
-    gates for sources like ``follow_builders`` whose content is already
-    centrally curated and must land regardless of global/source whitelists
-    or a tag-keyword OR gate (sprint-21 / v1.0.41).
-    """
+def _load_source_fetch_config(source_name: str) -> dict:
+    """读 ``sources.fetch_config`` (解析失败 ⇒ 空 dict)。"""
     try:
         conn = get_db()
         row = conn.execute(
@@ -51,14 +44,81 @@ def _is_source_bypassed(source_name: str) -> bool:
         if row and row["fetch_config"]:
             cfg = json.loads(row["fetch_config"])
             if isinstance(cfg, dict):
-                # The canonical key wins so a stale alias cannot silently
-                # re-enable bypass after the user turns it off.
-                if "bypass_keyword_filters" in cfg:
-                    return bool(cfg["bypass_keyword_filters"])
-                return bool(cfg.get("bypass_tag_filter"))
+                return cfg
     except Exception:  # noqa: BLE001
         pass
-    return False
+    return {}
+
+
+def _bypass_keyword_filters(source_name: str) -> bool:
+    """Return True if the source skips the **global/source keyword** gates.
+
+    Reads the canonical key ``bypass_keyword_filters``; when that key is
+    **absent** it falls back to the **deprecated alias**
+    ``bypass_tag_filter`` (sprint-54 / id 26111703).
+
+    The alias stays an *alias of the canonical key* — it is **not** the new
+    decoupled tag-gate switch.  Keeping the fallback means every config
+    written before the split keeps its exact current behaviour: the
+    canonical key wins, the alias only fills in when the canonical key is
+    missing (the same precedence the old ``_is_source_bypassed`` had).
+
+    Decoupling the tag gate is done by the **new** ``bypass_tag_or_gate``
+    key, read by :func:`_bypass_tag_or_gate`.
+    """
+    cfg = _load_source_fetch_config(source_name)
+    if "bypass_keyword_filters" in cfg:
+        return bool(cfg["bypass_keyword_filters"])
+    return bool(cfg.get("bypass_tag_filter", False))
+
+
+def _bypass_tag_or_gate(source_name: str) -> bool:
+    """Return True if the source skips the **tag-keyword OR gate**.
+
+    This is the **decoupled** half of the old combined bypass
+    (sprint-54 / id 26111703).
+
+    Read order:
+
+    1. ``bypass_tag_or_gate`` — the **new** key.  Present ⇒ it alone
+       decides the tag gate, independently of the keyword gate.
+    2. ``bypass_keyword_filters`` — the canonical old key.  Absent new key
+       ⇒ fall back so every source configured before the split keeps its
+       exact current behaviour (**zero behaviour change**).
+    3. ``bypass_tag_filter`` — the deprecated alias, last resort, so a
+       legacy alias-only config still behaves as it always did.
+
+    Why a **new** key name instead of reusing ``bypass_tag_filter``:
+    that name is already a *deprecated alias* of ``bypass_keyword_filters``
+    in ``moni/web/routes/config_sources.py`` (the alias normalisation and
+    its ``pop`` are covered by existing compatibility tests in
+    ``tests/test_fetch_config.py``).  Reusing it would have made the split
+    self-defeating — saving the config once would silently drop the new
+    key again, and the two switches would keep meaning the same thing.
+    """
+    cfg = _load_source_fetch_config(source_name)
+    if "bypass_tag_or_gate" in cfg:
+        return bool(cfg["bypass_tag_or_gate"])
+    if "bypass_keyword_filters" in cfg:
+        return bool(cfg["bypass_keyword_filters"])
+    return bool(cfg.get("bypass_tag_filter", False))
+
+
+def _is_source_bypassed(source_name: str) -> bool:
+    """Return True if the source short-circuits the gates (legacy helper).
+
+    Kept for backward compatibility with callers that only need the
+    combined answer.  Its semantics are **unchanged** from before the
+    split: the canonical key ``bypass_keyword_filters`` wins, the
+    deprecated alias ``bypass_tag_filter`` only fills in when the canonical
+    key is missing.
+
+    ⚠️ It does **not** know about the new ``bypass_tag_or_gate`` key — a
+    source that decouples the tag gate must be asked with the two narrow
+    helpers instead (:func:`_bypass_keyword_filters` /
+    :func:`_bypass_tag_or_gate`).
+    """
+    return _bypass_keyword_filters(source_name)
 
 
 def _insert_basket(art: dict, reason: str, dropped_by: str) -> None:
@@ -230,7 +290,13 @@ def apply_keyword_filters(
     }
 
     # ── 0. Sprint-21 bypass: centrally-curated sources skip keyword gates ──
-    if _is_source_bypassed(source_name):
+    # sprint-54 / id 26111703: switched from the combined ``_is_source_bypassed``
+    # to the **narrow** ``_bypass_keyword_filters`` so this gate is decided
+    # independently of the tag gate.  Behaviour is unchanged for every source
+    # that has no explicit ``bypass_tag_filter`` key (fallback keeps the old
+    # value); *enabling* the source-level blacklist for ``xbot_feed`` is a
+    # configuration change that needs its own authorisation.
+    if _bypass_keyword_filters(source_name):
         logger.info(
             "[%s] bypass_keyword_filters — skipping global/source black/whitelists",
             source_name,
