@@ -3627,10 +3627,10 @@
                   <button class="btn btn-primary btn-sm" @click="generateSummary()" :disabled="summaryLoading">
                     <span x-show="!summaryLoading">生成摘要</span><span x-show="summaryLoading">生成中...</span>
                   </button>
-                  <button class="btn btn-secondary btn-sm" @click="generateFactCheck()" :disabled="factCheckLoading" x-show="!articleDetail?.has_fact_check">
-                    <span x-show="!factCheckLoading">事实核查</span><span x-show="factCheckLoading">核查中...</span>
+                  <button class="btn btn-secondary btn-sm" @click="generateFactCheck()" :disabled="factCheckLoading" x-show="!articleDetail?.has_web_fact_check" title="已核查过的文章可以重跑，旧结论会被替换">
+                    <span x-show="!factCheckLoading" x-text="articleDetail?.has_fact_check ? '重新核查' : '事实核查'"></span><span x-show="factCheckLoading">核查中...</span>
                   </button>
-                  <button class="btn btn-secondary btn-sm" @click="enqueueLlmJobFactCheckPlus(articleDetail?.id)" :disabled="factCheckLoading" x-show="!articleDetail?.has_web_fact_check">联网核查</button>
+                  <button class="btn btn-secondary btn-sm" @click="enqueueLlmJobFactCheckPlus(articleDetail?.id)" :disabled="factCheckLoading" title="已联网核查过的文章可以重跑，旧证据链会被新结果替换" x-text="articleDetail?.has_web_fact_check ? '重新联网核查' : '联网核查'"></button>
                   <button class="btn btn-secondary btn-sm" @click="extractCase()" :disabled="caseExtractLoading">
                     <span x-show="!caseExtractLoading">提取案例</span><span x-show="caseExtractLoading">提取中...</span>
                   </button>

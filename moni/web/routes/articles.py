@@ -12,7 +12,12 @@ from typing import Any
 from fastapi import APIRouter, Query, Response
 
 from moni.db.connection import get_db
-from moni.web.exceptions import BadRequestError, NotFoundError, ServiceUnavailableError
+from moni.web.exceptions import (
+    BadRequestError,
+    ConflictError,
+    NotFoundError,
+    ServiceUnavailableError,
+)
 from moni.web.models import (
     Article,
     ArticleSummaryRequest,
@@ -579,6 +584,13 @@ def fact_check_article(
     )
 
     from moni.llm.jobs import enqueue_job
+    from moni.web.routes.fact_check_plus import _has_active_job
+
+    # 与联网核查共用一道队列闸门；重跑按钮常驻后，刷新页面再点会重复入队。
+    if _has_active_job(article_id):
+        raise ConflictError(
+            message=f"Article {article_id!r} already has active fact_check job",
+        )
 
     job_id = enqueue_job(
         task_type="fact_check",
