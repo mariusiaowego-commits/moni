@@ -3,6 +3,33 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
+## 已发布: **v1.0.107 — 事实核查白名单扩充 + 域名维护报表** (2026-11-19 · PR #254 → `46a2ad6` · tag `v1.0.107`)
+
+**问题**：`config/fact_check_domains.toml` 停在 v1.0.100 快照。生产库实测 132 个证据域名里有 **58 个未收录**（60 条证据，占 25%），包括 `shengjingbank.com.cn`、`psbc.com`、`unionpay.com`、`bloomberg.com`、`cnbc.com`。配置头注释承诺的维护入口 `moni fact-check-domains --report` **在 CLI 里根本不存在**。
+
+**修法**：
+- 新增只读报表 `moni fact-check-domains --report`（`--limit` / `--json`），按证据出现次数列出域名与分档，未收录单独排队。
+- 按实测数据 + 明确依据扩档：`tier_a` 2 个（`tc260.org.cn`、`publicnow.com`）、`tier_a_brand` 17 个、`tier_b` 25 个、`tier_c` 14 个。未收录域名仍一律按「不计入」处理。
+- 修 eTLD+1 多段后缀：补 `co.kr` / `or.kr` / `co.jp` / `co.in` / `com.br` 等。修复前 `asiae.co.kr` 与 `en.yna.co.kr` 都被切成 `co.kr`，两家媒体被当成同一个注册域。
+
+**审计**（agy 独立只读，APPROVE WITH NITS）：
+- P2 `moomoo.com` 是零售券商资讯频道，不算一手 → `tier_a_brand` 降 `tier_b`
+- P3 `ai-bot.cn`（导航汇总）、`kodekloud.com`（培训文档）不具独立采编 → 降 `tier_c`
+- 三条已修并补断言锁死分档
+
+**验证**：
+```
+一手来源   28 域 / 40 条 → 47 域 / 60 条
+编辑制媒体 41 域 / 126 条 → 66 域 / 152 条
+不计入      5 域 / 10 条 → 19 域 / 24 条
+未收录     58 域 / 60 条 →  0 域 / 0 条
+```
+- 全量 `pytest` → **2334 passed, 2 skipped**，0 failed
+- `-k 'fact_check or domain or gate3'` → **107 passed**
+- 新增 `tests/test_fact_check_domains_report.py` 7 条断言
+
+**部署**：8900 重启 PID **21543**，`version v1.0.107 / commit 46a2ad6 / schema 51 / worktree_dirty=false`；备份 `data/backups/news.db.pre-v1.0.107-20261119-175941`；生产实跑报表 → **未收录 0 / 全部域名已收录**。
+
 ## 已发布: **v1.0.106 — 摘要/核查任务完成后页面自动同步** (2026-11-19 · PR #250 → `b9d8b15` · tag `v1.0.106`)
 
 **问题**：点「联网核查」后面板一直停在 `⏳ 联网核查中... (job xxx)`，任务完成后也不变，用户只能自己刷新或重进页面。
