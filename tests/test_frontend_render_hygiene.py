@@ -873,7 +873,9 @@ def test_versioned_assets_busted_after_their_last_commit():
 
     stale, unknown = [], []
     for rel in VERSIONED_ASSETS:
-        m = re.search(rf"{re.escape(rel)}\?v=(\d{{8}})", html)
+        # 取整段版本号，不是只取前 8 位：同一天连续改两次时
+        # ``20261119001`` 与 ``20261119002`` 的前 8 位相同，截断会让判据 1 永远误报。
+        m = re.search(rf"{re.escape(rel)}\?v=(\d{{8,}})", html)
         if not m:
             unknown.append(f"{rel}: no ?v= token")
             continue
@@ -885,7 +887,7 @@ def test_versioned_assets_busted_after_their_last_commit():
         if sha:
             before = _git("show", f"{sha}^:moni/web/static/index.html")
             if before:
-                prev = re.search(rf"{re.escape(rel)}\?v=(\d{{8}})", before)
+                prev = re.search(rf"{re.escape(rel)}\?v=(\d{{8,}})", before)
                 if prev and prev.group(1) == token:
                     stale.append(
                         f"{rel}?v={token} 与该资源上次改动前的值相同（{sha[:7]} 起未 bump）"
