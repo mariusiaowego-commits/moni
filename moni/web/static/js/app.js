@@ -932,7 +932,7 @@ function app() {
       },
       max_articles_total: {
         label: '本轮文章上限',
-        hint: '整次抓取合计最多入库/处理多少篇（硬顶）。',
+        hint: '整次同步合计最多入库/处理多少篇（硬顶）。',
         type: 'number',
       },
       request_delay: {
@@ -983,7 +983,7 @@ function app() {
       },
       following_stop_chrome: {
         label: '抓完关闭 Profile 6',
-        hint: '抓取结束后关掉 9222 的 Chrome，避免程序坞点不开。登录 cookie 仍保留在磁盘。',
+        hint: '同步结束后关掉 9222 的 Chrome，避免程序坞点不开。登录 cookie 仍保留在磁盘。',
         type: 'bool',
       },
       // xwatch — accounts (Channel A)
@@ -1039,7 +1039,7 @@ function app() {
         type: 'number',
       },
       syndication_timeout: {
-        label: '全文抓取超时（秒）',
+        label: '全文同步超时（秒）',
         hint: 'twitter syndication 拉单条推文的超时。',
         type: 'number',
       },
@@ -1089,7 +1089,7 @@ function app() {
     // v1.0.5.10: name -> {description, keywords} map for hover tooltips
     // on the articles page.  Built from configTags on demand.
     tagTooltipMap: {},
-    // v1.0.84: name -> color，给抓取源/过滤表的 tag chip 上色
+    // v1.0.84: name -> color，给信源/过滤表的 tag chip 上色
     tagColorMap: {},
 
     tagChipStyle(name) {
@@ -1104,7 +1104,7 @@ function app() {
       // Lazy-load data for each config sub-tab
       if (this.configTab === 'sources') {
         this.configLoadSources();
-        this.configLoadTags();   // v1.0.84: 抓取源表格要按 tag 上色
+        this.configLoadTags();   // v1.0.84: 信源表格要按 tag 上色
       } else if (this.configTab === 'tags') {
         this.configLoadTags();
       } else if (this.configTab === 'filters') {
@@ -1237,6 +1237,25 @@ function app() {
     },
     configCreateSource() { this.openConfigModal('source', null); },
     configEditSource(source) { this.openConfigModal('source', source); },
+    // 信源隐藏 = 只在「信源管理」页不显示，数据面照跑（照常定时/批量同步）。
+    // 与 is_active=0（停用，不跑）不是一回事。
+    configToggleSourceHidden(source) {
+      const hide = !source.is_hidden;
+      return fetch(`/api/config/sources/${encodeURIComponent(source.id)}`, {
+        method: 'PUT', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_hidden: hide }),
+      })
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+        .then(() => {
+          this.configLoadSources();
+          this.loadSources();
+          this._notify('success', hide
+            ? `已隐藏「${source.display_name || source.name}」，信源管理页不再显示`
+            : `已恢复显示「${source.display_name || source.name}」`);
+        })
+        .catch(err => this._notify('error', '切换隐藏失败: ' + err.message));
+    },
     async configDeleteSource(source) {
       if (!(await moniModal.confirm(`确定删除 source "${source.name}"?`, { title: '删除 source', okLabel: '删除', danger: true }))) return;
       fetch(`/api/config/sources/${encodeURIComponent(source.id)}`, {
@@ -1445,7 +1464,7 @@ function app() {
             this.blockedAuthors = { source_id: '', builtin_handles: [], blocked_authors: [] };
           }
         })
-        .catch(err => this._notify('error', '加载抓取配置失败: ' + err.message));
+        .catch(err => this._notify('error', '加载同步配置失败: ' + err.message));
     },
     configSaveFetchConfig() {
       const sid = encodeURIComponent(this.fetchConfigData.source_id);
@@ -1466,7 +1485,7 @@ function app() {
         };
         this.configLoadSources();
         this.closeConfigModal();
-      }).catch(err => this._notify('error', '保存抓取配置失败: ' + err.message));
+      }).catch(err => this._notify('error', '保存同步配置失败: ' + err.message));
     },
 
     // ── 作者屏蔽名单 (v1.0.88 sprint-38) ─────────────────────────────
@@ -1643,14 +1662,14 @@ function app() {
     // X-bot 精选的 source id (从已加载的信源列表里找)。
     //
     // ⚠️ P0 修复 (agy UI review r1, 2026-11-12): 之前这里只查 `configSources`
-    // (配置管理 Tab 懒加载) 与 `fetchConfigData` (抓取配置弹窗打开过才有)。
+    // (配置管理 Tab 懒加载) 与 `fetchConfigData` (同步配置弹窗打开过才有)。
     // **首页 (默认文章查阅视图) 两个都是空的** → 返回 '' → 前置检查直接
     // 报「找不到 X-bot 精选信源」, 普通用户首次点击 100% 中断。
     //
     // 兜底顺序:
     //   1. `configSources` —— 配置管理页加载过
-    //   2. `sources`        —— 抓取页加载过 (与 configSources 是不同列表)
-    //   3. `fetchConfigData` —— 抓取配置弹窗打开过
+    //   2. `sources`        —— 信源页加载过 (与 configSources 是不同列表)
+    //   3. `fetchConfigData` —— 同步配置弹窗打开过
     //   4. **常量兜底** `src-xbot-feed` —— migration 039 / seed_config.py
     //      固化的 id (三处一致, 见下方注释), 保证首页首点就能用。
     //
@@ -2213,13 +2232,13 @@ function app() {
       if (inserted > 0) {
         lines.push({ type: 'success', text: `✅ 新增 ${inserted} 篇文章入库` });
       } else if (fetched > 0 && inserted === 0) {
-        lines.push({ type: 'warn', text: `⚠️ 抓取了 ${fetched} 条但无新增（全部重复或被过滤）` });
+        lines.push({ type: 'warn', text: `⚠️ 同步了 ${fetched} 条但无新增（全部重复或被过滤）` });
       } else {
         lines.push({ type: 'muted', text: `ℹ️ 无新内容` });
       }
 
       // Pipeline breakdown
-      lines.push({ type: 'section', text: '抓取流程' });
+      lines.push({ type: 'section', text: '同步流程' });
       lines.push({ type: 'item', label: '远程拉取', value: `${fetched} 条`, detail: '从 RSS/HTML/API 拉到的原始条目数' });
       if (parsed !== fetched) {
         lines.push({ type: 'item', label: '解析成功', value: `${parsed} 条`, detail: `解析失败 ${errors} 条` });
@@ -2312,7 +2331,7 @@ function app() {
     fetchProgressModal: false,
     fetchProgress: null,       // 当前焦点任务（粒子 modal 用）
     _fetchPollTimer: null,
-    fetchBatchMode: false,  // 焦点任务是否为全部抓取
+    fetchBatchMode: false,  // 焦点任务是否为全部同步
     // v1.0.28: multi-task list — 多源可并行；顶部像素 chip 列表
     fetchTasks: [],            // [{id, kind, job_id?, batch_id?, source, status, ...}]
     fetchChipLinger: false,    // 兼容旧绑定；以 task 级 linger 为主
@@ -2337,6 +2356,11 @@ function app() {
           this.sources = Array.isArray(data) ? data : (data.sources || []);
         })
         .catch(err => { console.error('loadSources failed:', err); this.setFetchResult('加载失败: ' + err.message, null); });
+    },
+
+    // 「信源管理」页只列未隐藏的源；隐藏不影响同步本身。
+    get visibleSources() {
+      return (this.sources || []).filter(s => !s.is_hidden);
     },
 
     runSource(id) {
@@ -2368,7 +2392,7 @@ function app() {
       }
       // auto: no params, fetcher uses last_run
       // v1.0.7.6: async fetch with progress modal + 5s polling
-      // 不在启动时刷「正在抓取…」到结果区，避免未折叠的中间态占位
+      // 不在启动时刷「正在同步…」到结果区，避免未折叠的中间态占位
       this.startAsyncFetch(this.fetchTargetSource, params);
     },
 
@@ -2489,7 +2513,7 @@ function app() {
                 let idx = this._chainRows.findIndex(r => r.dbName === currentSrc);
                 if (idx >= 0) {
                   this._layoutChain(idx);
-                  this._flipStatus(`抓取中: ${this._chainRows[idx].name}`);
+                  this._flipStatus(`同步中: ${this._chainRows[idx].name}`);
                   this._spawnBurst(idx, 8);
                 }
               }
@@ -2524,7 +2548,7 @@ function app() {
             const partialNote = data.partial_sources ? ` · ${data.partial_sources} 源部分完成` : '';
             this._showCompletion(
               `${data.total_sources || 0} 个源 · 新增 ${totalInserted} 篇 · 用时 ${data.elapsed_seconds || 0}s${partialNote}`,
-              data.status === 'partial' ? '部分完成' : '抓取完成！',
+              data.status === 'partial' ? '部分完成' : '同步完成！',
             );
           }
           if (data.status === 'done' || data.status === 'partial') this.loadSources();
@@ -2571,7 +2595,7 @@ function app() {
             this._suckIntoMoni();
             this._showCompletion(
               summary,
-              data.status === 'partial' ? '部分完成' : '抓取完成！',
+              data.status === 'partial' ? '部分完成' : '同步完成！',
             );
             this.loadSources();
           }
@@ -2597,27 +2621,46 @@ function app() {
       t.status = status || t.status;
       this._upsertFetchTask({ ...t });
       if (this._fetchChipLingerTimers[t.id]) clearTimeout(this._fetchChipLingerTimers[t.id]);
-      this._fetchChipLingerTimers[t.id] = setTimeout(() => {
-        this._removeFetchTask(t.id);
-        if (this.fetchProgress?.id === t.id && !this.fetchProgressModal) {
-          const next = this.fetchTasks.find(x => x.status === 'running') || this.fetchTasks[0] || null;
-          if (next) this._focusTask(next);
-          else {
-            this.fetchProgress = null;
-            this.fetchBatchMode = false;
-            this._fetchActiveJobId = null;
-            this._fetchActiveBatchId = null;
-          }
-        }
-        this._stopFetchPollIfIdle();
-        delete this._fetchChipLingerTimers[t.id];
-      }, 6000);
+      // v1.0.106: 终态任务**留在执行状态区**（用户要能回看刚跑完的那次），
+      // 不再 6 秒后自动消失 —— 改成显式「清除」才移除。
+      this._trimFinishedTasks();
       this._stopFetchPollIfIdle();
+    },
+
+    // 执行状态区最多留 12 条：超了把最旧的「已完成」丢掉，运行中的永远保留。
+    _trimFinishedTasks() {
+      const MAX = 12;
+      if (this.fetchTasks.length <= MAX) return;
+      // fetchTasks 是「新任务在前」的顺序，从尾部找最旧的已完成条目。
+      while (this.fetchTasks.length > MAX) {
+        const victim = [...this.fetchTasks].reverse().find(t => t.status !== 'running');
+        if (!victim) break;
+        this.fetchTasks = this.fetchTasks.filter(t => t.id !== victim.id);
+      }
+    },
+
+    // 手动清掉一条已完成的任务记录（用户点「清除」）
+    dismissFetchTask(t) {
+      if (!t || t.status === 'running') return;
+      this.fetchTasks = this.fetchTasks.filter(x => x.id !== t.id);
+      if (this.fetchProgress?.id === t.id && !this.fetchProgressModal) {
+        const next = this.fetchTasks.find(x => x.status === 'running') || this.fetchTasks[0] || null;
+        if (next) this._focusTask(next);
+        else {
+          this.fetchProgress = null;
+          this.fetchBatchMode = false;
+          this._fetchActiveJobId = null;
+          this._fetchActiveBatchId = null;
+        }
+      }
     },
 
     _bootModalParticlesForFocus() {
       if (!this.fetchProgressModal || !this.isFetchRunning) return;
       if (!this.sources || this.sources.length === 0) this.loadSources();
+      // v1.0.106: 新一轮同步 → 舞台恢复全高（上次完成态收窄过）
+      const stage = document.getElementById('particleStage');
+      if (stage) stage.classList.remove('is-complete');
       const boot = () => {
         if (!this.fetchProgressModal || !this.isFetchRunning) return;
         try {
@@ -2636,10 +2679,10 @@ function app() {
           const p = this.fetchProgress || {};
           if (this.fetchBatchMode || p.kind === 'batch') {
             this._updateFeedInfo(p.current_source || '', p.current_feed || '');
-            this._flipStatus(p.current_source ? `抓取中: ${p.current_source}` : '抓取中...');
+            this._flipStatus(p.current_source ? `同步中: ${p.current_source}` : '同步中...');
           } else {
             this._updateFeedInfo(p.source || '', p.current_feed || '');
-            this._flipStatus('抓取中...');
+            this._flipStatus('同步中...');
           }
           this._animateArticleCount(p.articles_so_far || 0);
         } catch (err) {
@@ -2653,7 +2696,7 @@ function app() {
       // v1.0.28: 不清理其它任务 — 多源可并行（后端按 source 409）
       const sourceName = this._taskSourceName(sourceRef);
       if (this.isSourceFetching({ id: sourceRef, name: sourceName })) {
-        this._notify('info', `${this._taskDisplayName(sourceName)} 已在抓取中`);
+        this._notify('info', `${this._taskDisplayName(sourceName)} 已在同步中`);
         return;
       }
 
@@ -2700,7 +2743,7 @@ function app() {
               status: 'running',
               done_feeds: 0,
               total_feeds: 0,
-              current_feed: '已有抓取任务在进行中',
+              current_feed: '已有同步任务在进行中',
               articles_so_far: 0,
               elapsed_seconds: 0,
             };
@@ -2736,7 +2779,7 @@ function app() {
         this._ensureFetchPoll();
       } catch (err) {
         this._removeFetchTask(pending.id);
-        const msg = '启动抓取失败: ' + err.message;
+        const msg = '启动同步失败: ' + err.message;
         this.setFetchResult(msg, null);
         this._notify('error', msg);
       }
@@ -2744,7 +2787,7 @@ function app() {
 
     async fetchAllSources() {
       if (this.isFetchRunning) {
-        this._notify('info', '已有抓取任务进行中，请结束后再全部抓取');
+        this._notify('info', '已有同步任务进行中，请结束后再全部同步');
         return;
       }
       this.fetchingAll = true;
@@ -2805,7 +2848,7 @@ function app() {
       } catch (err) {
         this._removeFetchTask(pending.id);
         this.fetchingAll = false;
-        const msg = '启动全部抓取失败: ' + err.message;
+        const msg = '启动全部同步失败: ' + err.message;
         this.setFetchResult(msg, null);
         this._notify('error', msg);
       }
@@ -2813,13 +2856,13 @@ function app() {
 
     async openRecentBatch() {
       if (this.isFetchRunning) {
-        this._notify('info', '抓取进行中，结束后再查看上次结果');
+        this._notify('info', '同步进行中，结束后再查看上次结果');
         return;
       }
       try {
         const r = await fetch('/api/fetch/jobs/batch/recent', { credentials: 'same-origin' });
         if (!r.ok) {
-          this.showToast('暂无抓取历史');
+          this.showToast('暂无同步历史');
           return;
         }
         const { batch_id } = await r.json();
@@ -2860,8 +2903,8 @@ function app() {
 
     taskLabel(t) {
       if (!t) return '';
-      if (t.kind === 'batch') return '全部抓取';
-      return this._taskDisplayName(t.source) || t.source || '信源抓取';
+      if (t.kind === 'batch') return '全部同步';
+      return this._taskDisplayName(t.source) || t.source || '信源同步';
     },
 
     taskAmount(t) {
@@ -2963,7 +3006,7 @@ function app() {
         } catch (_) { /* ignore */ }
       }
       const s = String(this.fetchResult || '').trim();
-      if (!s) return '抓取结果';
+      if (!s) return '同步结果';
       const one = s.split(/\n/)[0];
       return one.length > 72 ? one.slice(0, 72) + '…' : one;
     },
@@ -3022,8 +3065,8 @@ function app() {
       const t = running[0]
         || this.fetchTasks.find(x => x.id === this.fetchProgress?.id)
         || this.fetchTasks[0];
-      if (!t) return '抓取中';
-      return this.taskLabel(t) || '抓取中';
+      if (!t) return '同步中';
+      return this.taskLabel(t) || '同步中';
     },
 
     formatFetchElapsed() {
@@ -3063,29 +3106,29 @@ function app() {
         || this.fetchTasks.find(x => x.id === this.fetchProgress?.id)
         || this.fetchTasks[0];
       if (!t) {
-        if (typeof this._notify === 'function') this._notify('info', '当前没有可查看的抓取任务');
-        else if (typeof this.showToast === 'function') this.showToast('当前没有可查看的抓取任务');
+        if (typeof this._notify === 'function') this._notify('info', '当前没有可查看的同步任务');
+        else if (typeof this.showToast === 'function') this.showToast('当前没有可查看的同步任务');
         return;
       }
       this.focusFetchTask(t);
     },
 
     async cancelFetchTask(t) {
-      // Soft-cancel running job (zombie after restart / hang). Unblocks 立即抓取.
+      // Soft-cancel running job (zombie after restart / hang). Unblocks 立即同步.
       if (!t) return;
       const jid = t.job_id || (t.kind === 'single' ? t.id : null);
       if (!jid || t.kind === 'batch') {
         // batch: cancel each? For now only single-source cancel is wired.
         if (t.kind === 'batch' && t.batch_id) {
-          this._notify('info', '全部抓取暂不支持一键停止，请等超时或刷新后重试');
+          this._notify('info', '全部同步暂不支持一键停止，请等超时或刷新后重试');
           return;
         }
         this._notify('info', '无法停止：缺少 job id');
         return;
       }
       const ok = await moniModal.confirm(
-        `停止「${this.taskLabel(t)}」的抓取？\n卡住的僵尸任务可立即解除；若线程仍在跑，结束后可能仍会写回结果。`,
-        { title: '停止抓取', okLabel: '停止', danger: true }
+        `停止「${this.taskLabel(t)}」的同步？\n卡住的僵尸任务可立即解除；若线程仍在跑，结束后可能仍会写回结果。`,
+        { title: '停止同步', okLabel: '停止', danger: true }
       );
       if (!ok) return;
       try {
@@ -3105,7 +3148,7 @@ function app() {
           error: 'cancelled by user',
         });
         this._scheduleTaskLinger({ ...t, status: 'cancelled' }, 'cancelled');
-        this._notify('info', '已停止抓取');
+        this._notify('info', '已停止同步');
         if (this.fetchProgress?.id === t.id) {
           this.fetchProgress = { ...this.fetchProgress, status: 'cancelled' };
         }
@@ -3425,8 +3468,12 @@ function app() {
         'wechat_rss_a': '/static/icons/sources/wechat_rss.png',
         'wechat_rss_b': '/static/icons/sources/wechat_rss_b.png',
         'xwatch': '/static/icons/sources/xwatch.png',
+        // v1.0.106: 这三个之前没有自己的图标，全部落到 36kr 兜底
+        'chinese_independent_blogs': '/static/icons/sources/chinese_independent_blogs.png',
+        'follow_builders': '/static/icons/sources/follow_builders.png',
+        'bank_feed': '/static/icons/sources/bank_feed.png',
         // v1.0.66: xbot_feed (X-bot 精选) — 蓝色 X 徽标, 跟 xwatch 的钴蓝
-        // 同族但更亮一档, 抓取链上两者挨着放。
+        // 同族但更亮一档, 同步链上两者挨着放。
         'xbot_feed': '/static/icons/sources/xbot_feed.png',
       };
       const labelMap = {
@@ -3448,7 +3495,7 @@ function app() {
         // red [220,90,90] which clashed with the cobalt stroke.
         'xwatch': [30, 64, 175],
         // v1.0.66: xbot_feed 用天蓝 [56,132,225] — 比 xwatch 的深钴蓝亮
-        // 一档, 两者在抓取链上相邻但不撞色。
+        // 一档, 两者在同步链上相邻但不撞色。
         'xbot_feed': [56, 132, 225],
       };
 
@@ -3457,14 +3504,14 @@ function app() {
         // v1.0.13: xwatch slotted between bestblog-x and bestblog-yt to
         // keep "X-flavored" sources grouped on the right side of the chain.
         // v1.0.66 审计 S-4: xbot_feed 移到 bestblog-yt 之后单列 —— 它是
-        // **导入型**源 (同步上游已筛好的 feed), 不是主动抓取节点, 挨着
-        // xwatch (X 关键词监控) 会让人误以为它在抓取链上主动抓。
+        // **导入型**源 (同步上游已筛好的 feed), 不是主动同步节点, 挨着
+        // xwatch (X 关键词监控) 会让人误以为它在同步链上主动抓。
         const sortOrder = [
           'wechat_rss_a', 'wechat_rss_b', 'bestblogs', 'qbitai', 'mpaypass',
           '36kr_rss', 'bestblog-podcast', 'bestblog-x', 'xwatch',
           'bestblog-yt', 'xbot_feed', 'huxiu',
         ];
-        return (this.sources || []).filter(s => s.is_active)
+        return (this.sources || []).filter(s => s.is_active && !s.is_hidden)
           .sort((a, b) => {
             const ia = sortOrder.indexOf(a.name);
             const ib = sortOrder.indexOf(b.name);
@@ -3691,13 +3738,16 @@ function app() {
       });
     },
 
-    _showCompletion(summary, label = '抓取完成！') {
+    _showCompletion(summary, label = '同步完成！') {
       const overlay = document.getElementById('completionOverlay');
       const sub = document.getElementById('completionSub');
       if (!overlay) return;
       const title = overlay.querySelector('.completion-text');
       if (title) title.textContent = label;
       if (sub && summary) sub.textContent = summary;
+      // v1.0.106: 完成后把粒子舞台收成窄带，把版面让给结果
+      const stage = document.getElementById('particleStage');
+      if (stage) stage.classList.add('is-complete');
       overlay.classList.add('show');
     },
 
@@ -3758,6 +3808,10 @@ function app() {
         'wechat_rss_a': '/static/icons/sources/wechat_rss.png',
         'wechat_rss_b': '/static/icons/sources/wechat_rss_b.png',
         'xwatch': '/static/icons/sources/xwatch.png',
+        // v1.0.106: 这三个之前没有自己的图标，全部落到 36kr 兜底
+        'chinese_independent_blogs': '/static/icons/sources/chinese_independent_blogs.png',
+        'follow_builders': '/static/icons/sources/follow_builders.png',
+        'bank_feed': '/static/icons/sources/bank_feed.png',
         // v1.0.66: xbot_feed (X-bot 精选)
         'xbot_feed': '/static/icons/sources/xbot_feed.png',
       };
@@ -4689,6 +4743,11 @@ function app() {
     init() {
       // Apply saved theme (from theme.js mixin)
       this.initTheme();
+      // v1.0.106: 同步进度弹窗打开时锁住页面滚动 —— 之前滚轮会穿透到
+      // 背后的信源管理页，页面跟着一起滚。
+      this.$watch('fetchProgressModal', (open) => {
+        document.body.classList.toggle('modal-locked', !!open);
+      });
       // Load service status for topnav indicator
       this.loadServiceStatus();
       // v1.0.5.10: deep-link from current URL — visiting /crud opens

@@ -369,6 +369,8 @@ def _row_to_source(r) -> Source:
         url=sanitize_source_url(r["url"]) or "",
         fetch_interval_min=r["fetch_interval_min"],
         is_active=bool(r["is_active"]),
+        # 052 起才有这一列；手搓的老测试库可能没跑过 migration
+        is_hidden=bool(r["is_hidden"]) if "is_hidden" in r.keys() else False,
         notes=r["notes"],
         fetch_config=fc,
         created_at=r["created_at"],
@@ -383,7 +385,7 @@ def list_sources() -> list[SourceWithTags]:
     sources = conn.execute(
         """
         SELECT id, name, display_name, source_type, url,
-               fetch_interval_min, is_active, notes, fetch_config,
+               fetch_interval_min, is_active, is_hidden, notes, fetch_config,
                created_at, updated_at
         FROM sources
         ORDER BY name
@@ -425,12 +427,13 @@ def create_source(body: SourceCreate) -> SourceWithTags:
         """
         INSERT INTO sources
             (id, name, display_name, source_type, url,
-             fetch_interval_min, is_active, notes, fetch_config,
+             fetch_interval_min, is_active, is_hidden, notes, fetch_config,
              created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (body.id, body.name, body.display_name, body.source_type, body.url,
-         body.fetch_interval_min, 1 if body.is_active else 0, body.notes,
+         body.fetch_interval_min, 1 if body.is_active else 0,
+         1 if body.is_hidden else 0, body.notes,
          _json.dumps(body.fetch_config, ensure_ascii=False) if body.fetch_config else None,
          now, now),
     )
@@ -441,7 +444,7 @@ def create_source(body: SourceCreate) -> SourceWithTags:
         # v1.0.42 (P1-10): sanitize the echo as well (idempotent).
         url=sanitize_source_url(body.url) or "",
         fetch_interval_min=body.fetch_interval_min,
-        is_active=body.is_active, notes=body.notes,
+        is_active=body.is_active, is_hidden=body.is_hidden, notes=body.notes,
         fetch_config=body.fetch_config,
         created_at=now, updated_at=now, tags=[],
     )
@@ -454,7 +457,7 @@ def get_source(source_id: str) -> SourceWithTags:
     row = conn.execute(
         """
         SELECT id, name, display_name, source_type, url,
-               fetch_interval_min, is_active, notes, fetch_config,
+               fetch_interval_min, is_active, is_hidden, notes, fetch_config,
                created_at, updated_at
         FROM sources WHERE id = ?
         """,
@@ -478,7 +481,7 @@ def update_source(source_id: str, body: SourceUpdate) -> SourceWithTags:
     row = conn.execute(
         """
         SELECT id, name, display_name, source_type, url,
-               fetch_interval_min, is_active, notes, fetch_config,
+               fetch_interval_min, is_active, is_hidden, notes, fetch_config,
                created_at, updated_at
         FROM sources WHERE id = ?
         """,
@@ -500,6 +503,8 @@ def update_source(source_id: str, body: SourceUpdate) -> SourceWithTags:
         fields["fetch_interval_min"] = body.fetch_interval_min
     if body.is_active is not None:
         fields["is_active"] = 1 if body.is_active else 0
+    if body.is_hidden is not None:
+        fields["is_hidden"] = 1 if body.is_hidden else 0
     if body.notes is not None:
         fields["notes"] = body.notes
     if body.fetch_config is not None:
@@ -510,11 +515,12 @@ def update_source(source_id: str, body: SourceUpdate) -> SourceWithTags:
         """
         UPDATE sources SET
             display_name = ?, url = ?, fetch_interval_min = ?,
-            is_active = ?, notes = ?, fetch_config = ?, updated_at = ?
+            is_active = ?, is_hidden = ?, notes = ?, fetch_config = ?, updated_at = ?
         WHERE id = ?
         """,
         (fields["display_name"], fields["url"], fields["fetch_interval_min"],
-         fields["is_active"], fields["notes"], fields.get("fetch_config"),
+         fields["is_active"], fields.get("is_hidden", 0), fields["notes"],
+         fields.get("fetch_config"),
          fields["updated_at"], source_id),
     )
     conn.commit()
@@ -522,7 +528,8 @@ def update_source(source_id: str, body: SourceUpdate) -> SourceWithTags:
         "SELECT tag_name FROM source_tags WHERE source_id = ? ORDER BY tag_name",
         (source_id,),
     ).fetchall()
-    s = {**fields, "is_active": bool(fields["is_active"])}
+    s = {**fields, "is_active": bool(fields["is_active"]),
+         "is_hidden": bool(fields.get("is_hidden", 0))}
     # v1.0.42 (P1-10): the response must not carry the stored credential.
     s["url"] = sanitize_source_url(s.get("url")) or ""
     # Parse fetch_config JSON string back to dict for the response model
