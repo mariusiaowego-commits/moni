@@ -29,7 +29,7 @@ from moni.share.enrichment import (
 )
 
 # Display copy when raw body is missing / too short (aligned with PDF brief prompt v1.0.15)
-_THIN_SUMMARY_COPY = "仅标题/短帖入库，正文未抓取，无可展开摘要。"
+_THIN_SUMMARY_COPY = "仅标题/短帖入库，正文未同步，无可展开摘要。"
 
 _EMPTY_SUM_MARKERS = frozenset(
     {"", "素材不足", "（无摘要）", "无摘要", "（暂无可用摘要）", "—", "-"}
@@ -661,7 +661,7 @@ def find_unready_articles(db_path: str, article_ids: list[str]) -> list[dict[str
                 "title": _display_title(r),
                 "missing": missing,
                 "reason": reason,
-                "hint": "需补全文抓取或补跑摘要/业务价值/事实核查后再纳入简报",
+                "hint": "需补全文同步或补跑摘要/业务价值/事实核查后再纳入简报",
             }
         )
     return bad
@@ -1037,7 +1037,7 @@ def render_brief_html(
         excluded_html = f"""
   <section class="excluded" aria-label="未纳入简报的文章">
     <h2>未纳入本次简报</h2>
-    <p class="excluded-lead">以下文章因信息不足未展示（便于你补抓取/补摘要后再生成）：</p>
+    <p class="excluded-lead">以下文章因信息不足未展示（便于你补同步/补摘要后再生成）：</p>
     <ol class="excluded-list">{items}</ol>
   </section>
 """

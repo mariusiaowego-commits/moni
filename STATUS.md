@@ -3,6 +3,42 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
+## 未发布: **信源管理改版（v1.0.106）** (2026-11-19 · Sprint 26111901 · 分支 `feat/source-management-ui`)
+
+dad 在生产 `/fetch` 页实测提了 7 条（弹窗多重滚动条 + 滚轮穿透 + 完成态占位过大、
+「抓取」措辞、同步中关弹窗找不回进度、信源隐藏未做、执行状态区 slop、刷新按钮底色描边、
+三个信源 logo 与品牌无关）。本分支一次处理完：
+
+**① 文案：抓取 → 同步**
+`index.html` 45 处 + `app.js` 43 处，动词改「同步」，标题「抓取管理」→「信源管理」；
+`USER_GUIDE.md` 同步改名。代码注释与 API 字段名（`fetch_*`）不动。
+
+**② 信源隐藏（新增 `sources.is_hidden`）**
+migration `052_source_hidden.sql`（纯 additive，默认 0 = 全部可见）；
+`GET/POST/PUT /api/config/sources` 透传；「配置管理 → 信源」行内眼睛按钮切换，隐藏行标「已隐藏」。
+**隐藏 = 不显示，停用 = 不跑**，两者独立（单测专门锁这条）。
+
+**③ 同步进度弹窗**
+页面滚动锁（`body.modal-locked` + `overscroll-behavior: contain`）→ 滚轮不再穿透背后页面；
+弹窗内只剩一个滚动容器（`index.html` 内 `overflow-y:auto` 计数 1 → 0）；
+完成时粒子舞台 420px → 72px，完成卡压成一行；标题按状态走（全部已同步 / 同步失败）。
+hermes（profile `pixel`）+ unslop 技能改版。
+
+**④ 执行状态区**
+任务列表改紧凑行 + 1px 分隔线，去掉彩色卡片 / 徽章 / 解释性文案；行内「进度 / 停止 / 清除」；
+批量结果默认收起。agy（herdr `w52:pG`）改版。
+
+**⑤ 后台同步**
+关掉进度弹窗不再丢任务：顶部芯片 + 任务行「进度」都能把弹窗叫回来；
+终态任务**不再 6 秒自动消失**，留在执行状态区等用户「清除」（上限 12 条）。
+
+**⑥ logo**
+新增 `bank_feed`（银行柱廊）、`chinese_independent_blogs`（书 + 信号弧）、`follow_builders`（X + 星芒）
+三张品牌图标；15 张底板由纯黑 `#000000` 统一提亮为 `#2E2A24`。
+
+**测试**：`tests/test_source_hidden.py` 5 passed；前端 120 passed；全量 `pytest tests/` 见 verify 文档。
+
+---
 ## 已完成: **全库正文清洗落地 + 闸门打开** (2026-11-19 · Sprint 58 收尾 · tag `v1.0.105`)
 
 dad 授权后在生产库执行了两件此前挂起的事。

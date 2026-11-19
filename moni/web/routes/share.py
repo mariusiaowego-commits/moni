@@ -490,7 +490,7 @@ def create_brief(body: BriefCreateRequest) -> BriefCreateResponse:
                 "count": len(unready),
                 "hint": (
                     "全部 Pin 均信息不足（缺正文/摘要/业务判断/事实核查），"
-                    "无法生成有价值简报。请先补抓取或补跑增强后再试。"
+                    "无法生成有价值简报。请先补同步或补跑增强后再试。"
                 ),
                 "titles": titles,
             },
