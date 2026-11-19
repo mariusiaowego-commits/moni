@@ -3511,7 +3511,10 @@ function app() {
           '36kr_rss', 'bestblog-podcast', 'bestblog-x', 'xwatch',
           'bestblog-yt', 'xbot_feed', 'huxiu',
         ];
-        return (this.sources || []).filter(s => s.is_active && !s.is_hidden)
+        // v1.0.107: 隐藏只影响「信源管理」页的列表展示；批次实际仍会跑隐藏源
+        // （后端 Scheduler.batch_sources() 不读 is_hidden），链路少画一个源
+        // 会让「13/13」和画面上的节点数对不上。
+        return (this.sources || []).filter(s => s.is_active)
           .sort((a, b) => {
             const ia = sortOrder.indexOf(a.name);
             const ib = sortOrder.indexOf(b.name);

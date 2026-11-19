@@ -17,7 +17,7 @@ dad 实测生产 `/fetch` 页提了 7 条：弹窗多重滚动条 + 滚轮穿透
 | 文案 | `index.html` 45 处 + `app.js` 43 处：动词「抓取」→「同步」，标题「抓取管理」→「信源管理」 |
 | 数据 | `052_source_hidden.sql`：`sources.is_hidden`（默认 0）；`GET/POST/PUT /api/config/sources` 透传 |
 | 展示 | 信源管理页信源列表 + 同步链按 `is_hidden` 过滤；`/config` 行内眼睛按钮切换，隐藏行标「已隐藏」 |
-| 弹窗 | `body.modal-locked` 页面滚动锁 + `overscroll-behavior: contain`；完成时 `#particleStage.is-complete` → 128px |
+| 弹窗 | `body.modal-locked` 页面滚动锁 + `overscroll-behavior: contain`；完成时 `#particleStage.is-complete` → 72px（`source-modal.css` 覆盖 main.css 的 128px 基线） |
 | 执行状态区 | 终态任务不再 6 秒自动消失（改「清除」）；上限 12 条；行内「进度 / 停止 / 清除」 |
 | 样式 | 独立 `css/source-ops.css`、`css/source-modal.css`；全局 `.icon-btn` 基线（去浏览器默认灰底描边） |
 | logo | 新增 `bank_feed` / `chinese_independent_blogs` / `follow_builders` 三张品牌图标；15 张底板由纯黑提亮为 `#2E2A24` |

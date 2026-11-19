@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,6 +25,8 @@ sys.path.insert(0, _REPO_ROOT)
 from moni.db.connection import close_db, get_db, set_db_path
 from moni.db.migrate import migrate
 from moni.web.server import create_app
+
+STATIC = Path(_REPO_ROOT) / "moni" / "web" / "static"
 
 
 @pytest.fixture(autouse=True)
@@ -121,3 +124,26 @@ def test_unhide_roundtrip(client):
     row = conn.execute("SELECT is_hidden FROM sources WHERE id = ?",
                        ("src-hidden-1",)).fetchone()
     assert row["is_hidden"] == 0
+
+
+def test_partial_update_keeps_is_hidden(client):
+    """改别的字段不能把隐藏状态冲回默认值（UPDATE 是整行写回）。"""
+    conn = get_db()
+    _seed_source(conn)
+    client.put("/api/config/sources/src-hidden-1", json={"is_hidden": True})
+    r = client.put("/api/config/sources/src-hidden-1", json={"display_name": "改个名"})
+    assert r.status_code == 200
+    assert r.json()["is_hidden"] is True
+    row = conn.execute("SELECT is_hidden FROM sources WHERE id = ?",
+                       ("src-hidden-1",)).fetchone()
+    assert row["is_hidden"] == 1
+
+
+def test_modal_chain_still_draws_hidden_sources():
+    """隐藏只是列表不显示：批次仍会跑隐藏源，链路节点不能少画。
+
+    链路少画 → 画面节点数与「13/13」对不上；这条锁住 filter 与
+    ``Scheduler.batch_sources()``（不读 is_hidden）同口径。
+    """
+    src = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    assert ".filter(s => s.is_active && !s.is_hidden)" not in src
