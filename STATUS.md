@@ -34,9 +34,17 @@ hermes（profile `pixel`）+ unslop 技能改版。
 
 **⑥ logo**
 新增 `bank_feed`（银行柱廊）、`chinese_independent_blogs`（书 + 信号弧）、`follow_builders`（X + 星芒）
-三张品牌图标；15 张底板由纯黑 `#000000` 统一提亮为 `#2E2A24`。
+三张品牌图标；15 张底板由纯黑 `#000000` 统一提亮为 `#2E2A24`，四角统一 radius 46 透明遮罩。
+生成规范与提示词见 `docs/source-icon-style.md`。
 
-**测试**：`tests/test_source_hidden.py` 5 passed；前端 120 passed；全量 `pytest tests/` 见 verify 文档。
+**⑦ 复核修正（独立审计 P1）**
+隐藏源不参与链路绘制 → 画面节点数与「13/13」对不上。链路 filter 改回与后端
+`Scheduler.batch_sources()` 同口径（隐藏照跑），并加单测锁死。
+`USER_GUIDE.md` / `docs/OPERATION_GUIDE.md` 的「抓取」一并改为「同步」。
+
+**测试**：全量 `pytest tests/` → **2330 passed, 2 skipped, 2 failed**（`test_migration_039` 在沙箱内无法建
+worktree，提权单跑 passed；`test_showcase_*` 缺 PIL，与改动无关）；定向 `frontend/source_hidden/migration`
+→ **271 passed**。浏览器实测见 sprint verify。
 
 ## 已发布: **v1.0.106 — 摘要/核查任务完成后页面自动同步** (2026-11-19 · PR #250 → `b9d8b15` · tag `v1.0.106`)
 
