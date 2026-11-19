@@ -7,6 +7,8 @@ v1.0 subcommands:
     cron stop         Stop the running scheduler
     cron status       Show scheduler running state
     fetch [--source NAME] [--dry-run] [--health]
+    clean-articles [--apply]   Preview (default) or apply content cleaning
+    content-audit     Read-only per-source content health
 """
 
 from __future__ import annotations
@@ -77,29 +79,85 @@ def cmd_seed_config() -> None:
     seed_config_seed()
 
 
-# ── clean subcommand (v1.0.3) ──────────────────────────────────────────────
+# ── clean subcommand (v1.0.3 / clean_v1) ───────────────────────────────────
 
 clean_parser = SUB.add_parser(
     "clean-articles",
-    help="Retroactively clean HTML in articles.raw_content (v1.0.3)",
+    help="Clean article bodies (dry-run by default; --apply writes)",
+)
+clean_parser.add_argument(
+    "--apply",
+    action="store_true",
+    help="Write the cleaned bodies (default only reports what would change)",
 )
 
 
-def cmd_clean_articles() -> None:
-    """Run ArticleRepository.clean_all_html() and print stats.
+def cmd_clean_articles(apply: bool) -> None:
+    """Preview (default) or apply the deterministic content cleaner.
 
-    Walks every article whose raw_content contains '<' and rewrites it
-    with plain-text output from moni.fetch.cleaner.extract_text.
-    Idempotent.
+    Covers every artifact class — HTML, entities, frontmatter, zero-width,
+    U+FFFD, wechat CTAs — and fills ``content_state/chars``.  Idempotent: a
+    second ``--apply`` reports ``changed=0``.  Rows whose body would become
+    empty are skipped and counted as ``emptied``.
     """
-    from ..db.repository import ArticleRepository
+    migrate()
+    from ..cleaning.service import apply_cleaning_run, preview
 
-    repo = ArticleRepository()
-    stats = repo.clean_all_html()
+    run = apply_cleaning_run() if apply else preview()
+    mode = "apply" if apply else "dry-run"
     print(
-        f"clean-articles: scanned={stats['scanned']}, "
-        f"updated={stats['updated']}, unchanged={stats['unchanged']}"
+        f"clean-articles ({mode}): scanned={run['scanned']} "
+        f"changed={run['changed']} backfilled={run['backfilled']} "
+        f"emptied={run['emptied']} chars_removed={run['chars_removed']} "
+        f"empty={run['content_empty']} short={run['content_short']} "
+        f"test_rows={run['archived_test_rows']} "
+        f"whitespace_only={(run.get('details') or {}).get('whitespace_only', 0)}"
     )
+    if not apply:
+        print("dry-run: 未写入任何文章。确认后加 --apply 执行。")
+
+
+# ── content-audit (read-only) ──────────────────────────────────────────────
+
+content_audit_parser = SUB.add_parser(
+    "content-audit",
+    help="Read-only per-source content health (ok / short / empty)",
+)
+content_audit_parser.add_argument(
+    "--issues-only",
+    action="store_true",
+    help="Only show sources whose contract expects full text but has gaps",
+)
+
+
+def cmd_content_audit(issues_only: bool) -> None:
+    migrate()
+    from ..cleaning.service import audit
+
+    data = audit()
+    rows = data["sources"]
+    if issues_only:
+        rows = [r for r in rows if r["issues"]]
+    print(
+        f"{'source':<26}{'contract':<12}{'total':>7}{'ok':>7}"
+        f"{'short':>7}{'empty':>7}{'issues':>8}"
+    )
+    for r in rows:
+        print(
+            f"{r['source']:<26}{r['contract']:<12}{r['total']:>7}"
+            f"{r['ok']:>7}{r['short']:>7}{r['empty']:>7}{r['issues']:>8}"
+        )
+    states = data["states"]
+    print(
+        f"total={data['total']} ok={states.get('ok', 0)} "
+        f"short={states.get('short', 0)} empty={states.get('empty', 0)} "
+        f"unknown={states.get('unknown', 0)} test_rows={data['test_rows']}"
+    )
+    if data["pending"]:
+        print(
+            f"提示：{data['pending']} 篇还没跑过清洗（状态未知），"
+            "先 `moni clean-articles` 预演、再 `--apply` 执行。"
+        )
 
 
 # ── layout-articles (v1.0.10 offline body layout) ────────────────────────────
@@ -831,8 +889,14 @@ def main(argv: list[str] | None = None) -> int:
         return code
 
     if args.subcmd == "clean-articles":
-        cmd_clean_articles()
-        return
+        cmd_clean_articles(apply=args.apply)
+        close_db()
+        return 0
+
+    if args.subcmd == "content-audit":
+        cmd_content_audit(issues_only=args.issues_only)
+        close_db()
+        return 0
 
     if args.subcmd == "layout-articles":
         cmd_layout_articles(limit=args.limit, use_agent=args.agent)

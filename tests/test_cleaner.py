@@ -205,32 +205,41 @@ def tmp_db(tmp_path):
 
 
 class TestCleanAllHtml:
+    @staticmethod
+    def _insert_legacy(db, rows):
+        """Write rows the way pre-clean_v1 code did: markup stored verbatim.
+
+        ``dedupe_insert`` now cleans at ingest, so this legacy backfill path is
+        exercised with rows inserted straight into the table.
+        """
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(db) as c:
+            for i, (title, url, source, content) in enumerate(rows):
+                c.execute(
+                    """
+                    INSERT INTO articles
+                        (id, title, url, source, fetched_at, raw_content)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (f"legacy-{i}", title, url, source, now, content),
+                )
+            c.commit()
+
     def test_writes_cleaned_text_to_db(self, tmp_db):
         migrate()
         repo = ArticleRepository()
 
-        # Insert a few articles — some with HTML, some without.
-        articles = [
-            {
-                "title": "html one",
-                "url": "https://example.com/1",
-                "source": "36kr_rss",
-                "content": "<h2>X</h2><p>body one</p>",
-            },
-            {
-                "title": "html two",
-                "url": "https://example.com/2",
-                "source": "36kr_rss",
-                "content": "<p>body <strong>two</strong></p>",
-            },
-            {
-                "title": "plain three",
-                "url": "https://example.com/3",
-                "source": "mpaypass",
-                "content": "already clean text",
-            },
-        ]
-        repo.dedupe_insert(articles)
+        # Insert a few legacy rows — some with HTML, some without.
+        self._insert_legacy(tmp_db, [
+            ("html one", "https://example.com/1", "36kr_rss",
+             "<h2>X</h2><p>body one</p>"),
+            ("html two", "https://example.com/2", "36kr_rss",
+             "<p>body <strong>two</strong></p>"),
+            ("plain three", "https://example.com/3", "mpaypass",
+             "already clean text"),
+        ])
 
         # Confirm at least two rows have HTML markup in raw_content.
         with sqlite3.connect(tmp_db) as c:
@@ -258,12 +267,9 @@ class TestCleanAllHtml:
         """Re-running on already-cleaned content is a no-op."""
         migrate()
         repo = ArticleRepository()
-        repo.dedupe_insert([{
-            "title": "html",
-            "url": "https://example.com/x",
-            "source": "36kr_rss",
-            "content": "<p>body</p>",
-        }])
+        self._insert_legacy(tmp_db, [
+            ("html", "https://example.com/x", "36kr_rss", "<p>body</p>"),
+        ])
         first = repo.clean_all_html()
         assert first["updated"] == 1
         # Second run: the LIKE '%<%' filter excludes already-cleaned
@@ -274,3 +280,19 @@ class TestCleanAllHtml:
         assert second["scanned"] == 0
         assert second["updated"] == 0
         assert second["unchanged"] == 0
+
+    def test_guard_hit_is_counted_as_skipped(self, tmp_db):
+        """A body the guard refuses is reported, not silently dropped."""
+        migrate()
+        repo = ArticleRepository()
+        self._insert_legacy(tmp_db, [
+            ("footer only", "https://example.com/f", "36kr_rss",
+             "<p>本文来源：某某公众号</p>\n" * 20),
+            ("html", "https://example.com/g", "36kr_rss",
+             "<p>body kept</p>"),
+        ])
+        stats = repo.clean_all_html()
+        assert stats["scanned"] == 2
+        assert stats["updated"] == 1
+        assert stats["skipped"] == 1
+        assert stats["updated"] + stats["unchanged"] + stats["skipped"] == stats["scanned"]

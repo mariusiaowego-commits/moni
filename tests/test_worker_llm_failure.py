@@ -30,6 +30,107 @@ from moni.share.worker_llm import (
 )
 
 
+class TestNoBodyGate:
+    """clean_v1 ``no_body`` gate must only block summary/brief jobs."""
+
+    @pytest.fixture
+    def db(self, tmp_path):
+        from moni.db.connection import close_db, set_db_path
+        from moni.db.migrate import migrate
+
+        path = tmp_path / "jobs.db"
+        set_db_path(path)
+        migrate()
+        yield path
+        close_db()
+        import moni.db.connection as conn_mod
+        import moni.db.migrate as mig_mod
+
+        conn_mod._CON = None  # type: ignore[attr-defined]
+        conn_mod._DB_PATH = None  # type: ignore[attr-defined]
+        mig_mod._CON = None  # type: ignore[attr-defined]
+
+    def _seed(self, db, task_type: str) -> tuple[str, str]:
+        from datetime import datetime, timezone
+
+        from moni.db.connection import get_db
+
+        conn = get_db()
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            """
+            INSERT INTO sources (id, name, display_name, source_type, url,
+                                 fetch_interval_min, is_active, created_at, updated_at)
+            VALUES ('src-q', 'qbitai', 'qbitai', 'rss', 'https://qbitai.com',
+                    30, 1, ?, ?)
+            """,
+            (now, now),
+        )
+        conn.execute(
+            """
+            INSERT INTO articles (id, title, url, source, fetched_at, raw_content,
+                                  content_state)
+            VALUES ('a1', '标题', 'https://e.com/a1', 'qbitai', ?, NULL, 'empty')
+            """,
+            (now,),
+        )
+        job_id = "job-" + task_type
+        conn.execute(
+            """
+            INSERT INTO llm_jobs (id, task_type, article_id, provider, model,
+                                  status, created_at)
+            VALUES (?, ?, 'a1', 'minimax-cn', 'MiniMax-M3', 'pending', ?)
+            """,
+            (job_id, task_type, now),
+        )
+        conn.commit()
+        return job_id, "a1"
+
+    def test_summary_empty_body_fails_before_llm(self, db, monkeypatch):
+        from moni.llm import jobs as llm_jobs
+
+        job_id, _ = self._seed(db, "summary")
+        called = {"n": 0}
+
+        def _fake_call(*args, **kwargs):
+            called["n"] += 1
+            return "fake"
+
+        monkeypatch.setattr(llm_jobs, "call_llm", _fake_call)
+        llm_jobs._run_job({"id": job_id, "task_type": "summary", "article_id": "a1",
+                           "provider": "minimax-cn", "model": "MiniMax-M3",
+                           "attempts": 0}, None)
+        assert called["n"] == 0
+        from moni.db.connection import get_db
+        row = get_db().execute(
+            "SELECT status, error FROM llm_jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        assert row["status"] == "failed"
+        assert "no_body" in row["error"]
+
+    def test_fact_check_empty_body_still_calls_llm(self, db, monkeypatch):
+        from moni.llm import jobs as llm_jobs
+
+        job_id, _ = self._seed(db, "fact_check")
+        called = {"n": 0}
+
+        def _fake_call(*args, **kwargs):
+            called["n"] += 1
+            return "结论"
+
+        monkeypatch.setattr(llm_jobs, "call_llm", _fake_call)
+        llm_jobs._run_job({"id": job_id, "task_type": "fact_check", "article_id": "a1",
+                           "provider": "minimax-cn", "model": "MiniMax-M3",
+                           "attempts": 0}, None)
+        assert called["n"] == 1
+        from moni.db.connection import get_db
+        row = get_db().execute(
+            "SELECT status, error FROM llm_jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        assert row["status"] == "done"
+        assert row["error"] is None
+
+
 # ── A1: provider/model resolution ────────────────────────────────────────
 
 

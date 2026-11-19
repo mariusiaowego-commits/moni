@@ -70,11 +70,18 @@ def create_article(body: ArticleCreate) -> Article:
     if body.published_at is not None:
         published_at = body.published_at.isoformat()
 
+    from moni.fetch.content import apply_cleaning
+
+    art: dict = {"title": body.title, "content": body.content}
+    apply_cleaning(art)
+
     cursor = conn.execute(
         """
         INSERT OR IGNORE INTO articles
-            (id, title, url, source, publisher, published_at, fetched_at, raw_content)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (id, title, url, source, publisher, published_at, fetched_at,
+             raw_content, content_state, content_chars, content_reasons,
+             content_cleaner, content_cleaned_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             article_id,
@@ -84,7 +91,12 @@ def create_article(body: ArticleCreate) -> Article:
             body.author,
             published_at,
             now,
-            body.content,
+            art["content"],
+            art["content_state"],
+            art["content_chars"],
+            art["content_reasons"],
+            art["content_cleaner"],
+            art["content_cleaned_at"],
         ),
     )
     conn.commit()
@@ -132,8 +144,51 @@ def update_article(article_id: str, body: ArticleUpdate) -> Article:
             else body.published_at
         )
     if body.content is not None:
-        updates.append("raw_content = ?")
-        params.append(body.content)
+        from moni.fetch.content import clean_for_write, same_visible_text
+
+        row = conn.execute(
+            "SELECT raw_content FROM articles WHERE id = ?", (article_id,)
+        ).fetchone()
+        if row is None:
+            raise NotFoundError(message=f"Article {article_id!r} not found")
+
+        old_text = row["raw_content"] or ""
+
+        art: dict = {"title": body.title or "", "content": body.content}
+        if clean_for_write(art, old_text) is None:
+            raise BadRequestError(
+                message="导入的正文清洗后为空，已拒绝写入；请检查文件内容",
+            )
+        updates += [
+            "raw_content = ?",
+            "content_state = ?",
+            "content_chars = ?",
+            "content_reasons = ?",
+            "content_cleaner = ?",
+            "content_cleaned_at = ?",
+        ]
+        params += [
+            art["content"],
+            art["content_state"],
+            art["content_chars"],
+            art["content_reasons"],
+            art["content_cleaner"],
+            art["content_cleaned_at"],
+        ]
+        if not same_visible_text(art["content"], old_text):
+            # Only a real body change invalidates the derived text products;
+            # re-importing the same file must not wipe summaries and briefs.
+            updates += [
+                "summary = NULL",
+                "summary_at = NULL",
+                "ai_summary = NULL",
+                "ai_summary_at = NULL",
+                "has_ai_summary = 0",
+                "brief_summary = NULL",
+                "brief_summary_at = NULL",
+                "brief_body_md = NULL",
+                "brief_body_at = NULL",
+            ]
     if body.summary is not None:
         updates.append("summary = ?")
         params.append(body.summary)

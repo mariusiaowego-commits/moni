@@ -18,6 +18,7 @@ from moni.web.routes.config_filters import router as config_filters_router
 from moni.web.routes.config_global_filters import router as config_global_filters_router
 from moni.web.routes.config_sources import router as config_sources_router
 from moni.web.routes.config_tags import router as config_tags_router
+from moni.web.routes.cleaning import router as cleaning_router
 from moni.web.routes.cases import router as cases_router
 from moni.web.routes.cron import router as cron_router
 from moni.web.routes.crud import router as crud_router
@@ -45,6 +46,7 @@ _routers: list[APIRouter] = [
     config_global_filters_router,
     config_sources_router,
     config_tags_router,
+    cleaning_router,
     cron_router,
     crud_router,
     events_router,

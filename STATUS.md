@@ -4,6 +4,76 @@
 
 ---
 
+## 未发布: **数据清洗 clean_v1 + 前端清洗页** (2026-11-18 · 分支 `feat/content-cleaning` · PR #238)
+
+**做了什么**：内容进来后的劣质内容清理从「只剥 HTML 标签」扩成一套确定性清洗，
+并给出可预演、可执行、可导出报告的界面。
+
+**规则**（`moni/fetch/content.py`，纯函数、幂等）：YAML frontmatter → HTML 实体（循环解到稳定）
+→ HTML（仅当块级标签 ≥8 且标记占比 ≥5% 才走块级抽取，否则就地剥标签）→ 伪标签（只认真实 HTML 标签名）
+→ 零宽字符 → U+FFFD → 公众号尾巴（行首页脚整行删 / 短行版权声明整行删 / 行尾 CTA 截断）
+→ 空白压缩（含 `\u00a0`，Markdown 代码围栏内容原样保留）。
+
+**修掉的真 bug**（全部在生产库上复现过）：
+
+- `extract_text()` 不幂等，二次清洗清空 32 篇纯文本正文；
+- 正文夹一行 `<h1>404 Not Found</h1>`，8,110 字正文被抽成 13 字；
+- 页脚/CTA 正则误删真句：「国际**商务合作**区」「乘客在车站**扫描二维码**后」「版权**归属**」；
+- bestblogs 把整篇正文塞进 `title: "…"`，frontmatter 剥离吃掉 1,333 字；
+- 空正文仍会进大模型（异步摘要无护栏）。
+
+**新增**：migration 049（`articles.content_state/chars/reasons/cleaner/cleaned_at`、
+`sources.content_contract`、`cleaning_runs`）；`moni/cleaning/service.py`；
+`/api/cleaning/*`；前端「数据清洗」页；`moni clean-articles`（默认 dry-run）+ `moni content-audit`；
+四条入库路径（抓取 / 手工新建 / 菜篮子 rescue / 手工导入全文）统一清洗。
+
+**生产口径**（库副本，5,335 篇）：正文改写 **880** 篇、只补状态 4,455 篇、
+净减 **47,551** 字、会清空长正文而跳过 0 篇、归档测试数据 4 条、二次执行 `changed=0`。
+杂质命中：公众号尾巴 494、实体 82、零宽 84、乱码 55、frontmatter 7（另有 1 篇内嵌正文未自动处理）、HTML 残留 8。
+
+**独立 audit 后修复**（2026-11-18，4 条 P1 全修并各有回归）：
+只补状态的行不再误清 `summary/ai_summary/brief_*`；五条写路径统一「会清空长正文就拒绝写入」护栏；
+「编辑完规则后…」等正文句不再被当署名行删除；`a<b 且 b>c` 不再被当 HTML 标签吃掉。
+顺手修复：代码围栏原样保留、`Q:/A:` 不当 YAML、测试数据只按 `testsrc/s` 白名单归档、
+`no_body` 只拦摘要/简报不再拦事实核查、前端错误 JSON 与 `states` 缺失防崩、
+migration 049 只在 `content_contract IS NULL` 时写入。
+
+**第二轮 audit 后修复**（2026-11-19，无 P0，2 条 P1 全修并各有回归）：
+菜篮子 rescue 遇到「清洗后为空」现在返回 400 且不写 `rescued_at`（之前静默写入空正文还报成功）；
+Markdown 代码围栏改为整块（含 ` ``` `）保护，二次清洗不再删围栏内 HTML、`normalize` 幂等。
+顺手修：正文未变的 `PUT` 不再清空 `summary/ai_summary/brief_*`、`Q:/A:/Note:` 只在全是散文时判为正文、
+批量清洗纯补状态行不再重建 layout、`clean_all_html` 增加 `skipped` 计数、
+导入全文守卫测试不再被路径白名单短路、migration 049 注释改正。
+全量 `2124 passed / 2 skipped`；生产副本 5,330 行三次 apply = `875/0/0`，`emptied=0`，围栏与摘要均未丢。
+
+**审计 P2 并入**（2026-11-19，两条有实际损耗的修进本 PR）：
+frontmatter 现在允许 YAML 缩进续行，生产 34 篇以 `---` 开头的正文由「只剥 7 篇」变为「剥 33 篇」
+（剩 1 篇是整篇正文塞进 `title:` 的 `frontmatter_embedded`，按设计保留）；
+纯空白 diff 不再清 `summary/ai_summary/brief_*`、也不再重建 layout，另记 `whitespace_only` 子计数。
+生产副本 5,330 行：`changed=875 / emptied=0 / chars_removed=54,683 / whitespace_only=195`，
+二次三次 `changed=0`；摘要保留 `13/84/21`。全量 `2127 passed / 2 skipped`。
+
+增量复审再补两条：`---` 之间全是缩进行（代码块/缩进段落）不再被当 frontmatter 删掉（要求至少一个顶层键）；
+`clean-articles` 预演也输出 `whitespace_only`（之前只有执行才写）。
+
+**与 #242 冲突处理**（2026-11-19，rebase 到 `a6a8b92`）：`index.html` 里 `main.css` / `app.js` 的 `?v=`
+取本分支更高值（`20261119002` / `20261119003`），并修正 #242 新测试把版本号截成前 8 位的问题
+（`\d{8}` → `\d{8,}`，否则同一天连续改两次永远误报）。
+
+**测试**：`pytest tests/ --deselect <2 条环境失败>` → **2108 passed, 2 skipped**。
+`test_showcase…` 因当前虚拟环境缺 `PIL` 失败（与 PR 无关）；`test_039…` 需主仓 `.git` 建临时 worktree，
+沙箱内失败原因与既有记录一致，audit 单跑 33 passed。
+
+**文档**：`docs/specs/2026-11-18-content-cleaning.md`（方案+落地记录）、
+`docs/specs/2026-11-18-content-cleaning-options.md`（甲/乙/丙对比）、
+Obsidian `sprint-56-content-cleaning-2026-11-18/` 六件套。
+
+**未做**：自动丢弃空/短正文（合规常态）、LLM 质量打分（与 BV 十维重复）、
+跨源去重（约 1%）、全文抓取补齐（V2）、发布方归一（857 篇，另开）。
+
+
+---
+
 ## 已发布: **v1.0.101 — 事实核查提示词改人话结论 + 详情页两档展示** (2026-11-18 · PR #236 · tag `v1.0.101` · commit `70bc017`)
 
 **症状**：分享图里的核查行仍是「温度 [0,2]、top_p [0,1]…均与文档一致」；详情页接口
@@ -55,6 +125,11 @@ GitHub `mergeable_state=clean`。
 - 其它分支迁移号冲突：`feat/content-cleaning` 也占用 `048`；PR #225 的
   `046_bv_direction.sql` 与 main 的 `046_fact_check_summary.sql` 撞号。两者都需 rebase 后
   改为 049/050 并同步 `_CURRENT_VERSION`。
+
+---
+
+
+---
 
 ## 已发布: **分享事实核查改人话结论 + 核查器 summary** (2026-11-18 · PR #232/#233 · commit `f1c26da` · 未打 tag)
 

@@ -75,12 +75,6 @@ class FetcherHuxiu(BaseFetcher):
 
     def _clean_html(self, html: str) -> str:
         """Strip HTML tags and boilerplate, keep text content."""
-        # Remove HTML tags
-        text = re.sub(r'<[^>]+>', '', html)
-        # Remove common WeChat boilerplate attribution lines
-        text = re.sub(r'本文来自微信公众号：[^\n]*', '', text)
-        text = re.sub(r'本文来自：[^\n]*', '', text)
-        text = re.sub(r'原标题：[^\n]*', '', text)
-        # Clean up whitespace
-        text = re.sub(r'\s+', ' ', text).strip()
-        return text
+        from ..content import normalize
+
+        return normalize(html).text
