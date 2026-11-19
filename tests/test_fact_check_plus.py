@@ -1764,6 +1764,49 @@ def test_recent_news_with_historical_background_not_demoted(fresh_db, monkeypatc
     assert sorted(days) == [13, 13, 13, 29, 651, 787]
 
 
+def test_english_verified_old_evidence_still_triggers_demotion(fresh_db, monkeypatch):
+    """审计 P1：英文 Supported 必须先归一化，再参与时效聚合。
+
+    一条 10 天【待核实】背景证据 + 一条 120 天英文 Supported：
+    Supported 不能逃过 verified_days 的 max 聚合，结论降为【待核实】，
+    逐条 verdict 也同步降级，不再顶部待核实、证据链挂绿标。
+    """
+    _insert_article("a-english-old")
+    _insert_job("job-english-old", "a-english-old")
+    payload = json.dumps({
+        "conclusion": "【已核实】",
+        "summary": "核心数据与监管口径一致",
+        "evidence": [
+            {"claim": "历史背景", "verdict": "【待核实】",
+             "url": "https://www.mpaypass.com.cn/a/1",
+             "snippet": "背景说明", "source_date": _ago(10)},
+            {"claim": "核心参数", "verdict": "Supported",
+             "url": "https://www.pbc.gov.cn/a/2",
+             "snippet": "官方口径", "source_date": _ago(120)},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-english-old", "task_type": "fact_check_plus",
+              "article_id": "a-english-old", "provider": "minimax-cn",
+              "model": "MiniMax-M3", "attempts": 0})
+
+    conn = get_db()
+    art = conn.execute(
+        "SELECT fact_check_conclusion, fact_check_timeliness, fact_check_summary "
+        "FROM articles WHERE id = 'a-english-old'"
+    ).fetchone()
+    assert art["fact_check_conclusion"] == "【待核实】"
+    assert art["fact_check_timeliness"] == "90d_demote"
+    assert art["fact_check_summary"] == "【时效降级：核心证据超 90 天】核心数据与监管口径一致"
+    verdicts = [
+        r["verdict"] for r in conn.execute(
+            "SELECT verdict FROM fact_check_evidence WHERE article_id='a-english-old' ORDER BY evidence_seq"
+        ).fetchall()
+    ]
+    assert verdicts == ["【待核实】", "【待核实】"]
+
+
 def test_conclusion_tag_helpers():
     """标签读写：带说明、空串、双标签、全角括号都要稳定。"""
     from moni.llm.fact_check_tags import conclusion_tag, with_tag

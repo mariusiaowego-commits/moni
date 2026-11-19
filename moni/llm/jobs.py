@@ -747,7 +747,7 @@ def _build_how(authority: Any, valid: list[dict[str, Any]], timeliness: str) -> 
     parts.append(
         {
             "fresh": "时效在 30 天内",
-            "30d_warn": "最新来源已过 30 天",
+            "30d_warn": "含 30–90 天旧证",
             "90d_demote": "时效降级 · 含超 90 天旧证",
             "unknown": "时效未知",
         }.get(timeliness, "时效未知")
@@ -869,6 +869,9 @@ def _persist_fact_check_plus(
         # Gate 2 (v1.0.100): 按档位标签判定，带说明的结论不再绕过白名单。
         # 两条路径: ≥2 个注册域且 ≥1 个一手源，或 ≥3 个编辑制媒体。
         authority = evaluate_authority([e["domain"] for e in valid])
+        pre_gate_conclusion = conclusion
+        for e in valid:
+            e["verdict"] = _normalize_verdict(e["verdict"], pre_gate_conclusion)
         gate2_demoted = conclusion_tag(conclusion) == "【已核实】" and not authority.passed
         if gate2_demoted:
             conclusion = with_tag("【待核实】", conclusion)
@@ -903,17 +906,21 @@ def _persist_fact_check_plus(
         else:
             worst_days = None
         timeliness = compute_timeliness(worst_days)
+        gate3_demoted = (
+            conclusion_tag(pre_gate_conclusion) == "【已核实】"
+            and timeliness == "90d_demote"
+        )
         conclusion = apply_timeliness(conclusion, worst_days)
         # v1.0.104: 降级不再清空人话结论（enrichment.py 分享预检依赖它非空，
         # 清空会导致刚核查完的文章被判“缺 summary”反复重跑）。
         # Gate 2 降级只对原始【已核实】在 summary 开头标注门禁原因。
         if gate2_demoted and summary:
             summary = _clip_sentence(f"【门禁降级：权威源不足】{summary}")
-        for e in valid:
-            e["verdict"] = _normalize_verdict(e["verdict"], conclusion)
-        if gate2_demoted:
-            # Normalize first: the prompt's content-structure section teaches
-            # English tags, so a raw "Supported" must not escape the demotion.
+        if gate3_demoted and not gate2_demoted and summary:
+            summary = _clip_sentence(f"【时效降级：核心证据超 90 天】{summary}")
+        if gate2_demoted or gate3_demoted:
+            # Normalize already ran above (English tags cannot escape), so the
+            # demotion here only downgrades the tag itself.
             for e in valid:
                 if e["verdict"] == "【已核实】":
                     e["verdict"] = "【待核实】"

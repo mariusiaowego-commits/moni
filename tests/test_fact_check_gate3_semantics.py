@@ -69,6 +69,17 @@ def test_how_text_reports_newest_and_oldest_without_contradiction():
     )
 
 
+def test_how_warn_text_matches_verified_evidence_semantics():
+    """审计 P2：30d_warn 时聚合值可能是【已核实】证据的 max，而不是全批 max。
+
+    文案不得再说“最新来源已过 30 天”，否则同一句里会一边写最新来源 13 天、
+    一边写过期 30 天。
+    """
+    src = _read(JOBS)
+    assert '"30d_warn": "含 30–90 天旧证"' in src
+    assert "最新来源已过 30 天" not in src
+
+
 def test_reader_renders_timeliness_badge():
     """UI 必须区分时效降级与模型判定，而不是伪装成存疑。"""
     html = _read(INDEX)
