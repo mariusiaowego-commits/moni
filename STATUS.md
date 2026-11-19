@@ -3,6 +3,32 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
+## 已发布: **v1.0.106 — 摘要/核查任务完成后页面自动同步** (2026-11-19 · PR #250 → `b9d8b15` · tag `v1.0.106`)
+
+**问题**：点「联网核查」后面板一直停在 `⏳ 联网核查中... (job xxx)`，任务完成后也不变，用户只能自己刷新或重进页面。
+
+**根因**：老 `_pollFactCheckPlusJob` 只轮询 30 次 × 2s = **60 秒**，而线上同类任务实测 **2.2 / 2.7 / 4.4 分钟**；`generateSummary` / `generateFactCheck` 两个入口压根不轮询，只放 `⏳` 占位符。
+
+**修法**：三个入口统一 `watchArticleJob`——3s → 6s → 15s 退避、预算 30 分钟；`done` / `failed` / `cancelled` / `404` / 超时**所有出口**都回读文章详情；打开文章时 `resumeArticleJobs` 按 `/api/llm/jobs?article_id=&status=pending|running` 自动续上未完成任务；占位符收敛到 `_articleJobPlaceholder` 单一来源。agy 审计 P2（404 空转）/ P3（续跑并发写 `articleDetail`）同 PR 修掉。
+
+**验证**：定向 `test_frontend_article_job_watch + render_hygiene + reader_tabs` → **55 passed**；全量 → **2326 passed, 2 skipped, 1 failed**（唯一失败 `test_worker_lock::test_sigterm_kills_blocking_child_that_ignores_term`，单跑 3 次全绿，机器 load 12–14 时时序抖动，与本改动无关）；GitHub CI `pytest · py3.12` **success**。
+
+**生产验收**（8901 隔离端口，两次真实 LLM 任务）：任务 1m14s，**不刷新页面**自动从 `⏳` 变成 `【待核实】` + 核查时间 + `证据链 4 条`；续跟路径 21s 自动更新。
+
+**部署**：8900 重启 PID **81875**，`version v1.0.106 / commit b9d8b15 / schema 51 / worktree_dirty=false`；静态资源 `app.js?v=20261119007`、`reader.js?v=20261119007`；备份 `data/backups/news.db.pre-v1.0.106-20261119-162648`。
+
+## 已发布: **v1.0.104 — 联网核查 Gate 3 时效误判修复** (2026-11-19 · PR #246 → `c0363e3` · tag `v1.0.104`)
+
+**生产事故**：文章 `4a111c743cb775e3`（央行公示辽宁第四批金融科技创新应用）联网核查后 UI 只显示「【存疑】」两个字。
+
+**根因**：6 条证据里 4 条核心证据 13/13/13/29 天，2 条历史背景证据 787/651 天。原 Gate 3 取全批 `max(days_old)=787` → 触发 `90d_demote`，把 `【待核实】` 改成 `【存疑】`（旧 ≠ 矛盾），并清空 `summary`（导致分享预检反复判缺 summary）。
+
+**修法**（agy 只读评审 **APPROVE WITH EDITS**）：时效聚合改代码侧判定——有【已核实】证据取 `max`，否则取 `min(days_old)`（最新一条）；91+ 只把【已核实】降【待核实】，【待核实】/【存疑】不动；**不再清空 summary**；Gate 2 只在开头加【门禁降级：权威源不足】；how 文案改报最新/最早来源距今；UI 加时效徽章（`30d_warn` / `90d_demote`）。
+
+**验证**：`pytest tests/ -q` → **2316 passed, 2 skipped**；`-k 'fact_check or frontend'` → **213 passed**；新增 6 条语义契约 + 生产场景回归（4 近期 + 2 历史背景）；UI 实测旧数据 `timeliness=90d_demote` 显示「时效降级 · 含超 90 天旧证」。
+
+**已知边界**：历史已落库的 `fact_check_conclusion/summary` 不回填，需重跑联网核查生效。
+
 ## 已完成: **全库正文清洗落地 + 闸门打开** (2026-11-19 · Sprint 58 收尾 · tag `v1.0.105`)
 
 dad 授权后在生产库执行了两件此前挂起的事。
