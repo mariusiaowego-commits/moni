@@ -17,6 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 APP_JS = ROOT / "moni" / "web" / "static" / "js" / "app.js"
 READER_JS = ROOT / "moni" / "web" / "static" / "js" / "reader.js"
+INDEX_HTML = ROOT / "moni" / "web" / "static" / "index.html"
 
 
 def _read(path: Path) -> str:
@@ -99,3 +100,32 @@ def test_placeholder_text_has_single_source():
     src = _read(APP_JS)
     assert src.count("`⏳ ") == 1, "占位符文案出现了多处手写拷贝"
     assert "'⏳ " not in src, "还有入口在用字符串拼接占位符"
+
+
+def test_rerun_entry_stays_visible_after_a_check_exists():
+    """核查完成后按钮不能消失 —— 否则白名单/prompt 更新后用户没有重跑入口。
+
+    两条硬约束：
+    1. 联网核查按钮必须常驻（label 在「联网核查 / 重新联网核查」之间切换）；
+    2. 快速核查是降级路径，只在没有联网结果时出现 —— 否则它会把联网结论
+       覆盖成 llm_inference，而 `has_web_fact_check` 仍是 1，徽标与结论对不上。
+    """
+    html = _read(INDEX_HTML)
+    start = html.index('class="reader-dock-main"')
+    dock = html[start:html.index('class="reader-dock-tools"', start)]
+
+    assert "generateFactCheck()" in dock
+    assert "enqueueLlmJobFactCheckPlus(" in dock
+    assert 'x-show="!articleDetail?.has_fact_check"' not in dock, "事实核查按钮在核查完成后被隐藏了"
+    assert "'重新核查' : '事实核查'" in dock
+    assert "'重新联网核查' : '联网核查'" in dock
+
+    fact_check_btn = next(
+        line for line in dock.splitlines() if "generateFactCheck()" in line
+    )
+    web_btn = next(
+        line for line in dock.splitlines() if "enqueueLlmJobFactCheckPlus(" in line
+    )
+    assert 'x-show="!articleDetail?.has_web_fact_check"' in fact_check_btn, \
+        "快速核查（降级路径）只在没有联网结果时才能出现"
+    assert "x-show=" not in web_btn, "联网核查按钮必须常驻，否则已核查文章没有重跑入口"
