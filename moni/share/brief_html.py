@@ -201,14 +201,21 @@ def _gate_sql(conn: sqlite3.Connection) -> tuple[str, tuple[str, ...]]:
     表不存在（老库）或闸门关闭时返回空片段，主查询与 fallback 查询
     用同一份片段，不会出现"主查询拦了、fallback 没拦"的旁路。
     """
-    from moni.moderation.service import GATE_ENABLED
+    from moni.moderation.service import GATE_SETTING_KEY
 
-    if not GATE_ENABLED:
-        return "", ()
     exists = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='content_labels'"
     ).fetchone()
     if exists is None:
+        return "", ()
+    try:
+        row = conn.execute(
+            "SELECT value FROM app_settings WHERE key = ?", (GATE_SETTING_KEY,)
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return "", ()
+    enabled = bool(row) and str(row[0]).strip().lower() in ("1", "true", "on", "yes")
+    if not enabled:
         return "", ()
     placeholders = ",".join("?" for _ in _GATED_CATEGORIES)
     return (

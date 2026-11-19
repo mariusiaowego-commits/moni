@@ -24,6 +24,12 @@ def labels_summary() -> dict[str, Any]:
     return service.summary()
 
 
+@router.put("/gate")
+def labels_set_gate(enabled: bool = Body(..., embed=True)) -> dict[str, Any]:
+    """闸门开关（运行时配置，不需要发版）。"""
+    return {"gate_enabled": service.set_gate_enabled(enabled)}
+
+
 @router.post("/preview")
 def labels_preview(
     category: str | None = Query(None),

@@ -87,3 +87,13 @@ def test_label_apply_never_touches_articles(client, tmp_path):
     assert before == after
     with sqlite3.connect(tmp_path / "test.db") as conn:
         assert conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0] == 1
+
+
+def test_gate_toggle_is_runtime_config(client):
+    """闸门是配置项：改一次立即生效，不需要发版。"""
+    assert client.get("/api/moderation/labels/summary").json()["gate_enabled"] is False
+    on = client.put("/api/moderation/labels/gate", json={"enabled": True}).json()
+    assert on["gate_enabled"] is True
+    assert client.get("/api/moderation/labels/summary").json()["gate_enabled"] is True
+    off = client.put("/api/moderation/labels/gate", json={"enabled": False}).json()
+    assert off["gate_enabled"] is False

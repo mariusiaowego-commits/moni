@@ -5,9 +5,9 @@
 """
 
 from .service import (  # noqa: F401
-    GATE_ENABLED,
     GATED_CATEGORIES,
     apply_labels,
+    gate_enabled,
     gated_map,
     label_and_store,
     list_runs,
@@ -17,5 +17,6 @@ from .service import (  # noqa: F401
     report_markdown,
     review_label,
     samples,
+    set_gate_enabled,
     summary,
 )

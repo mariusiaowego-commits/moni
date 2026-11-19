@@ -1825,6 +1825,8 @@
           <div class="label-toolbar">
             <span class="clean-muted"
                   x-text="'规则版本 ' + (labelSummary?.rule_version || '') + ' · 闸门' + (labelSummary?.gate_enabled ? '已开' : '未开')"></span>
+            <button class="btn btn-secondary btn-xs" @click="toggleLabelGate()"
+                    x-text="labelSummary?.gate_enabled ? '关闭闸门' : '打开闸门'"></button>
             <button class="btn btn-secondary btn-xs" @click="toggleLabelRevealAll()"
                     x-text="labelRevealAll ? '恢复打码' : '解除打码（本次有效）'"></button>
           </div>
@@ -4722,7 +4724,7 @@
   <script src="vendor/dompurify-3.4.17.min.js?v=20261116001"></script>
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
-  <script src="js/app.js?v=20261119004"></script>
+  <script src="js/app.js?v=20261119005"></script>
   <script src="js/reader.js?v=20261119001"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind

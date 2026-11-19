@@ -44,9 +44,11 @@ GATED_CATEGORIES: tuple[str, ...] = (
     "pure_ad",
 )
 
-#: 闸门总开关。默认关闭：标注先跑一段时间给人看，确认不再误杀后
-#: 再用一个独立小 PR 打开（可审计、可回滚）。
-GATE_ENABLED = False
+#: 闸门开关的配置键（存在 ``app_settings`` 表里，改配置不再需要发版）。
+GATE_SETTING_KEY = "moderation.gate_enabled"
+
+#: 缺省值：关。标注先跑一段时间给人看，确认不误杀再在页面上打开。
+GATE_DEFAULT = False
 
 _RULE_COUNTS = {
     "nsfw_gamble": len(_NSFW_TERMS),
@@ -60,6 +62,35 @@ _RULE_COUNTS = {
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def gate_enabled(conn=None) -> bool:
+    """闸门是否打开。读 ``app_settings``；缺表/缺键一律按关闭处理。"""
+    try:
+        row = (conn or get_db()).execute(
+            "SELECT value FROM app_settings WHERE key = ?", (GATE_SETTING_KEY,)
+        ).fetchone()
+    except Exception:  # noqa: BLE001 - 老库/只读场景不能因此报错
+        logger.debug("app_settings unavailable; gate defaults to off", exc_info=True)
+        return GATE_DEFAULT
+    if row is None:
+        return GATE_DEFAULT
+    return str(row[0]).strip().lower() in ("1", "true", "on", "yes")
+
+
+def set_gate_enabled(enabled: bool, conn=None) -> bool:
+    """写闸门开关。页面上的开关直接调这里，不需要发版。"""
+    db = conn or get_db()
+    db.execute(
+        """
+        INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE
+           SET value = excluded.value, updated_at = excluded.updated_at
+        """,
+        (GATE_SETTING_KEY, "1" if enabled else "0", _now()),
+    )
+    db.commit()
+    return enabled
 
 
 def _load_run(conn, run_id: str) -> dict[str, Any]:
@@ -340,7 +371,7 @@ def summary(conn=None) -> dict[str, Any]:
     ).fetchone()
     return {
         "rule_version": LABEL_RULE_VERSION,
-        "gate_enabled": GATE_ENABLED,
+        "gate_enabled": gate_enabled(db),
         "categories": counts,
         "last_run": _run_payload(last) if last else None,
     }
@@ -433,7 +464,7 @@ def review_label(
 
 def gated_map(conn, article_ids: Iterable[str]) -> dict[str, str]:
     """被闸门拦下的文章 → 命中的类别（人工 dismissed 的不算）。"""
-    if not GATE_ENABLED:
+    if not gate_enabled(conn):
         return {}
     ids = [i for i in article_ids if i]
     if not ids:
