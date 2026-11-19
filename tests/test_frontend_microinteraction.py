@@ -241,6 +241,16 @@ def test_focus_ring_survives_reduced_motion():
     )
 
 
+def test_reader_tab_transition_disabled_under_reduced_motion():
+    """页签底色/文字色有 0.15s 过渡，reduce 下必须一起关掉。"""
+    blk = _consolidated_reduce_block()
+    assert blk is not None, "consolidated reduced-motion block not found"
+    assert ".reader-tab" in blk[1], (
+        "reduced-motion block must disable the .reader-tab colour/background "
+        "transition, not just the narrow-screen pane slide"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 2b 性能卫生 — B03 will-change / B19 hover 守卫
 # ---------------------------------------------------------------------------

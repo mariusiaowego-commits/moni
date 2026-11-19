@@ -4989,11 +4989,16 @@ function app() {
       setTimeout(tick, 2000);
     },
 
+    /** 这条异步结果是否还属于阅读器里正在看的那篇。 */
+    isCurrentReaderArticle(articleId) {
+      return !!this.articleDetail && this.articleDetail.id === articleId;
+    },
+
     /** 迟到的核查结果不能盖掉用户已经翻开的另一篇。 */
     readerRefreshDetail(articleId, detail) {
       if (!detail) return;
       // 阅读器已关（articleDetail 为 null）时也不能把模态弹回来。
-      if (!this.articleDetail || this.articleDetail.id !== articleId) return;
+      if (!this.isCurrentReaderArticle(articleId)) return;
       this.articleDetail = detail;
     },
 
@@ -5010,7 +5015,11 @@ function app() {
           }
           return r.json();
         })
-        .then(data => { self.articleEvidenceList = data.items; })
+        .then(data => {
+          // 换篇后迟到的证据链不能写给上一篇，否则 B 的证据区显示 A 的条目。
+          if (!self.isCurrentReaderArticle(articleId)) return;
+          self.articleEvidenceList = data.items;
+        })
         .catch(err => { this._notify('error', '加载核查证据失败: ' + err.message); });
     },
 

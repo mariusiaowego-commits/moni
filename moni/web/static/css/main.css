@@ -5357,7 +5357,8 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
 
   /* ── 阅读器窄屏页签切换 ── */
   .reader-pane,
-  .ai-pane {
+  .ai-pane,
+  .reader-tab {
     transition: none;
   }
 
