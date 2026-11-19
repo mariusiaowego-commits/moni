@@ -121,47 +121,72 @@ CLI `moni label-articles`；API `/api/moderation/labels/*`（独立 router，`/a
 **不做**：自动删除 / 移菜篮子 / 封作者；图像识别；模型二审（只留设计位）。
 
 ---
-## 已完成: **xbot_feed 劣质内容治理（主题 ≠ 准入）** (2026-11-18 · Sprint 54 · id `26111703` · PR #237 已合并 `10f3957`)
+## 已完成: **xbot_feed 劣质内容治理（主题 ≠ 准入）** (2026-11-19 · Sprint 54 · id `26111703` · PR #237 已合并 `10f3957`)
 
 把「xbot_feed 抓到的主题相关内容」与「该不该进库」**拆成两层**：只读文本规则判劣质 ⇒
 **只产候选清单**给 dad 审，**不自动处置**。另把 `bypass` 的两个闸门拆成独立开关（**零行为变化**）。
 
-**改法**（26 个文件，全部**未 commit**）：决策纯函数 `moni/fetch/moderation.py`（**纯函数、零 DB 依赖**）；
+**改法**（**28 个文件**，**已合并**）：决策纯函数 `moni/fetch/moderation.py`（**纯函数、零 DB 依赖**）；
 保护资产只读护栏 `moni/fetch/protected_assets.py`（10 类，**零新表**）；
 `bypass` 拆分到新键 **`bypass_tag_or_gate`**（旧 deprecated alias `bypass_tag_filter` 的归一/pop **一行未动**，
 `tests/test_fetch_config.py` **一行未改**）；只读预演器 `scripts/xbot_quality_candidates.py`；
 脱敏产物生成器 `scripts/xbot_quality_artifacts.py`；离线验证器 `scripts/xbot_quality_validate.py`；
 只读端点 `moni/web/routes/moderation.py`（`GET /api/moderation/xbot/candidates`）；
 只读 FTS 探针 `scripts/verify_fts_index_criteria.py`。
-**本 sprint 不新增任何 migration**（**不抢迁移号**）；已把最新 `origin/main`
-（`e5975a3`）merge 进本分支 ⇒ **直接继承 main 的 `_CURRENT_VERSION` 47**
+**本 sprint 不新增任何 migration**（**不抢迁移号**）；合并当时把最新 `origin/main`
+（`e5975a3`）merge 进本分支 ⇒ **继承 main 的 `_CURRENT_VERSION` 47**
 （含 `046_fact_check_summary.sql` / `047_fact_check_gate.sql`），本分支**未新建、未重编号**任何迁移。
+⚠️ **口径**：上面 **47** 是**合并当时**的快照；**当前** repo main 与生产运行版本是**更晚的快照**
+（生产 schema 已到 **51**）—— 两者**不要**混成同一个「当前」。
 
 **不做**：任何**生产处置**（隔离 / 屏蔽作者 / 归档 execute / rescue —— 属阶段二）、改生产配置
-（`bypass_keyword_filters` 仍 true，新键**未启用**）、启黑名单、改词表阈值、前端 UI 入口
+（`bypass_keyword_filters` 仍 true，本 sprint 的新键 `bypass_tag_or_gate` **从未启用**）、
+启黑名单、改词表阈值、前端 UI 入口
 （I8 **只是 API**，界面**没有**真实用户入口 ⇒ **不能称「阶段二执行已开发」**）。
+⚠️ **后续事件（不是本 sprint 的动作）**：内容闸门由 **#249 / `v1.0.105`** 打开
+（`PUT /api/moderation/labels/gate {"enabled":true}`，见**本文档首节**「全库正文清洗落地 + 闸门打开」）。
+那是**后续 sprint 的发布动作**，**不冒认**为本 sprint 的交付；本 sprint 自己的
+`bypass_tag_or_gate` **至今未启用**。
 
-✅ **schema 落差已处理**：合并前本地是 **45**、`origin/main` 已是 **46/47**
+✅ **schema 落差已处理**（合并当时口径）：合并前本地是 **45**、`origin/main` 已是 **46/47**
 （`046_fact_check_summary.sql` / `047_fact_check_gate.sql`）⇒ 本分支**未新建、未重编号**迁移，
 已通过 merge 干净继承 main 的 **`_CURRENT_VERSION` = 47** ⇒ **不会带着旧版本号**合并。
 
-**测试**：全量 **2114 passed / 2 skipped**（p7 独立复跑一致）；5 个既有文件**原位**单跑 **61 passed**
-（改用相对定位 ⇒ 消除「原位跑假绿」，**绿灯现可直接引用**）；本 sprint 新增 7 个测试文件 **120 passed**。
+**测试**（**2026-11-19 14:28** p7 warden 对**已合并树** head `271a35b` 的**独立实跑**；
+该 head 与 squash merge `10f3957` **树等价**（`8d917c4387c5b515e655763c0d809618ea5ec17f`））：
+全量 **2277 passed / 2 skipped**（399.59s，一次跑绿）；5 个既有文件**原位**单跑 **61 passed**
+（改用相对定位 ⇒ 消除「原位跑假绿」，**绿灯现可直接引用**）；本 sprint 新增 7 个测试文件 **123 passed**。
 变异负控**打中**（注入 `moni/db/migrate.py` MUTANT ⇒ 原位单跑红）⇒ 证明原位跑真在测 worktree 代码。
+⚠️ 本段数字**均为 2026-11-19 14:28 那次实跑**，**不是**本次文档收尾重跑（文档收尾**本地测试 NOT_RUN**）。
 
-**审计**：p7 warden 五轮 —— 初审 P0=3/P1=6 → 复核 P0=0/P1=1 → 第三轮 P0=0/P1=1 → 第四轮 PASS → **终审 PASS（P0=0/P1=0）**
-⇒ 4 条 P2 全消项；13:44 又派**最终 diff 复核**（26 个文件全纳审，含 14 个 untracked）。
+**审计**：p7 warden 多轮 —— 初审 P0=3/P1=6 → 复核 P0=0/P1=1 → 第三轮 P0=0/P1=1 → 第四轮 PASS → 终审 PASS（P0=0/P1=0）
+⇒ 4 条 P2 全消项；13:44 又派**最终 diff 复核**（**26 个文件**全纳审，含 14 个 untracked）；
+**2026-11-19 14:2x 对已合并树再审一次**（审 **28 个文件**）：`GATE: PASS / P0=0 / P1=0 / P2=3`
+（3 条 P2 全是本段这类**叙述过时**，不影响代码、配置、迁移与生产行为）。
 
 **⚠️ 已知限制（随包读）**：① 候选是 **agent 草标，不是 dad 人工真值** ⇒ **没有真值就没有精确率/召回率/误杀率**；
 ② 上游 feed **零媒体字段** ⇒ **媒体类劣质内容是硬盲区**，本方案不覆盖，也不得声称「已清干净」；
 ③ basket 恢复**有损**（派生数据 / FTS 索引 / 原 `fetched_at` 不恢复）；④ FTS 探针**只报告不自愈**
 （external-content 表无 trigger ⇒ 会漂移，rebuild 需 dad 单独 GO）；⑤ 规则阈值全是**暂定值**，未经标注集标定。
 
-**状态**：**未发布**。代码 + 测试已就绪并**已 commit**（`0e3f587` + merge `9e38f7a`），
-**PR 待 dad 审批**（未 push / 未开 PR / 未 merge / 未 tag / 未部署）。
+**状态**：**阶段一已完成并已合并**。PR **#237** 已 squash 合入 `main` ——
+**squash merge commit `10f39571e33a2a39244950d0a9e313a6abbe0440`**（单亲 `9b07c9f`），
+合并时间 **2026-11-19 12:39:54 CST**；PR head `271a35b` 与该 merge commit **树等价**
+（`8d917c4387c5b515e655763c0d809618ea5ec17f`）⇒ 合并未丢内容。
+⚠️ **squash 后的 ancestry 用 `10f3957` 验证**（`git merge-base --is-ancestor 10f3957 <main>`），
+**不要**把 PR head `271a35b` 说成 main 的祖先。
+
+**版本证据**：含本 sprint 代码的**首个正式 tag 是 `v1.0.104`**（tag 对象 `6dd9301`，peeled → `c0363e3`，
+由 **#246** 发布，但**已包含** #237）；其后 **`v1.0.105`**（peeled → `26a3502`）与
+**`v1.0.106`**（peeled → `b9d8b15`）**同样包含** #237。
+⇒ 按事实记：**本 sprint 不是任一 tag 的专属发布**，只是**随**这些 tag 进入正式发布。
+
 产物 `artifacts/xbot-quality-2026-11-18/`（脱敏候选 41 / 标注模板 41 / 不确定案例 35）**已 gitignore，不入库**
 ⇒ dad 要看请**只读查看**，**填 `annotation-template.json` 的 `dad_verdict`** ⇒ 填完才有真值与指标。
-**待 dad GO**：commit → PR → merge → tag/部署 → G2 配置 → G3 批量处置。
+
+**待 dad GO**（**本 sprint 范围内未做**）：阶段二（自动拦截 / 屏蔽作者 / 归档 execute）、
+G2 配置、G3 批量处置 —— 各自需**单独 GO**；另**阶段一已关闭**，但上述 P0 限制
+（缺 dad 人工真值 ⇒ 无准确率）**不因阶段一关闭而解除**。
 
 
 ## 未发布: **数据清洗 clean_v1 + 前端清洗页** (2026-11-18 · 分支 `feat/content-cleaning` · PR #238)
