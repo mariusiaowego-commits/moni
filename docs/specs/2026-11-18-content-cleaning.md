@@ -326,7 +326,7 @@ frontmatter 内嵌正文 1、HTML 残留 8。
 | 「编辑/责编/校对」按前缀误删正文（真实案例：`3978a92ddfe933d3` 的「编辑完规则后…」） | 从 `_FOOTER_START` 移除这三个词，改为短署名形态正则 | `test_editor_sentence_survives` / `test_proofread_sentence_survives` |
 | `a<b 且 b>c` 被当 HTML 标签闭合吃掉 | 标签体只允许属性形态，不接受比较表达式正文 | `test_cjk_comparison_prose_survives` |
 
-顺手修复的 P2：Markdown 代码围栏原样保留；`Q:/A:` 不当 YAML frontmatter；
+顺手修复的 P2：Markdown 代码围栏原样保留（第二轮 audit 发现只护住了内部、围栏符仍会丢，见 §10.6）；`Q:/A:` 不当 YAML frontmatter；
 测试数据只按 `source IN ('testsrc','s')` 白名单归档；`no_body` 只拦 `summary/brief`，
 不再影响 `fact_check/fact_check_plus`；前端 `loadCleaning` 校验 HTTP 状态、`states` 缺失防崩；
 migration 049 只在 `content_contract IS NULL` 时写入；emptied 行也打 `content_cleaner`，
@@ -343,3 +343,33 @@ migration 049 只在 `content_contract IS NULL` 时写入；emptied 行也打 `c
 > `changed=875/872` 与 §10.3 的 `880` 差异来自 audit 修复后规则更保守：
 > 署名形态、属性形态标签、代码围栏和 `Q:/A:` 防护少删了少量文本；apply2 的 5 篇是
 > 旧 cleaner 输出中残留的多余空白，第三次为 0。
+
+### 10.6 第二轮独立 audit 修复记录（PR #238 · 2026-11-19）
+
+第二轮 read-only audit（换模型复检）结论：无 P0，2 条 P1 必修。修复后全量
+`2124 passed / 2 skipped / 2 deselected`。
+
+| finding | 根因 | 修复 | 回归 |
+| --- | --- | --- | --- |
+| **P1-1** 菜篮子 rescue 忽略护栏返回值：451 字纯页脚洗成 `''` 仍 `INSERT`，返回 `200 {ok:true}`，且 `rescued_at` 已写、不可再 rescue | `basket.py` 调用 `clean_for_write` 丢弃返回值；外层 `except Exception` 又把异常吞成 200 | 返回 `None` 时 `raise BadRequestError`（在 `INSERT` 与 `rescued_at` 之前）；`except WebBaseException` 先 `rollback` 再抛，交给统一 4xx 处理器 | `test_rescue_rejects_body_that_cleans_to_empty`（断言 400、`rescued_at IS NULL`、`articles` 0 行）、`test_rescue_allows_title_only_item` |
+| **P1-2** 代码围栏二次清洗被删：` ``` ` 计数 5→0，围栏内 `<div>` 被当活标签删掉，`normalize` 不幂等 | `_protect_fences` 用 `split("```")` 只藏内部、丢了围栏符；且 protect 发生在 `_collapse` 之后，缩进已被压平 | 改为整块（含围栏符）替换为占位符，protect 提前到 `_collapse` 之前，restore 仍在最后一次 collapse 之后 | `test_code_fence_kept_verbatim`（围栏数 / 缩进 / 二次幂等）、`test_code_fence_keeps_comparison_operators` |
+
+顺手修掉的 P2：
+
+- `PUT /api/articles/{id}` 正文清洗后与库内一致时也不再清空 `summary/ai_summary/brief_*`（只有 `new != old` 才清）；
+- `Q:/A:/Note:` 收紧为「**全部**键都是这三个才判为散文」，`title:`+`Note:` 的真实 header 会正常剥离；
+- 批量清洗只在正文真变化时重建 share layout，纯补状态行跳过；
+- `clean_all_html` 新增 `skipped` 计数，护栏命中不再让 `scanned/updated/unchanged` 对不上；
+- `test_import_fulltext_guard_rejects_empty_result` 之前 400 来自路径白名单（守卫从未被测到），修正为真实 home 后再断言「清洗后为空」；
+- migration 049 头注释从 `048` 改正。
+
+生产库副本（`sqlite3 .backup` → `/private/tmp/clean-replay/news.db`，5,330 行）复演：
+
+| 步骤 | scanned | changed | backfilled | emptied |
+| --- | ---: | ---: | ---: | ---: |
+| apply1 | 5,330 | 875 | 4,455 | 0 |
+| apply2 | 5,326 | 0 | 0 | 0 |
+| apply3 | 5,326 | 0 | 0 | 0 |
+
+含 ` ``` ` 的 5 篇文章围栏计数逐篇不变（6/16/18/4/116），长度 `76803 → 76453` 只减空白；
+`summary/ai_summary/brief_summary` 保留 `13/82/21`，未出现全清。

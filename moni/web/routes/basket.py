@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Query
 
 from moni.db.connection import get_db
-from moni.web.exceptions import NotFoundError
+from moni.web.exceptions import BadRequestError, NotFoundError, WebBaseException
 from moni.web.models import BasketItem, BasketListResponse, BasketRescueRequest
 
 logger = logging.getLogger(__name__)
@@ -137,7 +137,10 @@ def rescue_basket_item(basket_id: str, body: BasketRescueRequest) -> dict:
             "content": basket.get("raw_content"),
         }
         # Basket rescue must not turn a substantive body into an empty row.
-        clean_for_write(art, basket.get("raw_content") or "")
+        if clean_for_write(art, basket.get("raw_content") or "") is None:
+            raise BadRequestError(
+                message="该条正文清洗后为空，已拒绝 rescue；请检查原文或直接删除",
+            )
 
         conn.execute(
             """INSERT OR IGNORE INTO articles
@@ -200,6 +203,9 @@ def rescue_basket_item(basket_id: str, body: BasketRescueRequest) -> dict:
             "message": f"已 rescue 到 articles，关联 {len(body.tags)} 个 tag",
             "article_id": article_id,
         }
+    except WebBaseException:
+        conn.rollback()
+        raise
     except Exception as exc:
         conn.rollback()
         logger.error("[basket] rescue failed: %s", exc)

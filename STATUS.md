@@ -38,6 +38,14 @@
 `no_body` 只拦摘要/简报不再拦事实核查、前端错误 JSON 与 `states` 缺失防崩、
 migration 049 只在 `content_contract IS NULL` 时写入。
 
+**第二轮 audit 后修复**（2026-11-19，无 P0，2 条 P1 全修并各有回归）：
+菜篮子 rescue 遇到「清洗后为空」现在返回 400 且不写 `rescued_at`（之前静默写入空正文还报成功）；
+Markdown 代码围栏改为整块（含 ` ``` `）保护，二次清洗不再删围栏内 HTML、`normalize` 幂等。
+顺手修：正文未变的 `PUT` 不再清空 `summary/ai_summary/brief_*`、`Q:/A:/Note:` 只在全是散文时判为正文、
+批量清洗纯补状态行不再重建 layout、`clean_all_html` 增加 `skipped` 计数、
+导入全文守卫测试不再被路径白名单短路、migration 049 注释改正。
+全量 `2124 passed / 2 skipped`；生产副本 5,330 行三次 apply = `875/0/0`，`emptied=0`，围栏与摘要均未丢。
+
 **测试**：`pytest tests/ --deselect <2 条环境失败>` → **2108 passed, 2 skipped**。
 `test_showcase…` 因当前虚拟环境缺 `PIL` 失败（与 PR 无关）；`test_039…` 需主仓 `.git` 建临时 worktree，
 沙箱内失败原因与既有记录一致，audit 单跑 33 passed。

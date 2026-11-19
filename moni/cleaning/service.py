@@ -468,7 +468,10 @@ def apply_cleaning_run(conn=None, run_id: str | None = None) -> dict[str, Any]:
         try:
             from moni.share.enrichment import apply_local_body_layout_for_ids
 
-            apply_local_body_layout_for_ids(touched)
+            # Bodies that only gained metadata do not need a layout rebuild.
+            apply_local_body_layout_for_ids(
+                [u["id"] for u in scan["updates"] if u["text_changed"]]
+            )
         except Exception as exc:
             logger.warning("layout after cleaning failed: %s", exc)
         from moni.scoring import recompute_quality_if_pinned

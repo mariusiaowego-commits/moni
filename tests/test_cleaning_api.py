@@ -131,7 +131,9 @@ class TestEndpoints:
         conn.commit()
 
         with (
-            patch("moni.web.routes.articles._resolve_user_home", return_value=Path("/tmp")),
+            # Must point at the real home, otherwise the 400 comes from the
+            # path allow-list and the cleaning guard is never reached.
+            patch("moni.web.routes.articles._resolve_user_home", return_value=Path.home()),
             patch.object(Path, "exists", return_value=True),
             patch.object(Path, "read_text", return_value=content),
         ):
@@ -140,6 +142,8 @@ class TestEndpoints:
                 json={"file_path": str(file_path)},
             )
         assert response.status_code == 400
+        # The guard, not the path check, must be the reason for the 400.
+        assert "正文" in response.json()["message"]
         conn = get_db()
         row = conn.execute(
             "SELECT raw_content FROM articles WHERE id = 'a1'"

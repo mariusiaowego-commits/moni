@@ -166,16 +166,6 @@ def update_article(article_id: str, body: ArticleUpdate) -> Article:
             "content_reasons = ?",
             "content_cleaner = ?",
             "content_cleaned_at = ?",
-            # A new body invalidates every derived text product.
-            "summary = NULL",
-            "summary_at = NULL",
-            "ai_summary = NULL",
-            "ai_summary_at = NULL",
-            "has_ai_summary = 0",
-            "brief_summary = NULL",
-            "brief_summary_at = NULL",
-            "brief_body_md = NULL",
-            "brief_body_at = NULL",
         ]
         params += [
             art["content"],
@@ -185,6 +175,20 @@ def update_article(article_id: str, body: ArticleUpdate) -> Article:
             art["content_cleaner"],
             art["content_cleaned_at"],
         ]
+        if art["content"] != old_text:
+            # Only a real body change invalidates the derived text products;
+            # re-importing the same file must not wipe summaries and briefs.
+            updates += [
+                "summary = NULL",
+                "summary_at = NULL",
+                "ai_summary = NULL",
+                "ai_summary_at = NULL",
+                "has_ai_summary = 0",
+                "brief_summary = NULL",
+                "brief_summary_at = NULL",
+                "brief_body_md = NULL",
+                "brief_body_at = NULL",
+            ]
     if body.summary is not None:
         updates.append("summary = ?")
         params.append(body.summary)

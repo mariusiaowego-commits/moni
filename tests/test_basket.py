@@ -60,6 +60,7 @@ def _seed_basket_item(
     title: str = "Test Article",
     dropped_reason: str = "blacklist",
     dropped_by: str = "test_keyword",
+    raw_content: str = "Test content",
 ) -> str:
     """Insert a basket item and return its id."""
     import hashlib
@@ -76,7 +77,7 @@ def _seed_basket_item(
             raw_content, dropped_reason, dropped_by, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (item_id, title, url, source, "test_publisher", now, now,
-         "Test content", dropped_reason, dropped_by, now),
+         raw_content, dropped_reason, dropped_by, now),
     )
     conn.commit()
     return item_id
@@ -247,6 +248,29 @@ class TestBasketAPI:
             json={"tags": ["ai-fintech"]},
         )
         assert resp.status_code == 404
+
+    def test_rescue_rejects_body_that_cleans_to_empty(self):
+        """A 451-char footer-only body must not become an empty article."""
+        item_id = _seed_basket_item(raw_content="本文来源：某某公众号\n" * 41)
+        client = _get_app()
+        resp = client.post(f"/api/basket/{item_id}/rescue", json={"tags": []})
+        assert resp.status_code == 400
+        assert resp.json()["code"] == "bad_request"
+
+        # Nothing is written: the item stays rescuable after its body is fixed.
+        conn = get_db()
+        assert conn.execute(
+            "SELECT rescued_at FROM basket WHERE id = ?", (item_id,)
+        ).fetchone()["rescued_at"] is None
+        assert conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0] == 0
+
+    def test_rescue_allows_title_only_item(self):
+        """Compliance title-only items (no body) stay rescuable."""
+        item_id = _seed_basket_item(raw_content="")
+        client = _get_app()
+        resp = client.post(f"/api/basket/{item_id}/rescue", json={"tags": []})
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
 
     def test_rescue_creates_article(self):
         item_id = _seed_basket_item()

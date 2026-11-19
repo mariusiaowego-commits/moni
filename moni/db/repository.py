@@ -470,12 +470,15 @@ class ArticleRepository:
         scanned = 0
         updated = 0
         unchanged = 0
+        skipped = 0
         touched_pinned: list[str] = []
         for row in rows:
             scanned += 1
             old = row["raw_content"] or ""
             art = {"title": row["title"], "raw_content": old}
             if clean_for_write(art, old) is None:
+                # Guard hit: the cleaner would empty a substantial body.
+                skipped += 1
                 continue
             new = art["content"]
             if new != old or row["content_cleaner"] != CLEANER_ID:
@@ -508,4 +511,9 @@ class ArticleRepository:
 
             for aid in touched_pinned:
                 ensure_quality(conn, aid)
-        return {"scanned": scanned, "updated": updated, "unchanged": unchanged}
+        return {
+            "scanned": scanned,
+            "updated": updated,
+            "unchanged": unchanged,
+            "skipped": skipped,
+        }

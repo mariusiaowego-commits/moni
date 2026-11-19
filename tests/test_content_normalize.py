@@ -45,6 +45,13 @@ class TestFrontmatter:
         assert normalize(raw).text == raw
         assert normalize(raw).flags == ()
 
+    def test_note_key_alongside_real_keys_is_frontmatter(self):
+        """``Note:`` alone means prose; with real keys it is metadata."""
+        raw = "---\ntitle: x\nNote: 本周更新\n---\n正文第一段"
+        cleaned = normalize(raw)
+        assert cleaned.text == "正文第一段"
+        assert "frontmatter" in cleaned.flags
+
 
 class TestEntities:
     def test_named_entities_decoded(self):
@@ -197,7 +204,7 @@ class TestPlainTextKept:
     def test_code_fence_kept_verbatim(self):
         raw = (
             "正文开头。\n\n"
-            "```html\n<div class=\"box\"><p>hello</p></div>\n```\n\n"
+            "```html\n<div class=\"box\">\n  <p>hello</p>\n</div>\n```\n\n"
             "正文结尾。"
         )
         cleaned = normalize(raw)
@@ -205,3 +212,16 @@ class TestPlainTextKept:
         assert "<p>hello</p>" in cleaned.text
         assert "正文开头。" in cleaned.text
         assert cleaned.flags == ()
+        # Delimiters and indentation survive, and a second pass is a no-op:
+        # losing them let the next run treat the sample as live markup.
+        assert cleaned.text.count("```") == 2
+        assert "\n  <p>hello</p>" in cleaned.text
+        again = normalize(cleaned.text)
+        assert again.text == cleaned.text
+        assert "<div class=\"box\">" in again.text
+
+    def test_code_fence_keeps_comparison_operators(self):
+        raw = "标题\n\n```python\ndef f(a, b):\n    return a<b\n```"
+        cleaned = normalize(raw)
+        assert "    return a<b" in cleaned.text
+        assert normalize(cleaned.text).text == cleaned.text

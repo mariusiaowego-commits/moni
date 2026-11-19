@@ -38,6 +38,11 @@ UPGRADE_MIN_CHARS = 200
 _FRONTMATTER_MAX_CHARS = 1000
 _FRONTMATTER_MAX_LINES = 40
 _YAML_KEY_RE = re.compile(r"^[A-Za-z_][\w-]*\s*:")
+
+
+def _key_of(line: str) -> str:
+    return line.strip().split(":", 1)[0].strip()
+
 _ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\ufeff\u2060"), None)
 _REPLACEMENT_CHAR = "\ufffd"
 _HTML_TAGS = (
@@ -208,12 +213,16 @@ def _strip_frontmatter(text: str) -> tuple[str, str]:
         if lines[i].strip() != "---":
             continue
         header = lines[1:i]
-        if not all(
-            not ln.strip()
-            or ln.strip().startswith("#")
-            # Q:/A:/Note: are common prose questions, not YAML metadata.
-            or (_YAML_KEY_RE.match(ln) and ln.strip().split(":", 1)[0] not in ("Q", "A", "Note"))
-            for ln in header
+        keyed = [
+            ln for ln in header if ln.strip() and not ln.strip().startswith("#")
+        ]
+        if not all(_YAML_KEY_RE.match(ln) for ln in keyed):
+            return text, ""
+        # ``Q:`` / ``A:`` / ``Note:`` are common prose openers, so a block made
+        # only of those is a question, not a header.  Alongside real keys it is
+        # metadata and gets stripped with the rest.
+        if keyed and all(
+            _key_of(ln) in ("Q", "A", "Note") for ln in keyed
         ):
             return text, ""
         block_chars = sum(len(ln) for ln in header)
@@ -266,21 +275,27 @@ def _collapse(text: str) -> str:
     return text.strip()
 
 
+_FENCE_BLOCK_RE = re.compile(r"```.*?```", re.S)
+
+
 def _protect_fences(text: str) -> tuple[str, dict[str, str]]:
-    """Hide Markdown code fences so CTA/tag rules never touch code samples."""
-    parts = text.split("```")
-    if len(parts) < 3:
-        return text, {}
+    """Hide whole Markdown code fences, delimiters included.
+
+    Hiding only the fence *bodies* used to lose the `` ``` `` markers and let
+    ``_collapse`` reflow the sample, so a second pass saw the ``<div>`` inside
+    a code block as live markup and deleted it.  The block is now swapped out
+    verbatim, before any whitespace collapsing runs.
+    """
     protected: dict[str, str] = {}
-    out: list[str] = []
-    for i, part in enumerate(parts):
-        if i % 2 == 1:
-            ph = f"\x00F{i}\x00"
-            protected[ph] = part
-            out.append(ph)
-        else:
-            out.append(part)
-    return "".join(out), protected
+    if "```" not in text:
+        return text, protected
+
+    def _hide(match: re.Match[str]) -> str:
+        ph = f"\x00F{len(protected)}\x00"
+        protected[ph] = match.group(0)
+        return ph
+
+    return _FENCE_BLOCK_RE.sub(_hide, text), protected
 
 
 def _restore_fences(text: str, protected: dict[str, str]) -> str:
@@ -300,7 +315,9 @@ def normalize(raw: str, *, title: str = "") -> Cleaned:
         return Cleaned("")
 
     flags: list[str] = []
-    text, protected = _protect_fences(_collapse(raw))
+    # Protect before collapsing: code samples must survive whitespace reflow.
+    text, protected = _protect_fences(raw)
+    text = _collapse(text)
 
     text, fm_flag = _strip_frontmatter(text)
     if fm_flag:

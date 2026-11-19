@@ -280,3 +280,19 @@ class TestCleanAllHtml:
         assert second["scanned"] == 0
         assert second["updated"] == 0
         assert second["unchanged"] == 0
+
+    def test_guard_hit_is_counted_as_skipped(self, tmp_db):
+        """A body the guard refuses is reported, not silently dropped."""
+        migrate()
+        repo = ArticleRepository()
+        self._insert_legacy(tmp_db, [
+            ("footer only", "https://example.com/f", "36kr_rss",
+             "<p>本文来源：某某公众号</p>\n" * 20),
+            ("html", "https://example.com/g", "36kr_rss",
+             "<p>body kept</p>"),
+        ])
+        stats = repo.clean_all_html()
+        assert stats["scanned"] == 2
+        assert stats["updated"] == 1
+        assert stats["skipped"] == 1
+        assert stats["updated"] + stats["unchanged"] + stats["skipped"] == stats["scanned"]
