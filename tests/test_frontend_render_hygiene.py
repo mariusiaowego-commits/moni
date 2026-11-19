@@ -840,7 +840,14 @@ def test_pin_anim_version_bust_changed():
     assert m.group(1) != "1785000000", "pin_anim.js ?v= not bumped after JS change"
 
 
-VERSIONED_ASSETS = ["css/main.css", "js/toast.js", "js/app.js", "js/reader.js"]
+VERSIONED_ASSETS = [
+    "css/main.css",
+    "css/source-ops.css",
+    "css/source-modal.css",
+    "js/toast.js",
+    "js/app.js",
+    "js/reader.js",
+]
 
 
 def test_versioned_assets_busted_after_their_last_commit():

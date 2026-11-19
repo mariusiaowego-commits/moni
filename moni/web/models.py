@@ -477,6 +477,8 @@ class Source(BaseModel):
     url: str
     fetch_interval_min: int
     is_active: bool
+    # 展示面隐藏：is_active=0 是「不跑」，is_hidden=1 是「照跑但页面上不显示」
+    is_hidden: bool = False
     notes: str | None = None
     fetch_config: dict[str, Any] | None = None
     created_at: str
@@ -491,6 +493,7 @@ class SourceCreate(BaseModel):
     url: str
     fetch_interval_min: int = 30
     is_active: bool = True
+    is_hidden: bool = False
     notes: str | None = None
     fetch_config: dict[str, Any] | None = None
 
@@ -500,6 +503,7 @@ class SourceUpdate(BaseModel):
     url: str | None = None
     fetch_interval_min: int | None = None
     is_active: bool | None = None
+    is_hidden: bool | None = None
     notes: str | None = None
     fetch_config: dict[str, Any] | None = None
 

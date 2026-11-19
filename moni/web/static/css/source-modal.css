@@ -1,0 +1,271 @@
+/* ═══════════════════════════════════════════════════════════════
+   信源管理 · 同步进度弹窗（v1.0.109）
+
+   范围：.fetch-modal / .particle-stage / .source-chain / .completion-*
+   加载顺序在 main.css 之后 —— 同名选择器以本文件为准。
+
+   约束（跟主题一致，不引入新东西）：
+   - 只用主题变量：--background / --surface-modal / --card / --border /
+     --muted / --muted-fg / --foreground / --accent / --success /
+     --destructive 与 --radius-* / --font-*。无渐变、无发光、无毛玻璃、
+     无多层阴影、无装饰图形、无 emoji。
+   - 整窗只有一个滚动容器 = .modal-content（main.css:1584）。内层结果
+     列表不再自带 max-height + overflow，长列表折叠成 <details>。
+   - 间距走 4px 网格：8 / 12 / 16 / 56 / 72。
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 窗口骨架 ───────────────────────────────────────────────── */
+/* main.css 里 .modal-content 的 16px 是硬编码，这里对齐到变量 */
+.fetch-modal {
+  border-radius: var(--radius-xl);
+}
+.fetch-modal .modal-header { margin-bottom: 16px; }
+
+/* ── 1. 粒子舞台 ─────────────────────────────────────────────── */
+/* main.css 的 inset 阴影是纯装饰层，去掉后舞台靠背景色差和 1px 边框分层 */
+.fetch-modal .particle-stage {
+  margin-bottom: 16px;
+  border-radius: var(--radius-lg);
+  box-shadow: none;
+}
+
+/* main.css:1648 把完成态舞台收到 128px，但里面只有一行 16px 文字 ——
+   上下各空 54px 的死区。按「一行内容」收到 72px（24 行高 + 2×24）。 */
+.fetch-modal .particle-stage.is-complete {
+  height: 72px;
+  box-shadow: none;
+}
+
+/* 失败 / 超时 / 中止没有可看的东西：舞台整个收掉，把版面让给错误条 */
+.fetch-modal.is-failed .particle-stage {
+  display: none;
+}
+
+/* moni 图标与聚焦源：去掉主色发光，focus 只靠 3px 主色描边表达 */
+.fetch-modal .moni-icon,
+.fetch-modal .moni-icon.receiving,
+.fetch-modal .source-row.focus .source-icon {
+  box-shadow: none;
+}
+
+/* main.css:1728 的「瞭望」用 --accent 直出文字，浅色主题下对舞台底色
+   对比度约 1.4:1 —— 换成前景色，主色留给描边和进度条 */
+.fetch-modal .moni-label {
+  color: var(--foreground);
+}
+
+.fetch-modal .source-row.focus .source-label {
+  font-weight: 500;              /* 层级靠尺寸和颜色，不靠 600 */
+}
+
+/* ── 2. 舞台内的实时信息 ─────────────────────────────────────── */
+.fetch-modal .fetch-feed-info {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 320px;
+  text-align: center;
+  z-index: 4;
+  pointer-events: none;
+}
+.fetch-modal .fetch-feed-name {
+  font-size: var(--font-12);
+  color: var(--muted-fg);
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fetch-modal .fetch-feed-count {
+  font-size: var(--font-14);
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 3. 完成态：一行，数字是主角 ───────────────────────────────
+   原设计是「64px 绿勾圆 + 18px 大标题 + 副标题」竖排三层，压在 128px
+   条带里。完成时人要看的是数字，不是再一次被通知「完成了」——
+   状态词降为 13px 弱色前缀，摘要（13 个源 · 新增 42 篇 · 用时 12s）
+   是 16px 前景色等宽数字，中间用一条 1px 竖线分隔。 */
+.fetch-modal .completion-overlay {
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  gap: 0;
+  padding: 0 16px;
+  background: var(--stage-bg);      /* 不透明：背后的链和画布不透视 */
+  border-radius: var(--radius-lg);
+  color: var(--foreground);
+}
+.fetch-modal .completion-text {
+  font-size: var(--font-14);
+  font-weight: 500;
+  color: var(--muted-fg);
+  margin: 0;
+  padding-right: 10px;
+  white-space: nowrap;
+}
+.fetch-modal .completion-sub {
+  font-size: var(--font-16);
+  font-weight: 500;
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 摘要是 JS 写的 textContent，没写进来时不要留一条空竖线 */
+.fetch-modal .completion-sub:empty {
+  display: none;
+}
+
+/* ── 4. 状态行 ───────────────────────────────────────────────── */
+.fetch-modal .fetch-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.fetch-modal .fetch-status-elapsed {
+  margin-left: auto;
+  font-size: var(--font-13);
+  font-variant-numeric: tabular-nums;
+}
+/* 完成后「用时」已经在完成条带里，这里让位，避免同屏两遍 */
+.fetch-modal .fetch-status-row.is-settled .fetch-status-elapsed {
+  display: none;
+}
+
+/* ── 5. 进度条 ────────────────────────────────────────────────
+   原实现是 `background: var(--bg-secondary)` —— 这个变量在 moni 里从未
+   定义（见 main.css:1371 的注释），轨道实际是透明的；进度用 width 做
+   动画，每帧触发布局；计数文字压在色块上，深浅主题两头都会缺对比度。
+   现在：计数移到条子上方右对齐（等宽数字），条子收到 6px，进度用
+   transform: scaleX 走合成层。 */
+.fetch-modal .fetch-progress {
+  margin-bottom: 12px;
+}
+.fetch-modal .fetch-progress-meta {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+  font-size: var(--font-12);
+  color: var(--muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+.fetch-modal .fetch-progress-bar {
+  position: relative;
+  height: 6px;
+  border: 1px solid var(--border);   /* 深色主题下 --muted 与 surface 只差 0.02L，靠这圈发丝线定位 */
+  border-radius: var(--radius-xs);
+  background: var(--muted);
+  overflow: hidden;
+}
+.fetch-modal .fetch-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 0.3s ease;
+}
+
+/* ── 6. 当前源 / 当前 feed ──────────────────────────────────── */
+.fetch-modal .fetch-current {
+  font-size: var(--font-13);
+  margin-bottom: 16px;
+}
+.fetch-modal .fetch-current .fetch-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--font-12);
+  color: var(--muted-fg);
+}
+
+/* ── 7. 结果 ─────────────────────────────────────────────────── */
+/* 结果条沿用 main.css 的 .banner-success / .banner-warning（语义色不变），
+   只把硬编码的 4px 圆角对齐到变量，并收紧内部节奏 */
+.fetch-modal .banner-success,
+.fetch-modal .banner-warning {
+  border-radius: var(--radius-xs);
+  font-size: var(--font-13);
+}
+.fetch-modal .fetch-result-pipeline {
+  font-variant-numeric: tabular-nums;
+}
+.fetch-modal .fetch-result-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 8px;
+  color: var(--muted-fg);
+}
+
+/* 各源明细：折叠行，不再有内层滚动条 */
+.fetch-modal .fetch-results {
+  margin-top: 16px;
+}
+.fetch-modal .fetch-results details {
+  border-top: 1px solid var(--border);
+}
+.fetch-modal .fetch-results summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  font-size: var(--font-13);
+  color: var(--muted-fg);
+  cursor: pointer;
+  list-style: none;
+}
+.fetch-modal .fetch-results summary::-webkit-details-marker { display: none; }
+.fetch-modal .fetch-results summary:hover { color: var(--foreground); }
+.fetch-modal .fetch-results-count {
+  font-variant-numeric: tabular-nums;
+}
+/* 展开指示：6px 直角箭头，只用边框画，不引图标 */
+.fetch-modal .fetch-results summary::after {
+  content: "";
+  margin-left: auto;
+  width: 6px;
+  height: 6px;
+  border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+}
+.fetch-modal .fetch-results details[open] summary::after {
+  transform: rotate(-135deg) translateY(-2px);
+}
+.fetch-modal .fetch-results-body {
+  padding-bottom: 4px;
+}
+.fetch-modal .fetch-result-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-13);
+}
+.fetch-modal .fetch-result-row:last-child { border-bottom: none; }
+.fetch-modal .fetch-result-name {
+  flex: 0 0 92px;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fetch-modal .fetch-result-nums {
+  color: var(--muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+.fetch-modal .fetch-result-row .fr-error {
+  margin-bottom: 0;
+  font-weight: 500;
+}
+
+/* ── 8. 动效收敛 ─────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .fetch-modal .fetch-progress-fill { transition: none; }
+}

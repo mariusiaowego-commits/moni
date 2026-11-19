@@ -379,7 +379,7 @@ def cmd_xwatch_ingest(url_or_id: str, dry_run: bool = False) -> int:
 
     data = fetch_tweet(tid)
     if not data:
-        print(f"ERROR: syndication 抓取失败 (tweet id={tid}) — 可能已删除/受保护/限流")
+        print(f"ERROR: syndication 同步失败 (tweet id={tid}) — 可能已删除/受保护/限流")
         return 1
 
     art = tweet_to_article(data, fallback_url=url_or_id)

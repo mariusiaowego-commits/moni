@@ -1,27 +1,27 @@
 # moni 使用指南
 
-> 同业信源自动抓取与本地新闻库。**v1.0.71** (2026-11-12 IN REVIEW)。schema v40（沿用 main 的 migration 040，本版无新迁移）。`pytest tests/` → **1598 passed / 2 skipped**。
+> 同业信源自动同步与本地新闻库。**v1.0.71** (2026-11-12 IN REVIEW)。schema v40（沿用 main 的 migration 040，本版无新迁移）。`pytest tests/` → **1598 passed / 2 skipped**。
 
 > v1.0.42 起的核心能力 (2026-09-10):
 > - **后台任务租约** — fetch_jobs / llm_jobs 任务运行期间每 30s 写入心跳, 心跳超期 sweep 标记为 stale (取代 v1.0.35.17 墙钟判死, 解决 bestblogs 187 篇跑完后被误杀 600s timeout 问题)
 > - **LLM 熔断器** — 同一 provider 连续失败 3 次熔断 60s, 自动切换到 fallback 链 (新增 4 个 llm_settings key: `fallback_chain` / `breaker_failure_threshold` / `breaker_reset_seconds` / `use_stdin_transport`)
 > - **LLM 子进程加固** — hermes 子进程超时 killpg 全组 (零孤儿), 200KB argv 预检防 E2BIG, 长 prompt 走 stdin
-> - **API 出栈脱敏** — `GET /api/config/sources` 自动把 URL 里的 token=eyJ… 打成 `…` (库内 URL 一字未动, 不影响抓取)
+> - **API 出栈脱敏** — `GET /api/config/sources` 自动把 URL 里的 token=eyJ… 打成 `…` (库内 URL 一字未动, 不影响同步)
 > - **SPA 路径穿越遏制** — 静态资源路径严格校验, 拒绝 `..` / 反斜杠 / NUL / 绝对路径 (修前可读 `.env`, 修后 200/216024B SPA index.html)
 
 > v1.0.44 ~ v1.0.46 新增 (2026-10) — **v1.0.43 这个版本号从未存在** (从 v1.0.42 直接跳到 v1.0.44), tag 链上也没有它:
 > - **前端渲染稳健性 + Pin 闪色统一 700ms (v1.0.44)** — 慢网/弱网下 GSAP 未就绪不再抛 ReferenceError 崩页面（10 处动画调用点改成 `window.gsap` + 静默落视觉终态）；Pin 闪色全站统一 700ms。
-> - **动画与微交互 (v1.0.45)** — 抓取弹窗粒子场封顶 200（原无上界，弹窗开久了内存涨）；16/16 动效全部支持 `prefers-reduced-motion`；顺带删掉 2.83 MiB 没被引用的死资源。
+> - **动画与微交互 (v1.0.45)** — 同步弹窗粒子场封顶 200（原无上界，弹窗开久了内存涨）；16/16 动效全部支持 `prefers-reduced-motion`；顺带删掉 2.83 MiB 没被引用的死资源。
 > - **测试基线可信化 (v1.0.46)** — 只改测试，不改产品行为。修掉 3 处跨模块状态污染，测试从"8 个已知失败"变成全绿。
 >
 > v1.0.47 ~ v1.0.53 新增 (2026-10, 本批审计整改 + 沙箱护栏):
 > - **打标定时任务修好 (v1.0.47)** —— `predict_tags` 这个任务**从来没真正跑成功过**（SQL 查了不存在的列，进程内直接崩）。修好后它才会真的给待打标文章自动打标签。
-> - **链接安全护栏 + 离线可用 (v1.0.48)** —— 抓取到的内容里的恶意链接（`javascript:` 之类）点不动，会显示成"已拦截"；Alpine / GSAP 改成本地文件，断网/内网也能打开页面，不再白屏。
+> - **链接安全护栏 + 离线可用 (v1.0.48)** —— 同步到的内容里的恶意链接（`javascript:` 之类）点不动，会显示成"已拦截"；Alpine / GSAP 改成本地文件，断网/内网也能打开页面，不再白屏。
 > - **分享队列锁改成原子获取 (v1.0.49)** —— 原来两个 worker 同时起来会都以为自己拿到活儿（同一批任务跑两遍）。
 > - **CI 自动测试流水线 (v1.0.50)** —— 每次推代码 GitHub 自动跑一遍测试，顺带修掉它首次跑就抓出的一处路径写死问题（换台机器/换个系统就跑不动）。
 > - **删掉一个危险接口 (v1.0.51)** —— `PUT /api/fetch/sources` 以前会把一次请求的改动套用到**所有**信源并重写整个配置文件，已删除。
 > - **测试数据隔离 (v1.0.52)** —— 跑测试不会再碰到你真实的 `data/news.db` 和 `config/sources.yaml`。
-> - **沙箱里不再抢你的 Chrome (v1.0.53)** —— 在 Codex/沙箱里跑抓取时改用独立的 headless 浏览器，不再反复拉起你正在用的 Chrome。
+> - **沙箱里不再抢你的 Chrome (v1.0.53)** —— 在 Codex/沙箱里跑同步时改用独立的 headless 浏览器，不再反复拉起你正在用的 Chrome。
 > - **CI 修绿 (v1.0.55，进行中)** —— GitHub 自动测试之前一直是红的，正在修。
 >
 > 这份文档给**用户**（你自己）看 —— 怎么用 moni，不讲代码细节。
@@ -72,7 +72,7 @@ topnav 右侧显示服务状态：
 | 运行 | 状态点、端口、PID、已运行多久 |
 | 版本 | 版本号 + 提交号（例如 `v1.0.94 (d69f66d)`）、领先 tag 几个提交、分支、工作区是否干净 |
 | 数据 | Schema 版本、数据库文件名与大小、文章数、队列待处理/运行中、LLM 模式 |
-| 时间 | 最近一次抓取时间 |
+| 时间 | 最近一次同步时间 |
 
 面板右下角的「刷新」会跳过 30 秒缓存重新取一次。工作区显示「有未提交改动」时，
 说明生产目录里有人改过文件还没提交，值得看一眼。
@@ -88,7 +88,7 @@ topnav 右侧显示服务状态：
 | **案例库** (v1.0.17 新增) | F6 同业案例库 — 案例检索视图,按主体/类型/动作/参考价值筛选;全文检索 / 详情含原文证据 / 引用案例 `MN-AI-2608-0042` |
 | **CRUD** | 编辑/删除单篇文章 (含新建 modal — v1.0.5.11), 两步删除 confirm |
 | **跑批日志** | cron 任务执行历史 |
-| **抓取管理** | 11 源配置 + 手动触发抓取 + 健康检查 |
+| **信源管理** | 11 源配置 + 手动触发同步 + 健康检查 |
 | **分享** | 11 种格式导出 (card grid — v1.0.5.11, 1 卡 1 篇文章) |
 | **LLM 任务** | 异步 LLM 摘要/事实核查进度面板 (v1.0.5.2, 状态徽章 + 自动轮询) |
 | **配置管理** | 业务源 / 业务 tag (8 色 swatch 选色) / 关键词过滤 CRUD (v1.0.2 新增, v1.0.5.12 swatch palette 升级) |
@@ -172,11 +172,11 @@ topnav 右侧显示服务状态：
 
 ## 4. 配置管理 (核心)
 
-### 3.1 抓取源 tab
+### 3.1 信源 tab
 
 12 个默认源 (DB 主用, YAML 备用):
 
-| name | URL | 抓什么 | 抓取间隔 |
+| name | URL | 同步内容 | 同步间隔 |
 |---|---|---|---|
 | 36kr_rss | https://36kr.com/feed | 36氪 科技/创投 | 15 min |
 | mpaypass | https://www.mpaypass.com.cn/ | 移动支付网 银行/支付 | 30 min |
@@ -201,14 +201,14 @@ topnav 右侧显示服务状态：
 > 先确认那台机器的 git 能访问这个私有仓库。
 >
 > **tag 怎么定的 (v1.0.66 起)**: 不是"按 topic 硬打", 而是 **topic → 候选 tag →
-> 该 tag 当前关键词的真实命中**。候选 tag 在 `/config` → xbot_feed → 抓取配置里
+> 该 tag 当前关键词的真实命中**。候选 tag 在 `/config` → xbot_feed → 同步配置里
 > 改 (`topic_tags`, 默认 `wechat → [wechat, miniprogram]` /
 > `xcircle → [general-tech, ai-fintech]`); 关键词在 `/config` → 业务 tag 里改。
-> **改完关键词下一轮抓取立刻生效** —— 被关键词挡掉的条目不会记进"已导入",
+> **改完关键词下一轮同步立刻生效** —— 被关键词挡掉的条目不会记进"已导入",
 > 所以改宽松之后它们会重新进来。命中哪个 tag 就只挂哪个 (推特圈的推文不会被
 > 挂上"微信生态"); 一个都没命中则该条**不入库**。
 
-> **v1.0.71 起: 范围 (scope) + 入库门槛 (thresholds) 在抓取配置弹窗里可见可改**
+> **v1.0.71 起: 范围 (scope) + 入库门槛 (thresholds) 在同步配置弹窗里可见可改**
 > （仅 xbot_feed 源有这两块；其它信源的弹窗不变）。
 >
 > - **信源范围 (scope)** —— 显示这条源"到底在搜什么": xcircle 固定账号名单、
@@ -219,13 +219,13 @@ topnav 右侧显示服务状态：
 >   也不会让 moni 多收或少收条目。它只是把"上游在搜什么"记下来给你看。
 > - **入库门槛 (thresholds)** —— 每个 topic 两个数字框: **最低粉丝数** / **最低点赞数**
 >   （wechat 与 xcircle 各一行）。**0 = 不设限**（默认全 0 = 行为与以前完全一样）。
->   抓取时按 topic 过滤进入的条目, 这是**第二道**闸门:
+>   同步时按 topic 过滤进入的条目, 这是**第二道**闸门:
 >   - 上游自 2026-11-12 起自己就带 wechat 门槛（5000 粉 / 5 赞）→ moni 门槛**只能更严**,
 >     **捞不回上游已丢的条目**;
 >   - 缺 `author_followers` / `metrics.like` 的条目**放行不丢**（只计数）—— 门槛是收紧闸门,
 >     不是内容匹配, 不能误杀;
 >   - 被门槛丢掉的条目**不算"已导入"** → 之后把门槛调松, 它们能重新进来;
->   - 抓取结果面板会显示「门槛过滤」: 丢了多少条、按 topic 与原因分布。
+>   - 同步结果面板会显示「门槛过滤」: 丢了多少条、按 topic 与原因分布。
 > - ⚠️ **别用 `moni db init` / `moni db seed-config` 升级** —— seed 会覆盖整行
 >   `fetch_config`, **连你配的门槛与 scope 一起抹掉**。升级用
 >   `python3 -m moni.db.migrate`（只跑迁移, 不碰 `sources` 行）。
@@ -237,21 +237,21 @@ topnav 右侧显示服务状态：
 > - **确认框会告诉你会删掉几篇** —— 「将删除 N 篇已有文章, 不可恢复」。
 >   被屏蔽作者的**旧文章会真的从库里删掉**（不是隐藏）。摘要、核查、pin 等
 >   关联数据一并清理干净, 不会留孤儿行。
-> - **以后也不会再进来** —— 下次抓取时这个作者的条目直接跳过,
->   抓取结果面板会单独显示「作者屏蔽: N 条」（不混进「门槛过滤」）。
-> - **解除屏蔽**在 `/config` → xbot_feed → 抓取配置 → 「已屏蔽作者」里,
+> - **以后也不会再进来** —— 下次同步时这个作者的条目直接跳过,
+>   同步结果面板会单独显示「作者屏蔽: N 条」（不混进「门槛过滤」）。
+> - **解除屏蔽**在 `/config` → xbot_feed → 同步配置 → 「已屏蔽作者」里,
 >   点作者名右边的 **×** 即可。⚠️ **解除只管以后**: 之前删掉的旧文章**不会回来**。
-> - 名单存在**独立的表**里（不跟抓取配置放一起）→ 所以
+> - 名单存在**独立的表**里（不跟同步配置放一起）→ 所以
 >   `moni db init` / `moni db seed-config` **不会**把它抹掉。
 > - ⚠️ 屏蔽是**按 `@handle` 精确匹配**（大小写不敏感）→ 只影响这一个作者,
 >   同源其它作者、其它信源的文章都不动。
 
 **新建源**: 点"+ 新建 source" → 填 id / name / url / type / interval → 保存
 **行内操作 (v1.0.77 起为图标)**: 每行四个图标按钮, 悬停显示名称 —
-滑杆 = 抓取配置、标签 = 改 tags、铅笔 = 编辑、垃圾桶 = 删除
+滑杆 = 同步配置、标签 = 改 tags、铅笔 = 编辑、垃圾桶 = 删除
 **改 tags**: 点行内标签图标 → 多选弹窗
 **停用源**: 不删, is_active 设为 false 即可 (点行内铅笔图标)
-**抓取配置**: bestblogs/bestblog-* 源可点滑杆图标编辑 max_feeds / max_articles_per_feed 等参数
+**同步配置**: bestblogs/bestblog-* 源可点滑杆图标编辑 max_feeds / max_articles_per_feed 等参数
 
 ### 3.2 业务 tag tab
 
@@ -265,7 +265,7 @@ topnav 右侧显示服务状态：
 | regulation | 监管 | 橙 #EA580C | 监管 (政策/法规/合规) |
 | general-tech | 通用科技 | 灰 #6B7280 | 通用科技 (其他) |
 
-**v1.0.5.14 起**:`display_name` 字段是给 UI 展示用的中文名(可改),`name` 仍是 PK 英文标识(不可改,改了引用全断)。前端"业务 tag"和"抓取源"两处都按 `display_name || name` 兜底。
+**v1.0.5.14 起**:`display_name` 字段是给 UI 展示用的中文名(可改),`name` 仍是 PK 英文标识(不可改,改了引用全断)。前端"业务 tag"和"信源"两处都按 `display_name || name` 兜底。
 
 **新建 tag**: 点"+ 新建 tag" → 填 name (英数下划线) / display_name (可选, 中文展示名) / description / **color (8 色 swatch 单选, v1.0.5.12)** → 保存
 **v1.0.39**: 新建 tag 时 name 全程可自由输入到保存才提交, 不会再输一个字符就锁死 (此前 bug)。
@@ -330,19 +330,19 @@ Provider / Model 绑定 + 各类任务默认模型 —— **只在「指定模�
 
 ---
 
-## 5. 抓取
+## 5. 同步
 
-### 5.1 全部抓取 (v1.0.6.2 新增)
+### 5.1 全部同步 (v1.0.6.2 新增)
 
-抓取管理页顶部 **⚡ 全部抓取** 按钮：
+信源管理页顶部 **⚡ 全部同步** 按钮：
 - 一键跑所有 6 个源
 - 显示每个源的拉取/入库/去重/过滤明细
 - 周一自动补抓周末数据
 - 结果写入 cron_runs + fetch_log 日志表
 
-### 5.1.1 抓取状态与错误文案 (v1.0.67 改)
+### 5.1.1 同步状态与错误文案 (v1.0.67 改)
 
-- **排队中**：批量抓取一开始，所有信源立刻出现在队列里并标「排队中」，
+- **排队中**：批量同步一开始，所有信源立刻出现在队列里并标「排队中」，
   轮到哪个跑哪个 —— 不用等前一个源跑完才知道后面还有多少活。
 - **中途失败不丢已抓内容**：BestBlogs 这类聚合源每 10 个订阅源就落一次库，
   进程被打断时已经抓到的文章仍然入库（重抓靠链接去重）。
@@ -362,17 +362,17 @@ BestBlogs 聚合不再只能靠 `max_feeds` 截断来"取舍"，可以在
 - `exclude_feeds` 按 **feed URL 精确匹配**删除；配置了但 OPML 里已经没有的项会在日志里点名（`已失效的删除项`），不会悄悄失效。
 - `extra_feeds` 会**插到最前面**，保证在 `max_feeds` 截断前一定被跑到。
 - 配置按 **source 名分块**：`bestblogs` 的块只作用于 `bestblogs`；`bestblog-yt` / `bestblog-podcast`
-  继承同一套抓取代码，但读的是各自同名块（现在为空，想给播客做取舍就在这里加块）；
-  `bestblog-x` 走独立抓取逻辑，不读这个文件。
+  继承同一套同步代码，但读的是各自同名块（现在为空，想给播客做取舍就在这里加块）；
+  `bestblog-x` 走独立同步逻辑，不读这个文件。
 - **它不改变单轮覆盖率**：每轮真正能抓到多少号，由 `max_articles_total`（默认 500 篇）决定，
   实际只覆盖约 100 个 feed。`exclude` 只保证被删的号不再被抓；想让更后面的号也被抓到，得调这个上限。
 
 ### 5.2 Tag 过滤丢弃明细 (v1.0.6.4 新增)
 
-抓取结果下方有「Tag 过滤丢弃明细 (N 条)」折叠面板：
+同步结果下方有「Tag 过滤丢弃明细 (N 条)」折叠面板：
 - 点击展开 → 看到被过滤掉的文章标题列表
 - 帮你判断 tag 关键词是否设置过严（好文章被误丢）
-- 全部抓取时按源分组显示，单源抓取时直接显示
+- 全部同步时按源分组显示，单源同步时直接显示
 
 ### 5.2.1 关键词怎么才算命中 (v1.0.64 改)
 
@@ -415,11 +415,11 @@ set -a && source .env && set +a
 最后那个 N 是「旧规则独有」的篇数，**不等于误命中数** —— 它同时包含真误命中
 （`ark` 命中 Markdown 之类）和被收紧规则连带丢掉的真命中（`CVPR` 不再命中 `CV`）。
 
-### 5.3 单源抓取
+### 5.3 单源同步
 
-每行有「立即抓取」按钮，只跑该源。
+每行有「立即同步」按钮，只跑该源。
 
-### 4.1 手动抓取
+### 4.1 手动同步
 
 ```bash
 # 全部启用源
@@ -438,7 +438,7 @@ python3 -m moni fetch --health
 
 ### 4.1.1 36kr captcha 维护 (v1.0.5.5+)
 
-36kr.com 用字节跳动 TTGCaptcha 拦截所有非浏览器客户端 (httpx 返 1460 bytes captcha HTML)。v1.0.5.5 起 36kr fetcher 走真 Chrome (Profile 7, port 9223) 抓取。
+36kr.com 用字节跳动 TTGCaptcha 拦截所有非浏览器客户端 (httpx 返 1460 bytes captcha HTML)。v1.0.5.5 起 36kr fetcher 走真 Chrome (Profile 7, port 9223) 同步。
 
 **首次配置** (一次性, 30 秒):
 
@@ -483,7 +483,7 @@ waytomaster 免费账户上限 2 公众号。多个 token 可追踪 4+ 公众号
 **前端加新账号** (推荐, 不动代码):
 
 ```
-配置管理 → 抓取源 → + 新建 source
+配置管理 → 信源 → + 新建 source
   id:        src-wechat-rss-c
   name:      wechat_rss_c
   type:      wechat_aggregator
@@ -504,7 +504,7 @@ waytomaster 免费账户上限 2 公众号。多个 token 可追踪 4+ 公众号
 - DB `UNIQUE(source, url)` 约束, 不同账号 (a/b/c) 即使追踪同一公众号也**不会冲突**
 - **v1.0.5.7**: publisher 字段已修 — 自动从 title 前缀 `[公众号名]` 抽出, DB 里能看到完整公众号名; 历史数据跑 `moni backfill-publisher` 一次回填
 
-### 4.2 自动抓取 (cron)
+### 4.2 自动同步 (cron)
 
 moni 有**两套** cron 机制:
 
@@ -531,18 +531,18 @@ bash scripts/install_cron.sh uninstall
 
 `config/schedule.yaml` 定义 APScheduler 调度。
 
-### 5.3 抓取结果解释 (v1.0.6.1 新增)
+### 5.3 同步结果解释 (v1.0.6.1 新增)
 
-「立即抓取」后，结果区域双栏展示：
+「立即同步」后，结果区域双栏展示：
 
 **左侧 — 结构化解释**:
 - ✅ 新增 X 篇文章入库 / ⚠️ 全部重复 / ℹ️ 无新内容
-- 抓取流程: 远程拉取 → 解析 → 去重 (跳过 N 条)
+- 同步流程: 远程拉取 → 解析 → 去重 (跳过 N 条)
 - 过滤情况: 黑名单/白名单/Tag 过滤丢弃数，或「全部通过」
 
 **右侧 — 原始 JSON** (保留不变，调试用)
 
-### 5.4 抓取日志含义
+### 5.4 同步日志含义
 
 ```
 [36kr_rss]  fetched=30  parsed=30  cleaned=30  inserted=24  parse_errors=0
@@ -584,7 +584,7 @@ python3 -m moni content-audit --issues-only
 - 清洗后若正文为空而原文 ≥200 字，**跳过不写**，计入 `emptied`；
 - 正文一旦变化，旧的摘要/简报正文作废并重建排版，需要重新生成摘要。
 
-`short_form` / `snippet` / `title_only` 的源本来就没有长正文，不会再被当成抓取故障。
+`short_form` / `snippet` / `title_only` 的源本来就没有长正文，不会再被当成同步故障。
 
 **2026-11-19 全库落地**：`--apply` 跑了 5,323 篇、改写 872 篇、删字符 54,670、清空 0 篇；
 文末授权声明 200 → 0、零宽 16 → 0、`U+FFFD` 55 → 0。校验两条：
@@ -742,7 +742,7 @@ v1.0.5.18 重构后, 分享菜单在"选择格式"下方多 3 块可选项 (所�
 - `bestblog-yt` (BestBlogs YouTube, 18 篇)
 
 **v1.0.9.4 改进**:
-- 新抓取文章自动从 RSS `<guid>` 获取 BestBlogs resourceId
+- 新同步文章自动从 RSS `<guid>` 获取 BestBlogs resourceId
 - 分享时直接调用 `GET /resources/{id}` 获取元数据 (不再依赖不存在的 /search 端点)
 - 历史文章 (343 篇) 需补填 resourceId (待网络稳定后运行 `scripts/backfill_bb_resource_id.py`)
 
@@ -1084,7 +1084,7 @@ curl "http://127.0.0.1:8900/api/stats/fact-check-method?period=30d" | python3 -m
 
 ### 5.8b evidence 时效校验 (v1.0.26)
 
-> 联网核查+ 的证据链落库后, 证据是**抓取时刻**的检索结果 — 时间久了可能失效 (监管政策变了 / 数字过时)。v1.0.26 加证据时效校验: 抓取超过 30 天标「已过期」, 超过 90 天强降级为「存疑」, 防止把旧证据当新事实用。
+> 联网核查+ 的证据链落库后, 证据是**同步时刻**的检索结果 — 时间久了可能失效 (监管政策变了 / 数字过时)。v1.0.26 加证据时效校验: 同步超过 30 天标「已过期」, 超过 90 天强降级为「存疑」, 防止把旧证据当新事实用。
 
 **怎么看**:
 
@@ -1236,7 +1236,7 @@ python3 -m moni.db.migrate
 > ⚠️ **不要用 `python3 -m moni db init` 做升级。**
 > `db init` = **migrate + seed_llm + seed_config** (`moni/cli/main.py:45-50`),
 > 其中 `seed_config` 会把你改过的源字段重置成出厂默认
-> (display_name / url / 抓取间隔 / notes / fetch_config),
+> (display_name / url / 同步间隔 / notes / fetch_config),
 > 把你取消掉的 tag 绑定补回来, 还会把你停用过的业务 tag 重新启用。
 > `db init` 适合**首次装库** (建全新 schema + seed 出厂配置),
 > **升级一律用 `python3 -m moni.db.migrate`**。
@@ -1264,17 +1264,17 @@ python3 -m moni.db.migrate
    - `fetch()` → list of dict
    - `parse(raw)` → normalized dict
    - `@register_fetcher` 装饰
-2. **加 config**: web UI "配置管理 > 抓取源" → "+ 新建 source"
-3. **加 tag 关联**: web UI "配置管理 > 抓取源" 行内 "改 tags"
+2. **加 config**: web UI "配置管理 > 信源" → "+ 新建 source"
+3. **加 tag 关联**: web UI "配置管理 > 信源" 行内 "改 tags"
 4. **加 filter** (可选): web UI "配置管理 > 关键词过滤"
-5. **测抓取**: `python3 -m moni fetch --source <name>`
+5. **测同步**: `python3 -m moni fetch --source <name>`
 
 ### 11.1 特例: 银行同业 (`bank_feed`, v1.0.76 / v1.0.89)
 
-这个源**不用写代码就能加信源**，因为真正的抓取动作在一个外部 agent 里
+这个源**不用写代码就能加信源**，因为真正的同步动作在一个外部 agent 里
 (`scripts/bank_bot/run_bot.py`)，moni 只负责读它产出的 JSON。
 
-**它抓什么**
+**它同步内容**
 
 | 类型 (`kind`) | 覆盖 | 怎么抓 |
 |---|---|---|
@@ -1285,15 +1285,15 @@ python3 -m moni.db.migrate
 
 **怎么用**
 
-1. 配置管理 → 抓取源 → 「银行同业」→ 点「抓取」。
-2. 当天没有 feed 时，抓取会**就地跑一轮 bot**：确定性段（4 个静态官网 +
+1. 配置管理 → 信源 → 「银行同业」→ 点「同步」。
+2. 当天没有 feed 时，同步会**就地跑一轮 bot**：确定性段（4 个静态官网 +
    媒体）通常 20 秒内完成；工行 / 公众号才走 agent
    （`hermes --profile moni` → magpie，和 moni 其他 LLM 调用是同一条链路）。
 3. 抓完的条目进「文章」，tag 是 **同业**（`peer-banks`）；`GET /api/articles?tag=peer-banks` 可直接筛。
 
 **怎么加/换信源（零代码）**
 
-配置管理 → 抓取源 → 银行同业 → 编辑 `fetch_config` 的 `targets`，
+配置管理 → 信源 → 银行同业 → 编辑 `fetch_config` 的 `targets`，
 按 `config/bank_targets.json` 的格式加一条：
 
 ```json
@@ -1305,19 +1305,19 @@ python3 -m moni.db.migrate
 - `max_age_days`（可选，默认 60）对该目标的**所有条目**生效（官网静态列表 /
   agent / 媒体 RSS）；设 `0` 关掉时效窗口（列表里有什么就取什么）。
 - `targets` 留空时用仓库里的 `config/bank_targets.json`（11 个目标）。
-- 改完不需要重启服务，下一次抓取生效。
+- 改完不需要重启服务，下一次同步生效。
 
 **几条要知道的行为**
 
 - **默认不参加定时任务**：`config/sources.yaml` 里它有 `batch_enabled: false`，
-  所以工作日 9:10 的全量抓取和 web「一键抓取」都不会带上它；只有抓取管理里
-  对「银行同业」单点「立即抓取」才跑（确定性段约 20 秒，工行 agent 段另计）。想恢复自动跑：
+  所以工作日 9:10 的全量同步和 web「一键同步」都不会带上它；只有信源管理里
+  对「银行同业」单点「立即同步」才跑（确定性段约 20 秒，工行 agent 段另计）。想恢复自动跑：
   把那一行改成 `true` 或删掉。
 
 - **抓不到 ≠ 今天没新闻**：今天完全没数据时才记 `failed`；有数据但有目标
   失败记 **`partial`（部分完成）**，弹窗显示「已入库 N 篇 · 缺口原因」，
   不再出现「失败 · 0 篇」。
-- **手动点击不受冷却限制**：点「立即抓取」会立刻补跑失败目标；
+- **手动点击不受冷却限制**：点「立即同步」会立刻补跑失败目标；
   `retry_after_min`（默认 30 分钟）只约束非手动触发。
 - **agent 瞬时故障自动重试一次**：`session_replay_gap` / 超时 / 连接断这类
   网关瞬断不会再让某个官网当天缺口（非瞬时错误不重试）。
@@ -1332,14 +1332,14 @@ python3 -m moni.db.migrate
   窗口内一条都没有时 bot 不写当天 feed、以 2 退出（和「抓到 0 条 ≠ 今天没新闻」同一条规则），任务记失败，下次会再试。
 - **详情页拿不到正文会回退 agent**：静态解析出的条目如果整页都抽不到正文
   （站点改版 / WAF / 编码不对），这家会改用 agent 重取，不把「只有标题」的
-  空壳当抓取成功。
+  空壳当同步成功。
 - **失败目标会写进当天 feed 的 `errors`**：即使静态解析失败后回退了 agent、
   agent 也没交回任何条目，这个目标仍记为缺口 —— 当天 feed 因此不算「已完整」，
-  过冷却窗口（或再点一次「立即抓取」）会补跑。
+  过冷却窗口（或再点一次「立即同步」）会补跑。
 - **批量结果里 partial 的源只出现一行**：黄色底 + 行内 warning 文本，
   不再同时出现在失败列表里。
 - **别删 `peer-banks` 这个 tag / 别解绑它**：删掉 tag 或删掉源与 tag 的绑定后，
-  抓取会报「no tag bound」并拒绝入库 —— 这是故意的，避免制造一批前端筛不到的
+  同步会报「no tag bound」并拒绝入库 —— 这是故意的，避免制造一批前端筛不到的
   零 tag 文章。要恢复：`moni db init` 会重新种回 tag 和绑定。
 - 公众号**只能贴已知链接**：搜狗微信有验证码、官微不被搜索引擎索引，
   所以做不到「自动发现今天某行公众号发了什么」。
@@ -1378,7 +1378,7 @@ python3 -m moni.db.migrate
 
 **Tag 门控**: 推文内容必须命中 xwatch 绑定的 wechat / miniprogram tag 关键词（"微信小程序"、"服务通知"、"订阅消息" 等）才会入库；不命中输出 `SKIP: ...`，不写库、退出码 0。
 
-### 12.2 Following 抓取 (Channel C)
+### 12.2 Following 同步 (Channel C)
 
 前置：本机 Chrome **Profile 6** 已登录 X（端口 9222）。与 moni 36kr 用的 Profile 7/9223 隔离。
 
@@ -1395,7 +1395,7 @@ python3 -m moni.db.migrate
 
 关注 **300 人**没问题：抓的是**混合 Following 流**最近 N 条，不是 300 个主页。
 
-### 12.3 批量抓取（三通道一起）
+### 12.3 批量同步（三通道一起）
 
 ```bash
 /usr/local/bin/python3 -m moni fetch --source xwatch --dry-run
@@ -1413,7 +1413,7 @@ python3 -m moni.db.migrate
 
 ### 12.5 配置 (fetch_config)
 
-Web UI **配置管理 → 抓取源 → xwatch → fetch_config**：
+Web UI **配置管理 → 信源 → xwatch → fetch_config**：
 
 | 字段 | 含义 | 默认 |
 |---|---|---|
@@ -1438,9 +1438,9 @@ Web UI **配置管理 → 抓取源 → xwatch → fetch_config**：
 ```
 
 ⚠️ `moni db seed-config` 会把**你在 /config 改过的源字段重置成 seed 默认**:
-display_name / url / 抓取间隔 / notes / fetch_config, 并把你取消掉的 tag 绑定补回来。
+display_name / url / 同步间隔 / notes / fetch_config, 并把你取消掉的 tag 绑定补回来。
 **业务 tag 自己的字段也会被重置**: 显示名 / 描述 / 颜色, 以及 **停用状态**
-(你停用过的 tag 会被重新启用 = 抓取闸门重新打开)。
+(你停用过的 tag 会被重新启用 = 同步闸门重新打开)。
 不受影响的只有两样: 源被**停用**的状态 (is_active), 以及 tag 的**关键词** (keywords)。
 升级到新版本时**不需要**跑它 —— 新源由 migration 自动落库, 升级用
 `python3 -m moni.db.migrate` (⚠️ `moni db init` = migrate + seed, 会重置这些字段, 不要用来升级)。
@@ -1476,12 +1476,12 @@ display_name / url / 抓取间隔 / notes / fetch_config, 并把你取消掉的 
 3. 搬迁后必须用**系统 Google Chrome（headed，有窗口）**验证 `https://x.com/home` 已登录；**绝不可以使用 `chrome-headless-shell` 打开 xwatch profile**。验证脚本：`scripts/verify-xwatch-profile.py`（需在沙箱外运行）。
 
 ### moni 当前使用的是哪两个？
-- **`Profile 7`**：用于 moni 的 36kr daemon 抓取（端口 9223）。
-- **`Profile 6/Default`**：用于 moni 的 xwatch 抓取（端口 9222）。此前因参数 `--user-data-dir` 错误指定为 `Profile 6`，Chrome 自动在其内部套了一层 `Default/` 目录，"借住"在了用户的 hermes 配置文件夹下。
+- **`Profile 7`**：用于 moni 的 36kr daemon 同步（端口 9223）。
+- **`Profile 6/Default`**：用于 moni 的 xwatch 同步（端口 9222）。此前因参数 `--user-data-dir` 错误指定为 `Profile 6`，Chrome 自动在其内部套了一层 `Default/` 目录，"借住"在了用户的 hermes 配置文件夹下。
 
 ### 目录搬迁治理计划 (v1.0.56)
 在 **v1.0.56** (`feature/v1.0.56-chrome-profile-migration`) 中：
-- moni 抓取所用的 Chrome 配置目录将彻底从系统默认的 Chrome Application Support 路径剥离，统一搬迁到 moni 专用目录：`~/.moni/chrome/xwatch` 与 `~/.moni/chrome/daemon`。
+- moni 同步所用的 Chrome 配置目录将彻底从系统默认的 Chrome Application Support 路径剥离，统一搬迁到 moni 专用目录：`~/.moni/chrome/xwatch` 与 `~/.moni/chrome/daemon`。
 - 彻底解决 xwatch 误伤用户日常 Chrome 数据导致「恢复页面」崩溃弹窗的问题。
 - 搬迁前将提供独立的迁移脚本，严格遵循备份、干跑、校验与可回滚流程，真正执行待 dad 拍板。
 
@@ -1504,7 +1504,7 @@ display_name / url / 抓取间隔 / notes / fetch_config, 并把你取消掉的 
 
 | 模块 | 含义 | 阈值 | 关键数字 |
 |---|---|---|---|
-| 抓取层 | cron_runs + articles 抓取 | N≥10 | 跑批次数 / 成功率 / 新增文章数 |
+| 同步层 | cron_runs + articles 同步 | N≥10 | 跑批次数 / 成功率 / 新增文章数 |
 | LLM 层 | llm_jobs 处理 | N≥10 | 任务数 / 成功率 / 平均耗时 / 重试 |
 | 抽取层 | events + cases 抽取 | **N≥5** (events/cases 单独) | 事件数 / 案例数 / 待确认数 |
 | 使用层 | article_pins + share_tasks | N≥10 | Pin / 分享 / 简报生成 |
@@ -1512,7 +1512,7 @@ display_name / url / 抓取间隔 / notes / fetch_config, 并把你取消掉的 
 
 ### 顶部三卡 (基线 / 当前 / 目标)
 
-- **基线 (上一周期)**: 上一周期的抓取/LLM/新增文章
+- **基线 (上一周期)**: 上一周期的同步/LLM/新增文章
 - **当前**: 当前周期
 - **目标 (current × 1.2)**: 不是承诺值,只是"基线 + 20% 增长参考线"
 
@@ -1534,7 +1534,7 @@ display_name / url / 抓取间隔 / notes / fetch_config, 并把你取消掉的 
 
 ```
 GET /api/stats/overview?period=7d|30d|90d      # 三卡 + 6 类汇总
-GET /api/stats/fetch?period=7d|30d|90d         # 抓取层详情
+GET /api/stats/fetch?period=7d|30d|90d         # 同步层详情
 GET /api/stats/llm?period=7d|30d|90d           # LLM 层详情
 GET /api/stats/extract?period=7d|30d|90d       # 抽取层详情
 GET /api/stats/usage?period=7d|30d|90d         # 使用层详情
@@ -1573,7 +1573,7 @@ GET /api/stats/timeseries?metric=fetch|llm|... # 趋势数据
 它和 BestBlogs 不一样：BestBlogs 偏公众号/技术媒体，这个源是**个人独立博客**，
 内容更偏技术、产品、生活、写作等长尾视角。
 
-### 抓取方式
+### 同步方式
 
 - 上游名单 695 个 feed，实测约 **306 个可抓**。
 - 不会每轮全扫 695 个，默认每 3 小时抓一个 **80 feed 的轮转窗口**。
@@ -1586,7 +1586,7 @@ GET /api/stats/timeseries?metric=fetch|llm|... # 趋势数据
 ### 在页面里怎么用
 
 1. `/config` → 信源列表能看到「中文独立博客」。
-2. 点该源的抓取配置，可改：
+2. 点该源的同步配置，可改：
    - `max_feeds`：每轮扫多少个 feed（默认 80，调大更全但更慢）
    - `max_articles_per_feed`：每 feed 取几篇（默认 3）
    - `max_articles_total`：单轮总上限（默认 240）
@@ -1595,7 +1595,7 @@ GET /api/stats/timeseries?metric=fetch|llm|... # 趋势数据
    - `min_feeds_before_failure_rate_check`：至少检查多少个 feed 再判断失败率（默认 10）
    - `max_failure_rate`：失败率超过多少时提前结束（默认 0.7，即 70%）
    - `timeout_sec`：整轮任务超时（默认 1200 秒；80 feed × 12 秒最坏约 988 秒）
-3. 抓取管理页手动触发或等 9:10 定时抓取。
+3. 信源管理页手动触发或等 9:10 定时同步。
 
 ### 筛选规则
 
@@ -1604,7 +1604,7 @@ GET /api/stats/timeseries?metric=fetch|llm|... # 趋势数据
 `APP`、`ai-fintech`、`banking`、`general-tech`、`miniprogram`、
 `model-providers`、`payment`、`regulation`、`wechat`、`workbuddy`。
 
-抓取时把这些 tag 的关键词并成一个 OR 集合，文章标题+正文命中任意一个才入库；
+同步时把这些 tag 的关键词并成一个 OR 集合，文章标题+正文命中任意一个才入库；
 入库后只给真正命中的 tag 打标。也就是说，它和 36kr / huxiu / 微信这些源走的是
 同一套闸门，游记、读书笔记、日记这类长尾内容会被挡掉。
 
@@ -1614,7 +1614,7 @@ GET /api/stats/timeseries?metric=fetch|llm|... # 趋势数据
 > 如果你在 `/config` 里取消了某个 tag 的勾选，之后又跑了 `seed-config`，
 > 那条勾选会被恢复。以 DB 当前状态为准，跑完 `seed-config` 记得回 `/config` 复核。
 
-> **v1.0.63 变更**：早期版本给这个源单独建了无关键词的「独立博客」tag，导致抓取
+> **v1.0.63 变更**：早期版本给这个源单独建了无关键词的「独立博客」tag，导致同步
 > 闸门形同虚设（105 篇全部放行）且文章全部没有 tag。v1.0.63 已删除该 tag，
 > 改绑现有业务 tag，并对历史数据做了一次清理：命中的保留并补打 tag，未命中的删除。
 > 上线实测：抓 114 篇、入库 43 篇、拦下 70 篇；库内 82 篇全部带 tag。

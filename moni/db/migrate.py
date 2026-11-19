@@ -18,7 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 51  # + 051 app_settings (runtime toggles, 闸门开关)
+_CURRENT_VERSION = 52  # + 052 source_hidden (信源隐藏开关 sources.is_hidden)
 
 # Migrations <= this version were applied by the old "max(schema_version)"
 # rule, which did not record every intermediate row.  Never re-run them.
