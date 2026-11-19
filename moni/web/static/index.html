@@ -33,7 +33,7 @@
   <!-- v1.0.106: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
        放在 main.css 之后，同名选择器以它们为准，便于单独回滚。 -->
   <link rel="stylesheet" href="css/source-ops.css?v=20261119002">
-  <link rel="stylesheet" href="css/source-modal.css?v=20261119001">
+  <link rel="stylesheet" href="css/source-modal.css?v=20261119002">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -829,11 +829,17 @@
 
       <!-- ══ Fetch progress modal (v1.0.9.8: particle + source chain) ══════════════════ -->
       <div class="modal-backdrop" x-show="fetchProgressModal" x-cloak @click.self="closeFetchProgress()" @keydown.escape.window="closeFetchProgress()">
-        <div class="modal-content fetch-modal">
+        <div class="modal-content fetch-modal"
+          :class="{ 'is-failed': ['failed', 'timeout', 'stale', 'cancelled'].includes(fetchProgress?.status) }">
           <div class="modal-header">
             <h3>
-              <span x-show="fetchBatchMode">全部同步</span>
-              <span x-show="!fetchBatchMode">同步中: <span x-text="fetchProgress?.source || '...'"></span></span>
+              <!-- v1.0.106: 标题跟着状态走 —— 跑完了还写「同步中」和下面的「完成」自相矛盾 -->
+              <span x-show="fetchBatchMode"
+                    x-text="['done','partial'].includes(fetchProgress?.status) ? '全部已同步'
+                          : (['failed','timeout','stale','cancelled'].includes(fetchProgress?.status) ? '全部同步失败' : '全部同步')"></span>
+              <span x-show="!fetchBatchMode"><span
+                    x-text="['done','partial'].includes(fetchProgress?.status) ? '已同步'
+                          : (['failed','timeout','stale','cancelled'].includes(fetchProgress?.status) ? '同步失败' : '同步中')"></span>: <span x-text="fetchProgress?.source || '...'"></span></span>
             </h3>
             <button class="modal-close" @click="closeFetchProgress()" aria-label="关闭"><svg class="icon icon-18" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
           </div>
@@ -852,60 +858,59 @@
             <span class="moni-label" id="moniLabel">瞭望</span>
             <canvas id="particleCanvas"></canvas>
             <!-- v1.0.9.8: feed info above particles -->
-            <div id="feedInfoBar" style="position:absolute; top:50px; left:50%; transform:translateX(-50%); text-align:center; z-index:4; pointer-events:none;">
-              <div id="feedName" style="font-size:var(--font-12); color:var(--muted-fg); margin-bottom:2px;"></div>
-              <div style="font-size:var(--font-14); color:var(--foreground);">
-                已抓 <b id="modalArticleCount">0</b> 篇
-              </div>
+            <div class="fetch-feed-info" id="feedInfoBar">
+              <div class="fetch-feed-name" id="feedName"></div>
+              <div class="fetch-feed-count">已同步 <b id="modalArticleCount">0</b> 篇</div>
             </div>
+            <!-- v1.0.106: 完成态压成一行 —— 状态词弱色 + 摘要等宽数字，
+                 不再叠 64px 绿勾圆 + 18px 大标题（数字才是完成时要看的东西） -->
             <div class="completion-overlay" id="completionOverlay">
-              <div class="completion-check"><svg class="icon icon-24" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></div>
-              <div class="completion-text">同步完成！</div>
+              <div class="completion-text">同步完成</div>
               <div class="completion-sub" id="completionSub"></div>
             </div>
           </div>
 
           <!-- Status -->
-          <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+          <div class="fetch-status-row"
+            :class="{ 'is-settled': fetchProgress?.status === 'done' || fetchProgress?.status === 'partial' }">
             <span class="dot" :class="{
               'dot-running': fetchProgress?.status === 'running',
               'dot-done': fetchProgress?.status === 'done' || fetchProgress?.status === 'partial',
               'dot-failed': fetchProgress?.status === 'failed' || fetchProgress?.status === 'timeout'
             }"></span>
             <span class="fetch-status-text" id="fetchStatusText">同步中...</span>
-            <span class="muted" style="margin-left:auto; font-size:var(--font-13);" x-text="fetchProgress ? `(${fetchProgress.elapsed_seconds}s)` : ''"></span>
+            <span class="muted fetch-status-elapsed" x-text="fetchProgress ? `(${fetchProgress.elapsed_seconds}s)` : ''"></span>
           </div>
 
-          <!-- ── Batch mode: source-level progress bar ── -->
-          <div x-show="fetchBatchMode" style="margin-bottom:14px;">
-            <div class="muted" style="font-size:var(--font-12); margin-bottom:4px;">源进度</div>
-            <div style="background:var(--bg-secondary); border-radius:6px; height:18px; overflow:hidden; position:relative;">
-              <div :style="`background:var(--accent); height:100%; width:${fetchBatchPercent}%; transition:width 0.3s ease;`"></div>
-              <div style="position:absolute; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; font-size:var(--font-12); font-weight:600;"
-                x-text="fetchProgress ? `${fetchProgress.done_sources || 0} / ${fetchProgress.total_sources || 0} 源` : '...'"></div>
+          <!-- ── Batch mode: source-level progress ── -->
+          <div class="fetch-progress" x-show="fetchBatchMode">
+            <div class="fetch-progress-meta"
+              x-text="fetchProgress ? `${fetchProgress.done_sources || 0} / ${fetchProgress.total_sources || 0} 源` : '...'"></div>
+            <div class="fetch-progress-bar">
+              <div class="fetch-progress-fill" :style="`transform: scaleX(${fetchBatchPercent / 100})`"></div>
             </div>
           </div>
 
-          <!-- ── Batch mode: current feed ── -->
-          <div x-show="fetchBatchMode" style="font-size:var(--font-13); margin-bottom:14px;">
-            <div class="muted">当前源: <span x-text="fetchProgress?.current_source || '—'" style="font-family:monospace;"></span></div>
-            <div x-show="fetchProgress?.current_feed" class="muted" style="margin-top:2px;">feed: <span x-text="fetchProgress?.current_feed || ''" style="font-family:monospace;"></span></div>
+          <!-- ── Batch mode: current source / feed ── -->
+          <div class="fetch-current" x-show="fetchBatchMode">
+            <div class="muted">当前源: <span class="fetch-mono" x-text="fetchProgress?.current_source || '—'"></span></div>
+            <div class="muted" x-show="fetchProgress?.current_feed">
+              feed: <span class="fetch-mono" x-text="fetchProgress?.current_feed || ''"></span>
+            </div>
           </div>
 
-          <!-- ── Single-source mode: feed-level progress bar ── -->
-          <div x-show="!fetchBatchMode" style="margin-bottom:14px;">
-            <div style="background:var(--bg-secondary); border-radius:6px; height:18px; overflow:hidden; position:relative;">
-              <div :style="`background:var(--accent); height:100%; width:${fetchProgressPercent}%; transition:width 0.3s ease;`"></div>
-              <div style="position:absolute; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; font-size:var(--font-12); font-weight:600;"
+          <!-- ── Single-source mode: feed-level progress ── -->
+          <div class="fetch-current" x-show="!fetchBatchMode">
+            <div class="fetch-progress">
+              <div class="fetch-progress-meta"
                 x-text="fetchProgress ? `${fetchProgress.done_feeds || 0} / ${fetchProgress.total_feeds || 0}` : '...'"></div>
+              <div class="fetch-progress-bar">
+                <div class="fetch-progress-fill" :style="`transform: scaleX(${fetchProgressPercent / 100})`"></div>
+              </div>
             </div>
-            <div class="muted" style="margin-top:8px; font-size:var(--font-13);">当前 feed: <span x-text="fetchProgress?.current_feed || (isFetchRunning ? '(初始化中)' : '—')" style="font-family:monospace;"></span></div>
-          </div>
-
-          <!-- Articles counter -->
-          <div style="font-size:var(--font-13); display:flex; gap:20px;">
-            <span>已抓 <b id="bottomArticleCount" x-text="fetchProgress?.articles_so_far || 0"></b> 篇</span>
-            <span class="muted">每 5 秒自动刷新</span>
+            <div class="muted">
+              当前 feed: <span class="fetch-mono" x-text="fetchProgress?.current_feed || (isFetchRunning ? '(初始化中)' : '—')"></span>
+            </div>
           </div>
 
           <!-- Error block — single source -->
@@ -920,34 +925,42 @@
             </template>
           </div>
 
-          <!-- Final result — single source -->
+          <!-- Final result — single source（「用时」已在完成条带里，这里只留流水线） -->
           <div x-show="!fetchBatchMode && (fetchProgress?.status === 'done' || fetchProgress?.status === 'partial') && fetchProgress?.result"
             :class="fetchProgress?.status === 'partial' ? 'banner-warning' : 'banner-success'">
-            <div><b x-text="fetchProgress?.result?.fetched || 0"></b> 原始 → <b x-text="fetchProgress?.result?.parsed || 0"></b> 解析 → <b x-text="fetchProgress?.result?.inserted || 0"></b> 入库</div>
-            <div class="muted" style="margin-top:4px;">
-              <span x-show="fetchProgress?.result?.dropped_blacklist > 0">黑名单丢弃 <b x-text="fetchProgress?.result?.dropped_blacklist"></b> · </span>
-              <span x-show="fetchProgress?.result?.dropped_tag_filter > 0">tag 丢弃 <b x-text="fetchProgress?.result?.dropped_tag_filter"></b> · </span>
-              <span>用时 <b x-text="fetchProgress?.elapsed_seconds"></b>s</span>
+            <div class="fetch-result-pipeline"><b x-text="fetchProgress?.result?.fetched || 0"></b> 原始 → <b x-text="fetchProgress?.result?.parsed || 0"></b> 解析 → <b x-text="fetchProgress?.result?.inserted || 0"></b> 入库</div>
+            <div class="fetch-result-note">
+              <span x-show="fetchProgress?.result?.dropped_blacklist > 0">黑名单丢弃 <b x-text="fetchProgress?.result?.dropped_blacklist"></b></span>
+              <span x-show="fetchProgress?.result?.dropped_tag_filter > 0">tag 丢弃 <b x-text="fetchProgress?.result?.dropped_tag_filter"></b></span>
             </div>
           </div>
 
-          <!-- Final result — batch mode -->
-          <div x-show="fetchBatchMode && (fetchProgress?.status === 'done' || fetchProgress?.status === 'partial')" class="banner-success">
-            <div style="display:flex; gap:20px;">
-              <span>源: <b x-text="`${fetchProgress?.done_sources || 0}/${fetchProgress?.total_sources || 0}`"></b></span>
-              <span>新增: <b x-text="(fetchProgress?.results || []).reduce((s, r) => s + (r.inserted || 0), 0)"></b> 篇</span>
-              <span class="muted">用时 <b x-text="fetchProgress?.elapsed_seconds"></b>s</span>
-            </div>
-            <div style="margin-top:8px; max-height:140px; overflow-y:auto;">
-              <template x-for="(r, i) in (fetchProgress?.results || [])" :key="i">
-                <div style="padding:2px 0; border-bottom:1px solid var(--border);">
-                  <span x-text="r.source || '?'"></span>:
-                  <span x-show="!r.error"> 拉取 <b x-text="r.fetched || 0"></b> → 入库 <b x-text="r.inserted || 0"></b></span>
-                  <span x-show="r.error" class="fr-error" x-text="r.error"></span>
-                  <span x-show="!r.error && r.warning" class="fa-warn" x-text="r.warning"></span>
-                </div>
-              </template>
-            </div>
+          <!-- Final result — batch mode
+               v1.0.106: 原来这里又排了一遍「源 13/13 · 新增 N 篇 · 用时 Ns」，
+               与上方完成条带完全重复；统计行去掉，只留各源明细。
+               明细改成 <details> —— 内层 max-height + overflow 的第二个滚动条消失，
+               整窗只剩 .modal-content 一个滚动容器。 -->
+          <div class="fetch-results"
+            x-show="fetchBatchMode && (fetchProgress?.status === 'done' || fetchProgress?.status === 'partial')">
+            <!-- v1.0.106: 默认摊开 —— 跑完的重点就是看结果；仍可折叠，且没有内层滚动条 -->
+            <details open>
+              <summary>
+                <span>各源结果</span>
+                <span class="fetch-results-count" x-text="(fetchProgress?.results || []).length"></span>
+              </summary>
+              <div class="fetch-results-body">
+                <template x-for="(r, i) in (fetchProgress?.results || [])" :key="i">
+                  <div class="fetch-result-row">
+                    <span class="fetch-result-name" x-text="r.source || '?'"></span>
+                    <span class="fetch-result-nums" x-show="!r.error">
+                      拉取 <b x-text="r.fetched || 0"></b> → 入库 <b x-text="r.inserted || 0"></b>
+                    </span>
+                    <span x-show="r.error" class="fr-error" x-text="r.error"></span>
+                    <span x-show="!r.error && r.warning" class="fa-warn" x-text="r.warning"></span>
+                  </div>
+                </template>
+              </div>
+            </details>
           </div>
         </div>
       </div>
