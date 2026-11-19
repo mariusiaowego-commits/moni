@@ -3,6 +3,24 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
+## 已完成: **闸门改成运行时配置** (2026-11-19 · Sprint 58 补丁 · PR #247 → `c5f1bc8`)
+
+把「分级标注闸门」从代码常量 `GATE_ENABLED` 改成**数据库配置**，以后开关不再发版、不再走 PR。
+
+**改法**：migration `051_app_settings.sql`（`app_settings` 键值表，纯 additive，默认 `0`=关）；
+`moni/moderation/service.py::gate_enabled()/set_gate_enabled()` 每请求实时读库，缺表/缺键一律按关闭；
+写接口 `PUT /api/moderation/labels/gate`（挂在 labels 路由，`/api/moderation` 仍只读）；
+`moni/share/brief_html.py` 主查询与 fallback 共用同一段过滤条件，无旁路；
+`/cleaning` 页新增开关按钮。
+
+**已部署（2026-11-19 06:12 UTC）**：迁移 `v50 → v51`；`com.moni.web` 重启后 `/health` 200；
+实测 `PUT {"enabled":true}` → `summary.gate_enabled=true`，`PUT {"enabled":false}` → `false`，
+全程不重启、不发版；当前生产为**默认关闭**。
+
+**用法**：页面 `/cleaning` 点开关，或
+`curl -X PUT http://127.0.0.1:8900/api/moderation/labels/gate -H 'Content-Type: application/json' -d '{"enabled":true}'`。
+
+---
 ## 已完成: **内容分级标注（S 类 / 广告 / 涨粉 / 情绪）** (2026-11-19 · Sprint 58 · id `26111901` · PR #244 → `be12f0c`)
 
 把「黄赌毒 / 纯广告 / 涨粉 / 情绪发泄」从入库关键词一刀切升级为**全语料标注层**：
@@ -14,7 +32,7 @@
 `moni/moderation/service.py`（preview / apply / relabel / samples / review / gate）；
 CLI `moni label-articles`；API `/api/moderation/labels/*`（独立 router，`/api/moderation` 仍只读）；
 `/cleaning` 内嵌分级区块（S 类默认打码 + 单条揭示）；`/api/articles` 角标与 `label_category` 筛选；
-入库 / 导入全文 / 编辑正文三处重标；摘要与简报闸门（`GATE_ENABLED` 默认关闭）。
+入库 / 导入全文 / 编辑正文三处重标；摘要与简报闸门（默认关闭，PR #247 后改由 `app_settings` 配置）。
 
 **实测（生产库副本 4,663 篇非空正文）**：`spam_service=3`（全为 xbot 刷量广告）、
 `engagement_bait=2`、`low_value_rant=4`，其余三类为 0；扫描 0.44s；第二次 apply `new_rows=0`。
@@ -26,8 +44,8 @@ CLI `moni label-articles`；API `/api/moderation/labels/*`（独立 router，`/a
 生产预演 `scanned=5323 labeled=9`（分布同上）。sprint 留档见
 `sprints/sprint-58-content-moderation-labels-2026-11-19/`（含 `verify-`）。
 
-**待 dad 点头（未做）**：生产 `label-articles --apply` 回填（`content_labels` 仍为 0 行）；
-`clean-articles --apply` 全库重写（872 篇）；闸门 `GATE_ENABLED` 打开（独立小 PR）。
+**待 dad 点头（未做）**：`clean-articles --apply` 全库重写（872 篇）；闸门打开
+（已可配置，见上一条 PR #247，默认关闭）。
 
 **不做**：自动删除 / 移菜篮子 / 封作者；图像识别；模型二审（只留设计位）。
 
