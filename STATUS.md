@@ -177,8 +177,9 @@ CLI `moni label-articles`；API `/api/moderation/labels/*`（独立 router，`/a
 **不要**把 PR head `271a35b` 说成 main 的祖先。
 
 **版本证据**：含本 sprint 代码的**首个正式 tag 是 `v1.0.104`**（tag 对象 `6dd9301`，peeled → `c0363e3`，
-由 **#246** 发布，但**已包含** #237）；其后 **`v1.0.105`**（peeled → `26a3502`）**同样包含** #237。
-⇒ 按事实记：**本 sprint 不是任一 tag 的专属发布**，只是**随**这两个 tag 进入正式发布。
+由 **#246** 发布，但**已包含** #237）；其后 **`v1.0.105`**（peeled → `26a3502`）与
+**`v1.0.106`**（peeled → `b9d8b15`）**同样包含** #237。
+⇒ 按事实记：**本 sprint 不是任一 tag 的专属发布**，只是**随**这些 tag 进入正式发布。
 
 产物 `artifacts/xbot-quality-2026-11-18/`（脱敏候选 41 / 标注模板 41 / 不确定案例 35）**已 gitignore，不入库**
 ⇒ dad 要看请**只读查看**，**填 `annotation-template.json` 的 `dad_verdict`** ⇒ 填完才有真值与指标。
