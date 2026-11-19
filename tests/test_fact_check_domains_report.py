@@ -118,8 +118,12 @@ def test_expanded_domains_are_classified():
     assert classify("bloomberg.com") == "B"
     assert classify("finance.yahoo.com") == "B"
     assert classify("cn.ithome.com") == "B"
+    # 审计结论：零售券商资讯频道不算一手，导航/培训站不计入
+    assert classify("moomoo.com") == "B"
     assert classify("zhiye.com") == "C"
     assert classify("www.tradingview.com") == "C"
+    assert classify("ai-bot.cn") == "C"
+    assert classify("kodekloud.com") == "C"
 
 
 def test_registrable_handles_korean_two_label_suffixes():

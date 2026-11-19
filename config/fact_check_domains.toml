@@ -76,7 +76,6 @@ tier_a_brand = [
   "americanexpress.com",
   "circle.com",
   "isomorphiclabs.com",
-  "moomoo.com",
   "westpac.com.au",
   "stripe.com",
   "stripe.events",
@@ -156,9 +155,9 @@ tier_b = [
   "eeo.com.cn",
   "oeeee.com",
   "10jqka.com.cn",
-  "ai-bot.cn",
   "aiiaw.com",
-  "kodekloud.com",
+  # 零售券商资讯频道不属于一手来源，与媒体同档
+  "moomoo.com",
 ]
 
 tier_c = [
@@ -184,4 +183,7 @@ tier_c = [
   "xjjreview.com",
   "pasqualepillitteri.it",
   "yottalabs.ai",
+  # 导航/聚合与培训文档站：不具独立采编，不计入
+  "ai-bot.cn",
+  "kodekloud.com",
 ]
