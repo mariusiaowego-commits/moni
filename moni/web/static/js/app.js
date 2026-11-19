@@ -4874,7 +4874,14 @@ function app() {
             fact_check_conclusion: '⏳ 核查中... (job ' + data.job_id.slice(0, 8) + ')',
           };
         })
-        .catch(err => { this._notify('error', '事实核查失败: ' + err.message); })
+        .catch(err => {
+          const raw = String(err.message || '').trim();
+          this._notify(
+            'error',
+            this._llmErrorText(err.message, '事实核查没能排上队，可以稍后重试。'),
+            raw && raw !== 'unknown' ? { detail: raw } : undefined
+          );
+        })
         .finally(() => { self.factCheckLoading = false; });
     },
 
@@ -4906,8 +4913,34 @@ function app() {
           // B3 fix: poll job status, when done fetch evidence chain
           self._pollFactCheckPlusJob(data.job_id, id);
         })
-        .catch(err => { this._notify('error', '联网核查失败: ' + err.message); })
+        .catch(err => {
+          const raw = String(err.message || '').trim();
+          this._notify(
+            'error',
+            this._llmErrorText(err.message, '联网核查没能排上队，可以稍后重试。'),
+            raw ? { detail: raw } : undefined
+          );
+        })
         .finally(() => { self.factCheckLoading = false; });
+    },
+
+    // 把 Hermes / LLM 的原始报错翻成人话；原文放进 toast 的「查看原因」。
+    // 熔断、会话异常、超时、解析失败各有不同说法，避免用户看到 RuntimeError 栈。
+    _llmErrorText(raw, fallback) {
+      const text = String(raw || '');
+      if (/breaker OPEN|failover exhausted/i.test(text)) {
+        return '模型服务正在熔断恢复中，暂时排不上新请求。已保留上次核查结果，约 10 分钟后可重试。';
+      }
+      if (/session_replay_gap/i.test(text)) {
+        return '模型会话异常，这次核查没跑完。已保留上次核查结果，可以稍后重试。';
+      }
+      if (/timeout|timed out/i.test(text)) {
+        return '模型在时限内没返回，这次核查没跑完。已保留上次核查结果，可以稍后重试。';
+      }
+      if (/parse failed|no evidence/i.test(text)) {
+        return '模型返回的内容不完整，这次核查没跑完。已保留上次核查结果，可以稍后重试。';
+      }
+      return fallback;
     },
 
     // v1.0.22 B3 fix: poll a single fact_check_plus job; on done pull evidence
@@ -4926,10 +4959,20 @@ function app() {
               // Refresh article detail so has_web_fact_check + conclusion render
               return fetch(`/api/articles/${articleId}`, { credentials: 'same-origin' })
                 .then(r => r.json())
-                .then(detail => { self.articleDetail = detail; });
+                .then(detail => { self.readerRefreshDetail(articleId, detail); });
             }
             if (job.status === 'failed') {
-              self._notify('error', '联网核查失败: ' + (job.error || 'unknown'));
+              const raw = String(job.error || '').trim();
+              self._notify(
+                'error',
+                self._llmErrorText(raw, '联网核查没跑完，可以稍后重试。'),
+                raw && raw !== 'unknown' ? { detail: raw } : undefined
+              );
+              // 失败时把「⏳ 联网核查中...」的占位撤掉，恢复上次结论。
+              fetch(`/api/articles/${articleId}`, { credentials: 'same-origin' })
+                .then(r => r.json())
+                .then(detail => { self.readerRefreshDetail(articleId, detail); })
+                .catch(() => {});
               return;
             }
             if (attempts >= maxAttempts) {
@@ -4944,6 +4987,14 @@ function app() {
           });
       };
       setTimeout(tick, 2000);
+    },
+
+    /** 迟到的核查结果不能盖掉用户已经翻开的另一篇。 */
+    readerRefreshDetail(articleId, detail) {
+      if (!detail) return;
+      // 阅读器已关（articleDetail 为 null）时也不能把模态弹回来。
+      if (!this.articleDetail || this.articleDetail.id !== articleId) return;
+      this.articleDetail = detail;
     },
 
     // v1.0.22: 拉取联网核查证据链 (后端已按 evidence_seq 升序)

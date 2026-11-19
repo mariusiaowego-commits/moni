@@ -573,6 +573,11 @@
     // ── reader detail ───────────────────────────────────────────
     readerExpanded: false,
     readerMobileTab: 'read',
+    // 正文 / 摘要 / 事实核查 三个内容页签（与窄屏的「对话」页签正交）。
+    readerContentTab: 'read',
+    readerFactReportOpen: false,
+    // 窄屏才有的「整屏对话」状态；宽屏右侧常驻 AI，不需要这套切换。
+    readerIsNarrow: false,
     readerMessages: [],
     readerConversation: null,
     readerPrompts: [],
@@ -606,6 +611,9 @@
       this.readerQuote = '';
       this.readerInput = '';
       this.readerMobileTab = 'read';
+      this.readerContentTab = 'read';
+      this.readerFactReportOpen = false;
+      this.readerSyncViewport();
       fetch(`/api/articles/${article.id}`, { credentials: 'same-origin' })
         .then((r) => {
           if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -616,6 +624,9 @@
           this.readerRendered = renderArticle(data.content || '');
           this.readerBodyEmpty = plainTextLength(this.readerRendered) < 80;
           this.readerBankParts = parseBankMeta(data.content || '');
+          // 证据链此前只在核查任务跑完的那一次会话里加载，直接打开文章会看到空列表。
+          this.articleEvidenceList = [];
+          if (data.has_web_fact_check) this.loadArticleEvidence(data.id);
           this.readerLoadPrompts();
           this.readerLoadConversation();
         })
@@ -630,8 +641,69 @@
       this.readerRawOpen = false;
       this.readerImportOpen = false;
       this.readerSelectionVisible = false;
+      this.readerExpanded = false;
+      this.readerMobileTab = 'read';
+      this.readerContentTab = 'read';
+      this.readerFactReportOpen = false;
       this.summaryLoading = false;
       this.factCheckLoading = false;
+    },
+
+    /** Esc 先退出全屏，再关闭阅读器。 */
+    readerHandleEscape() {
+      if (this.readerExpanded) {
+        this.readerExpanded = false;
+        return;
+      }
+      this.closeArticleDetail();
+    },
+
+    readerSwitchContentTab(tab) {
+      this.readerContentTab = tab;
+      // 窄屏下「对话」是整屏视图，切内容页签必须把整屏切回来，
+      // 否则页签高亮了但格子里还是 AI 面板。
+      this.readerMobileTab = 'read';
+      this.readerFactReportOpen = false;
+      this.$nextTick(() => {
+        const box = this.$refs?.readerScroll || document.querySelector('.reader-scroll');
+        if (box) box.scrollTop = 0;
+      });
+    },
+
+    readerSwitchToAi() {
+      this.readerMobileTab = 'ai';
+      this.readerScrollToBottom();
+    },
+
+    readerSyncViewport() {
+      this.readerIsNarrow = window.matchMedia('(max-width: 1100px)').matches;
+    },
+
+    /** 窄屏切到「对话」时，内容页签不再算选中（否则 tablist 里两个 aria-selected=true）。 */
+    get readerAiFocused() {
+      return this.readerIsNarrow && this.readerMobileTab === 'ai';
+    },
+
+    /**
+     * 历史联网核查结论是整篇 markdown 报告（## 核查结论 + ## 逐条核查）。
+     * 结论段直接显示，逐条核查折叠起来，否则页签里只剩一个按钮。
+     */
+    get readerFactSplit() {
+      const text = String(this.articleDetail?.fact_check_conclusion || '');
+      if (!text || text.length <= 200) return { preview: text, rest: '' };
+      const cut = text.search(/\n##\s+\S/);
+      if (cut > 0) return { preview: text.slice(0, cut).trim(), rest: text.slice(cut).trim() };
+      const para = text.indexOf('\n\n');
+      if (para > 0) return { preview: text.slice(0, para).trim(), rest: text.slice(para).trim() };
+      return { preview: text.slice(0, 160).trim() + '…', rest: text };
+    },
+
+    get readerFactPreviewText() {
+      return this.readerFactSplit.preview;
+    },
+
+    get readerFactRestText() {
+      return this.readerFactSplit.rest;
     },
 
     readerLoadPrompts() {
@@ -938,6 +1010,12 @@
       let html = renderMarkdown(structureListMarkdown(text));
       html = structureRenderedLists(html);
       return addCitations(html);
+    },
+
+    /** 核查结论等「模型产物」不挂正文引用 chip：那些「」不是文章里的引文。 */
+    readerRenderMarkdownPlain(text) {
+      let html = renderMarkdown(structureListMarkdown(text));
+      return structureRenderedLists(html);
     },
 
     readerRenderArticle(text) {
