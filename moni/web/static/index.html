@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261119004">
+  <link rel="stylesheet" href="css/main.css?v=20261119005">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -3549,6 +3549,8 @@
                   <span class="badge" :class="articleDetail?.has_web_fact_check ? 'web_search' : ''"
                         x-text="articleDetail?.has_web_fact_check ? '联网核查 · 有出处'
                               : (articleDetail?.has_fact_check ? '快速核查 · 未联网' : '未核查')"></span>
+                  <span class="badge badge-timeliness" :class="articleDetail?.fact_check_timeliness === '90d_demote' ? 'demote' : ''"
+                        x-show="readerTimelinessLabel" x-text="readerTimelinessLabel"></span>
                 </div>
 
                 <p class="reader-tier-note" x-show="articleDetail?.has_web_fact_check">
@@ -4725,7 +4727,7 @@
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
   <script src="js/app.js?v=20261119005"></script>
-  <script src="js/reader.js?v=20261119001"></script>
+  <script src="js/reader.js?v=20261119006"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
        GSAP presence, and the scale pop now honours prefers-reduced-motion. -->

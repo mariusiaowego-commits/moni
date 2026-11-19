@@ -56,6 +56,7 @@ from moni.llm.domains import (  # noqa: E402
     registrable_domain,
 )
 from moni.llm.fact_check_tags import with_tag  # noqa: E402
+from moni.llm.fact_check_tags import conclusion_tag  # noqa: E402
 
 MAX_BATCH_SIZE: int = 20
 
@@ -111,10 +112,10 @@ def compute_timeliness(days_old: int | None) -> str:
 
 
 def apply_timeliness(conclusion: str, days_old: int | None) -> str:
-    """闸 3: 31-90 天加后缀, 91+ 降级为【存疑】. NULL/≤30 不动.
+    """闸 3: 31-90 天加后缀；91+ 只把【已核实】降为【待核实】。
 
-    v1.0.100: 降级保留原说明文字（与 Gate 2 的降级行为一致），
-    不再把整段结论替换成一个标签。
+    v1.0.104: 旧 ≠ 矛盾。91+ 证据只能说明支撑力不足（【待核实】），
+    不是事实矛盾（【存疑】）；原本就是【待核实】/【存疑】的不动。
     """
     if days_old is None or days_old <= TIMELINESS_FRESH_MAX_DAYS:
         return conclusion
@@ -122,7 +123,9 @@ def apply_timeliness(conclusion: str, days_old: int | None) -> str:
         if TIMELINESS_STALE_SUFFIX in (conclusion or ""):
             return conclusion
         return f"{conclusion}{TIMELINESS_STALE_SUFFIX}"
-    return with_tag("【存疑】", conclusion)
+    if conclusion_tag(conclusion) == "【已核实】":
+        return with_tag("【待核实】", conclusion)
+    return conclusion
 
 
 def is_in_whitelist(domain: str) -> bool:

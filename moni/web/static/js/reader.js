@@ -708,6 +708,14 @@
       return this.readerFactSplit.rest;
     },
 
+    /** v1.0.104: 时效徽章文案 —— Gate 3 降级是时效信号，不是模型判“矛盾”。 */
+    get readerTimelinessLabel() {
+      const t = this.articleDetail?.fact_check_timeliness;
+      if (t === '30d_warn') return '含 30–90 天旧证';
+      if (t === '90d_demote') return '时效降级 · 含超 90 天旧证';
+      return '';
+    },
+
     readerLoadPrompts() {
       fetch('/api/reader/prompts', { credentials: 'same-origin' })
         .then((r) => r.json())

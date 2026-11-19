@@ -424,8 +424,8 @@ def test_fact_check_plus_verdict_defaults_to_conclusion(fresh_db, monkeypatch):
     assert row["verdict"] == "【已核实】"
 
 
-def test_fact_check_plus_demotion_drops_summary_and_verdicts(fresh_db, monkeypatch):
-    """Gate 2 降级后 summary 必须清空、逐条【已核实】降为【待核实】."""
+def test_fact_check_plus_demotion_keeps_summary_and_verdicts(fresh_db, monkeypatch):
+    """Gate 2 降级后 summary 保留并标注门禁原因、逐条【已核实】降为【待核实】."""
     _insert_article("a1")
     _insert_job("job-dem", "a1")
     payload = json.dumps({
@@ -447,7 +447,7 @@ def test_fact_check_plus_demotion_drops_summary_and_verdicts(fresh_db, monkeypat
         "SELECT fact_check_summary, fact_check_conclusion FROM articles WHERE id = 'a1'"
     ).fetchone()
     assert art["fact_check_conclusion"] == "【待核实】"
-    assert art["fact_check_summary"] is None
+    assert art["fact_check_summary"] == "【门禁降级：权威源不足】参数与官方文档一致"
     assert conn.execute(
         "SELECT verdict FROM fact_check_evidence WHERE article_id = 'a1'"
     ).fetchone()["verdict"] == "【待核实】"
@@ -501,7 +501,7 @@ def test_fact_check_plus_english_verdict_is_demoted(fresh_db, monkeypatch):
     ).fetchone()["verdict"] == "【待核实】"
     assert conn.execute(
         "SELECT fact_check_summary FROM articles WHERE id = 'a1'"
-    ).fetchone()["fact_check_summary"] is None
+    ).fetchone()["fact_check_summary"] == "【门禁降级：权威源不足】参数与官方文档一致"
 
 
 def test_fact_check_plus_no_check_needed_keeps_summary(fresh_db, monkeypatch):
@@ -826,6 +826,10 @@ def _ago(days: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
 
+def art_row(conn, aid: str):
+    return conn.execute("SELECT * FROM articles WHERE id = ?", (aid,)).fetchone()
+
+
 def test_web_check_persists_thesis(fresh_db, monkeypatch):
     """048: thesis 跟着联网结论一起落库，分享图才有「文章主张」。"""
     _insert_article("a1")
@@ -922,7 +926,7 @@ def test_evidence_timeliness_30d_warn(fresh_db, monkeypatch):
 
 
 def test_evidence_timeliness_90d_demote(fresh_db, monkeypatch):
-    """days_old=120 → 90d_demote, 结论强制【存疑】即使原本【已核实】."""
+    """days_old=120 → 90d_demote, 原本【已核实】降为【待核实】（旧≠矛盾）."""
     _insert_article("a1")
     _insert_job("job-t3", "a1")
     monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: _fc_plus_payload(_ago(120)))
@@ -939,7 +943,7 @@ def test_evidence_timeliness_90d_demote(fresh_db, monkeypatch):
         "SELECT fact_check_conclusion, fact_check_timeliness FROM articles WHERE id = 'a1'"
     ).fetchone()
     assert art["fact_check_timeliness"] == "90d_demote"
-    assert art["fact_check_conclusion"] == "【存疑】"
+    assert art["fact_check_conclusion"] == "【待核实】"
 
 
 def test_evidence_timeliness_null_handled(fresh_db, monkeypatch):
@@ -1700,7 +1704,116 @@ def test_source_date_drives_timeliness(fresh_db, monkeypatch):
         "SELECT fact_check_conclusion, fact_check_timeliness FROM articles WHERE id = 'a-src'"
     ).fetchone()
     assert art["fact_check_timeliness"] == "90d_demote"
-    assert art["fact_check_conclusion"] == "【存疑】"
+    assert art["fact_check_conclusion"] == "【待核实】"
+
+
+def test_recent_news_with_historical_background_not_demoted(fresh_db, monkeypatch):
+    """生产 4a111c743cb775e3 场景：4 条核心近期 + 2 条历史背景证据。
+
+    不能因为历史背景证据（辽宁第二批 2024、参与度长期 2025）把 13 天前的
+    新闻整篇拖成 90d_demote / 【存疑】；结论保持【待核实】，timeliness 取
+    最新证据年龄（min=13 → fresh），summary 保留。
+    """
+    _insert_article("a-news")
+    _insert_job("job-news", "a-news")
+    payload = json.dumps({
+        "conclusion": "【待核实】",
+        "summary": "三家银行项目都有声明书原件对应；公开检索不到政府/交易所第二来源，全国总量建议改监管口径。",
+        "evidence": [
+            {"claim": "盛京银行风电绿色信贷", "verdict": "【待核实】",
+             "url": "https://www.mpaypass.com.cn/download/202611/06135653.html",
+             "snippet": "项目由盛京银行股份有限公司独立建设、运营及管理。",
+             "source_date": _ago(13)},
+            {"claim": "邮储葫芦岛气象信贷", "verdict": "【待核实】",
+             "url": "https://www.mpaypass.com.cn/download/202611/06140326.html",
+             "snippet": "本项目由邮储银行葫芦岛市分行负责提供金融应用场景和贷款管理。",
+             "source_date": _ago(13)},
+            {"claim": "中信大连科技成果信贷", "verdict": "【待核实】",
+             "url": "https://www.mpaypass.com.cn/download/202611/06140831.html",
+             "snippet": "以科技成果转化贷为切入点推进与相关客群的破冰合作。",
+             "source_date": _ago(13)},
+            {"claim": "全国累计569个创新应用公示、参与度98.24%", "verdict": "【待核实】",
+             "url": "https://www.nfrm.org.cn/article/1",
+             "snippet": "报告显示，截至9月底，工具累计推出创新应用578项。",
+             "source_date": _ago(29)},
+            {"claim": "辽宁已先后公示4个批次、共15个创新应用", "verdict": "【待核实】",
+             "url": "https://m.mpaypass.com.cn/a/2",
+             "snippet": "目前辽宁已经先后公示了2个批次的金融科技创新应用。",
+             "source_date": _ago(787)},
+            {"claim": "银行参与度长期在九成以上", "verdict": "【待核实】",
+             "url": "https://finance.sina.com.cn/a/3",
+             "snippet": "不完全统计，银行参与度97.35%。",
+             "source_date": _ago(651)},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-news", "task_type": "fact_check_plus", "article_id": "a-news",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    conn = get_db()
+    art = conn.execute(
+        "SELECT fact_check_conclusion, fact_check_timeliness, fact_check_summary "
+        "FROM articles WHERE id = 'a-news'"
+    ).fetchone()
+    assert art["fact_check_conclusion"] == "【待核实】"
+    assert art["fact_check_timeliness"] == "fresh"
+    assert art["fact_check_summary"].startswith("三家银行项目都有声明书原件对应")
+    days = [
+        r["days_old"]
+        for r in conn.execute(
+            "SELECT days_old FROM fact_check_evidence WHERE article_id = 'a-news'"
+        ).fetchall()
+    ]
+    assert sorted(days) == [13, 13, 13, 29, 651, 787]
+
+
+def test_english_verified_old_evidence_still_triggers_demotion(fresh_db, monkeypatch):
+    """审计 P1：英文 Supported 必须先归一化，再参与时效聚合。
+
+    一条 10 天【待核实】背景证据 + 一条 120 天英文 Supported：
+    Supported 不能逃过 verified_days 的 max 聚合，结论降为【待核实】，
+    逐条 verdict 也同步降级，不再顶部待核实、证据链挂绿标。
+    """
+    _insert_article("a-english-old")
+    _insert_job("job-english-old", "a-english-old")
+    payload = json.dumps({
+        "conclusion": "【已核实】",
+        "summary": "核心数据与监管口径一致",
+        "evidence": [
+            {"claim": "历史背景", "verdict": "【待核实】",
+             "url": "https://www.mpaypass.com.cn/a/1",
+             "snippet": "背景说明", "source_date": _ago(10)},
+            {"claim": "核心参数", "verdict": "Supported",
+             "url": "https://www.pbc.gov.cn/a/2",
+             "snippet": "官方口径", "source_date": _ago(120)},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-english-old", "task_type": "fact_check_plus",
+              "article_id": "a-english-old", "provider": "minimax-cn",
+              "model": "MiniMax-M3", "attempts": 0})
+
+    conn = get_db()
+    art = conn.execute(
+        "SELECT fact_check_conclusion, fact_check_timeliness, fact_check_summary "
+        "FROM articles WHERE id = 'a-english-old'"
+    ).fetchone()
+    assert art["fact_check_conclusion"] == "【待核实】"
+    assert art["fact_check_timeliness"] == "90d_demote"
+    assert art["fact_check_summary"] == "【时效降级：核心证据超 90 天】核心数据与监管口径一致"
+    note = json.loads(art_row(conn, "a-english-old")["fact_check_note"])
+    assert all(row["verdict"] == "【待核实】" for row in note)
+    gate = json.loads(art_row(conn, "a-english-old")["fact_check_gate"])
+    assert gate["demoted_from"] == "【已核实】"
+    assert gate["timeliness"] == "90d_demote"
+    verdicts = [
+        r["verdict"] for r in conn.execute(
+            "SELECT verdict FROM fact_check_evidence WHERE article_id='a-english-old' ORDER BY evidence_seq"
+        ).fetchall()
+    ]
+    assert verdicts == ["【待核实】", "【待核实】"]
 
 
 def test_conclusion_tag_helpers():
@@ -1720,13 +1833,15 @@ def test_conclusion_tag_helpers():
 
 
 def test_timeliness_90d_keeps_detail():
-    """91 天降级为【存疑】时保留原说明，不能整段替换成标签。"""
+    """91 天把【已核实】降为【待核实】并保留原说明；【待核实】不动。"""
     from moni.web.routes.fact_check_plus import apply_timeliness
 
     assert apply_timeliness("【已核实】核心数据与监管口径一致", 120) == (
-        "【存疑】核心数据与监管口径一致"
+        "【待核实】核心数据与监管口径一致"
     )
-    assert apply_timeliness("【已核实】", 120) == "【存疑】"
+    assert apply_timeliness("【已核实】", 120) == "【待核实】"
+    assert apply_timeliness("【待核实】证据不足", 120) == "【待核实】证据不足"
+    assert apply_timeliness("【存疑】两源冲突", 120) == "【存疑】两源冲突"
     assert apply_timeliness("【已核实】核心数据", 60) == (
         "【已核实】核心数据(已过期 30-90 天)"
     )
