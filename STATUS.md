@@ -3,7 +3,7 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
-## 进行中: **内容分级标注（S 类 / 广告 / 涨粉 / 情绪）** (2026-11-19 · Sprint 58 · id `26111901` · 分支 `feat/content-moderation-labels`)
+## 已完成: **内容分级标注（S 类 / 广告 / 涨粉 / 情绪）** (2026-11-19 · Sprint 58 · id `26111901` · PR #244 → `be12f0c`)
 
 把「黄赌毒 / 纯广告 / 涨粉 / 情绪发泄」从入库关键词一刀切升级为**全语料标注层**：
 只判定、只标注、有限拦截，**永不自动删正文**。设计文档
@@ -19,6 +19,15 @@ CLI `moni label-articles`；API `/api/moderation/labels/*`（独立 router，`/a
 **实测（生产库副本 4,663 篇非空正文）**：`spam_service=3`（全为 xbot 刷量广告）、
 `engagement_bait=2`、`low_value_rant=4`，其余三类为 0；扫描 0.44s；第二次 apply `new_rows=0`。
 直接复用 #237 的 `evaluate_article()` 会误杀 42+14 篇，故两入口共享词表但不合并。
+
+**已部署（2026-11-19）**：迁移 `v49 → v50`；`com.moni.web` 重启后 `/health` 200；
+4 行测试数据（`a0/a1` 源 `s`、`thin-a/thin-b` 源 `testsrc`）归档进菜篮子
+（`dropped_reason='test_source'`）后删除，`articles` 5,327 → 5,323；
+生产预演 `scanned=5323 labeled=9`（分布同上）。sprint 留档见
+`sprints/sprint-58-content-moderation-labels-2026-11-19/`（含 `verify-`）。
+
+**待 dad 点头（未做）**：生产 `label-articles --apply` 回填（`content_labels` 仍为 0 行）；
+`clean-articles --apply` 全库重写（872 篇）；闸门 `GATE_ENABLED` 打开（独立小 PR）。
 
 **不做**：自动删除 / 移菜篮子 / 封作者；图像识别；模型二审（只留设计位）。
 
