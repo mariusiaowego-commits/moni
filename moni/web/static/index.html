@@ -29,11 +29,11 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261119008">
-  <!-- v1.0.107: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
+  <link rel="stylesheet" href="css/main.css?v=20261119011">
+  <!-- v1.0.109: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
        放在 main.css 之后，同名选择器以它们为准，便于单独回滚。 -->
-  <link rel="stylesheet" href="css/source-ops.css?v=20261119008">
-  <link rel="stylesheet" href="css/source-modal.css?v=20261119008">
+  <link rel="stylesheet" href="css/source-ops.css?v=20261119011">
+  <link rel="stylesheet" href="css/source-modal.css?v=20261119011">
 </head>
 <body>
   <div id="app" x-data="app()" x-init="init()">
@@ -833,7 +833,7 @@
           :class="{ 'is-failed': ['failed', 'timeout', 'stale', 'cancelled'].includes(fetchProgress?.status) }">
           <div class="modal-header">
             <h3>
-              <!-- v1.0.107: 标题跟着状态走 —— 跑完了还写「同步中」和下面的「完成」自相矛盾 -->
+              <!-- v1.0.109: 标题跟着状态走 —— 跑完了还写「同步中」和下面的「完成」自相矛盾 -->
               <span x-show="fetchBatchMode"
                     x-text="['done','partial'].includes(fetchProgress?.status) ? '全部已同步'
                           : (['failed','timeout','stale','cancelled'].includes(fetchProgress?.status) ? '全部同步失败' : '全部同步')"></span>
@@ -862,7 +862,7 @@
               <div class="fetch-feed-name" id="feedName"></div>
               <div class="fetch-feed-count">已同步 <b id="modalArticleCount">0</b> 篇</div>
             </div>
-            <!-- v1.0.107: 完成态压成一行 —— 状态词弱色 + 摘要等宽数字，
+            <!-- v1.0.109: 完成态压成一行 —— 状态词弱色 + 摘要等宽数字，
                  不再叠 64px 绿勾圆 + 18px 大标题（数字才是完成时要看的东西） -->
             <div class="completion-overlay" id="completionOverlay">
               <div class="completion-text">同步完成</div>
@@ -936,13 +936,13 @@
           </div>
 
           <!-- Final result — batch mode
-               v1.0.107: 原来这里又排了一遍「源 13/13 · 新增 N 篇 · 用时 Ns」，
+               v1.0.109: 原来这里又排了一遍「源 13/13 · 新增 N 篇 · 用时 Ns」，
                与上方完成条带完全重复；统计行去掉，只留各源明细。
                明细改成 <details> —— 内层 max-height + overflow 的第二个滚动条消失，
                整窗只剩 .modal-content 一个滚动容器。 -->
           <div class="fetch-results"
             x-show="fetchBatchMode && (fetchProgress?.status === 'done' || fetchProgress?.status === 'partial')">
-            <!-- v1.0.107: 默认摊开 —— 跑完的重点就是看结果；仍可折叠，且没有内层滚动条 -->
+            <!-- v1.0.109: 默认摊开 —— 跑完的重点就是看结果；仍可折叠，且没有内层滚动条 -->
             <details open>
               <summary>
                 <span>各源结果</span>
@@ -3660,10 +3660,10 @@
                   <button class="btn btn-primary btn-sm" @click="generateSummary()" :disabled="summaryLoading">
                     <span x-show="!summaryLoading">生成摘要</span><span x-show="summaryLoading">生成中...</span>
                   </button>
-                  <button class="btn btn-secondary btn-sm" @click="generateFactCheck()" :disabled="factCheckLoading" x-show="!articleDetail?.has_fact_check">
-                    <span x-show="!factCheckLoading">事实核查</span><span x-show="factCheckLoading">核查中...</span>
+                  <button class="btn btn-secondary btn-sm" @click="generateFactCheck()" :disabled="factCheckLoading" x-show="!articleDetail?.has_web_fact_check" title="已核查过的文章可以重跑，旧结论会被替换">
+                    <span x-show="!factCheckLoading" x-text="articleDetail?.has_fact_check ? '重新核查' : '事实核查'"></span><span x-show="factCheckLoading">核查中...</span>
                   </button>
-                  <button class="btn btn-secondary btn-sm" @click="enqueueLlmJobFactCheckPlus(articleDetail?.id)" :disabled="factCheckLoading" x-show="!articleDetail?.has_web_fact_check">联网核查</button>
+                  <button class="btn btn-secondary btn-sm" @click="enqueueLlmJobFactCheckPlus(articleDetail?.id)" :disabled="factCheckLoading" title="已联网核查过的文章可以重跑，旧证据链会被新结果替换" x-text="articleDetail?.has_web_fact_check ? '重新联网核查' : '联网核查'"></button>
                   <button class="btn btn-secondary btn-sm" @click="extractCase()" :disabled="caseExtractLoading">
                     <span x-show="!caseExtractLoading">提取案例</span><span x-show="caseExtractLoading">提取中...</span>
                   </button>
@@ -4759,7 +4759,7 @@
   <script src="vendor/dompurify-3.4.17.min.js?v=20261116001"></script>
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
-  <script src="js/app.js?v=20261119010"></script>
+  <script src="js/app.js?v=20261119012"></script>
   <script src="js/reader.js?v=20261119007"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind

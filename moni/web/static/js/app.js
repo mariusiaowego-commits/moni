@@ -2621,7 +2621,7 @@ function app() {
       t.status = status || t.status;
       this._upsertFetchTask({ ...t });
       if (this._fetchChipLingerTimers[t.id]) clearTimeout(this._fetchChipLingerTimers[t.id]);
-      // v1.0.107: 终态任务**留在执行状态区**（用户要能回看刚跑完的那次），
+      // v1.0.109: 终态任务**留在执行状态区**（用户要能回看刚跑完的那次），
       // 不再 6 秒后自动消失 —— 改成显式「清除」才移除。
       this._trimFinishedTasks();
       this._stopFetchPollIfIdle();
@@ -2658,7 +2658,7 @@ function app() {
     _bootModalParticlesForFocus() {
       if (!this.fetchProgressModal || !this.isFetchRunning) return;
       if (!this.sources || this.sources.length === 0) this.loadSources();
-      // v1.0.107: 新一轮同步 → 舞台恢复全高（上次完成态收窄过）
+      // v1.0.109: 新一轮同步 → 舞台恢复全高（上次完成态收窄过）
       const stage = document.getElementById('particleStage');
       if (stage) stage.classList.remove('is-complete');
       const boot = () => {
@@ -3468,7 +3468,7 @@ function app() {
         'wechat_rss_a': '/static/icons/sources/wechat_rss.png',
         'wechat_rss_b': '/static/icons/sources/wechat_rss_b.png',
         'xwatch': '/static/icons/sources/xwatch.png',
-        // v1.0.107: 这三个之前没有自己的图标，全部落到 36kr 兜底
+        // v1.0.109: 这三个之前没有自己的图标，全部落到 36kr 兜底
         'chinese_independent_blogs': '/static/icons/sources/chinese_independent_blogs.png',
         'follow_builders': '/static/icons/sources/follow_builders.png',
         'bank_feed': '/static/icons/sources/bank_feed.png',
@@ -3511,7 +3511,7 @@ function app() {
           '36kr_rss', 'bestblog-podcast', 'bestblog-x', 'xwatch',
           'bestblog-yt', 'xbot_feed', 'huxiu',
         ];
-        // v1.0.107: 隐藏只影响「信源管理」页的列表展示；批次实际仍会跑隐藏源
+        // v1.0.109: 隐藏只影响「信源管理」页的列表展示；批次实际仍会跑隐藏源
         // （后端 Scheduler.batch_sources() 不读 is_hidden），链路少画一个源
         // 会让「13/13」和画面上的节点数对不上。
         return (this.sources || []).filter(s => s.is_active)
@@ -3748,7 +3748,7 @@ function app() {
       const title = overlay.querySelector('.completion-text');
       if (title) title.textContent = label;
       if (sub && summary) sub.textContent = summary;
-      // v1.0.107: 完成后把粒子舞台收成窄带，把版面让给结果
+      // v1.0.109: 完成后把粒子舞台收成窄带，把版面让给结果
       const stage = document.getElementById('particleStage');
       if (stage) stage.classList.add('is-complete');
       overlay.classList.add('show');
@@ -3811,7 +3811,7 @@ function app() {
         'wechat_rss_a': '/static/icons/sources/wechat_rss.png',
         'wechat_rss_b': '/static/icons/sources/wechat_rss_b.png',
         'xwatch': '/static/icons/sources/xwatch.png',
-        // v1.0.107: 这三个之前没有自己的图标，全部落到 36kr 兜底
+        // v1.0.109: 这三个之前没有自己的图标，全部落到 36kr 兜底
         'chinese_independent_blogs': '/static/icons/sources/chinese_independent_blogs.png',
         'follow_builders': '/static/icons/sources/follow_builders.png',
         'bank_feed': '/static/icons/sources/bank_feed.png',
@@ -4746,7 +4746,7 @@ function app() {
     init() {
       // Apply saved theme (from theme.js mixin)
       this.initTheme();
-      // v1.0.107: 同步进度弹窗打开时锁住页面滚动 —— 之前滚轮会穿透到
+      // v1.0.109: 同步进度弹窗打开时锁住页面滚动 —— 之前滚轮会穿透到
       // 背后的信源管理页，页面跟着一起滚。
       this.$watch('fetchProgressModal', (open) => {
         document.body.classList.toggle('modal-locked', !!open);
@@ -4792,7 +4792,7 @@ function app() {
         })
         .then(data => {
           self.articleDetail = data;
-          // v1.0.107: 详情弹窗同样续上在跑的任务。
+          // v1.0.109: 详情弹窗同样续上在跑的任务。
           self.resumeArticleJobs(data.id);
         })
         .catch(err => { this._notify('error', '加载文章失败: ' + err.message); });
@@ -5344,7 +5344,7 @@ function app() {
       return fallback;
     },
 
-    // v1.0.107: 文章级 LLM 任务统一跟随（摘要 / 快核 / 联网核查）。
+    // v1.0.109: 文章级 LLM 任务统一跟随（摘要 / 快核 / 联网核查）。
     //
     // 钉住的失败模式：摘要与快核设完「⏳ …」占位就再没人管；联网核查只轮询
     // 60 秒（线上实测 2~5 分钟），超时后占位永久留在页面上，用户只能手动

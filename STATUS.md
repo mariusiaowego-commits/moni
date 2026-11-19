@@ -3,7 +3,7 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
-## 未发布: **信源管理改版（v1.0.107）** (2026-11-19 · Sprint 26111901 · 分支 `feat/source-management-ui`)
+## 未发布: **信源管理改版（v1.0.109）** (2026-11-19 · Sprint 26111901 · 分支 `feat/source-management-ui`)
 
 dad 在生产 `/fetch` 页实测提了 7 条（弹窗多重滚动条 + 滚轮穿透 + 完成态占位过大、
 「抓取」措辞、同步中关弹窗找不回进度、信源隐藏未做、执行状态区 slop、刷新按钮底色描边、
@@ -45,6 +45,54 @@ hermes（profile `pixel`）+ unslop 技能改版。
 **测试**：全量 `pytest tests/` → **2330 passed, 2 skipped, 2 failed**（`test_migration_039` 在沙箱内无法建
 worktree，提权单跑 passed；`test_showcase_*` 缺 PIL，与改动无关）；定向 `frontend/source_hidden/migration`
 → **271 passed**。浏览器实测见 sprint verify。
+
+## 已发布: **v1.0.108 — 已核查文章提供重跑入口** (2026-11-19 · PR #256 → `a907492` · tag `v1.0.108`)
+
+**问题**：底部操作条的核查按钮用 `x-show="!articleDetail?.has_fact_check"` / `!has_web_fact_check` 控制，**一旦核查过就永久消失**。v1.0.107 扩充白名单后，历史上跑过的文章没有任何入口重跑，用户只能看着旧结论。
+
+**修法**：
+- 联网核查按钮**常驻**，文案在「联网核查 / 重新联网核查」之间切换。
+- 快速核查仅在**没有联网结果**时出现（`!has_web_fact_check`），文案「事实核查 / 重新核查」。
+  原因：快速核查写 `fact_check_method='llm_inference'` 并覆盖 `fact_check_conclusion`，但不会把
+  `has_web_fact_check` 置 0 → 会出现「徽标显示联网核查、结论却是单模型推断」。
+- 两个按钮加 `title` 说明旧结论 / 旧证据链会被替换。
+- 审计 P2：快速核查端点补 `_has_active_job` 409 防重复入队（与联网核查共用闸门）。
+
+**审计**（agy）：主改动 APPROVE WITH NITS（唯一 P2 已修）→ 增量审计 `88910fe` APPROVE，无 findings。
+
+**验证**：全量 **2335 passed, 2 skipped, 1 failed**（唯一失败 `test_worker_lock` 时序用例，单跑 2 passed，load 22.5）；定向 `test_api + test_fact_check_plus + test_frontend_article_job_watch` **178 passed**。
+
+**生产真机验收**（8900）：文章 `4a111c743cb775e3` 点「重新联网核查」→ `⏳ (job 67bfab67)`，**不刷新** 1m45s 后自动更新为新的可读结论 + `核查时间 20:11` + `时效在 30 天内`（旧徽章「时效降级 · 超 90 天旧证」消失）。
+
+**部署**：8900 PID **50414**，`v1.0.108 / a907492`；备份 `news.db.pre-v1.0.108-*`。
+后续 `#257`（`8da2829`）删除误提交的审计产物 `result.md`，无代码变更。
+
+## 已发布: **v1.0.107 — 事实核查白名单扩充 + 域名维护报表** (2026-11-19 · PR #254 → `46a2ad6` · tag `v1.0.107`)
+
+**问题**：`config/fact_check_domains.toml` 停在 v1.0.100 快照。生产库实测 132 个证据域名里有 **58 个未收录**（60 条证据，占 25%），包括 `shengjingbank.com.cn`、`psbc.com`、`unionpay.com`、`bloomberg.com`、`cnbc.com`。配置头注释承诺的维护入口 `moni fact-check-domains --report` **在 CLI 里根本不存在**。
+
+**修法**：
+- 新增只读报表 `moni fact-check-domains --report`（`--limit` / `--json`），按证据出现次数列出域名与分档，未收录单独排队。
+- 按实测数据 + 明确依据扩档：`tier_a` 2 个（`tc260.org.cn`、`publicnow.com`）、`tier_a_brand` 17 个、`tier_b` 25 个、`tier_c` 14 个。未收录域名仍一律按「不计入」处理。
+- 修 eTLD+1 多段后缀：补 `co.kr` / `or.kr` / `co.jp` / `co.in` / `com.br` 等。修复前 `asiae.co.kr` 与 `en.yna.co.kr` 都被切成 `co.kr`，两家媒体被当成同一个注册域。
+
+**审计**（agy 独立只读，APPROVE WITH NITS）：
+- P2 `moomoo.com` 是零售券商资讯频道，不算一手 → `tier_a_brand` 降 `tier_b`
+- P3 `ai-bot.cn`（导航汇总）、`kodekloud.com`（培训文档）不具独立采编 → 降 `tier_c`
+- 三条已修并补断言锁死分档
+
+**验证**：
+```
+一手来源   28 域 / 40 条 → 47 域 / 60 条
+编辑制媒体 41 域 / 126 条 → 66 域 / 152 条
+不计入      5 域 / 10 条 → 19 域 / 24 条
+未收录     58 域 / 60 条 →  0 域 / 0 条
+```
+- 全量 `pytest` → **2334 passed, 2 skipped**，0 failed
+- `-k 'fact_check or domain or gate3'` → **107 passed**
+- 新增 `tests/test_fact_check_domains_report.py` 7 条断言
+
+**部署**：8900 重启 PID **21543**，`version v1.0.107 / commit 46a2ad6 / schema 51 / worktree_dirty=false`；备份 `data/backups/news.db.pre-v1.0.107-20261119-175941`；生产实跑报表 → **未收录 0 / 全部域名已收录**。
 
 ## 已发布: **v1.0.106 — 摘要/核查任务完成后页面自动同步** (2026-11-19 · PR #250 → `b9d8b15` · tag `v1.0.106`)
 

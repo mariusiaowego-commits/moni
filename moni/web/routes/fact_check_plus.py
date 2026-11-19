@@ -234,7 +234,12 @@ def _resolve_active_model() -> tuple[str, str]:
 
 
 def _has_active_job(article_id: str) -> bool:
-    """409 防呆: 同 article 已有 pending/running fact-check-* job → 拒绝."""
+    """409 防呆: 同 article 已有 pending/running fact-check-* job → 拒绝.
+
+    快速核查与联网核查共用这一道闸门（两者都写 ``fact_check_conclusion``）。
+    放在本模块而不是 ``llm/jobs.py``：后者在模块级反向依赖本模块
+    （``apply_timeliness`` 等），搬过去会形成循环导入。
+    """
     conn = get_db()
     row = conn.execute(
         """
