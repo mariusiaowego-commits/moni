@@ -391,6 +391,125 @@ function app() {
       return map[reason] || reason;
     },
 
+    // ── Content cleaning (sprint-55) ──────────────────────────────
+    cleaningData: null,
+    cleaningRuns: [],
+    cleaningRun: null,
+    cleaningBusy: '',
+    cleaningError: '',
+
+    _cleaningNum(n) {
+      return Number(n || 0).toLocaleString('zh-CN');
+    },
+
+    async loadCleaning() {
+      try {
+        const [overview, runs] = await Promise.all([
+          fetch('/api/cleaning/overview', { credentials: 'same-origin' }).then(async r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+          }),
+          fetch('/api/cleaning/runs?limit=10', { credentials: 'same-origin' }).then(async r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+          }),
+        ]);
+        this.cleaningData = overview;
+        this.cleaningRuns = Array.isArray(runs) ? runs : [];
+        if (!this.cleaningRun && this.cleaningRuns.length) {
+          this.cleaningRun = this.cleaningRuns[0];
+        }
+        this.cleaningError = '';
+      } catch (e) {
+        this.cleaningError = '数据清洗概览加载失败';
+      }
+    },
+
+    async runCleaningPreview() {
+      if (this.cleaningBusy) return;
+      this.cleaningBusy = 'preview';
+      try {
+        const r = await fetch('/api/cleaning/preview', { method: 'POST', credentials: 'same-origin' });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        this.cleaningRun = await r.json();
+        this._notify('success', `预演完成：${this._cleaningNum(this.cleaningRun.changed)} 篇会变化（未写入）`);
+        await this.loadCleaning();
+      } catch (e) {
+        this._notify('error', `预演失败：${e.message}`);
+      } finally {
+        this.cleaningBusy = '';
+      }
+    },
+
+    async runCleaningApply() {
+      if (this.cleaningBusy) return;
+      const ok = await moniModal.confirm(
+        '执行后会重写命中的正文，并清掉这些文章已生成的摘要与简报正文（需重新生成）。' +
+        '预演里的数字就是这次的结果；重复执行不会二次破坏正文。',
+        { title: '执行数据清洗', okLabel: '执行清洗' }
+      );
+      if (!ok) return;
+      this.cleaningBusy = 'apply';
+      try {
+        const r = await fetch('/api/cleaning/apply', { method: 'POST', credentials: 'same-origin' });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        this.cleaningRun = await r.json();
+        this._notify('success', `清洗完成：${this._cleaningNum(this.cleaningRun.changed)} 篇正文已更新`);
+        await this.loadCleaning();
+      } catch (e) {
+        this._notify('error', `清洗失败：${e.message}`);
+      } finally {
+        this.cleaningBusy = '';
+      }
+    },
+
+    cleaningReportUrl(run) {
+      return run ? `/api/cleaning/runs/${run.id}/report.md` : '#';
+    },
+
+    async setCleaningContract(source, contract) {
+      try {
+        const r = await fetch(`/api/cleaning/sources/${encodeURIComponent(source)}/contract`, {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contract }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        await this.loadCleaning();
+        this._notify('success', `${source} 的交付形态已更新`);
+      } catch (e) {
+        this._notify('error', `更新失败：${e.message}`);
+      }
+    },
+
+    async copyCleaningDigest() {
+      const d = this.cleaningData;
+      const run = this.cleaningRun;
+      if (!d) return;
+      const lines = [
+        `数据清洗：共 ${this._cleaningNum(d.total)} 篇，` +
+        `待清洗 ${this._cleaningNum(d.pending)} 篇，` +
+        `空正文 ${this._cleaningNum(d.states?.empty || 0)} 篇，` +
+        `短稿 ${this._cleaningNum(d.states?.short || 0)} 篇。`,
+      ];
+      if (run) {
+        lines.push(
+          `最近一次${run.mode === 'apply' ? '执行' : '预演'}：` +
+          `扫描 ${this._cleaningNum(run.scanned)} 篇，` +
+          `正文变化 ${this._cleaningNum(run.changed)} 篇，` +
+          `仅补状态 ${this._cleaningNum(run.backfilled)} 篇，` +
+          `净减少 ${this._cleaningNum(run.chars_removed)} 字。`
+        );
+      }
+      try {
+        await navigator.clipboard.writeText(lines.join('\n'));
+        this._notify('success', '汇报文本已复制');
+      } catch (e) {
+        this._notify('error', '复制失败，请手动选择文本');
+      }
+    },
+
     // ── Navigation ────────────────────────────────────────────────
     currentView: 'articles',
 
@@ -407,6 +526,7 @@ function app() {
       llmJobs:  '/llmJobs',
       share:    '/share',
       basket:   '/basket',
+      cleaning: '/cleaning',
       config:   '/config',
       llmSettings: '/llmSettings',
     },
@@ -421,6 +541,7 @@ function app() {
       '/llmJobs':  'llmJobs',
       '/share':    'share',
       '/basket':   'basket',
+      '/cleaning': 'cleaning',
       '/config':   'config',
       '/llmSettings': 'llmSettings',
     },
@@ -510,6 +631,7 @@ function app() {
       else if (view === 'llmJobs') this.loadLlmJobs();  // v1.0.5.1
       else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
+      else if (view === 'cleaning') { this.loadCleaning(); }
       else if (view === 'calendar') { this.initCalendarPage(); }
       else if (view === 'cases')    { this.initCasesPage(); }
       else if (view === 'stats')    { this.loadAll(); }
@@ -555,6 +677,7 @@ function app() {
       else if (view === 'llmJobs') this.loadLlmJobs();
       else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
+      else if (view === 'cleaning') { this.loadCleaning(); }
       else if (view === 'calendar') { this.initCalendarPage(); }
       else if (view === 'cases')    { this.initCasesPage(); }
       else if (view === 'stats')    { this.loadAll(); }
@@ -4874,7 +4997,14 @@ function app() {
             fact_check_conclusion: '⏳ 核查中... (job ' + data.job_id.slice(0, 8) + ')',
           };
         })
-        .catch(err => { this._notify('error', '事实核查失败: ' + err.message); })
+        .catch(err => {
+          const raw = String(err.message || '').trim();
+          this._notify(
+            'error',
+            this._llmErrorText(err.message, '事实核查没能排上队，可以稍后重试。'),
+            raw && raw !== 'unknown' ? { detail: raw } : undefined
+          );
+        })
         .finally(() => { self.factCheckLoading = false; });
     },
 
@@ -4906,8 +5036,34 @@ function app() {
           // B3 fix: poll job status, when done fetch evidence chain
           self._pollFactCheckPlusJob(data.job_id, id);
         })
-        .catch(err => { this._notify('error', '联网核查失败: ' + err.message); })
+        .catch(err => {
+          const raw = String(err.message || '').trim();
+          this._notify(
+            'error',
+            this._llmErrorText(err.message, '联网核查没能排上队，可以稍后重试。'),
+            raw ? { detail: raw } : undefined
+          );
+        })
         .finally(() => { self.factCheckLoading = false; });
+    },
+
+    // 把 Hermes / LLM 的原始报错翻成人话；原文放进 toast 的「查看原因」。
+    // 熔断、会话异常、超时、解析失败各有不同说法，避免用户看到 RuntimeError 栈。
+    _llmErrorText(raw, fallback) {
+      const text = String(raw || '');
+      if (/breaker OPEN|failover exhausted/i.test(text)) {
+        return '模型服务正在熔断恢复中，暂时排不上新请求。已保留上次核查结果，约 10 分钟后可重试。';
+      }
+      if (/session_replay_gap/i.test(text)) {
+        return '模型会话异常，这次核查没跑完。已保留上次核查结果，可以稍后重试。';
+      }
+      if (/timeout|timed out/i.test(text)) {
+        return '模型在时限内没返回，这次核查没跑完。已保留上次核查结果，可以稍后重试。';
+      }
+      if (/parse failed|no evidence/i.test(text)) {
+        return '模型返回的内容不完整，这次核查没跑完。已保留上次核查结果，可以稍后重试。';
+      }
+      return fallback;
     },
 
     // v1.0.22 B3 fix: poll a single fact_check_plus job; on done pull evidence
@@ -4926,10 +5082,20 @@ function app() {
               // Refresh article detail so has_web_fact_check + conclusion render
               return fetch(`/api/articles/${articleId}`, { credentials: 'same-origin' })
                 .then(r => r.json())
-                .then(detail => { self.articleDetail = detail; });
+                .then(detail => { self.readerRefreshDetail(articleId, detail); });
             }
             if (job.status === 'failed') {
-              self._notify('error', '联网核查失败: ' + (job.error || 'unknown'));
+              const raw = String(job.error || '').trim();
+              self._notify(
+                'error',
+                self._llmErrorText(raw, '联网核查没跑完，可以稍后重试。'),
+                raw && raw !== 'unknown' ? { detail: raw } : undefined
+              );
+              // 失败时把「⏳ 联网核查中...」的占位撤掉，恢复上次结论。
+              fetch(`/api/articles/${articleId}`, { credentials: 'same-origin' })
+                .then(r => r.json())
+                .then(detail => { self.readerRefreshDetail(articleId, detail); })
+                .catch(() => {});
               return;
             }
             if (attempts >= maxAttempts) {
@@ -4946,6 +5112,19 @@ function app() {
       setTimeout(tick, 2000);
     },
 
+    /** 这条异步结果是否还属于阅读器里正在看的那篇。 */
+    isCurrentReaderArticle(articleId) {
+      return !!this.articleDetail && this.articleDetail.id === articleId;
+    },
+
+    /** 迟到的核查结果不能盖掉用户已经翻开的另一篇。 */
+    readerRefreshDetail(articleId, detail) {
+      if (!detail) return;
+      // 阅读器已关（articleDetail 为 null）时也不能把模态弹回来。
+      if (!this.isCurrentReaderArticle(articleId)) return;
+      this.articleDetail = detail;
+    },
+
     // v1.0.22: 拉取联网核查证据链 (后端已按 evidence_seq 升序)
     loadArticleEvidence(articleId) {
       const self = this;
@@ -4959,7 +5138,11 @@ function app() {
           }
           return r.json();
         })
-        .then(data => { self.articleEvidenceList = data.items; })
+        .then(data => {
+          // 换篇后迟到的证据链不能写给上一篇，否则 B 的证据区显示 A 的条目。
+          if (!self.isCurrentReaderArticle(articleId)) return;
+          self.articleEvidenceList = data.items;
+        })
         .catch(err => { this._notify('error', '加载核查证据失败: ' + err.message); });
     },
 

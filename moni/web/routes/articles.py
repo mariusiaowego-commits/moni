@@ -26,6 +26,41 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/articles", tags=["articles"])
 
+_FACT_CHECK_COLUMNS = (
+    "fact_check_conclusion",
+    "fact_check_method",
+    "fact_checked_at",
+    "has_fact_check",
+    "has_web_fact_check",
+    "fact_check_summary",
+    "fact_check_thesis",
+    "fact_check_how",
+    "fact_check_timeliness",
+)
+
+
+def _parse_iso_dt(value: Any) -> datetime | None:
+    """Parse a stored ISO timestamp; dirty/blank values become None."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _fact_check_fields(conn, article_id: str) -> dict[str, Any]:
+    """Read whichever fact-check columns exist (pre-026/046/047/048 safe)."""
+    existing = {r[1] for r in conn.execute("PRAGMA table_info(articles)")}
+    cols = [c for c in _FACT_CHECK_COLUMNS if c in existing]
+    if not cols:
+        return {}
+    row = conn.execute(
+        f"SELECT {', '.join(cols)} FROM articles WHERE id = ?",
+        (article_id,),
+    ).fetchone()
+    return dict(row) if row is not None else {}
+
 
 def _row_to_article(row: dict[str, Any], fresh_thresholds: dict[str, str] | None = None) -> Article:
     """Convert a sqlite3.Row (dict-like) to an Article Pydantic model.
@@ -77,12 +112,7 @@ def _row_to_article(row: dict[str, Any], fresh_thresholds: dict[str, str] | None
     # pinned (LEFT JOIN).  Convert to (is_pinned, pinned_at).
     pinned_at_raw = row.get("pinned_at")
     is_pinned = pinned_at_raw is not None
-    pinned_at_dt: datetime | None = None
-    if pinned_at_raw:
-        try:
-            pinned_at_dt = datetime.fromisoformat(pinned_at_raw)
-        except (ValueError, TypeError):
-            pinned_at_dt = None
+    pinned_at_dt = _parse_iso_dt(pinned_at_raw)
 
     return Article(
         id=row["id"],
@@ -100,6 +130,15 @@ def _row_to_article(row: dict[str, Any], fresh_thresholds: dict[str, str] | None
         pinned_at=pinned_at_dt,
         reader_unread=bool(row.get("reader_unread") or 0),
         has_reader_chat=bool(row.get("has_reader_chat") or 0),
+        fact_check_conclusion=row.get("fact_check_conclusion"),
+        fact_check_method=row.get("fact_check_method"),
+        fact_checked_at=_parse_iso_dt(row.get("fact_checked_at")),
+        has_fact_check=int(row.get("has_fact_check") or 0),
+        has_web_fact_check=int(row.get("has_web_fact_check") or 0),
+        fact_check_summary=row.get("fact_check_summary"),
+        fact_check_thesis=row.get("fact_check_thesis"),
+        fact_check_how=row.get("fact_check_how"),
+        fact_check_timeliness=row.get("fact_check_timeliness"),
         created_at=fetched_at,
         updated_at=fetched_at,
     )
@@ -363,6 +402,10 @@ def get_article(article_id: str) -> Article:
     if row is None:
         raise NotFoundError(message=f"Article {article_id!r} not found")
 
+    # v1.0.101: 事实核查字段单查一次，按实际存在的列读，旧库缺列只丢那一列。
+    row = dict(row)
+    row.update(_fact_check_fields(conn, article_id))
+
     # v1.0.7.0: 计算该信源的最新抓取时间
     fresh_thresholds: dict[str, str] = {}
     threshold_rows = conn.execute(
@@ -561,11 +604,43 @@ def import_fulltext(article_id: str, body: ImportFulltextRequest) -> dict[str, A
     if not content.strip():
         raise BadRequestError(message="File is empty")
 
-    # Update article content
-    now = datetime.now(timezone.utc).isoformat()
+    # A manually imported body still goes through the cleaner: markdown files
+    # copied out of wechat/websites carry the same CTAs and zero-width chars.
+    from moni.fetch.content import clean_for_write
+
+    row = conn.execute(
+        "SELECT raw_content FROM articles WHERE id = ?", (article_id,)
+    ).fetchone()
+    if row is None:
+        raise NotFoundError(message=f"Article {article_id!r} not found")
+
+    art: dict = {"title": "", "content": content}
+    if clean_for_write(art, row["raw_content"] or "") is None:
+        raise BadRequestError(
+            message="导入的正文清洗后为空，已拒绝写入；请检查文件内容",
+        )
+
     conn.execute(
-        "UPDATE articles SET raw_content = ?, summary = NULL, summary_at = NULL WHERE id = ?",
-        (content, article_id),
+        """
+        UPDATE articles
+           SET raw_content = ?, content_state = ?, content_chars = ?,
+               content_reasons = ?, content_cleaner = ?, content_cleaned_at = ?,
+               summary = NULL, summary_at = NULL,
+                       ai_summary = NULL, ai_summary_at = NULL,
+                       has_ai_summary = 0,
+               brief_summary = NULL, brief_summary_at = NULL,
+               brief_body_md = NULL, brief_body_at = NULL
+         WHERE id = ?
+        """,
+        (
+            art["content"],
+            art["content_state"],
+            art["content_chars"],
+            art["content_reasons"],
+            art["content_cleaner"],
+            art["content_cleaned_at"],
+            article_id,
+        ),
     )
     conn.commit()
 
@@ -575,11 +650,15 @@ def import_fulltext(article_id: str, body: ImportFulltextRequest) -> dict[str, A
 
     recompute_quality_if_pinned(conn, article_id)
 
-    logger.info("Imported full-text for article %s from %s (%d chars)", article_id, file_path, len(content))
+    logger.info(
+        "Imported full-text for article %s from %s (%d chars)",
+        article_id, file_path, art["content_chars"],
+    )
 
     return {
         "article_id": article_id,
         "file_path": str(file_path),
-        "char_count": len(content),
-        "content_preview": content[:500],
+        "char_count": art["content_chars"],
+        "content_state": art["content_state"],
+        "content_preview": art["content"][:500],
     }

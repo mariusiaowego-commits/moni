@@ -93,6 +93,15 @@ topnav 右侧显示服务状态：
 | **LLM 任务** | 异步 LLM 摘要/事实核查进度面板 (v1.0.5.2, 状态徽章 + 自动轮询) |
 | **配置管理** | 业务源 / 业务 tag (8 色 swatch 选色) / 关键词过滤 CRUD (v1.0.2 新增, v1.0.5.12 swatch palette 升级) |
 
+### 文章阅读器使用 (v1.0.102)
+
+打开任意文章，标题下方是三个页签：**正文 | 摘要 | 事实核查**。
+
+- **摘要 / 事实核查**：markdown 正常排版（段落、列表、加粗），不再是纯文本；事实核查页签顶部先给人话结论，再是证据链，长报告点「展开逐条核查」。
+- **宽屏**：右侧 AI 对话常驻，不占页签；**窄屏（窗口宽度 ≤ 1100px）**：多一个「对话」页签，正文与对话整屏淡入滑动切换。
+- **全屏**：右上角图标把阅读器铺满整屏，按 Esc 先退全屏，再按一次才关阅读器。
+- **键盘**：Tab 走焦点时是灰色焦点环；鼠标点击不再留框。
+
 ### 行业日历使用 (v1.0.16 F5)
 
 **做什么**: moni 抓到的同业资讯会被 LLM 自动识别 "日期 + 主体 + 事件类型",沉淀成行业事件日历视图。业务人员一眼看到 "近期发生了什么"。
@@ -547,19 +556,35 @@ bash scripts/install_cron.sh uninstall
 - `dropped_blacklist` = 黑名单 filter drop 掉的
 - `parse_errors` = parse 失败 (单条 error 不阻塞)
 
-### 4.4 清洗历史 HTML 文章 (v1.0.3-html)
+### 4.4 数据清洗 (clean_v1)
 
-36kr_rss 抓的历史 30 篇 raw_content 仍是 HTML 格式, 跑一次 `clean-articles` 即可一次性清洗:
+清洗覆盖的不止 HTML：YAML frontmatter、HTML 实体、伪标签、零宽字符、乱码 `U+FFFD`、
+公众号尾巴，并给每篇打上 `content_state`（ok / short / empty）。
+
+**默认是预演，不写库**：
 
 ```bash
 python3 -m moni clean-articles
-# clean-articles: scanned=10, updated=10, unchanged=0
+# clean-articles (dry-run): scanned=5335 changed=880 backfilled=4455 emptied=0 ...
+# dry-run: 未写入任何文章。确认后加 --apply 执行。
 
-python3 -m moni clean-articles  # 再跑一次 = 幂等
-# clean-articles: scanned=0, updated=0, unchanged=0
+python3 -m moni clean-articles --apply     # 确认后执行
+python3 -m moni clean-articles --apply     # 再跑一次 = changed=0（幂等）
+
+python3 -m moni content-audit              # 只读：按源看 ok / short / empty
+python3 -m moni content-audit --issues-only
 ```
 
-清洗后 `articles.raw_content` 字段从 `<h2>...</h2><p>...</p>` 变成纯文本段落, LLM 摘要质量显著提升.
+页面上「数据清洗」菜单提供同样的能力：概览卡、预演对照、执行前二次确认、历史记录、
+导出 Markdown 报告、按源设置交付形态（`full_text / snippet / short_form / title_only`）、
+一键复制汇报文本。
+
+两条护栏：
+
+- 清洗后若正文为空而原文 ≥200 字，**跳过不写**，计入 `emptied`；
+- 正文一旦变化，旧的摘要/简报正文作废并重建排版，需要重新生成摘要。
+
+`short_form` / `snippet` / `title_only` 的源本来就没有长正文，不会再被当成抓取故障。
 
 ---
 

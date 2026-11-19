@@ -46,6 +46,178 @@
 **待 dad GO**：commit → PR → merge → tag/部署 → G2 配置 → G3 批量处置。
 
 
+## 未发布: **数据清洗 clean_v1 + 前端清洗页** (2026-11-18 · 分支 `feat/content-cleaning` · PR #238)
+
+**做了什么**：内容进来后的劣质内容清理从「只剥 HTML 标签」扩成一套确定性清洗，
+并给出可预演、可执行、可导出报告的界面。
+
+**规则**（`moni/fetch/content.py`，纯函数、幂等）：YAML frontmatter → HTML 实体（循环解到稳定）
+→ HTML（仅当块级标签 ≥8 且标记占比 ≥5% 才走块级抽取，否则就地剥标签）→ 伪标签（只认真实 HTML 标签名）
+→ 零宽字符 → U+FFFD → 公众号尾巴（行首页脚整行删 / 短行版权声明整行删 / 行尾 CTA 截断）
+→ 空白压缩（含 `\u00a0`，Markdown 代码围栏内容原样保留）。
+
+**修掉的真 bug**（全部在生产库上复现过）：
+
+- `extract_text()` 不幂等，二次清洗清空 32 篇纯文本正文；
+- 正文夹一行 `<h1>404 Not Found</h1>`，8,110 字正文被抽成 13 字；
+- 页脚/CTA 正则误删真句：「国际**商务合作**区」「乘客在车站**扫描二维码**后」「版权**归属**」；
+- bestblogs 把整篇正文塞进 `title: "…"`，frontmatter 剥离吃掉 1,333 字；
+- 空正文仍会进大模型（异步摘要无护栏）。
+
+**新增**：migration 049（`articles.content_state/chars/reasons/cleaner/cleaned_at`、
+`sources.content_contract`、`cleaning_runs`）；`moni/cleaning/service.py`；
+`/api/cleaning/*`；前端「数据清洗」页；`moni clean-articles`（默认 dry-run）+ `moni content-audit`；
+四条入库路径（抓取 / 手工新建 / 菜篮子 rescue / 手工导入全文）统一清洗。
+
+**生产口径**（库副本，5,335 篇）：正文改写 **880** 篇、只补状态 4,455 篇、
+净减 **47,551** 字、会清空长正文而跳过 0 篇、归档测试数据 4 条、二次执行 `changed=0`。
+杂质命中：公众号尾巴 494、实体 82、零宽 84、乱码 55、frontmatter 7（另有 1 篇内嵌正文未自动处理）、HTML 残留 8。
+
+**独立 audit 后修复**（2026-11-18，4 条 P1 全修并各有回归）：
+只补状态的行不再误清 `summary/ai_summary/brief_*`；五条写路径统一「会清空长正文就拒绝写入」护栏；
+「编辑完规则后…」等正文句不再被当署名行删除；`a<b 且 b>c` 不再被当 HTML 标签吃掉。
+顺手修复：代码围栏原样保留、`Q:/A:` 不当 YAML、测试数据只按 `testsrc/s` 白名单归档、
+`no_body` 只拦摘要/简报不再拦事实核查、前端错误 JSON 与 `states` 缺失防崩、
+migration 049 只在 `content_contract IS NULL` 时写入。
+
+**第二轮 audit 后修复**（2026-11-19，无 P0，2 条 P1 全修并各有回归）：
+菜篮子 rescue 遇到「清洗后为空」现在返回 400 且不写 `rescued_at`（之前静默写入空正文还报成功）；
+Markdown 代码围栏改为整块（含 ` ``` `）保护，二次清洗不再删围栏内 HTML、`normalize` 幂等。
+顺手修：正文未变的 `PUT` 不再清空 `summary/ai_summary/brief_*`、`Q:/A:/Note:` 只在全是散文时判为正文、
+批量清洗纯补状态行不再重建 layout、`clean_all_html` 增加 `skipped` 计数、
+导入全文守卫测试不再被路径白名单短路、migration 049 注释改正。
+全量 `2124 passed / 2 skipped`；生产副本 5,330 行三次 apply = `875/0/0`，`emptied=0`，围栏与摘要均未丢。
+
+**审计 P2 并入**（2026-11-19，两条有实际损耗的修进本 PR）：
+frontmatter 现在允许 YAML 缩进续行，生产 34 篇以 `---` 开头的正文由「只剥 7 篇」变为「剥 33 篇」
+（剩 1 篇是整篇正文塞进 `title:` 的 `frontmatter_embedded`，按设计保留）；
+纯空白 diff 不再清 `summary/ai_summary/brief_*`、也不再重建 layout，另记 `whitespace_only` 子计数。
+生产副本 5,330 行：`changed=875 / emptied=0 / chars_removed=54,683 / whitespace_only=195`，
+二次三次 `changed=0`；摘要保留 `13/84/21`。全量 `2127 passed / 2 skipped`。
+
+增量复审再补两条：`---` 之间全是缩进行（代码块/缩进段落）不再被当 frontmatter 删掉（要求至少一个顶层键）；
+`clean-articles` 预演也输出 `whitespace_only`（之前只有执行才写）。
+
+**与 #242 冲突处理**（2026-11-19，rebase 到 `a6a8b92`）：`index.html` 里 `main.css` / `app.js` 的 `?v=`
+取本分支更高值（`20261119002` / `20261119003`），并修正 #242 新测试把版本号截成前 8 位的问题
+（`\d{8}` → `\d{8,}`，否则同一天连续改两次永远误报）。
+
+**测试**：`pytest tests/ --deselect <2 条环境失败>` → **2108 passed, 2 skipped**。
+`test_showcase…` 因当前虚拟环境缺 `PIL` 失败（与 PR 无关）；`test_039…` 需主仓 `.git` 建临时 worktree，
+沙箱内失败原因与既有记录一致，audit 单跑 33 passed。
+
+**文档**：`docs/specs/2026-11-18-content-cleaning.md`（方案+落地记录）、
+`docs/specs/2026-11-18-content-cleaning-options.md`（甲/乙/丙对比）、
+Obsidian `sprint-56-content-cleaning-2026-11-18/` 六件套。
+
+**未做**：自动丢弃空/短正文（合规常态）、LLM 质量打分（与 BV 十维重复）、
+跨源去重（约 1%）、全文抓取补齐（V2）、发布方归一（857 篇，另开）。
+
+
+---
+
+## 已发布: **v1.0.102 / v1.0.103 — 阅读器页签化 + 流式修复 + 静态资源缓存号** (2026-11-19 · PR #240/#241/#242 · tag `v1.0.102` / `v1.0.103` · commit `c4c9357` / `a312971` / `a6a8b92`)
+
+**症状**（生产 + 用户反馈 6 条）：
+
+1. 摘要 / 事实核查内容是纯文本，markdown 不渲染；
+2. 摘要 / 核查块挂在正文末尾，要滚到底才看得到；
+3. 人话结论 `fact_check_summary` 前端从未渲染（0 处引用）；
+4. AI 对话流式输出一直在闪；
+5. 放大按钮只是弹窗内放大，不是全屏；
+6. 窄屏时对话框盖在正文上。
+
+**改动**：
+
+- 阅读器改「页签 + 内容面板」：`.reader-split` 变两行网格，行 1 = `正文 | 摘要 | 事实核查`。宽屏右侧 AI 常驻、「对话」页签隐藏；窄屏 4 页签整屏 `opacity/translateX` 切换，`.ai-pane` 不再 `position:absolute`。
+- `readerRenderMarkdownPlain`（marked + DOMPurify，不加引用 chip）渲染摘要与核查结论；补渲染 `fact_check_summary`；长报告结论直出 + 「展开逐条核查」折叠。
+- 流式：settled/tail 增量渲染，流式期关掉 `.ai-structured-list > li` 入场动画；done / failed / cancelled 三态都整段定稿。
+- 全屏：`.is-expanded` 改 `position:fixed; inset:0`，Esc 先退全屏再关弹窗。
+- 报错人话：`_llmErrorText` 把熔断 / 会话异常 / 超时 / 解析失败映射成人话，原文进 toast「查看原因」。
+- 迟到结果守卫：新增 `isCurrentReaderArticle(id)`，`readerRefreshDetail` 与 `loadArticleEvidence` 共用，换篇 / 关阅读器都不再串数据。
+- 页签样式：去掉全宽分隔线与下划线（不再和卡片上边框凑双线），选中态实心荔肉白底 + 600 字重，hover 35% 混合底。
+- 全局焦点环只挂 `:focus-visible`、颜色 `--accent` → `--muted-fg`：鼠标点击不再留紫框，键盘 Tab 仍有环。
+- v1.0.103：`main.css / toast.js / app.js / reader.js` 的 `?v=` 统一 bump——此前没 bump，服务端换了文件但浏览器整版用旧缓存。
+
+**审计**（grok，只读、跨仓指向 worktree）：#240 `APPROVE WITH NITS`（P1 窄屏切不回内容页签、P2 迟到结果覆盖）→ 修复 → 复审通过；#241 `APPROVE WITH NITS`（P2 取消/失败不定稿）→ 修复 → 增量复审 `APPROVE`；#242 `APPROVE WITH NITS`（版本号断言同日漏判）→ 改为按提交比对 + 变异验证。三次 `collect` 均 `introduced: []`。
+
+**测试**：全量 **2063 passed + 2 skipped + 1 failed**；failed 为 `test_worker_lock::test_sigterm_kills_blocking_child_that_ignores_term` 并发 flake，单跑 **28 passed**。前端子集 **116 passed**。竞态实证：拦延迟 A 的证据响应后立刻开 B —— 守卫关闭 `evidence_rows=11`（错，A 的条数）、开启 `=3`（B 的真实条数）。
+
+**发布**：squash `c4c9357`（#240）→ `a312971`（#241；#240 squash 后产生 add/add 冲突，`git rebase --onto origin/main be09aac` 重放 7 个提交，`--force-with-lease` 只推 PR 分支）→ `a6a8b92`（#242）。新 tag `v1.0.102` / `v1.0.103`（未覆盖旧 tag）。备份 `news.db.pre-v1.0.102-20261119-094352`、`news.db.pre-v1.0.103-20261119-100943`。8900 重启两次，最终 PID **24850**（2026-11-19 10:09:44），schema 仍 **48**（本 sprint 无迁移）。
+
+**生产实测**：
+
+- `index.html` 返回 `main.css / toast.js / app.js / reader.js` 四个 `?v=20261119001` 系版本号，带版本号的 `main.css` 返回 200；
+- 无缓存浏览器上下文打开阅读器：4 个页签、选中底 `oklch(0.928 0.034 84.6)`、`::after=none`、页签条 `border-bottom: 0px`；
+- `/` 与 `/api/articles?limit=5` 均 200。
+
+**已知边界**：
+
+- 真实联网核查端到端没验成：本机 hermes 熔断器 OPEN（`breaker OPEN`），该项记 **failed**，不是 passed；
+- 历史长 markdown 核查结论不回填数据，靠前端折叠处理；
+- `test_versioned_assets_busted_after_their_last_commit` 在浅克隆 / 非 git checkout 下 skip；
+- 上表「生产实测」的采集时点是 `a6a8b92`（schema 48、PID 24850）。收尾期间 `origin/main` 前进到
+  `ef806ec`（#238 数据清洗，migration 049），并由另一路部署到 8900（现 `version=v1.0.103 /
+  commit=ef806ec / schema 49 / PID 37003`）；#238 尚未打 tag。本 sprint 的页面结论不受影响，
+  但推进到该提交后应再点一遍。
+
+## 已发布: **v1.0.101 — 事实核查提示词改人话结论 + 详情页两档展示** (2026-11-18 · PR #236 · tag `v1.0.101` · commit `70bc017`)
+
+**症状**：分享图里的核查行仍是「温度 [0,2]、top_p [0,1]…均与文档一致」；详情页接口
+`GET /api/articles/{id}` 的返回 key 里没有任何 `fact_check_*`，20 篇有结论的文章前端一直空白。
+
+**改动**：
+
+- `fact_check.md`：1-3 条最值得核的主张；依据类型四档（文内矛盾 / 公开常识 / 模型记忆 /
+  无依据）；无证据只能「无法验证」，不许判「错误」；全文 ≤600 字。
+- `fact_check_plus.md`：`conclusion` 只出标签；新增 `thesis`（≤40 字）与
+  `evidence.source_date`；`summary` 2-3 句 ≤150 汉字，回答"能不能引用 / 依据多硬 / 注意什么"。
+- `jobs.py` + migration 048：落库 `fact_check_thesis`；摘要上限 120→150；【无需核查】档也写 thesis。
+- `enrichment.py`：离线档禁【已核实】；勾「深度事实核查」时补齐联网核查（最多等 180 秒）。
+- web：`Article` 增加 9 个 fact_check 字段；结论框标「联网核查 · 有出处」/「快速核查 ·
+  未联网，模型推断」，显示 `fact_check_how` 与 `thesis`；证据项显示 verdict / claim / 来源日期。
+- `share/estimate`：新增 `articles_missing_summary` 与 `articles_missing_web_fact_check` 预检。
+
+**审计**：grok 只读三轮 —— `APPROVE WITH NITS`（5 条 P2）→ 修完 → `APPROVE WITH NITS`
+（3 条 P3）→ 修完 → 终审 **`APPROVE`**。合并前确认 `base = main@e5975a3`（最新 main）、
+GitHub `mergeable_state=clean`。
+
+**测试**：定向 185 passed；全量 **2039 passed + 2 skipped + 2 环境性 failed**（共 2043 项）。
+`test_migration_039` 在沙箱内因
+`git worktree add` 无权限失败，沙箱外 **33 passed**；`test_worker_lock` 满载偶发一次，
+单跑 **1 passed**。
+
+**发布**：squash `70bc017` · tag `v1.0.101` · 备份
+`data/backups/news.db.pre-v1.0.101-20261118-163420` · `python3 -m moni.db.migrate`
+→ schema **48** · 重启 8900（PID **54877**）→ `/api/service/info` 报
+`v1.0.101 / 70bc017 / schema 48 / 5330 articles / worktree_dirty=false`。
+
+**生产实测**：
+
+- 详情接口：`/api/articles/7ab82a579114a88d` 返回 9 个 fact 字段；`fact_checked_at`
+  可被 Pydantic 解析，脏值回退 `null`。
+- 证据接口：`/api/fact-check-plus/evidence/7ab82a579114a88d` 返回 `claim/verdict/source_date/
+  days_old/timeliness`。
+- UI：首页实际返回「联网核查 · 有出处」「快速核查 · 未联网，模型推断」「生成前提示」三段文案。
+- 预检：`report_png` + `include_fact_check=true` 返回 `articles_missing_summary=0 /
+  articles_missing_web_fact_check=0`。
+- 真实联网核查：`POST /api/articles/13525e80d88e7816/fact-check-plus` 两次均 `failed`，
+  原因是 hermes `session_replay_gap` → 熔断器打开（`reset in 583s`），不是本 PR 代码路径；
+  该项标 **failed**，待熔断恢复后重跑。
+
+**已知边界**：
+
+- 历史行不回填：旧 `fact_check_summary` 仍 ≤120 字，旧 evidence 的 `days_old` 仍是 0
+  （展示为 fresh），只有新跑的核查才用新规则。
+- 其它分支迁移号冲突：`feat/content-cleaning` 也占用 `048`；PR #225 的
+  `046_bv_direction.sql` 与 main 的 `046_fact_check_summary.sql` 撞号。两者都需 rebase 后
+  改为 049/050 并同步 `_CURRENT_VERSION`。
+
+---
+
+
+---
+
 ## 已发布: **分享事实核查改人话结论 + 核查器 summary** (2026-11-18 · PR #232/#233 · commit `f1c26da` · 未打 tag)
 
 **症状**：PNG 报告的事实核查行变成「温度 [0,2]、top_p [0,1]、频率惩罚 [-2,2] …均与官方文档一致」。

@@ -361,36 +361,27 @@ def fact_check_plus_evidence(article_id: str) -> dict[str, Any]:
     if row is None:
         raise NotFoundError(message=f"Article {article_id!r} not found")
 
-    try:
-        rows = conn.execute(
-            """
-            SELECT query, url, domain, snippet, fetched_at, model, provider,
-                   conclusion, rationale, evidence_seq, created_at, job_id,
-                   days_old
-            FROM fact_check_evidence
-            WHERE article_id = ?
-            ORDER BY evidence_seq ASC
-            """,
-            (article_id,),
-        ).fetchall()
-    except Exception:
-        # Pre-migration 027: days_old column may be missing.
-        rows = conn.execute(
-            """
-            SELECT query, url, domain, snippet, fetched_at, model, provider,
-                   conclusion, rationale, evidence_seq, created_at, job_id
-            FROM fact_check_evidence
-            WHERE article_id = ?
-            ORDER BY evidence_seq ASC
-            """,
-            (article_id,),
-        ).fetchall()
+    # 按实际存在的列读：027/046/047 的列缺哪一列只丢那一列，不整包回退。
+    existing = {r[1] for r in conn.execute("PRAGMA table_info(fact_check_evidence)")}
+    wanted = (
+        "query", "url", "domain", "snippet", "fetched_at", "model", "provider",
+        "conclusion", "rationale", "evidence_seq", "created_at", "job_id",
+        "days_old", "claim", "verdict", "source_date",
+    )
+    cols = [c for c in wanted if c in existing]
+    if not cols:
+        return {"article_id": article_id, "items": [], "total": 0}
+    rows = conn.execute(
+        f"SELECT {', '.join(cols)} FROM fact_check_evidence "
+        "WHERE article_id = ? ORDER BY evidence_seq ASC",
+        (article_id,),
+    ).fetchall()
     items: list[dict[str, Any]] = []
     for r in rows:
         item = dict(r)
         days_old = item.get("days_old")
         if days_old is None:
-            days_old = compute_days_old(item.get("fetched_at"))
+            days_old = compute_days_old(item.get("source_date"))
             item["days_old"] = days_old
         item["timeliness"] = compute_timeliness(days_old)
         items.append(item)

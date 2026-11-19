@@ -61,6 +61,16 @@ class Article(BaseModel):
     reader_unread: bool = False
     # Sprint 50: true when the article has any reader AI conversation.
     has_reader_chat: bool = False
+    # v1.0.101: 详情页要能显示两档核查结果（此前接口根本没返回这些字段）。
+    fact_check_conclusion: str | None = None
+    fact_check_method: str | None = None
+    fact_checked_at: datetime | None = None
+    has_fact_check: int = 0
+    has_web_fact_check: int = 0
+    fact_check_summary: str | None = None
+    fact_check_thesis: str | None = None
+    fact_check_how: str | None = None
+    fact_check_timeliness: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -367,6 +377,9 @@ class ShareTaskEstimateResponse(BaseModel):
     # Wall-clock estimate from the last 5 done share_tasks of the same format
     duration_sec_est: int
     duration_sec_basis: int       # how many past tasks we averaged
+    # v1.0.101: 预检 —— 入队后富化会先补齐这些东西，提前告诉用户要等多久。
+    articles_missing_summary: int = 0
+    articles_missing_web_fact_check: int = 0
     # Where the user can find the output once done (path is illustrative —
     # the real id is allocated at write time)
     artifact_path_template: str   # e.g. "/artifacts/<id>-html_landing.html"

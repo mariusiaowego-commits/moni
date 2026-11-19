@@ -573,6 +573,11 @@
     // ── reader detail ───────────────────────────────────────────
     readerExpanded: false,
     readerMobileTab: 'read',
+    // 正文 / 摘要 / 事实核查 三个内容页签（与窄屏的「对话」页签正交）。
+    readerContentTab: 'read',
+    readerFactReportOpen: false,
+    // 窄屏才有的「整屏对话」状态；宽屏右侧常驻 AI，不需要这套切换。
+    readerIsNarrow: false,
     readerMessages: [],
     readerConversation: null,
     readerPrompts: [],
@@ -586,6 +591,8 @@
     readerStreamJobId: null,
     readerStreamMsgId: null,
     readerStreamSource: null,
+    // 用户是否贴着底部：贴着才跟着流式输出滚动，上滑阅读时不被拽回。
+    readerAiPinned: true,
     readerBankParts: [],
     readerRawOpen: false,
     readerImportOpen: false,
@@ -606,6 +613,9 @@
       this.readerQuote = '';
       this.readerInput = '';
       this.readerMobileTab = 'read';
+      this.readerContentTab = 'read';
+      this.readerFactReportOpen = false;
+      this.readerSyncViewport();
       fetch(`/api/articles/${article.id}`, { credentials: 'same-origin' })
         .then((r) => {
           if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -616,6 +626,9 @@
           this.readerRendered = renderArticle(data.content || '');
           this.readerBodyEmpty = plainTextLength(this.readerRendered) < 80;
           this.readerBankParts = parseBankMeta(data.content || '');
+          // 证据链此前只在核查任务跑完的那一次会话里加载，直接打开文章会看到空列表。
+          this.articleEvidenceList = [];
+          if (data.has_web_fact_check) this.loadArticleEvidence(data.id);
           this.readerLoadPrompts();
           this.readerLoadConversation();
         })
@@ -630,8 +643,69 @@
       this.readerRawOpen = false;
       this.readerImportOpen = false;
       this.readerSelectionVisible = false;
+      this.readerExpanded = false;
+      this.readerMobileTab = 'read';
+      this.readerContentTab = 'read';
+      this.readerFactReportOpen = false;
       this.summaryLoading = false;
       this.factCheckLoading = false;
+    },
+
+    /** Esc 先退出全屏，再关闭阅读器。 */
+    readerHandleEscape() {
+      if (this.readerExpanded) {
+        this.readerExpanded = false;
+        return;
+      }
+      this.closeArticleDetail();
+    },
+
+    readerSwitchContentTab(tab) {
+      this.readerContentTab = tab;
+      // 窄屏下「对话」是整屏视图，切内容页签必须把整屏切回来，
+      // 否则页签高亮了但格子里还是 AI 面板。
+      this.readerMobileTab = 'read';
+      this.readerFactReportOpen = false;
+      this.$nextTick(() => {
+        const box = this.$refs?.readerScroll || document.querySelector('.reader-scroll');
+        if (box) box.scrollTop = 0;
+      });
+    },
+
+    readerSwitchToAi() {
+      this.readerMobileTab = 'ai';
+      this.readerScrollToBottom();
+    },
+
+    readerSyncViewport() {
+      this.readerIsNarrow = window.matchMedia('(max-width: 1100px)').matches;
+    },
+
+    /** 窄屏切到「对话」时，内容页签不再算选中（否则 tablist 里两个 aria-selected=true）。 */
+    get readerAiFocused() {
+      return this.readerIsNarrow && this.readerMobileTab === 'ai';
+    },
+
+    /**
+     * 历史联网核查结论是整篇 markdown 报告（## 核查结论 + ## 逐条核查）。
+     * 结论段直接显示，逐条核查折叠起来，否则页签里只剩一个按钮。
+     */
+    get readerFactSplit() {
+      const text = String(this.articleDetail?.fact_check_conclusion || '');
+      if (!text || text.length <= 200) return { preview: text, rest: '' };
+      const cut = text.search(/\n##\s+\S/);
+      if (cut > 0) return { preview: text.slice(0, cut).trim(), rest: text.slice(cut).trim() };
+      const para = text.indexOf('\n\n');
+      if (para > 0) return { preview: text.slice(0, para).trim(), rest: text.slice(para).trim() };
+      return { preview: text.slice(0, 160).trim() + '…', rest: text };
+    },
+
+    get readerFactPreviewText() {
+      return this.readerFactSplit.preview;
+    },
+
+    get readerFactRestText() {
+      return this.readerFactSplit.rest;
     },
 
     readerLoadPrompts() {
@@ -647,14 +721,50 @@
         .then((r) => r.json())
         .then((data) => {
           this.readerConversation = data.conversation || null;
-          this.readerMessages = Array.isArray(data.messages) ? data.messages : [];
+          this.readerMessages = Array.isArray(data.messages)
+            ? data.messages.map((m) => this.readerInitMessage(m))
+            : [];
           if (this.readerConversation) {
             this.readerMarkRead();
             this.readerResumeStream();
+            this.readerAiPinned = true;
             this.readerScrollToBottom();
           }
         })
         .catch((err) => console.error('readerLoadConversation failed:', err));
+    },
+
+    /**
+     * settled / tail 必须一开始就存在 —— Alpine 3 对后加的属性不响应。
+     * settled = 已经成型的块（渲染一次就冻结），tail = 还在写的最后一块。
+     */
+    readerInitMessage(m) {
+      const msg = { ...m, settled: '', tail: '' };
+      if (msg.role === 'assistant') msg.settled = String(msg.content || '');
+      return msg;
+    },
+
+    /**
+     * 在空行处切一刀，且只切代码围栏成对的位置 —— 否则 settled 里会留下
+     * 一个没闭合的 ```，整段会被渲染成代码块。
+     */
+    readerSplitStream(msg) {
+      const text = String(msg.content || '');
+      const fences = [];
+      for (let i = text.indexOf('```'); i !== -1; i = text.indexOf('```', i + 3)) fences.push(i);
+      let idx = text.lastIndexOf('\n\n');
+      while (idx > 0) {
+        let before = 0;
+        while (before < fences.length && fences[before] < idx) before += 1;
+        if (before % 2 === 0) {
+          msg.settled = text.slice(0, idx).trimEnd();
+          msg.tail = text.slice(idx).trimStart();
+          return;
+        }
+        idx = text.lastIndexOf('\n\n', idx - 1);
+      }
+      msg.settled = '';
+      msg.tail = text;
     },
 
     readerResumeStream() {
@@ -674,7 +784,9 @@
       if (!res.ok) throw new Error('创建会话失败');
       const data = await res.json();
       this.readerConversation = data.conversation;
-      this.readerMessages = Array.isArray(data.messages) ? data.messages : [];
+      this.readerMessages = Array.isArray(data.messages)
+        ? data.messages.map((m) => this.readerInitMessage(m))
+        : [];
       return this.readerConversation;
     },
 
@@ -726,6 +838,8 @@
           id: data.assistant_message_id,
           role: 'assistant',
           content: '',
+          settled: '',
+          tail: '',
           job_id: data.job_id,
           status: 'pending',
           reasoning: this.readerReasoning,
@@ -761,8 +875,9 @@
             msg._pending = '';
             msg.content = data.content || '';
             msg.status = data.status || 'streaming';
+            this.readerSplitStream(msg);
           }
-          this.readerScrollToBottom();
+          this.readerFollowStream();
         } catch (e) { /* ignore */ }
       });
       source.addEventListener('delta', (ev) => {
@@ -770,7 +885,6 @@
           const data = JSON.parse(ev.data);
           const msg = message();
           if (msg) this.readerPushDelta(msg, data.text || '');
-          this.readerScrollToBottom();
         } catch (e) { /* ignore */ }
       });
       source.addEventListener('done', (ev) => {
@@ -780,6 +894,8 @@
           if (msg) {
             this.readerFlushDelta(msg);
             msg.status = 'done';
+            msg.settled = String(msg.content || '');
+            msg.tail = '';
             msg.outputTokens = data.output_tokens || 0;
           }
           this.readerStreaming = false;
@@ -787,7 +903,7 @@
           this.readerStreamMsgId = null;
           this.readerCloseStream();
           this.readerMarkRead();
-          this.readerScrollToBottom();
+          this.readerFollowStream();
           if (data.input_tokens || data.output_tokens) {
             this._notify('info', `AI 完成 · ${data.input_tokens || 0} in / ${data.output_tokens || 0} out`);
           }
@@ -804,6 +920,7 @@
             this.readerFlushDelta(msg);
             msg.status = data.status || 'failed';
             msg.error = data.message || '生成失败';
+            this.readerFinaliseMessage(msg);
           }
           this.readerStreaming = false;
           this.readerStreamMsgId = null;
@@ -836,10 +953,18 @@
         }
         msg.content = (msg.content || '') + msg._pending.slice(0, 3);
         msg._pending = msg._pending.slice(3);
-        this.readerScrollToBottom();
+        this.readerSplitStream(msg);
+        this.readerFollowStream();
         setTimeout(step, 12);
       };
       step();
+    },
+
+    /** 结束（完成 / 失败 / 取消）后把全文定稿，避免 tail 半截留在流式容器里。 */
+    readerFinaliseMessage(msg) {
+      msg.settled = String(msg.content || '');
+      msg.tail = '';
+      msg._typing = false;
     },
 
     readerFlushDelta(msg) {
@@ -848,6 +973,7 @@
         msg._pending = '';
       }
       msg._typing = false;
+      this.readerSplitStream(msg);
     },
 
     readerStop() {
@@ -858,7 +984,11 @@
       }).catch(() => {});
       const active = (this.readerMessages || []).find(
         (m) => m.job_id === this.readerStreamJobId && m.role === 'assistant');
-      if (active) active.status = 'cancelled';
+      if (active) {
+        this.readerFlushDelta(active);
+        active.status = 'cancelled';
+        this.readerFinaliseMessage(active);
+      }
       this.readerStreaming = false;
       this.readerStreamMsgId = null;
       this.readerCloseStream();
@@ -881,10 +1011,23 @@
     },
 
     readerScrollToBottom() {
-      setTimeout(() => {
+      if (this._scrollFrame) return;
+      this._scrollFrame = requestAnimationFrame(() => {
+        this._scrollFrame = 0;
         const box = this.$refs?.aiMessages || document.querySelector('.ai-messages');
         if (box) box.scrollTop = box.scrollHeight;
-      }, 40);
+      });
+    },
+
+    /** 用户上滑阅读时不再被流式输出拽回底部。 */
+    readerTrackAiScroll(ev) {
+      const box = ev.target;
+      this.readerAiPinned = (box.scrollHeight - box.scrollTop - box.clientHeight) < 48;
+    },
+
+    readerFollowStream() {
+      if (!this.readerAiPinned) return;
+      this.readerScrollToBottom();
     },
 
     readerUpdateProgress(ev) {
@@ -938,6 +1081,12 @@
       let html = renderMarkdown(structureListMarkdown(text));
       html = structureRenderedLists(html);
       return addCitations(html);
+    },
+
+    /** 核查结论等「模型产物」不挂正文引用 chip：那些「」不是文章里的引文。 */
+    readerRenderMarkdownPlain(text) {
+      let html = renderMarkdown(structureListMarkdown(text));
+      return structureRenderedLists(html);
     },
 
     readerRenderArticle(text) {

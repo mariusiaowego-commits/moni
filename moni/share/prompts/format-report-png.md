@@ -34,20 +34,26 @@ Your Nous subscription may be disconnected. Please reconnect and retry."
    - Source + date: one line, muted, small
    - Key insight: 2-3 sentences capturing the most important takeaway
      (not the full abstract — pick the one thing the reader should remember)
-   - Fact check (only if results exist): colored marker + ONE plain sentence,
-     ≤60 Chinese characters, saying whether the article's core claim holds up
-     and what that means for the reader.
+   - Fact check (only if results exist): colored marker + 2-3 plain sentences,
+     ≤150 Chinese characters, answering three things: whether the article can
+     be cited, how strong the evidence is (how many independent sources and
+     what kind), and what to watch out for when quoting it.
      - Green ● = Supported
      - Amber ● = Unverified
      - Red ● = Disputed
      Override content-structure §3 for this one-image format: no per-claim
      detail. Hard rules:
-     - Never copy numbers, ranges, parameter names, file names, URLs, domains
-       or quoted text from the fact-check material.
+     - Numbers are allowed when you can translate them into meaning the reader
+       cares about: money, share, dates, counts, implementation windows.
+       If a number cannot be translated, drop it — do not replace it with
+       「与文档一致」or「均符合规范」.
+     - Never write parameter names, value ranges, field names, file names,
+       URLs, domains or quoted clauses.
      - No lists of 3+ items, no semicolons, no colon-then-list.
-     - Write the meaning, not the comparison you ran.
+     - Name the consequence, not the comparison you ran.
      - Bad: 「温度 [0,2]、top_p [0,1]、频率惩罚 [-2,2] 均与官方文档一致」
      - Good: 「这套配置建议有官方文档支撑，落到实际调参仍取决于作者经验」
+     - Good: 「监管稿给出 90 天实施窗口，周报可引实施日，细则以官网为准」
 
 3. **Footer**
    - Thin separator line

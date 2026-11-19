@@ -66,6 +66,20 @@
     msgEl.textContent = String(msg || '');
     el.appendChild(msgEl);
 
+    // Optional technical detail: the headline stays human-readable while
+    // the raw backend error stays one click away (and copyable).
+    if (opts.detail) {
+      const det = document.createElement('details');
+      det.className = 'toast-detail';
+      const sum = document.createElement('summary');
+      sum.textContent = '查看原因';
+      const pre = document.createElement('pre');
+      pre.textContent = String(opts.detail);
+      det.appendChild(sum);
+      det.appendChild(pre);
+      el.appendChild(det);
+    }
+
     // Action button (undo / copy error)
     if (opts.action && opts.action.label) {
       const btn = document.createElement('button');
@@ -85,7 +99,7 @@
       copyBtn.type = 'button';
       copyBtn.textContent = '复制错误';
       copyBtn.addEventListener('click', () => {
-        navigator.clipboard && navigator.clipboard.writeText(String(msg || ''))
+        navigator.clipboard && navigator.clipboard.writeText(String(opts.detail || msg || ''))
           .then(() => { copyBtn.textContent = '已复制'; copyBtn.disabled = true; })
           .catch(() => { copyBtn.textContent = '复制失败'; });
       });

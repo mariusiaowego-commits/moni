@@ -13,6 +13,64 @@ from .connection import get_db
 logger = logging.getLogger(__name__)
 
 
+def _refresh_body_if_better(conn, art: dict[str, Any], aid: str,
+                            source: str) -> bool:
+    """Replace a stored empty/short body when the re-fetch is materially fuller.
+
+    Never uses ``brief_body_md`` as a lock: ``dedupe_insert`` fills that column
+    for every new row, so it says nothing about human editing.  A manual
+    full-text import makes the stored body longer; a re-fetch is only allowed
+    to replace it when it is at least ``UPGRADE_MIN_CHARS`` longer still.
+    """
+    row = conn.execute(
+        "SELECT raw_content, content_chars FROM articles WHERE id = ?",
+        (aid,),
+    ).fetchone()
+    if row is None:
+        return False
+
+    new_chars = int(art.get("content_chars") or 0)
+    if new_chars <= 0:
+        return False
+
+    old_chars = row["content_chars"]
+    if old_chars is None:
+        old_chars = len((row["raw_content"] or "").strip())
+
+    from ..fetch.content import UPGRADE_MIN_CHARS
+
+    if int(old_chars) != 0 and new_chars < int(old_chars) + UPGRADE_MIN_CHARS:
+        return False
+
+    conn.execute(
+        """
+        UPDATE articles
+           SET raw_content = ?, content_state = ?, content_chars = ?,
+               content_reasons = ?, content_cleaner = ?, content_cleaned_at = ?,
+               summary = NULL, summary_at = NULL,
+                       ai_summary = NULL, ai_summary_at = NULL,
+                       has_ai_summary = 0,
+               brief_summary = NULL, brief_summary_at = NULL,
+               brief_body_md = NULL, brief_body_at = NULL
+         WHERE id = ?
+        """,
+        (
+            art.get("content") or "",
+            art.get("content_state"),
+            art.get("content_chars"),
+            art.get("content_reasons"),
+            art.get("content_cleaner"),
+            art.get("content_cleaned_at"),
+            aid,
+        ),
+    )
+    logger.info(
+        "content upgrade for %s (%s): %s -> %s chars",
+        aid, source, old_chars, new_chars,
+    )
+    return True
+
+
 class ArticleRepository:
     """Repository for article persistence.
 
@@ -46,13 +104,20 @@ class ArticleRepository:
 
         conn = get_db()
         inserted = 0
+        refreshed = 0
         # v1.0.10: newly inserted ids → local body layout for offline HTML
         new_ids: list[str] = []
+        refreshed_ids: list[str] = []
 
         # v1.0.5.20: 建立 url -> article_id 的映射，用于记录 keyword_hits
         url_to_id: dict[str, str] = {}
 
+        from ..fetch.content import UPGRADE_MIN_CHARS, clean_for_write
+
         for art in articles:
+            if not art.get("content_cleaner"):
+                clean_for_write(art)
+
             title: str = art["title"]
             url: str = art["url"]
             source: str = art["source"]
@@ -68,8 +133,10 @@ class ArticleRepository:
                     """
                     INSERT OR IGNORE INTO articles
                         (id, title, url, source, publisher, published_at,
-                         fetched_at, raw_content, bb_resource_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         fetched_at, raw_content, bb_resource_id,
+                         content_state, content_chars, content_reasons,
+                         content_cleaner, content_cleaned_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         aid,
@@ -81,6 +148,11 @@ class ArticleRepository:
                         now,
                         art.get("content") or art.get("raw_content"),
                         art.get("bb_resource_id"),
+                        art.get("content_state"),
+                        art.get("content_chars"),
+                        art.get("content_reasons"),
+                        art.get("content_cleaner"),
+                        art.get("content_cleaned_at"),
                     ),
                 )
                 # rowcount is 0 for IGNORE'd rows, 1 for inserted rows
@@ -90,6 +162,9 @@ class ArticleRepository:
                     # v1.0.5.20: 不再复制 source 的所有 tag
                     # 改为在 keyword_hits 写入后只插入命中的 tag
                     new_ids.append(aid)
+                elif _refresh_body_if_better(conn, art, aid, source):
+                    refreshed += 1
+                    refreshed_ids.append(aid)
                 # v1.0.5.20: 记录 url -> article_id 映射（不管是否新插入）
                 url_to_id[url] = aid
             except Exception as exc:
@@ -116,6 +191,22 @@ class ArticleRepository:
                 )
             except Exception as exc:
                 logger.warning("body layout after insert failed: %s", exc)
+
+        if refreshed:
+            logger.info(
+                "content upgrade: %d existing article(s) replaced with a fuller body",
+                refreshed,
+            )
+            try:
+                from moni.share.enrichment import apply_local_body_layout_for_ids
+
+                apply_local_body_layout_for_ids(refreshed_ids)
+            except Exception as exc:
+                logger.warning("body layout after upgrade failed: %s", exc)
+            from moni.scoring import recompute_quality_if_pinned
+
+            for aid in refreshed_ids:
+                recompute_quality_if_pinned(conn, aid)
 
         return inserted
 
@@ -364,11 +455,11 @@ class ArticleRepository:
         writes that wouldn't change anything).
         """
         # Local import: avoid pulling bs4 at module-import time.
-        from ..fetch.cleaner import extract_text
+        from ..fetch.content import CLEANER_ID, clean_for_write
 
         conn = get_db()
         rows = conn.execute(
-            "SELECT id, raw_content FROM articles "
+            "SELECT id, title, raw_content, content_cleaner FROM articles "
             "WHERE raw_content IS NOT NULL AND raw_content LIKE '%<%'"
         ).fetchall()
         pinned_ids = {
@@ -379,15 +470,35 @@ class ArticleRepository:
         scanned = 0
         updated = 0
         unchanged = 0
+        skipped = 0
         touched_pinned: list[str] = []
         for row in rows:
             scanned += 1
             old = row["raw_content"] or ""
-            new = extract_text(old)
-            if new != old:
+            art = {"title": row["title"], "raw_content": old}
+            if clean_for_write(art, old) is None:
+                # Guard hit: the cleaner would empty a substantial body.
+                skipped += 1
+                continue
+            new = art["content"]
+            if new != old or row["content_cleaner"] != CLEANER_ID:
                 conn.execute(
-                    "UPDATE articles SET raw_content = ? WHERE id = ?",
-                    (new, row["id"]),
+                    """
+                    UPDATE articles
+                       SET raw_content = ?, content_state = ?, content_chars = ?,
+                           content_reasons = ?, content_cleaner = ?,
+                           content_cleaned_at = ?
+                     WHERE id = ?
+                    """,
+                    (
+                        new,
+                        art["content_state"],
+                        art["content_chars"],
+                        art["content_reasons"],
+                        art["content_cleaner"],
+                        art["content_cleaned_at"],
+                        row["id"],
+                    ),
                 )
                 if row["id"] in pinned_ids:
                     touched_pinned.append(row["id"])
@@ -400,4 +511,9 @@ class ArticleRepository:
 
             for aid in touched_pinned:
                 ensure_quality(conn, aid)
-        return {"scanned": scanned, "updated": updated, "unchanged": unchanged}
+        return {
+            "scanned": scanned,
+            "updated": updated,
+            "unchanged": unchanged,
+            "skipped": skipped,
+        }

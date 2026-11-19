@@ -148,6 +148,89 @@ class TestArticles:
         r = client.get("/api/articles/nonexistent")
         assert r.status_code == 404
 
+    def test_get_by_id_tolerates_dirty_fact_checked_at(
+        self, client: TestClient, seeded_article: int
+    ):
+        """脏时间戳只丢这个字段，不能把整个详情接口打成 500。"""
+        from moni.db.connection import get_db
+
+        get_db().execute(
+            "UPDATE articles SET fact_checked_at = ? WHERE id = ?",
+            ("not-a-date", str(seeded_article)),
+        )
+        get_db().commit()
+
+        r = client.get(f"/api/articles/{seeded_article}")
+
+        assert r.status_code == 200
+        assert r.json()["fact_checked_at"] is None
+
+    def test_get_by_id_survives_half_migrated_schema(
+        self, client: TestClient, seeded_article: int
+    ):
+        """半迁移库（缺 thesis 列）仍应返回已有的核查结论。"""
+        import sqlite3
+
+        from moni.db.connection import get_db
+
+        if sqlite3.sqlite_version_info < (3, 35):
+            pytest.skip("DROP COLUMN needs SQLite >= 3.35")
+        conn = get_db()
+        conn.execute(
+            "UPDATE articles SET fact_check_conclusion = ? WHERE id = ?",
+            ("【待核实】", str(seeded_article)),
+        )
+        conn.commit()
+        conn.execute("ALTER TABLE articles DROP COLUMN fact_check_thesis")
+        conn.commit()
+
+        r = client.get(f"/api/articles/{seeded_article}")
+
+        assert r.status_code == 200
+        data = r.json()
+        assert data["fact_check_conclusion"] == "【待核实】"
+        assert data["fact_check_thesis"] is None
+
+    def test_get_by_id_exposes_fact_check_fields(
+        self, client: TestClient, seeded_article: int
+    ):
+        """v1.0.101: 详情页此前拿不到任何 fact_check 字段，结论框永远空白。"""
+        from moni.db.connection import get_db
+
+        get_db().execute(
+            """
+            UPDATE articles SET
+                fact_check_conclusion = ?, fact_check_method = ?,
+                fact_checked_at = ?, has_fact_check = 1,
+                has_web_fact_check = 1, fact_check_summary = ?,
+                fact_check_thesis = ?, fact_check_how = ?,
+                fact_check_timeliness = ?
+            WHERE id = ?
+            """,
+            (
+                "【待核实】",
+                "web_search",
+                "2026-11-18T10:00:00+00:00",
+                "这条能引用，但只有一家媒体来源。",
+                "监管新规 90 天内落地",
+                "据 2 条证据；编辑制媒体 2 个；来源日期未知",
+                "unknown",
+                str(seeded_article),
+            ),
+        )
+        get_db().commit()
+
+        r = client.get(f"/api/articles/{seeded_article}")
+
+        assert r.status_code == 200
+        data = r.json()
+        assert data["fact_check_conclusion"] == "【待核实】"
+        assert data["fact_check_method"] == "web_search"
+        assert data["has_web_fact_check"] == 1
+        assert data["fact_check_summary"].startswith("这条能引用")
+        assert data["fact_check_thesis"] == "监管新规 90 天内落地"
+        assert data["fact_check_how"].startswith("据 2 条证据")
+
     def test_summarize_enqueues_job(
         self, client: TestClient, seeded_article: int, monkeypatch
     ):
@@ -299,6 +382,68 @@ class TestCRUD:
     def test_put_update_404(self, client: TestClient):
         r = client.put("/api/articles/nonexistent", json={"title": "New"})
         assert r.status_code == 404
+
+    def test_put_identical_body_keeps_derived_text(
+        self, client: TestClient, seeded_article: int
+    ):
+        """Re-saving the same body must not wipe summary / ai_summary / brief."""
+        body = "正文" * 120
+        conn = get_db()
+        conn.execute(
+            """UPDATE articles SET raw_content = ?, summary = 's',
+                      ai_summary = 'a', brief_summary = 'b' WHERE id = ?""",
+            (body, seeded_article),
+        )
+        conn.commit()
+
+        r = client.put(f"/api/articles/{seeded_article}", json={"content": body})
+        assert r.status_code == 200
+        row = conn.execute(
+            "SELECT summary, ai_summary, brief_summary FROM articles WHERE id = ?",
+            (seeded_article,),
+        ).fetchone()
+        assert tuple(row) == ("s", "a", "b")
+
+    def test_put_changed_body_clears_derived_text(
+        self, client: TestClient, seeded_article: int
+    ):
+        conn = get_db()
+        conn.execute(
+            """UPDATE articles SET raw_content = ?, summary = 's',
+                      ai_summary = 'a', brief_summary = 'b' WHERE id = ?""",
+            ("正文" * 120, seeded_article),
+        )
+        conn.commit()
+
+        r = client.put(f"/api/articles/{seeded_article}", json={"content": "新正文" * 120})
+        assert r.status_code == 200
+        row = conn.execute(
+            "SELECT summary, ai_summary, brief_summary FROM articles WHERE id = ?",
+            (seeded_article,),
+        ).fetchone()
+        assert tuple(row) == (None, None, None)
+
+    def test_put_whitespace_only_body_keeps_derived_text(
+        self, client: TestClient, seeded_article: int
+    ):
+        body = "正文" * 120
+        conn = get_db()
+        conn.execute(
+            """UPDATE articles SET raw_content = ?, summary = 's',
+                      ai_summary = 'a', brief_summary = 'b' WHERE id = ?""",
+            (body, seeded_article),
+        )
+        conn.commit()
+
+        r = client.put(
+            f"/api/articles/{seeded_article}", json={"content": body + "\n\n\n\n"}
+        )
+        assert r.status_code == 200
+        row = conn.execute(
+            "SELECT summary, ai_summary, brief_summary FROM articles WHERE id = ?",
+            (seeded_article,),
+        ).fetchone()
+        assert tuple(row) == ("s", "a", "b")
 
     def test_delete_preview_200(self, client: TestClient, seeded_article: int):
         r = client.get(f"/api/articles/{seeded_article}/delete-preview")
@@ -839,6 +984,68 @@ class TestShare:
         body = r.json()
         assert body.get("code") == "bad_request"
         assert "no_such_format_xyz" in body.get("message", "")
+
+    def test_estimate_counts_missing_summary_and_web_check(
+        self, client: TestClient, seeded_article: str
+    ):
+        """v1.0.101: 入队前告诉用户还差几篇摘要 / 联网核查。"""
+        r = client.post(
+            "/api/share/estimate",
+            json={
+                "format": "report_png",
+                "version": "1.0",
+                "payload": {
+                    "article_ids": [seeded_article],
+                    "include_abstract": True,
+                    "include_fact_check": True,
+                },
+            },
+        )
+
+        assert r.status_code == 200
+        data = r.json()
+        assert data["articles_missing_summary"] == 1
+        assert data["articles_missing_web_fact_check"] == 1
+
+        # 关掉深度核查 → 不再提示联网核查的等待。
+        r2 = client.post(
+            "/api/share/estimate",
+            json={
+                "format": "report_png",
+                "version": "1.0",
+                "payload": {
+                    "article_ids": [seeded_article],
+                    "include_abstract": True,
+                    "include_fact_check": False,
+                },
+            },
+        )
+        assert r2.status_code == 200
+        assert r2.json()["articles_missing_web_fact_check"] == 0
+
+        # 有 ai_summary + 已有 web_search 结论 → 两项都不算缺。
+        from moni.db.connection import get_db
+
+        get_db().execute(
+            "UPDATE articles SET ai_summary = ?, fact_check_method = ? WHERE id = ?",
+            ("已有摘要", "web_search", seeded_article),
+        )
+        get_db().commit()
+        r3 = client.post(
+            "/api/share/estimate",
+            json={
+                "format": "report_png",
+                "version": "1.0",
+                "payload": {
+                    "article_ids": [seeded_article],
+                    "include_abstract": True,
+                    "include_fact_check": True,
+                },
+            },
+        )
+        assert r3.status_code == 200
+        assert r3.json()["articles_missing_summary"] == 0
+        assert r3.json()["articles_missing_web_fact_check"] == 0
 
     def test_estimate_400_for_missing_article_ids(
         self, client: TestClient, seeded_article: str,

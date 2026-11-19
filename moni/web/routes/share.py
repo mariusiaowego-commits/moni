@@ -148,6 +148,46 @@ def _estimate_article_chars(article_ids: list[str]) -> tuple[int, int]:
     return (len(rows), total)
 
 
+def _estimate_missing_enrichment(
+    article_ids: list[str],
+    *,
+    include_abstract: bool,
+    include_fact_check: bool,
+) -> tuple[int, int]:
+    """Count articles the enrichment step will have to fill in.
+
+    Returns ``(missing_summary, missing_web_fact_check)``.  Only the
+    enabled switches are counted: a share without 深度事实核查 will not
+    run web checks, so a missing one is not a wait the user should expect.
+    """
+    if not article_ids or not (include_abstract or include_fact_check):
+        return (0, 0)
+    conn = get_db()
+    placeholders = ",".join("?" * len(article_ids))
+    try:
+        row = conn.execute(
+            f"""
+            SELECT
+              SUM(CASE WHEN TRIM(IFNULL(summary, '')) = ''
+                        AND TRIM(IFNULL(ai_summary, '')) = ''
+                       THEN 1 ELSE 0 END)
+                AS missing_summary,
+              SUM(CASE WHEN IFNULL(has_web_fact_check, 0) = 0
+                        AND IFNULL(fact_check_method, '') != 'web_search'
+                       THEN 1 ELSE 0 END)
+                AS missing_web
+            FROM articles WHERE id IN ({placeholders})
+            """,
+            article_ids,
+        ).fetchone()
+    except Exception as exc:  # noqa: BLE001 — estimate must never 500
+        logger.warning("share estimate: missing-enrichment query failed: %r", exc)
+        return (0, 0)
+    missing_summary = int(row["missing_summary"] or 0) if include_abstract else 0
+    missing_web = int(row["missing_web"] or 0) if include_fact_check else 0
+    return (missing_summary, missing_web)
+
+
 def _estimate_duration(format_name: str) -> tuple[int, int]:
     """Average wall-clock seconds for the last N done tasks of format.
 
@@ -275,6 +315,11 @@ def estimate_share_task(body: ShareTaskCreateV1) -> ShareTaskEstimateResponse:
     model_name, model_id, provider_name = _resolve_active_model()
     articles_count, total_chars = _estimate_article_chars(article_ids)
     duration_sec, duration_basis = _estimate_duration(format_name)
+    missing_summary, missing_web = _estimate_missing_enrichment(
+        article_ids,
+        include_abstract=bool(validated_payload.get("include_abstract", True)),
+        include_fact_check=bool(validated_payload.get("include_fact_check", False)),
+    )
 
     # 4. Token estimates.
     input_tokens = int(total_chars / _CHARS_PER_TOKEN) if total_chars else 0
@@ -308,6 +353,8 @@ def estimate_share_task(body: ShareTaskCreateV1) -> ShareTaskEstimateResponse:
         output_tokens_est=output_tokens,
         duration_sec_est=duration_sec,
         duration_sec_basis=duration_basis,
+        articles_missing_summary=missing_summary,
+        articles_missing_web_fact_check=missing_web,
         artifact_path_template=artifact_template,
     )
 

@@ -75,11 +75,11 @@ def _insert_article(aid: str = "a1", *, method: str | None = None) -> None:
         """
         INSERT INTO articles
             (id, title, url, source, publisher, published_at, fetched_at,
-             fact_check_method)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             raw_content, fact_check_method)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (aid, f"Title {aid}", f"https://example.com/{aid}", "testsrc",
-         "Test Publisher", now, now, method),
+         "Test Publisher", now, now, "正文内容。" * 80, method),
     )
     conn.commit()
 
@@ -826,6 +826,59 @@ def _ago(days: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
 
+def test_web_check_persists_thesis(fresh_db, monkeypatch):
+    """048: thesis 跟着联网结论一起落库，分享图才有「文章主张」。"""
+    _insert_article("a1")
+    _insert_job("job-thesis", "a1")
+    payload = json.dumps(
+        {
+            "conclusion": "【已核实】",
+            "thesis": "监管新规要求银行在 90 天内完成系统改造",
+            "summary": "这条能引用：两家监管机构同日发文，实施窗口 90 天。",
+            "evidence": [
+                {"query": "央行", "url": "https://www.pbc.gov.cn/notice/1",
+                 "snippet": "央行发布公告", "source_date": "2026-11-10"},
+                {"query": "金融监管总局", "url": "https://www.nfra.gov.cn/notice/2",
+                 "snippet": "金融监管总局同日发布", "source_date": "2026-11-10"},
+            ],
+        },
+        ensure_ascii=False,
+    )
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-thesis", "task_type": "fact_check_plus",
+              "article_id": "a1", "provider": "minimax-cn",
+              "model": "MiniMax-M3", "attempts": 0})
+
+    art = get_db().execute(
+        "SELECT fact_check_thesis, fact_check_summary FROM articles WHERE id = 'a1'"
+    ).fetchone()
+    assert art["fact_check_thesis"] == "监管新规要求银行在 90 天内完成系统改造"
+    assert art["fact_check_summary"].startswith("这条能引用")
+
+
+def test_no_check_needed_persists_thesis(fresh_db, monkeypatch):
+    """纯观点文（evidence 为空）也要留下 thesis，而不是只写结论。"""
+    _insert_article("a1")
+    _insert_job("job-thesis-nc", "a1")
+    payload = json.dumps(
+        {"conclusion": "【无需核查】", "thesis": "AI 办公赛道已经过热",
+         "evidence": []},
+        ensure_ascii=False,
+    )
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-thesis-nc", "task_type": "fact_check_plus",
+              "article_id": "a1", "provider": "minimax-cn",
+              "model": "MiniMax-M3", "attempts": 0})
+
+    art = get_db().execute(
+        "SELECT fact_check_thesis, fact_check_how FROM articles WHERE id = 'a1'"
+    ).fetchone()
+    assert art["fact_check_thesis"] == "AI 办公赛道已经过热"
+    assert art["fact_check_how"] == "无可独立验证的具体主张"
+
+
 def test_evidence_timeliness_fresh_pass(fresh_db, monkeypatch):
     """days_old=5 → timeliness=fresh, 结论【已核实】不变."""
     _insert_article("a1")
@@ -1034,10 +1087,11 @@ def test_failure_log_redacts_before_truncate(fresh_db, monkeypatch):
     conn = get_db()
     conn.execute(
         """INSERT INTO articles
-            (id, title, url, source, publisher, published_at, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (id, title, url, source, publisher, published_at, fetched_at,
+             raw_content)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         ("a-redact", "Title a-redact", "https://example.com/a-redact",
-         "testsrc", "Pub", now, now),
+         "testsrc", "Pub", now, now, "正文内容。" * 80),
     )
     conn.execute(
         """INSERT INTO llm_jobs (id, task_type, article_id, provider, model,

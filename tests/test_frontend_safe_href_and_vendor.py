@@ -98,7 +98,17 @@ HTML_SINKS = ("x-html",)
 #: ⚠️ 必须是**整表达式全匹配**, 不是"包含" —— 审计第三轮实测
 #: ``:src="getSourceIcon(s.name) + row.evil_url"`` 在子串语义下会
 #: 整条豁免, 而 Alpine 求值后就是一个可加载的 javascript: URL。
-ALLOWED_UNGUARDED_SINK_CALLS = ("getSourceIcon", "pinIcon", "methodPieSvg", "readerArticleHtml", "readerRenderMarkdown")
+#: ``readerRenderMarkdownPlain`` 是 v1.0.102 加的：摘要 / 核查结论用
+#: 同一套 marked + DOMPurify 管线，只是不挂正文引用 chip（那些「」不是
+#: 文章里的引文）。仍然过 sanitize，所以进白名单。
+ALLOWED_UNGUARDED_SINK_CALLS = (
+    "getSourceIcon",
+    "pinIcon",
+    "methodPieSvg",
+    "readerArticleHtml",
+    "readerRenderMarkdown",
+    "readerRenderMarkdownPlain",
+)
 
 #: 属性绑定扫描器 —— 同时吃双引号 / 单引号 / 跨行值。
 #:
