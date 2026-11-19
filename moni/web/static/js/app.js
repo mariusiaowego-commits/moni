@@ -4728,7 +4728,11 @@ function app() {
           if (!r.ok) throw new Error('HTTP ' + r.status);
           return r.json();
         })
-        .then(data => { self.articleDetail = data; })
+        .then(data => {
+          self.articleDetail = data;
+          // v1.0.106: 详情弹窗同样续上在跑的任务。
+          self.resumeArticleJobs(data.id);
+        })
         .catch(err => { this._notify('error', '加载文章失败: ' + err.message); });
     },
 
@@ -5177,8 +5181,9 @@ function app() {
           // can see the job is queued even before the panel polls.
           self.articleDetail = {
             ...self.articleDetail,
-            summary: '⏳ 摘要生成中... (job ' + data.job_id.slice(0, 8) + ')',
+            ...self._articleJobPlaceholder('summary', data.job_id),
           };
+          self.watchArticleJob(data.job_id, self.articleDetail.id, 'summary');
         })
         .catch(err => { this._notify('error', '生成摘要失败: ' + err.message); })
         .finally(() => { self.summaryLoading = false; });
@@ -5205,8 +5210,9 @@ function app() {
           self.enqueueLlmJob('fact_check', data.job_id, self.articleDetail.id);
           self.articleDetail = {
             ...self.articleDetail,
-            fact_check_conclusion: '⏳ 核查中... (job ' + data.job_id.slice(0, 8) + ')',
+            ...self._articleJobPlaceholder('fact_check', data.job_id),
           };
+          self.watchArticleJob(data.job_id, self.articleDetail.id, 'fact_check');
         })
         .catch(err => {
           const raw = String(err.message || '').trim();
@@ -5242,10 +5248,9 @@ function app() {
           self.enqueueLlmJob('fact_check_plus', data.job_id, id);
           self.articleDetail = {
             ...self.articleDetail,
-            fact_check_conclusion: '⏳ 联网核查中... (job ' + data.job_id.slice(0, 8) + ')',
+            ...self._articleJobPlaceholder('fact_check_plus', data.job_id),
           };
-          // B3 fix: poll job status, when done fetch evidence chain
-          self._pollFactCheckPlusJob(data.job_id, id);
+          self.watchArticleJob(data.job_id, id, 'fact_check_plus');
         })
         .catch(err => {
           const raw = String(err.message || '').trim();
@@ -5277,50 +5282,127 @@ function app() {
       return fallback;
     },
 
-    // v1.0.22 B3 fix: poll a single fact_check_plus job; on done pull evidence
-    _pollFactCheckPlusJob(jobId, articleId) {
+    // v1.0.106: 文章级 LLM 任务统一跟随（摘要 / 快核 / 联网核查）。
+    //
+    // 钉住的失败模式：摘要与快核设完「⏳ …」占位就再没人管；联网核查只轮询
+    // 60 秒（线上实测 2~5 分钟），超时后占位永久留在页面上，用户只能手动
+    // 刷新或重进页面。现在统一成一个跟随器：
+    //   · 间隔按耗时退避，预算 30 分钟，覆盖最慢的真实任务；
+    //   · done / failed / cancelled 都回读文章详情，占位一定被服务端真值替换；
+    //   · 打开文章时按 article_id 查活跃任务续上，重进页面自动同步。
+    _articleJobWatchers: new Set(),
+
+    _isArticleJobType(taskType) {
+      return taskType === 'summary' || taskType === 'fact_check' || taskType === 'fact_check_plus';
+    },
+
+    _articleJobLabel(taskType) {
+      const labels = {
+        summary: '摘要生成',
+        fact_check: '事实核查',
+        fact_check_plus: '联网核查',
+      };
+      return labels[taskType] || '任务';
+    },
+
+    _articleJobPlaceholder(taskType, jobId) {
+      const text = `⏳ ${this._articleJobLabel(taskType)}中... (job ${String(jobId).slice(0, 8)})`;
+      return taskType === 'summary' ? { summary: text } : { fact_check_conclusion: text };
+    },
+
+    watchArticleJob(jobId, articleId, taskType) {
+      if (!jobId) return;
+      if (!this._articleJobWatchers) this._articleJobWatchers = new Set();
+      if (this._articleJobWatchers.has(jobId)) return;   // 同一任务只跟一次
+      this._articleJobWatchers.add(jobId);
       const self = this;
-      let attempts = 0;
-      const maxAttempts = 30;          // 30 * 2s = 60s timeout
+      const startedAt = Date.now();
+      const budgetMs = 30 * 60 * 1000;
+      const settle = () => { self._articleJobWatchers.delete(jobId); };
       const tick = () => {
-        attempts += 1;
         fetch(`/api/llm/jobs/${jobId}`, { credentials: 'same-origin' })
-          .then(r => r.json())
+          .then(r => {
+            if (r.status === 404) {
+              const gone = new Error('job not found');
+              gone.status = 404;
+              throw gone;
+            }
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+          })
           .then(job => {
             if (job.status === 'done') {
-              self.loadArticleEvidence(articleId);
-              self._notify('success', '联网核查完成');
-              // Refresh article detail so has_web_fact_check + conclusion render
-              return fetch(`/api/articles/${articleId}`, { credentials: 'same-origin' })
-                .then(r => r.json())
-                .then(detail => { self.readerRefreshDetail(articleId, detail); });
+              settle();
+              if (taskType === 'fact_check_plus') self.loadArticleEvidence(articleId);
+              self._notify('success', self._articleJobLabel(taskType) + '完成');
+              self._reloadArticleAfterJob(articleId);
+              return;
             }
-            if (job.status === 'failed') {
+            if (job.status === 'failed' || job.status === 'cancelled') {
+              settle();
               const raw = String(job.error || '').trim();
               self._notify(
                 'error',
-                self._llmErrorText(raw, '联网核查没跑完，可以稍后重试。'),
+                self._llmErrorText(raw, self._articleJobLabel(taskType) + '没跑完，可以稍后重试。'),
                 raw && raw !== 'unknown' ? { detail: raw } : undefined
               );
-              // 失败时把「⏳ 联网核查中...」的占位撤掉，恢复上次结论。
-              fetch(`/api/articles/${articleId}`, { credentials: 'same-origin' })
-                .then(r => r.json())
-                .then(detail => { self.readerRefreshDetail(articleId, detail); })
-                .catch(() => {});
+              self._reloadArticleAfterJob(articleId);
               return;
             }
-            if (attempts >= maxAttempts) {
-              self._notify('warn', '联网核查超时, 请稍后手动刷新');
+            const elapsed = Date.now() - startedAt;
+            if (elapsed > budgetMs) {
+              settle();
+              self._reloadArticleAfterJob(articleId);
+              self._notify('warn', self._articleJobLabel(taskType) + '仍在后台运行，稍后再进本文会自动同步。');
               return;
             }
-            setTimeout(tick, 2000);
+            setTimeout(tick, elapsed < 60000 ? 3000 : elapsed < 180000 ? 6000 : 15000);
           })
           .catch(err => {
-            if (attempts >= maxAttempts) return;
-            setTimeout(tick, 2000);
+            if (err && err.status === 404) {
+              // 任务被清掉了（例如清理脚本或误传 jobId）：不要再空转 30 分钟。
+              settle();
+              self._reloadArticleAfterJob(articleId);
+              return;
+            }
+            if (Date.now() - startedAt > budgetMs) { settle(); return; }
+            setTimeout(tick, 5000);
           });
       };
       setTimeout(tick, 2000);
+    },
+
+    /** 任务收尾后回读服务端真值：占位一定被真实结论替换，不会卡住。 */
+    _reloadArticleAfterJob(articleId) {
+      const self = this;
+      return fetch(`/api/articles/${articleId}`, { credentials: 'same-origin' })
+        .then(r => r.ok ? r.json() : null)
+        .then(detail => { if (detail) self.readerRefreshDetail(articleId, detail); })
+        .catch(() => {});
+    },
+
+    /** 打开文章时把还在跑的摘要/核查任务续上，重进页面也能自动同步。 */
+    resumeArticleJobs(articleId) {
+      if (!articleId) return;
+      const self = this;
+      const load = status => fetch(
+        `/api/llm/jobs?article_id=${encodeURIComponent(articleId)}&status=${status}&limit=20`,
+        { credentials: 'same-origin' },
+      )
+        .then(r => r.ok ? r.json() : [])
+        .catch(() => []);
+      // 两个 status 合并成一次赋值：并发回调各自展开 articleDetail 会互相覆盖。
+      Promise.all([load('pending'), load('running')]).then(results => {
+        if (!self.isCurrentReaderArticle(articleId)) return;
+        const jobs = [].concat(...results.filter(Array.isArray)).filter(
+          job => job && job.id && self._isArticleJobType(job.task_type) && !self._articleJobWatchers.has(job.id),
+        );
+        if (!jobs.length) return;
+        const placeholders = {};
+        jobs.forEach(job => Object.assign(placeholders, self._articleJobPlaceholder(job.task_type, job.id)));
+        self.articleDetail = { ...self.articleDetail, ...placeholders };
+        jobs.forEach(job => self.watchArticleJob(job.id, articleId, job.task_type));
+      }).catch(() => {});
     },
 
     /** 这条异步结果是否还属于阅读器里正在看的那篇。 */

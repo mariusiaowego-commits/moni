@@ -623,6 +623,8 @@
         })
         .then((data) => {
           this.articleDetail = data;
+          // v1.0.106: 打开文章时把仍在跑的摘要/核查任务续上，重进页面不用手刷。
+          if (typeof this.resumeArticleJobs === 'function') this.resumeArticleJobs(data.id);
           this.readerRendered = renderArticle(data.content || '');
           this.readerBodyEmpty = plainTextLength(this.readerRendered) < 80;
           this.readerBankParts = parseBankMeta(data.content || '');
