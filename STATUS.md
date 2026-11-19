@@ -74,6 +74,51 @@ Obsidian `sprint-56-content-cleaning-2026-11-18/` 六件套。
 
 ---
 
+## 已发布: **v1.0.102 / v1.0.103 — 阅读器页签化 + 流式修复 + 静态资源缓存号** (2026-11-19 · PR #240/#241/#242 · tag `v1.0.102` / `v1.0.103` · commit `c4c9357` / `a312971` / `a6a8b92`)
+
+**症状**（生产 + 用户反馈 6 条）：
+
+1. 摘要 / 事实核查内容是纯文本，markdown 不渲染；
+2. 摘要 / 核查块挂在正文末尾，要滚到底才看得到；
+3. 人话结论 `fact_check_summary` 前端从未渲染（0 处引用）；
+4. AI 对话流式输出一直在闪；
+5. 放大按钮只是弹窗内放大，不是全屏；
+6. 窄屏时对话框盖在正文上。
+
+**改动**：
+
+- 阅读器改「页签 + 内容面板」：`.reader-split` 变两行网格，行 1 = `正文 | 摘要 | 事实核查`。宽屏右侧 AI 常驻、「对话」页签隐藏；窄屏 4 页签整屏 `opacity/translateX` 切换，`.ai-pane` 不再 `position:absolute`。
+- `readerRenderMarkdownPlain`（marked + DOMPurify，不加引用 chip）渲染摘要与核查结论；补渲染 `fact_check_summary`；长报告结论直出 + 「展开逐条核查」折叠。
+- 流式：settled/tail 增量渲染，流式期关掉 `.ai-structured-list > li` 入场动画；done / failed / cancelled 三态都整段定稿。
+- 全屏：`.is-expanded` 改 `position:fixed; inset:0`，Esc 先退全屏再关弹窗。
+- 报错人话：`_llmErrorText` 把熔断 / 会话异常 / 超时 / 解析失败映射成人话，原文进 toast「查看原因」。
+- 迟到结果守卫：新增 `isCurrentReaderArticle(id)`，`readerRefreshDetail` 与 `loadArticleEvidence` 共用，换篇 / 关阅读器都不再串数据。
+- 页签样式：去掉全宽分隔线与下划线（不再和卡片上边框凑双线），选中态实心荔肉白底 + 600 字重，hover 35% 混合底。
+- 全局焦点环只挂 `:focus-visible`、颜色 `--accent` → `--muted-fg`：鼠标点击不再留紫框，键盘 Tab 仍有环。
+- v1.0.103：`main.css / toast.js / app.js / reader.js` 的 `?v=` 统一 bump——此前没 bump，服务端换了文件但浏览器整版用旧缓存。
+
+**审计**（grok，只读、跨仓指向 worktree）：#240 `APPROVE WITH NITS`（P1 窄屏切不回内容页签、P2 迟到结果覆盖）→ 修复 → 复审通过；#241 `APPROVE WITH NITS`（P2 取消/失败不定稿）→ 修复 → 增量复审 `APPROVE`；#242 `APPROVE WITH NITS`（版本号断言同日漏判）→ 改为按提交比对 + 变异验证。三次 `collect` 均 `introduced: []`。
+
+**测试**：全量 **2063 passed + 2 skipped + 1 failed**；failed 为 `test_worker_lock::test_sigterm_kills_blocking_child_that_ignores_term` 并发 flake，单跑 **28 passed**。前端子集 **116 passed**。竞态实证：拦延迟 A 的证据响应后立刻开 B —— 守卫关闭 `evidence_rows=11`（错，A 的条数）、开启 `=3`（B 的真实条数）。
+
+**发布**：squash `c4c9357`（#240）→ `a312971`（#241；#240 squash 后产生 add/add 冲突，`git rebase --onto origin/main be09aac` 重放 7 个提交，`--force-with-lease` 只推 PR 分支）→ `a6a8b92`（#242）。新 tag `v1.0.102` / `v1.0.103`（未覆盖旧 tag）。备份 `news.db.pre-v1.0.102-20261119-094352`、`news.db.pre-v1.0.103-20261119-100943`。8900 重启两次，最终 PID **24850**（2026-11-19 10:09:44），schema 仍 **48**（本 sprint 无迁移）。
+
+**生产实测**：
+
+- `index.html` 返回 `main.css / toast.js / app.js / reader.js` 四个 `?v=20261119001` 系版本号，带版本号的 `main.css` 返回 200；
+- 无缓存浏览器上下文打开阅读器：4 个页签、选中底 `oklch(0.928 0.034 84.6)`、`::after=none`、页签条 `border-bottom: 0px`；
+- `/` 与 `/api/articles?limit=5` 均 200。
+
+**已知边界**：
+
+- 真实联网核查端到端没验成：本机 hermes 熔断器 OPEN（`breaker OPEN`），该项记 **failed**，不是 passed；
+- 历史长 markdown 核查结论不回填数据，靠前端折叠处理；
+- `test_versioned_assets_busted_after_their_last_commit` 在浅克隆 / 非 git checkout 下 skip；
+- 上表「生产实测」的采集时点是 `a6a8b92`（schema 48、PID 24850）。收尾期间 `origin/main` 前进到
+  `ef806ec`（#238 数据清洗，migration 049），并由另一路部署到 8900（现 `version=v1.0.103 /
+  commit=ef806ec / schema 49 / PID 37003`）；#238 尚未打 tag。本 sprint 的页面结论不受影响，
+  但推进到该提交后应再点一遍。
+
 ## 已发布: **v1.0.101 — 事实核查提示词改人话结论 + 详情页两档展示** (2026-11-18 · PR #236 · tag `v1.0.101` · commit `70bc017`)
 
 **症状**：分享图里的核查行仍是「温度 [0,2]、top_p [0,1]…均与文档一致」；详情页接口
