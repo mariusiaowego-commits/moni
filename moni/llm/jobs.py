@@ -59,6 +59,7 @@ from moni.llm.domains import evaluate_authority
 from moni.llm.fact_check_tags import conclusion_tag, with_tag
 from moni.llm import progress
 from moni.llm.prompts import render_fact_check, render_fact_check_plus, render_summary
+from moni.llm.runner import CallRequest, FailoverRunner, read_model_mode
 from moni.llm.stream import StreamMidwayError, StreamResult, run_hermes_stream
 # Re-export for backwards compat (Day 1 had DOMAIN_WHITELIST defined here;
 # Day 2 moves the canonical definition to moni.web.routes.fact_check_plus).
@@ -112,9 +113,6 @@ def enqueue_job(
     """Insert a pending job row and return its id.  Starts the worker."""
     if task_type not in _VALID_TASK_TYPES:
         raise ValueError(f"unknown task_type {task_type!r}")
-
-    # profile 模式下模型由 hermes profile 决定；job 行别记录会被误读的具体模型。
-    from .runner import read_model_mode
 
     if read_model_mode() == "profile":
         provider, model = "profile", ""
@@ -372,14 +370,25 @@ def _run_streaming_call(
     timeout: int,
 ) -> StreamResult:
     """Run fact-check-plus with Hermes stream-json and publish live progress."""
-    return run_hermes_stream(
-        prompt,
-        provider=provider,
-        model=model,
-        tools="web",
+    follow_profile = read_model_mode() == "profile" or provider == "profile"
+    req = CallRequest(
+        provider="" if follow_profile else provider,
+        model_id="" if follow_profile else model,
+        prompt=prompt,
         timeout=timeout,
-        on_event=lambda event: progress.record_event(job_id, event),
     )
+
+    def invoke(call_provider: str, call_model: str) -> StreamResult:
+        return run_hermes_stream(
+            prompt,
+            provider=call_provider,
+            model=call_model,
+            tools="web",
+            timeout=timeout,
+            on_event=lambda event: progress.record_event(job_id, event),
+        )
+
+    return FailoverRunner.from_settings().call_stream(req, invoke)
 
 
 def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> None:
@@ -552,7 +561,6 @@ def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> N
                     handle=handle,
                 )
                 _cleanup_usage_file(usage_file)
-                progress.finish_job(job_id)
                 return
             # Re-queue for a retry. v1.0.42: fenced write via leases.finish;
             # if our lease expired and someone else already took over,
@@ -589,15 +597,15 @@ def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> N
                 handle=handle,
             )
         _cleanup_usage_file(usage_file)
-        progress.finish_job(job_id)
         return
+    finally:
+        progress.finish_job(job_id)
 
     duration_ms = int((time.monotonic() - t0) * 1000)
     input_tokens = int(usage.get("input_tokens") or 0)
     output_tokens = int(usage.get("output_tokens") or 0)
     cost_usd = float(usage.get("cost_usd") or 0.0)
     _cleanup_usage_file(usage_file)
-    progress.finish_job(job_id)
 
     # Persist the LLM output.  For summary jobs we write back into
     # ``articles.summary`` / ``articles.summary_at`` so the existing UI

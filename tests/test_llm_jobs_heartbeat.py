@@ -148,6 +148,47 @@ def test_streaming_job_uses_stream_and_releases_lease(monkeypatch):
     assert status["status"] == "done"
 
 
+def test_streaming_profile_mode_uses_profile_router(monkeypatch):
+    from moni.llm import jobs
+    from moni.llm.stream import StreamResult
+
+    class FixedRunner:
+        def __init__(self):
+            self.requests = []
+
+        def call_stream(self, req, invoke):
+            self.requests.append(req)
+            return invoke(req.provider, req.model_id)
+
+    stream_calls = []
+    fixed = FixedRunner()
+    raw_output = (
+        '{"conclusion":"【已核实】结论","evidence":['
+        '{"query":"央行 辽宁","url":"https://www.pbc.gov.cn/a",'
+        '"snippet":"官方公示","rationale":"官方源"}]}'
+    )
+
+    def fake_run(prompt, *, provider, model, timeout, **kwargs):
+        stream_calls.append((provider, model, timeout))
+        return StreamResult(text=raw_output, duration_ms=1)
+
+    monkeypatch.setattr(jobs, "run_hermes_stream", fake_run)
+
+    @classmethod
+    def from_settings(cls):
+        return fixed
+
+    FixedRunner.from_settings = from_settings
+    monkeypatch.setattr(jobs, "FailoverRunner", FixedRunner)
+
+    result = jobs._run_streaming_call("j-profile", "profile", "", "prompt", timeout=600)
+
+    assert result.text == raw_output
+    assert fixed.requests[0].provider == ""
+    assert fixed.requests[0].model_id == ""
+    assert stream_calls[0] == ("", "", 600)
+
+
 def test_missing_article_releases_lease(monkeypatch):
     from moni.llm import jobs
 

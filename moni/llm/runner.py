@@ -26,7 +26,7 @@ import sqlite3
 import subprocess
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -353,6 +353,9 @@ class CallResult:
     cost_usd: float = 0.0
 
 
+StreamFn = Callable[..., Any]
+
+
 class FailoverRunner:
     """Chain a single LLM call through multiple providers/models with
     in-memory circuit breakers per model.
@@ -451,6 +454,66 @@ class FailoverRunner:
                 output_tokens=getattr(result, "output_tokens", 0),
                 cost_usd=getattr(result, "cost_usd", 0.0),
             )
+        raise FailoverExhausted(errors)
+
+    def call_stream(
+        self,
+        req: CallRequest,
+        stream_fn: StreamFn,
+    ) -> Any:
+        """Run a streaming call through the same breaker/failover policy.
+
+        ``stream_fn(req.provider, model_id)`` must return a stream result.
+        A failure before the first Hermes event is retryable and advances the
+        chain; a mid-stream failure raises immediately so another model cannot
+        replay already accepted searches or writing.
+        """
+        if not req.provider and not req.model_id:
+            chain = [PROFILE_MODEL_KEY]
+            self.breakers.setdefault(
+                PROFILE_MODEL_KEY,
+                CircuitBreaker(model_id=PROFILE_MODEL_KEY),
+            )
+        else:
+            chain = list(self.breakers.keys())
+            if not chain:
+                chain = [req.model_id]
+                self.breakers.setdefault(
+                    req.model_id,
+                    CircuitBreaker(model_id=req.model_id),
+                )
+
+        errors: list[tuple[str, str]] = []
+        for model_id in chain:
+            breaker = self.breakers[model_id]
+            if not breaker.allow():
+                errors.append(
+                    (model_id, f"breaker OPEN, reset in {breaker.reset_in_sec():.1f}s")
+                )
+                continue
+            try:
+                result = stream_fn(
+                    req.provider,
+                    "" if model_id == PROFILE_MODEL_KEY else model_id,
+                )
+            except PromptTooLargeError:
+                raise
+            except RuntimeError as exc:
+                if type(exc).__name__ != "StreamMidwayError":
+                    raise
+                breaker.record_failure()
+                raise
+            except Exception as exc:
+                breaker.record_failure()
+                errors.append((model_id, f"{type(exc).__name__}: {exc}"))
+                logger.warning(
+                    "[failover] %s stream failed before events: %s",
+                    model_id,
+                    exc,
+                )
+                continue
+            breaker.record_success()
+            return result
         raise FailoverExhausted(errors)
 
     def _invoke(self, req: CallRequest, model_id: str) -> SubprocessResult:

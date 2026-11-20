@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
 
 from moni.llm.progress import get_job, record_event, start_job, finish_job
 from moni.llm.stream import (
+    _kill_process_group,
     StreamMidwayError,
     parse_event,
     read_stream,
@@ -108,6 +111,27 @@ def test_run_hermes_stream_uses_stream_json(monkeypatch):
     assert ["--provider", "p"] == argv[-6:-4]
     assert ["-m", "m"] == argv[-4:-2]
     assert ["-t", "web"] == argv[-2:]
+
+
+def test_watchdog_releases_silent_hang():
+    script = "import time\ntime.sleep(5)\n"
+    proc = subprocess.Popen(
+        [sys.executable, "-c", script],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    started = time.monotonic()
+    timed_out = threading.Event()
+    watchdog = threading.Timer(1, lambda: (timed_out.set(), _kill_process_group(proc)))
+    watchdog.daemon = True
+    watchdog.start()
+    with pytest.raises(RuntimeError):
+        read_stream(proc, timeout=1, started=started, timed_out=timed_out)
+    watchdog.cancel()
+    elapsed = time.monotonic() - started
+    assert elapsed < 3, f"watchdog did not release the blocking read: {elapsed:.2f}s"
 
 
 def test_progress_registry_reduces_events_and_cleans_up():

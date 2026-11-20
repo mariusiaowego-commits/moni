@@ -12,11 +12,24 @@ import json
 import os
 import signal
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from .runner import ARGV_PROMPT_LIMIT_BYTES, KILL_GRACE_SEC, PromptTooLargeError
+ARGV_PROMPT_LIMIT_BYTES = 200_000
+KILL_GRACE_SEC = 5.0
+
+
+class PromptTooLargeError(RuntimeError):
+    """Kept local to avoid a runner ↔ stream import cycle."""
+
+    def __init__(self, size_bytes: int, limit_bytes: int) -> None:
+        super().__init__(
+            f"prompt too large for argv: {size_bytes} bytes > limit {limit_bytes} bytes"
+        )
+        self.size_bytes = size_bytes
+        self.limit_bytes = limit_bytes
 
 
 class StreamMidwayError(RuntimeError):
@@ -47,10 +60,8 @@ def run_hermes_stream(
     """Run Hermes and return the final response.
 
     Any parsed event is passed to ``on_event`` before this function returns.
-    A failure before the first event is returned as ``None`` from
-    ``read_stream`` so the caller can fail over; once events have arrived,
-    retrying on another model would duplicate accepted work, so the error is
-    raised as :class:`StreamMidwayError`.
+    A watchdog kills the process group at ``timeout`` so a silent Hermes hang
+    cannot block the sole jobs worker.
     """
     prompt_bytes = len(prompt.encode("utf-8"))
     if prompt_bytes > ARGV_PROMPT_LIMIT_BYTES:
@@ -69,15 +80,32 @@ def run_hermes_stream(
     started = time.monotonic()
     proc = subprocess.Popen(
         argv,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         start_new_session=True,
         env=env,
     )
+    timed_out = threading.Event()
+
+    def _expire() -> None:
+        timed_out.set()
+        _kill_process_group(proc)
+
+    watchdog = threading.Timer(timeout, _expire)
+    watchdog.daemon = True
+    watchdog.start()
     try:
-        return read_stream(proc, on_event=on_event, timeout=timeout, started=started)
+        return read_stream(
+            proc,
+            on_event=on_event,
+            timeout=timeout,
+            started=started,
+            timed_out=timed_out,
+        )
     finally:
+        watchdog.cancel()
         if proc.poll() is None:
             _kill_process_group(proc)
 
@@ -88,6 +116,7 @@ def read_stream(
     on_event: EventCallback | None = None,
     timeout: int = 600,
     started: float | None = None,
+    timed_out: threading.Event | None = None,
 ) -> StreamResult:
     """Consume Hermes stream-json stdout into a final result."""
     started = time.monotonic() if started is None else started
@@ -96,6 +125,8 @@ def read_stream(
     result: dict[str, Any] | None = None
 
     def deadline_expired() -> bool:
+        if timed_out is not None and timed_out.is_set():
+            return True
         return time.monotonic() - started >= timeout
 
     assert proc.stdout is not None
@@ -121,7 +152,10 @@ def read_stream(
         error = _stream_error(stderr, len(events))
         raise _failure(error, len(events))
 
-    proc.wait(timeout=KILL_GRACE_SEC)
+    try:
+        proc.wait(timeout=KILL_GRACE_SEC)
+    except subprocess.TimeoutExpired:
+        _kill_process_group(proc)
     if int(result.get("exit_code") or 0) != 0:
         raise _failure(
             str(result.get("error") or f"hermes stream exit_code={result.get('exit_code')}"),
