@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -54,8 +55,7 @@ MATRIX = [
 def test_any_overlay_visible_matrix_via_node():
     src = MODAL_JS.read_text(encoding="utf-8")
     fn_src = _extract_function(src, "_anyOverlayVisible")
-    node = subprocess.run(["node", "--version"], capture_output=True, text=True, check=False)
-    if node.returncode != 0:
+    if shutil.which("node") is None:
         pytest.skip("node not available on this machine")
 
     script = """
@@ -117,3 +117,12 @@ def test_every_overlay_in_index_is_covered():
     overlay_tags = re.findall(r"<div[^>]*class=\"[^\"]*modal-backdrop[^\"]*\"[^>]*>", html)
     missing = [t for t in overlay_tags if "x-show" not in t]
     assert not missing, f"有浮层不是 x-show 驱动: {missing[:2]}"
+
+
+def test_no_second_scroll_lock_writer_outside_modal_js():
+    """滚动锁只能有一个写者；v1.0.109 的 body.modal-locked 已并入 modal.js。"""
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    assert "modal-locked" not in app_js, "app.js 里还有第二套滚动锁"
+    assert "body.style.overflow" not in app_js, "app.js 自己改 body overflow 会与 modal.js 打架"
+    css = (STATIC / "css" / "main.css").read_text(encoding="utf-8")
+    assert "body.modal-locked" not in css, "遗留的 .modal-locked 规则没有删干净"
