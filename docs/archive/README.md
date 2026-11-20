@@ -12,5 +12,4 @@ v1.0.9.10 收尾清理 (2026-06-30) — 已归档的过时文档, **不再维护
 ## 保留位置 (活跃文档)
 
 - `docs/CRON.md` — cron + worker 详细 manual testing, v1.0.9.10 加了 PATH prepend 提示, USER_GUIDE 引用了
-- `docs/BROWSER_FETCHER_PATTERN.md` — Chrome daemon 设计文档, `moni/fetch/chrome_daemon.py` 真代码引用了, 活跃使用
 - `docs/plans/` — 历史 plan 文档 (双写到 Obsidian)

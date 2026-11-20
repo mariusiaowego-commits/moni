@@ -209,7 +209,7 @@ def inspect_chrome_profiles(
     if xwatch_dir.exists():
         x_size = get_directory_size(xwatch_dir)
         # Try to resolve xwatch account from profile-map.json or xwatch Local State
-        account = "matthew.qi.tao@gmail.com"
+        account = "(unknown)"
         x_map = profile_map.get("profiles", {}).get("xwatch", {})
         if x_map.get("account"):
             account = x_map["account"]
@@ -236,7 +236,7 @@ def inspect_chrome_profiles(
     elif (chrome_root / "Profile 6" / "Default").exists():
         # Pre-migration: xwatch is currently inside Profile 6/Default
         x_size = get_directory_size(chrome_root / "Profile 6" / "Default")
-        account = "matthew.qi.tao@gmail.com"
+        account = "(unknown)"
         results.append({
             "ui_name": "(moni xwatch legacy)",
             "disk_dir": "Profile 6/Default",

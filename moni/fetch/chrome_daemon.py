@@ -68,7 +68,7 @@ logger = logging.getLogger(__name__)
 
 # ── Configuration ──────────────────────────────────────────────────────────
 # Override these via env vars if a particular machine needs a different
-# binary / port.  Defaults match the conventions in docs/BROWSER_FETCHER_PATTERN.md.
+# binary / port.  Defaults match the internal browser-fetch runbook.
 
 def _default_chrome_binary() -> str:
     """Where Chrome lives on this platform.
@@ -374,6 +374,11 @@ def ensure_chrome() -> bool:
 
     if _wait_for_chrome(proc=proc):
         _daemon_backoff.record_success()
+        # Release the spawn lock once Chrome is up.  Holding it for the
+        # lifetime of a long-running web process would make every later
+        # respawn fail with "Another instance holds daemon.lock" after
+        # Chrome crashes or is stopped.
+        release_daemon_lock()
         logger.info(
             "[chrome_daemon] Chrome up on port %d (profile %s, binary=%s, headed=%s)",
             CHROME_DEBUG_PORT,

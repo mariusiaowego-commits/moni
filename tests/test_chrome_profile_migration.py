@@ -482,19 +482,19 @@ def fake_chrome_inspect_setup(tmp_path):
             "info_cache": {
                 "Default": {
                     "name": "用户1",
-                    "user_name": "fledgeel@gmail.com",
+                    "user_name": "user1@example.com",
                 },
                 "Profile": {
                     "name": "您的 Chrome",
-                    "user_name": "linqin7533@gmail.com",
+                    "user_name": "user2@example.com",
                 },
                 "Profile 1": {
                     "name": "Marius",
-                    "user_name": "mariusiaowego@gmail.com",
+                    "user_name": "user3@example.com",
                 },
                 "Profile 6": {
                     "name": "hermes",
-                    "user_name": "matthew.qi.tao@gmail.com",
+                    "user_name": "user6@example.com",
                 },
             }
         }
@@ -519,7 +519,7 @@ def fake_chrome_inspect_setup(tmp_path):
         "version": 1,
         "profiles": {
             "xwatch": {
-                "account": "matthew.qi.tao@gmail.com",
+                "account": "user6@example.com",
             }
         }
     }
@@ -533,31 +533,31 @@ def test_inspect_profiles_matches_ui_names_and_accounts(fake_chrome_inspect_setu
     profiles = inspect_chrome_profiles(chrome_dir=chrome_dir, moni_chrome_dir=moni_chrome_dir)
     prof_by_dir = {p["disk_dir"]: p for p in profiles}
 
-    # Verify Profile 6 -> hermes / matthew.qi.tao@gmail.com
+    # Verify Profile 6 -> hermes / user6@example.com
     assert "Profile 6" in prof_by_dir
     p6 = prof_by_dir["Profile 6"]
     assert p6["ui_name"] == "hermes"
-    assert p6["account"] == "matthew.qi.tao@gmail.com"
+    assert p6["account"] == "user6@example.com"
     assert p6["owner"] == "用户"
     assert p6["moni_in_use"] == "否"
 
-    # Verify Profile 1 -> Marius / mariusiaowego@gmail.com
+    # Verify Profile 1 -> Marius / user3@example.com
     assert "Profile 1" in prof_by_dir
     p1 = prof_by_dir["Profile 1"]
     assert p1["ui_name"] == "Marius"
-    assert p1["account"] == "mariusiaowego@gmail.com"
+    assert p1["account"] == "user3@example.com"
     assert p1["owner"] == "用户"
     assert p1["moni_in_use"] == "否"
 
     # Verify Profile -> 您的 Chrome
     assert "Profile" in prof_by_dir
     assert prof_by_dir["Profile"]["ui_name"] == "您的 Chrome"
-    assert prof_by_dir["Profile"]["account"] == "linqin7533@gmail.com"
+    assert prof_by_dir["Profile"]["account"] == "user2@example.com"
 
     # Verify Default -> 用户1
     assert "Default" in prof_by_dir
     assert prof_by_dir["Default"]["ui_name"] == "用户1"
-    assert prof_by_dir["Default"]["account"] == "fledgeel@gmail.com"
+    assert prof_by_dir["Default"]["account"] == "user1@example.com"
 
     # Verify moni daemon and xwatch
     assert "~/.moni/chrome/daemon" in prof_by_dir
@@ -570,7 +570,7 @@ def test_inspect_profiles_matches_ui_names_and_accounts(fake_chrome_inspect_setu
     p_xwatch = prof_by_dir["~/.moni/chrome/xwatch"]
     assert p_xwatch["ui_name"] == "(moni xwatch)"
     assert p_xwatch["owner"] == "moni"
-    assert p_xwatch["account"] == "matthew.qi.tao@gmail.com"
+    assert p_xwatch["account"] == "user6@example.com"
     assert p_xwatch["moni_in_use"] == "是(登录态)"
 
 
@@ -581,9 +581,9 @@ def test_format_table_renders_all_columns(fake_chrome_inspect_setup):
 
     assert "Chrome UI 名字" in table_str
     assert "Marius" in table_str
-    assert "mariusiaowego@gmail.com" in table_str
+    assert "user3@example.com" in table_str
     assert "hermes" in table_str
-    assert "matthew.qi.tao@gmail.com" in table_str
+    assert "user6@example.com" in table_str
     assert "(moni daemon)" in table_str
     assert "(moni xwatch)" in table_str
 

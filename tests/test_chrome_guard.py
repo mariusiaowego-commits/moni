@@ -186,6 +186,24 @@ class TestLockAndRateLimiting:
 
         release_daemon_lock()
 
+    def test_ensure_chrome_releases_lock_after_success(self, monkeypatch):
+        from moni.fetch import chrome_daemon as cd
+
+        cd.reset_daemon_backoff()
+        monkeypatch.setattr(cd, "_chrome_is_running", lambda: False)
+        monkeypatch.setattr(cd, "resolve_chrome_binary", lambda **kw: ("/fake/chrome-headless-shell", True))
+        monkeypatch.setattr(cd, "is_sandboxed", lambda: False)
+        monkeypatch.setattr(cd, "_wait_for_chrome", lambda **kw: True)
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_popen.return_value.poll.return_value = None
+            assert cd.ensure_chrome() is True
+
+        # A long-lived web process must be able to respawn Chrome later.
+        assert cd.acquire_daemon_lock() is True
+        cd.release_daemon_lock()
+        cd.reset_daemon_backoff()
+
     def test_hourly_spawn_rate_limit(self, tmp_path):
         state_dir = tmp_path / "rate_limit_state"
         state_dir.mkdir()

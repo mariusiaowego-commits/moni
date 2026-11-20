@@ -262,7 +262,7 @@ moni playwright → 对比 chrome_daemon 抓取 36kr 成功率
 | `scripts/com.moni.cron.plist` | L31-32 `KeepAlive=true` / `RunAtLoad=true` | launchd job |
 | `config/sources.yaml` | L9-39 6 源 `fetch_interval_min: 5` | sources 配置 |
 | `config/schedule.yaml` | L18-29 5 jobs (9:10 等) | cron 调度 |
-| `docs/BROWSER_FETCHER_PATTERN.md` | 全篇 277 行 | 范式 + 36kr captcha 分析 |
+| 浏览器抓取 runbook | 私有知识库 | 范式 + 反爬维护步骤（不再入库） |
 
 ### 来源 review
 
