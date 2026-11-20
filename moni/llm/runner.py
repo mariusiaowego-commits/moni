@@ -498,12 +498,11 @@ class FailoverRunner:
                 )
             except PromptTooLargeError:
                 raise
-            except RuntimeError as exc:
-                if type(exc).__name__ != "StreamMidwayError":
-                    raise
-                breaker.record_failure()
-                raise
             except Exception as exc:
+                midway = type(exc).__name__ == "StreamMidwayError"
+                if midway:
+                    breaker.record_failure()
+                    raise
                 breaker.record_failure()
                 errors.append((model_id, f"{type(exc).__name__}: {exc}"))
                 logger.warning(

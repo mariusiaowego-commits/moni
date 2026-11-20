@@ -179,7 +179,7 @@ def test_streaming_profile_mode_uses_profile_router(monkeypatch):
         return fixed
 
     FixedRunner.from_settings = from_settings
-    monkeypatch.setattr(jobs, "FailoverRunner", FixedRunner)
+    monkeypatch.setattr(jobs, "_get_runner", lambda: FixedRunner.from_settings())
 
     result = jobs._run_streaming_call("j-profile", "profile", "", "prompt", timeout=600)
 

@@ -59,7 +59,8 @@ from moni.llm.domains import evaluate_authority
 from moni.llm.fact_check_tags import conclusion_tag, with_tag
 from moni.llm import progress
 from moni.llm.prompts import render_fact_check, render_fact_check_plus, render_summary
-from moni.llm.runner import CallRequest, FailoverRunner, read_model_mode
+from moni.llm.client import _get_runner
+from moni.llm.runner import CallRequest, read_model_mode
 from moni.llm.stream import StreamMidwayError, StreamResult, run_hermes_stream
 # Re-export for backwards compat (Day 1 had DOMAIN_WHITELIST defined here;
 # Day 2 moves the canonical definition to moni.web.routes.fact_check_plus).
@@ -388,7 +389,7 @@ def _run_streaming_call(
             on_event=lambda event: progress.record_event(job_id, event),
         )
 
-    return FailoverRunner.from_settings().call_stream(req, invoke)
+    return _get_runner().call_stream(req, invoke)
 
 
 def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> None:
