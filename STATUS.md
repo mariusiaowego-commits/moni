@@ -3,6 +3,52 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
+## 已发布: **v1.0.110 — 信源管理 UI 返修** (2026-11-20 · PR #260 → `0d0a521` · tag `v1.0.110` · Sprint 26112001)
+
+dad 在 v1.0.109 上线后继续提了 5 条，加两轮独立审计，本版一次修完：
+
+**① 眼睛双态**
+隐藏行渲染闭眼 SVG + 按钮底色，恢复后回睁眼。实测：未隐藏行可见 1 个睁眼 SVG、
+底色 transparent；已隐藏行可见 1 个闭眼 SVG、底色 `oklch(0.928 0.034 84.6)`、title「恢复显示」。
+
+**② 配置-信源表列宽**
+colgroup 重排到 1198px（操作列 189 / 状态列 122 / 标签列 223），5 个图标按钮与
+「启用 + 已隐藏」双徽章都放得下；表头「同步间隔」简化成「间隔」不再折行。
+实测 1300/1440：`scrollWidth == clientWidth == 1198`，横滚消失；1100 视口退化成横滚，
+滚到底最右按钮完整可点。
+
+**③ 同步中计时对齐**
+`.pixel-label` / `.pixel-elapsed` 统一 `line-height: 28px`，文字中线 119 / 119，差 0。
+
+**④ 执行状态明细被裁**
+根因是 `main.css` 还留着旧版 `24px + 1fr` 双列（配一条已删除的竖线 rail），步骤被压进
+24px 后全部退化成省略号。删掉旧规则、改 300px 自适应分栏：容器 24 → 1112px，截断 6 → 0，
+`.fetch-ops-body` 不再有内层滚动。
+
+**⑤ 重开已结束的同步**
+从执行状态点「查看详情」不再看到「同步中...」+ 满高空舞台：弹窗直接呈终态
+（完成条带 / 状态词），批量「新增 N 篇」从各源明细汇总（12+5=17），失败态只放错误横幅，
+已停止态标题写「已停止」而不是「同步失败」。
+
+**⑥ 遗留清理**
+cron 刷新按钮改 icon-only（去掉底色与描边）、全站 modal 去毛玻璃（`backdrop-filter: none`）、
+删 `.is-closing` 与 `.btn-refresh` 死样式、弹窗宽 620 → 720px。
+
+**测试**：`pytest tests/` → **2342 passed, 2 skipped, 1 failed**（`test_migration_039` 沙箱内
+无法建 worktree，提权单跑 **1 passed**）；前端子集 **564 passed**；`test_frontend_render_hygiene.py`
+**36 passed**（资源 `?v=` 统一 `20261120011`）。独立只读审计 **APPROVE**（无 P0/P1），
+其抓出的「批量重开新增 0 篇」与 3 条 P2 已修。
+
+**合并方式**：GitHub 额度用尽不可达，本次为**纯本地**操作 ——
+`git merge --squash feat/source-management-ui-followup` → `0d0a521`，`git tag -a v1.0.110`。
+tag 与关 PR 未推到远端，等 GitHub 恢复后补推。
+
+**部署**：8900 重启 PID **56830**，`version v1.0.110 / commit 0d0a521 / schema 52 / worktree_dirty=false`；
+备份 `data/backups/news.db.pre-v1.0.110-20261120-104214`；schema 无变化，未跑 migration。
+**线上冒烟**：`/fetch` 200；`index.html` 带 `main.css?v=20261120011` / `app.js?v=20261120011`；
+线上 CSS 含 `auto-fit, minmax(300px` 与 `min-width: 1198px`；JS 含 `_syncModalToTaskState`；
+`/api/config/sources` 18 条全部带 `is_hidden`。
+
 ## 已发布: **v1.0.109 — 信源管理改版** (2026-11-19 · PR #253 → `1993082` · tag `v1.0.109` · Sprint 26111901)
 
 dad 在生产 `/fetch` 页实测提了 7 条（弹窗多重滚动条 + 滚轮穿透 + 完成态占位过大、
