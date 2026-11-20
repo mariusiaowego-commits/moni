@@ -31,6 +31,52 @@
   const _openStack = [];     // LIFO of currently-open modal elements
   const _focusStore = new WeakMap();   // el -> previously focused element
 
+  // ── Scroll lock (v1.0.110) ────────────────────────────────────────────────
+  // 13 个 .modal-backdrop 由 Alpine x-show 直接开关，从不调用
+  // moniModal.open()，所以 body 滚动锁一直没生效 —— 弹窗打开时滚轮还能滚
+  // 背后的页面。这里按「是否有可见浮层」统一算一次，两个来源都算数：
+  // 1) _openStack 里有登记的 modal；2) DOM 里任何可见的 .modal-backdrop
+  //    / .modal-backdrop-dim（x-show 会自动派生一个同名 flag）。
+  let _lockScheduled = false;
+  let _lockApplied = false;
+
+  function _anyOverlayVisible() {
+    if (_openStack.length > 0) return true;
+    const nodes = document.querySelectorAll('.modal-backdrop, .modal-backdrop-dim');
+    for (const node of nodes) {
+      // display:none 的元素没有 client rect；比 getComputedStyle 便宜。
+      if (node.getClientRects().length > 0) return true;
+    }
+    return false;
+  }
+
+  function _syncScrollLock() {
+    _lockScheduled = false;
+    const want = _anyOverlayVisible();
+    if (want === _lockApplied) return;
+    _lockApplied = want;
+    document.documentElement.classList.toggle('moni-modal-open', want);
+    document.body.style.overflow = want ? 'hidden' : '';
+  }
+
+  function _scheduleScrollLock() {
+    if (_lockScheduled) return;
+    _lockScheduled = true;
+    requestAnimationFrame(_syncScrollLock);
+  }
+
+  function _watchOverlays() {
+    // x-show 改的是行内 style.display；弹窗内容自己改 class 也要重算。
+    const mo = new MutationObserver(_scheduleScrollLock);
+    mo.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['style', 'class'],
+    });
+    _syncScrollLock();
+  }
+
   // ── ARIA helpers ──────────────────────────────────────────────────────────
   function _ensureAria(modal) {
     if (!modal.hasAttribute('role')) modal.setAttribute('role', 'dialog');
@@ -178,13 +224,12 @@
 
     if (_openStack.length === 1) {
       // First modal — lock body scroll + bind global handlers.
-      document.documentElement.classList.add('moni-modal-open');
-      document.body.style.overflow = 'hidden';
       document.addEventListener('keydown', _trapTab, true);
       document.addEventListener('keydown', _onKeydown, true);
     } else {
       document.addEventListener('keydown', _trapTab, true);
     }
+    _syncScrollLock();
 
     // After paint, focus first focusable.
     requestAnimationFrame(() => _focusFirst(modal));
@@ -199,11 +244,10 @@
     const idx = _openStack.indexOf(modal);
     if (idx >= 0) _openStack.splice(idx, 1);
     if (_openStack.length === 0) {
-      document.documentElement.classList.remove('moni-modal-open');
-      document.body.style.overflow = '';
       document.removeEventListener('keydown', _trapTab, true);
       document.removeEventListener('keydown', _onKeydown, true);
     }
+    _syncScrollLock();
   }
 
   // ── confirm() replacement ─────────────────────────────────────────────────
@@ -233,13 +277,12 @@
       wrap.setAttribute('aria-modal', 'true');
       _openStack.push(wrap);
       if (_openStack.length === 1) {
-        document.documentElement.classList.add('moni-modal-open');
-        document.body.style.overflow = 'hidden';
         document.addEventListener('keydown', _trapTab, true);
         document.addEventListener('keydown', _onKeydown, true);
       } else {
         document.addEventListener('keydown', _trapTab, true);
       }
+      _syncScrollLock();
 
       const titleId = 'moni-confirm-title-' + (++_confirmId);
       const safeMsg = _escapeHtml(message);
@@ -267,11 +310,10 @@
         const idx = _openStack.indexOf(wrap);
         if (idx >= 0) _openStack.splice(idx, 1);
         if (_openStack.length === 0) {
-          document.documentElement.classList.remove('moni-modal-open');
-          document.body.style.overflow = '';
           document.removeEventListener('keydown', _trapTab, true);
           document.removeEventListener('keydown', _onKeydown, true);
         }
+        _syncScrollLock();
         if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
         resolve(result);
       }
@@ -318,4 +360,7 @@
   }
 
   window.moniModal = { open, close, confirm, escOn };
+
+  // Script 在 </body> 前加载，DOM 已就绪；这里只挂监听并算一次初值。
+  _watchOverlays();
 })();
