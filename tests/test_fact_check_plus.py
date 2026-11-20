@@ -750,6 +750,85 @@ def test_fact_check_plus_parse_passes_valid_json_unchanged():
     assert parsed["evidence"][0]["rationale"] == "正常证据"
 
 
+def test_fact_check_plus_parse_repairs_quotes_next_to_digits_and_latin():
+    """v1.0.112: 引号贴在数字/英文两侧时, 全角修复层不命中, 结构扫描应兜住.
+
+    线上样本: summary 里 ``把"先后发生"写成"因果关系"`` 被模型写成半角引号,
+    另有 ``569个"创新应用"``、``AI"大模型"`` 这类紧邻数字/英文的写法。
+    """
+    raw = (
+        '{"conclusion": "【待核实】", '
+        '"summary": "569个"创新应用"只有一家统计，AI"大模型"表述需谨慎", '
+        '"evidence": [{"query": "q", "url": "http://a.com/x", '
+        '"snippet": "s", "rationale": "把"先后发生"写成"因果关系""}]}'
+    )
+    parsed = _parse_fact_check_plus_evidence(raw)
+    assert parsed is not None
+    assert "创新应用" in parsed["summary"]
+    assert "大模型" in parsed["summary"]
+    assert "先后发生" in parsed["evidence"][0]["rationale"]
+
+
+def test_fact_check_plus_parse_repairs_raw_newline_inside_value():
+    """v1.0.112: 值里带裸换行同样让 json.loads 失败, 扫描层应转义."""
+    raw = (
+        '{"conclusion": "【待核实】", "evidence": ['
+        '{"query": "q", "url": "http://a.com", '
+        '"snippet": "第一行\n第二行", "rationale": "x"}]}'
+    )
+    parsed = _parse_fact_check_plus_evidence(raw)
+    assert parsed is not None
+    snippet = parsed["evidence"][0]["snippet"]
+    assert "第一行" in snippet and "第二行" in snippet
+
+
+def test_fact_check_plus_parse_keeps_legit_escaped_quotes():
+    """已正确转义的引号不能被二次转义."""
+    raw = (
+        '{"conclusion": "【待核实】", "evidence": ['
+        '{"query": "q", "url": "http://a.com", '
+        '"snippet": "他说\\"好\\"", "rationale": "x"}]}'
+    )
+    parsed = _parse_fact_check_plus_evidence(raw)
+    assert parsed is not None
+    assert parsed["evidence"][0]["snippet"] == '他说"好"'
+
+
+def test_fact_check_plus_worker_survives_stray_quotes(fresh_db, monkeypatch):
+    """v1.0.112 线上样本: 值内半角引号不再让整条核查失败落库."""
+    _insert_article("a1")
+    _insert_job("job-quotes", "a1")
+    payload = (
+        '{"conclusion": "【待核实】", '
+        '"thesis": "辽宁公示第四批金融科技创新应用", '
+        '"summary": "569个"创新应用"只有一家行业媒体统计，AI"大模型"表述需谨慎，'
+        '正文把"先后发生"写成"因果关系"。", '
+        '"evidence": [{"claim": "辽宁公示第四批创新应用", '
+        '"verdict": "【待核实】", "query": "辽宁 金融科技创新应用 公示", '
+        '"url": "https://www.pbc.gov.cn/notice/9", '
+        '"snippet": "辽宁公示第四批金融科技创新应用", '
+        '"source_date": "2026-11-05", '
+        '"rationale": "仅一家行业媒体报道"}]}'
+    )
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-quotes", "task_type": "fact_check_plus", "article_id": "a1",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    conn = get_db()
+    assert conn.execute(
+        "SELECT status FROM llm_jobs WHERE id = 'job-quotes'"
+    ).fetchone()["status"] == "done"
+    art = conn.execute(
+        "SELECT fact_check_method, fact_check_conclusion FROM articles WHERE id = 'a1'"
+    ).fetchone()
+    assert art["fact_check_method"] == "web_search"
+    assert art["fact_check_conclusion"] == "【待核实】"
+    assert conn.execute(
+        "SELECT COUNT(*) FROM fact_check_evidence WHERE article_id = 'a1'"
+    ).fetchone()[0] == 1
+
+
 def test_fact_check_plus_failure_log_writes_raw_output(fresh_db, monkeypatch):
     """LLM 返回无效 JSON -> llm_jobs.error 含 RAW OUTPUT + PARSE 原因."""
     _insert_article("a1")

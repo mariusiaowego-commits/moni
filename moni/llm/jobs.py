@@ -785,7 +785,73 @@ def _parse_fact_check_plus_evidence(raw: str) -> dict[str, Any] | None:
         parsed = _try_parse_fact_check_plus(repaired)
         if parsed is not None:
             return parsed
+    # v1.0.112: 上一条只修「中文字符夹住的引号」。模型还会把 `"..."` 贴在
+    # 数字/英文旁边（`569个"创新应用"`、`AI"大模型"`），或直接在值里换行，
+    # 这时全角替换不命中。这里按字符串状态扫一遍最外层对象，把值内的裸
+    # 引号与控制字符转义后重试。
+    for candidate in (text, repaired):
+        escaped = _escape_stray_json_strings(candidate)
+        if escaped is None:
+            continue
+        parsed = _try_parse_fact_check_plus(escaped)
+        if parsed is not None:
+            return parsed
     return None
+
+
+_JSON_STRING_ESCAPE = {'"': '\\"', "\n": "\\n", "\r": "\\r", "\t": "\\t"}
+
+
+def _escape_stray_json_strings(text: str) -> str | None:
+    """Escape unescaped quotes / control chars inside JSON string values.
+
+    Only used after a normal ``json.loads`` failed, so valid JSON never
+    passes through here. A quote is treated as a closing delimiter when the
+    next non-space char is ``,`` ``}`` ``]`` or end-of-input; everything else
+    inside a string is a literal quote the model forgot to escape.
+    Returns ``None`` when nothing had to change.
+    """
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    span = text[start : end + 1]
+    out: list[str] = []
+    in_string = False
+    i = 0
+    n = len(span)
+    while i < n:
+        ch = span[i]
+        if not in_string:
+            if ch == '"':
+                in_string = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "\\":
+            out.append(ch)
+            if i + 1 < n:
+                out.append(span[i + 1])
+                i += 2
+            else:
+                i += 1
+            continue
+        if ch == '"':
+            j = i + 1
+            while j < n and span[j] in " \t\r\n":
+                j += 1
+            if j >= n or span[j] in ",}]:":
+                in_string = False
+                out.append(ch)
+            else:
+                out.append('\\"')
+            i += 1
+            continue
+        mapped = _JSON_STRING_ESCAPE.get(ch)
+        out.append(mapped if mapped else ch)
+        i += 1
+    escaped = "".join(out)
+    return escaped if escaped != span else None
 
 
 def _try_parse_fact_check_plus(text: str) -> dict[str, Any] | None:
