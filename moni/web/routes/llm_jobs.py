@@ -247,11 +247,13 @@ def get_llm_job(job_id: str) -> dict[str, Any]:
     ):
         conn = get_db()
         art = conn.execute(
-            "SELECT fact_check_conclusion, fact_check_note "
+            "SELECT fact_check_conclusion, fact_check_note, "
+            "fact_check_summary, fact_check_timeliness "
             "FROM articles WHERE id = ?",
             (job["article_id"],),
         ).fetchone()
-        conclusion = (dict(art).get("fact_check_conclusion") if art else None) or None
+        art_row = dict(art) if art else {}
+        conclusion = art_row.get("fact_check_conclusion") or None
 
         # evidence rows (evidence_seq 升序)
         ev_rows = conn.execute(
@@ -266,6 +268,8 @@ def get_llm_job(job_id: str) -> dict[str, Any]:
         ).fetchall()
         job["fact_check"] = {
             "conclusion": conclusion,
+            "summary": art_row.get("fact_check_summary") or None,
+            "timeliness": art_row.get("fact_check_timeliness") or None,
             "evidence": [dict(r) for r in ev_rows],
         }
     return _annotate([job])[0]

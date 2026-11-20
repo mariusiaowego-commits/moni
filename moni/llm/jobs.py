@@ -68,6 +68,7 @@ from moni.llm.stream import StreamMidwayError, StreamResult, run_hermes_stream
 from moni.web.routes.fact_check_plus import (
     DOMAIN_WHITELIST,
     DOMAIN_WHITELIST_REGEX,
+    TIMELINESS_WARN_MAX_DAYS,
     apply_timeliness,
     compute_days_old,
     compute_timeliness,
@@ -970,6 +971,7 @@ def _build_how(authority: Any, valid: list[dict[str, Any]], timeliness: str) -> 
             "fresh": "时效在 30 天内",
             "30d_warn": "含 30–90 天旧证",
             "90d_demote": "时效降级 · 含超 90 天旧证",
+            "90d_partial": "含超 90 天旧证（该条已降级）",
             "unknown": "时效未知",
         }.get(timeliness, "时效未知")
     )
@@ -1126,12 +1128,34 @@ def _persist_fact_check_plus(
             worst_days = min(newest_days)
         else:
             worst_days = None
-        timeliness = compute_timeliness(worst_days)
+        # v1.0.113 Gate 3: 逐条降级。超过 90 天的【已核实】证据只降自己，
+        # 只要还剩新鲜【已核实】证据，整篇就不被历史背景证据拖下水。
+        stale_verified = [
+            e for e in valid
+            if conclusion_tag(e["verdict"]) == "【已核实】"
+            and e["days_old"] is not None
+            and e["days_old"] > TIMELINESS_WARN_MAX_DAYS
+        ]
+        fresh_verified = [
+            e for e in valid
+            if conclusion_tag(e["verdict"]) == "【已核实】"
+            and e["days_old"] is not None
+            and e["days_old"] <= TIMELINESS_WARN_MAX_DAYS
+        ]
         gate3_demoted = (
             conclusion_tag(pre_gate_conclusion) == "【已核实】"
-            and timeliness == "90d_demote"
+            and bool(stale_verified)
+            and not fresh_verified
         )
-        conclusion = apply_timeliness(conclusion, worst_days)
+        fresh_worst_days = max((e["days_old"] for e in fresh_verified), default=None)
+        if gate3_demoted:
+            conclusion = with_tag("【待核实】", conclusion)
+            timeliness = "90d_demote"
+        else:
+            conclusion = apply_timeliness(
+                conclusion, fresh_worst_days if verified_days else worst_days
+            )
+            timeliness = "90d_partial" if stale_verified else compute_timeliness(worst_days)
         # v1.0.104: 降级不再清空人话结论（enrichment.py 分享预检依赖它非空，
         # 清空会导致刚核查完的文章被判“缺 summary”反复重跑）。
         # Gate 2 降级只对原始【已核实】在 summary 开头标注门禁原因。
@@ -1139,6 +1163,11 @@ def _persist_fact_check_plus(
             summary = _clip_sentence(f"【门禁降级：权威源不足】{summary}")
         if gate3_demoted and not gate2_demoted and summary:
             summary = _clip_sentence(f"【时效降级：核心证据超 90 天】{summary}")
+        if stale_verified and not (gate2_demoted or gate3_demoted) and summary:
+            summary = _clip_sentence(f"【部分参考证据超 90 天】{summary}")
+        # 旧的证据逐条降级（只降自己），整篇降级时才连带全部
+        for e in stale_verified:
+            e["verdict"] = "【待核实】"
         if gate2_demoted or gate3_demoted:
             # Normalize already ran above (English tags cannot escape), so the
             # demotion here only downgrades the tag itself.
@@ -1234,6 +1263,7 @@ def _persist_fact_check_plus(
                 },
                 "demoted_from": "【已核实】" if (gate2_demoted or gate3_demoted) else None,
                 "timeliness": timeliness,
+                "stale_evidence": len(stale_verified),
             },
             ensure_ascii=False,
         )
