@@ -3,6 +3,47 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
+## 已发布: **v1.0.112 — 浏览器抓取卫生（文档外迁 / 脱敏 / Profile 7 迁移 / daemon 锁）** (2026-11-20 · PR #267 → `44eb3ea`，同版本含 PR #268 → `ffc8b57` · tag `v1.0.112` · Sprint 26112065)
+
+公开仓暴露治理的第一刀，外加把 36kr 用的 Chrome profile 从用户真实 Chrome 目录里拔出来。
+
+**① 抓取文档出库**
+`CHROME-PROFILES.md`（118 行）与 `docs/BROWSER_FETCHER_PATTERN.md`（277 行）从公开仓删除，
+操作手册改存私有 wiki（`projects/project-moni/browser-fetch-runbook.md`，hermes-base-wiki `6829f7b`）。
+`README.md`、`docs/archive/README.md`、`docs/plans/2026-09-17-sprint-23-browser-session-lifecycle.md`
+的引用同步改掉。实测 `rg "BROWSER_FETCHER_PATTERN|CHROME-PROFILES"` → 0 命中。
+
+**② 邮箱脱敏**
+5 个 tracked 文件里的 4 个真实 Gmail 换成 `user1..6@example.com` 合成账号，断言同步改。
+实测 `rg "matthew\.qi\.tao|fledgeel|linqin7533|mariusiaowego@"` → 0 命中。
+历史 commit 里的邮箱不动（要 `filter-repo`，非本 sprint 范围）。
+
+**③ Profile 7 迁移**
+`scripts/migrate-chrome-profiles.py --apply`（不带 `--include-xwatch`）：
+`Chrome/Profile 7`（165M / 3 条 36kr cookie）→ `~/.moni/chrome/daemon`；legacy 目录已消失，
+`profile-map.json` 已生成，`chmod 700` 完成，备份 84M 在 `~/Documents/moni-chrome-profile-backup-20261120/`。
+用户 `Profile 6` 的 334 条 cookie 未变。试抓 `fetched=30 parsed=30 inserted=3 parse_errors=0`，
+**无需重过验证码**；验证后 `stop_chrome()` 释放 9223。
+
+**④ manual_captcha 去硬编码**
+不再把 `MONI_CHROME_USER_DATA_DIR` 钉到 legacy `Chrome/Profile 7`，交给 `profile_paths` 解析，
+避免迁移后被 warmup 脚本重新拉回旧目录。
+
+**⑤ daemon 锁泄漏修复**
+`ensure_chrome()` spawn 成功即 `release_daemon_lock()`（原来持锁到进程退出，Chrome 崩一次之后
+同进程所有 respawn 都撞 `Another instance holds daemon.lock`）。新增
+`test_ensure_chrome_releases_lock_after_success` 守住这个行为。
+
+**验证**：定向 48 passed（guard + migration 两文件）；全量 **2402 passed / 2 failed / 2 skipped**
+（`test_migration_039` 因沙箱不能写主仓 `.git/worktrees` 失败、CI 绿；`test_worker_lock` 为 flake，
+单独复跑 28 passed）。CI `pytest · py3.12` success；合并用 `sha=8fc8342` 守护，
+合并后 `git diff --quiet origin/main 8fc8342` 通过。
+
+**部署**：`v1.0.112` tag = `ffc8b57`（15:07:50），8900 PID **41055** 启动 15:08:29 晚于 release 提交；
+`/`、`/api/fetch/sources`、`/api/articles` 均 200；9223 无监听（无孤儿 Chrome）。
+
+**同版本另含** PR #268 联网核查 JSON 解析修复（另一会话交付，细节见该 PR）。
+
 ## 已发布: **v1.0.110 — 信源管理 UI 返修** (2026-11-20 · PR #260 → `9877a00` · tag `v1.0.110` · Sprint 26112001)
 
 dad 在 v1.0.109 上线后继续提了 5 条，加两轮独立审计，本版一次修完：
