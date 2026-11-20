@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   信源管理 · 执行状态区 / 顶部操作区（v1.0.109）
+   信源管理 · 执行状态区 / 顶部操作区（v1.0.110）
    反 slop 原则：无渐变、无发光、无玻璃拟态、无 emoji，紧凑运维面板风格。
    ═══════════════════════════════════════════════════════════════ */
 
@@ -75,14 +75,16 @@
   height: var(--control-h-sm);
   box-shadow: none;
 }
+.pixel-loader.fetch-running-count .pixel-label,
+.pixel-loader.fetch-running-count .pixel-elapsed {
+  line-height: var(--control-h-sm);
+}
 
 /* ── 执行状态区 Body ── */
 .fetch-ops-body {
   margin-top: var(--space-3);
   padding-top: var(--space-3);
   border-top: 1px solid var(--border);
-  max-height: min(44vh, 380px);
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -279,7 +281,6 @@
   overflow: hidden;
 }
 .fetch-task-detail-grid {
-  display: block;
   padding: var(--space-2) var(--space-3) var(--space-3) 32px;
   border-top: 1px solid var(--border);
   background: var(--card);
@@ -288,9 +289,10 @@
   display: none;
 }
 .fetch-task-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  column-gap: var(--space-6);
+  row-gap: 4px;
 }
 .fetch-task-step {
   display: flex;
@@ -313,6 +315,7 @@
   white-space: nowrap;
 }
 .fetch-task-step-actions {
+  grid-column: 1 / -1;
   margin-top: var(--space-2);
   padding-top: var(--space-2);
   border-top: 1px dashed var(--border);

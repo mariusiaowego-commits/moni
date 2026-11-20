@@ -220,9 +220,6 @@ body {
   transition: background 0.3s, color 0.3s;
 }
 
-/* v1.0.109: 弹窗打开时锁住页面滚动。
-   之前滚轮会穿透到背后的信源管理页，弹窗里滚一层、背后又滚一层。 */
-
 h1 { font-size: var(--font-28); }
 h2 { font-size: var(--font-24); }
 h3 { font-size: var(--font-18); }
@@ -551,7 +548,7 @@ h5, h6 { font-size: var(--font-14); }
 /* ═══════════════════════════════════════════════════════════════
    Buttons
    /* ── Buttons ───────────────────────────────────────────────────── */
-   .btn, .btn-primary, .btn-secondary, .btn-ghost, .btn-danger, .btn-refresh {
+   .btn, .btn-primary, .btn-secondary, .btn-ghost, .btn-danger {
      display: inline-flex; align-items: center; justify-content: center; gap: 5px;
      padding: 8px 16px; border-radius: 6px;
      font-size: var(--font-13); font-weight: 500;
@@ -566,10 +563,10 @@ h5, h6 { font-size: var(--font-14); }
         its own compositor layer for the whole page lifetime — a table with N
         buttons cost N layers. The transform transition promotes on demand. */
    }
-   .btn:active, .btn-primary:active, .btn-secondary:active, .btn-ghost:active, .btn-danger:active, .btn-refresh:active {
+   .btn:active, .btn-primary:active, .btn-secondary:active, .btn-ghost:active, .btn-danger:active {
      transform: scale(0.96);
    }
-.btn:disabled, .btn-primary:disabled, .btn-secondary:disabled, .btn-ghost:disabled, .btn-danger:disabled, .btn-refresh:disabled {
+.btn:disabled, .btn-primary:disabled, .btn-secondary:disabled, .btn-ghost:disabled, .btn-danger:disabled {
   opacity: 0.45; cursor: not-allowed; transform: none;
 }
 
@@ -639,16 +636,6 @@ h5, h6 { font-size: var(--font-14); }
 /* Small variant */
 .btn-sm { padding: 4px 10px; height: var(--control-h-sm); font-size: var(--font-13); }
 
-/* Refresh — subtle bordered */
-.btn-refresh {
-  background: transparent; border: 1px solid var(--border);
-  color: var(--muted-fg); padding: 6px 14px;
-}
-.btn-refresh:hover:not(:disabled) {
-  background: var(--muted); color: var(--foreground);
-  border-color: oklch(from var(--border) calc(l - 0.05) c h);
-}
-
 /* 合并 .link-btn 与 .btn-link 的度量，保留两个类名（tests 引用 .link-btn） */
 .link-btn, .btn-link {
   display: inline-flex; align-items: center; justify-content: center;
@@ -665,7 +652,7 @@ h5, h6 { font-size: var(--font-14); }
    用 flex + gap 替代全局 .btn + .btn 的兄弟 margin-left (row-actions 内部更紧凑) */
 .row-actions { display: inline-flex; align-items: center; gap: 8px; }
 
-/* v1.0.109: 全局 icon 按钮基线。
+/* v1.0.110: 全局 icon 按钮基线。
    之前只有 .row-actions .icon-btn 有样式，独立 .icon-btn（页面右上角刷新等）
    走的是浏览器默认样式 —— 灰底 + 描边，跟整个设计语言对不上。
    现在默认透明无框，hover 才给底色。 */
@@ -707,6 +694,9 @@ h5, h6 { font-size: var(--font-14); }
 .row-actions .icon-btn.icon-btn-danger:hover:not(:disabled) {
   color: var(--destructive);
   background: oklch(from var(--destructive) l c h / 0.08);
+}
+.source-hidden-toggle.is-hidden {
+  background: var(--muted);
 }
 
 /* v1.0.35.1: 按钮安全距离 (相邻兄弟 +8px, 替代原本 inline-whitespace 的 ~4px)
@@ -845,6 +835,12 @@ tbody tr:last-child td { border-bottom: none; }
 }
 .table-container table td:last-child {
   padding-left: 12px !important;
+}
+.config-table-scroll {
+  overflow-x: auto;
+}
+.config-table-scroll > table {
+  min-width: 1198px;
 }
 .articles-table td.tabular-nums {
   font-size: var(--font-12, 12px);
@@ -1568,10 +1564,9 @@ label { font-size: var(--font-14); }
 
 .modal-backdrop {
   position: fixed; inset: 0; z-index: var(--z-modal);
-  background: oklch(from var(--foreground) l c h / 0.3);
-  backdrop-filter: blur(8px);
+  background: oklch(from var(--foreground) l c h / 0.45);
   display: flex; align-items: center; justify-content: center;
-  /* v1.0.109: 滚到边界不要外溢到背后页面 */
+  /* v1.0.110: 滚到边界不要外溢到背后页面 */
   overscroll-behavior: contain;
   transition: opacity 0.25s ease, background 0.25s ease;
   will-change: opacity;
@@ -1581,7 +1576,7 @@ label { font-size: var(--font-14); }
   background: var(--surface-modal); border: 1px solid var(--border);
   border-radius: 16px; padding: 24px;
   width: 90%; max-width: 520px; max-height: 85vh; overflow-y: auto;
-  /* v1.0.109: 弹窗内是唯一的滚动容器，滚到底不带动背后页面 */
+  /* v1.0.110: 弹窗内是唯一的滚动容器，滚到底不带动背后页面 */
   overscroll-behavior: contain;
   transform: translateY(14px) scale(0.97);
   transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
@@ -1629,7 +1624,7 @@ label { font-size: var(--font-14); }
 /* ═══════════════════════════════════════════════════════════════
    v1.0.9.8: Fetch Progress Modal (particle + source chain)
    ═══════════════════════════════════════════════════════════════ */
-.modal-content.fetch-modal { max-width: 620px; padding: 28px 32px; }
+.modal-content.fetch-modal { width: min(92vw, 720px); max-width: 720px; padding: 28px 32px; }
 .particle-stage {
   position: relative;
   width: 100%;
@@ -1642,7 +1637,7 @@ label { font-size: var(--font-14); }
   box-shadow: inset 0 2px 8px oklch(from var(--foreground) l c h / 0.06);
   transition: height 0.25s ease;
 }
-/* v1.0.109: 同步完成的那一刻，重点是结果而不是动画 —— 舞台收成一条窄带，
+/* v1.0.110: 同步完成的那一刻，重点是结果而不是动画 —— 舞台收成一条窄带，
    把空间让给下面的结果列表。 */
 .particle-stage.is-complete { height: 128px; }
 .particle-stage.is-complete .completion-check {
@@ -2128,8 +2123,6 @@ label { font-size: var(--font-14); }
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--border);
-  max-height: min(42vh, 360px);
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -2529,49 +2522,9 @@ label { font-size: var(--font-14); }
   opacity: 1;
 }
 .fetch-task-detail-inner { overflow: hidden; }
-.fetch-task-detail-grid {
-  display: grid;
-  grid-template-columns: 24px 1fr;
-  gap: 10px;
-  padding: 0 10px 12px;
-}
-.fetch-task-rail {
-  width: 1px;
-  margin: 0 auto;
-  background: var(--border);
-  min-height: 100%;
-}
-.fetch-task-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.fetch-task-step {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.fetch-task-step-label {
-  font-size: var(--font-12);
-  color: var(--muted-fg);
-}
-.fetch-task-step-meta {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: var(--font-12);
-  color: var(--muted-fg);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  max-width: 55%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.fetch-task-step-actions {
-  margin-top: 4px;
-  display: flex;
-  gap: 12px;
-}
+/* 任务详情区（.fetch-task-detail-* / .fetch-task-step-*）整体定义在
+   source-ops.css。旧版 24px + 1fr 的双列网格配一条已删除的竖线 rail，
+   会把步骤压进 24px —— 别在这里补回去。 */
 @keyframes fetch-spin {
   to { transform: rotate(360deg); }
 }
@@ -4445,7 +4398,6 @@ label { font-size: var(--font-14); }
 .btn-secondary:focus-visible,
 .btn-ghost:focus-visible,
 .btn-danger:focus-visible,
-.btn-refresh:focus-visible,
 .pin-btn:focus-visible,
 .link-btn:focus-visible,
 .btn-link:focus-visible,
@@ -4495,10 +4447,6 @@ label { font-size: var(--font-14); }
 .modal-content.fetch-modal {
   transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
               opacity 0.18s ease;
-}
-.modal-content.fetch-modal.is-closing {
-  transform: translateY(14px) scale(0.97);
-  opacity: 0;
 }
 
 /* ── B09 · bulk bar enter (P1) ──
