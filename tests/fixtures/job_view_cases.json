@@ -1,0 +1,289 @@
+{
+  "now": "2026-11-20T12:00:00.000Z",
+  "cases": [
+    {
+      "name": "no job -> nothing to show",
+      "input": {
+        "slot": "summary",
+        "job": null
+      },
+      "expect": {
+        "phase": "none",
+        "show": false,
+        "busy": false,
+        "text": "",
+        "tone": "idle",
+        "ignore": false
+      }
+    },
+    {
+      "name": "queued with position and total",
+      "input": {
+        "slot": "fact_check",
+        "articleId": "a1",
+        "job": {
+          "id": "j1",
+          "task_type": "fact_check_plus",
+          "article_id": "a1",
+          "status": "pending",
+          "created_at": "2026-11-20T11:58:55.000Z",
+          "queue_position": 2,
+          "queue_total": 3
+        }
+      },
+      "expect": {
+        "phase": "queued",
+        "show": true,
+        "busy": true,
+        "text": "排队中 · 第 2/3 位",
+        "detail": "已等待 1 分 05 秒",
+        "tone": "queued",
+        "retryable": false
+      }
+    },
+    {
+      "name": "queued without server-side position",
+      "input": {
+        "slot": "summary",
+        "articleId": "a1",
+        "job": {
+          "id": "j2",
+          "task_type": "summary",
+          "article_id": "a1",
+          "status": "pending",
+          "created_at": "2026-11-20T11:59:50.000Z"
+        }
+      },
+      "expect": {
+        "phase": "queued",
+        "show": true,
+        "busy": true,
+        "text": "排队中",
+        "detail": "已等待 10 秒",
+        "tone": "queued"
+      }
+    },
+    {
+      "name": "running without stream progress shows stopwatch only",
+      "input": {
+        "slot": "fact_check",
+        "articleId": "a1",
+        "job": {
+          "id": "j3",
+          "task_type": "fact_check_plus",
+          "article_id": "a1",
+          "status": "running",
+          "created_at": "2026-11-20T11:56:55.000Z",
+          "started_at": "2026-11-20T11:56:55.000Z"
+        }
+      },
+      "expect": {
+        "phase": "running",
+        "show": true,
+        "busy": true,
+        "text": "已运行 3 分 05 秒",
+        "detail": "模型正在读全文，还没有联网检索动作",
+        "tone": "running"
+      }
+    },
+    {
+      "name": "running with search events",
+      "input": {
+        "slot": "fact_check",
+        "articleId": "a1",
+        "job": {
+          "id": "j4",
+          "task_type": "fact_check_plus",
+          "article_id": "a1",
+          "status": "running",
+          "started_at": "2026-11-20T11:59:00.000Z"
+        },
+        "progress": {
+          "stage": "searching",
+          "searches": 3,
+          "last_query": "央行 金融科技创新应用 辽宁"
+        }
+      },
+      "expect": {
+        "phase": "running",
+        "busy": true,
+        "text": "已运行 1 分 00 秒",
+        "detail": "已检索 3 次 · 最近「央行 金融科技创新应用 辽宁」"
+      }
+    },
+    {
+      "name": "running keeps the last progress while writing",
+      "input": {
+        "slot": "fact_check",
+        "articleId": "a1",
+        "job": {
+          "id": "j12",
+          "task_type": "fact_check_plus",
+          "article_id": "a1",
+          "status": "running",
+          "started_at": "2026-11-20T11:59:30.000Z"
+        },
+        "progress": {
+          "stage": "writing",
+          "searches": 2,
+          "last_query": "邮储银行 辽宁 金融科技"
+        }
+      },
+      "expect": {
+        "phase": "running",
+        "busy": true,
+        "text": "已运行 30 秒",
+        "detail": "已检索 2 次 · 最近「邮储银行 辽宁 金融科技」"
+      }
+    },
+    {
+      "name": "done is hidden here (app.js reloads the detail)",
+      "input": {
+        "slot": "summary",
+        "articleId": "a1",
+        "job": {
+          "id": "j5",
+          "task_type": "summary",
+          "article_id": "a1",
+          "status": "done",
+          "created_at": "2026-11-20T11:50:00.000Z"
+        }
+      },
+      "expect": {
+        "phase": "done",
+        "show": false,
+        "busy": false,
+        "tone": "idle",
+        "retryable": false
+      }
+    },
+    {
+      "name": "failed keeps the humanized reason and offers retry",
+      "input": {
+        "slot": "fact_check",
+        "articleId": "a1",
+        "errorText": "模型服务正在熔断恢复中，暂时排不上新请求。",
+        "job": {
+          "id": "j6",
+          "task_type": "fact_check_plus",
+          "article_id": "a1",
+          "status": "failed",
+          "error": "RuntimeError: hermes failed (failover exhausted)"
+        }
+      },
+      "expect": {
+        "phase": "failed",
+        "show": true,
+        "busy": false,
+        "tone": "failed",
+        "retryable": true,
+        "text": "这次没跑完",
+        "detail": "模型服务正在熔断恢复中，暂时排不上新请求。"
+      }
+    },
+    {
+      "name": "stale says the service was interrupted",
+      "input": {
+        "slot": "fact_check",
+        "articleId": "a1",
+        "job": {
+          "id": "j7",
+          "task_type": "fact_check_plus",
+          "article_id": "a1",
+          "status": "stale"
+        }
+      },
+      "expect": {
+        "phase": "stale",
+        "show": true,
+        "busy": false,
+        "tone": "stale",
+        "retryable": true,
+        "text": "服务中断或超时中止"
+      }
+    },
+    {
+      "name": "cancelled is terminal but retryable",
+      "input": {
+        "slot": "summary",
+        "articleId": "a1",
+        "job": {
+          "id": "j8",
+          "task_type": "summary",
+          "article_id": "a1",
+          "status": "cancelled"
+        }
+      },
+      "expect": {
+        "phase": "cancelled",
+        "show": true,
+        "busy": false,
+        "tone": "cancelled",
+        "retryable": true,
+        "text": "已取消"
+      }
+    },
+    {
+      "name": "late reply for another article is dropped",
+      "input": {
+        "slot": "summary",
+        "articleId": "b2",
+        "job": {
+          "id": "j9",
+          "task_type": "summary",
+          "article_id": "a1",
+          "status": "running",
+          "started_at": "2026-11-20T11:59:00.000Z"
+        }
+      },
+      "expect": {
+        "phase": "none",
+        "show": false,
+        "busy": false,
+        "ignore": true
+      }
+    },
+    {
+      "name": "unknown status degrades to none instead of crashing",
+      "input": {
+        "slot": "summary",
+        "articleId": "a1",
+        "job": {
+          "id": "j10",
+          "task_type": "summary",
+          "article_id": "a1",
+          "status": "weird"
+        }
+      },
+      "expect": {
+        "phase": "none",
+        "show": false,
+        "busy": false,
+        "ignore": false
+      }
+    },
+    {
+      "name": "watcher gave up but the job is still running server-side",
+      "input": {
+        "slot": "fact_check",
+        "articleId": "a1",
+        "gaveUp": true,
+        "job": {
+          "id": "j11",
+          "task_type": "fact_check_plus",
+          "article_id": "a1",
+          "status": "running",
+          "started_at": "2026-11-20T11:00:00.000Z"
+        }
+      },
+      "expect": {
+        "phase": "running",
+        "show": true,
+        "busy": false,
+        "tone": "running",
+        "retryable": true,
+        "text": "仍在后台运行"
+      }
+    }
+  ]
+}

@@ -329,6 +329,57 @@ def test_failover_runner_chain_all_open_raises_failover_exhausted():
     assert all("OPEN" in e[1] for e in ei.value.errors)
 
 
+def test_stream_failover_advances_on_zero_event_runtime_error():
+    from moni.llm.runner import CallRequest, FailoverRunner
+
+    runner = FailoverRunner.from_settings(
+        fallback_chain=[("p1", "m1"), ("p2", "m2")],
+        failure_threshold=1,
+    )
+    attempts = []
+
+    def stream_fn(provider, model_id):
+        attempts.append((provider, model_id))
+        if model_id == "m1":
+            raise RuntimeError("zero-event failure")
+        return {"model": model_id}
+
+    result = runner.call_stream(
+        CallRequest(provider="p1", model_id="m1", prompt="x"),
+        stream_fn,
+    )
+
+    assert attempts == [("p1", "m1"), ("p1", "m2")]
+    assert result["model"] == "m2"
+    assert runner.breakers["m1"].state == "OPEN"
+
+
+def test_stream_midway_failure_does_not_replay_on_next_model():
+    from moni.llm.runner import CallRequest, FailoverRunner
+
+    class StreamMidwayError(RuntimeError):
+        pass
+
+    runner = FailoverRunner.from_settings(
+        fallback_chain=[("p1", "m1"), ("p2", "m2")],
+        failure_threshold=1,
+    )
+    attempts = []
+
+    def stream_fn(provider, model_id):
+        attempts.append((provider, model_id))
+        raise StreamMidwayError("already searched")
+
+    with pytest.raises(StreamMidwayError):
+        runner.call_stream(
+            CallRequest(provider="p1", model_id="m1", prompt="x"),
+            stream_fn,
+        )
+
+    assert attempts == [("p1", "m1")]
+    assert runner.breakers["m1"].state == "OPEN"
+
+
 # ── helpers ────────────────────────────────────────────────────────────────
 
 

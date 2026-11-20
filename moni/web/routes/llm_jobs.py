@@ -14,35 +14,161 @@ Routes (all under ``/api/llm/jobs``):
                           (worker drops cancelled rows on the way past)
 * ``GET  /stats/summary`` — counts of jobs grouped by status; the
                           LLM-jobs panel uses this for the header chip
+* ``GET  /stats/duration`` — p50 / p90 wall clock of recent finished jobs;
+                          the reader shows "这类任务通常 X 分钟" instead of
+                          guessing
+
+Contract note: every route here is declared with a ``response_model``, so
+``/openapi.json`` is the source of truth for the field names/types the SPA
+reads (``tests/test_llm_jobs_contract.py`` diffs it).
 """
 
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Query
+from pydantic import BaseModel, ConfigDict
 
+from moni.llm import progress
 from moni.llm.jobs import get_job, list_jobs
+from moni.llm.phases import phase_of
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/llm/jobs", tags=["llm-jobs"])
 
+#: 允许出现在 ``?status=`` 里的全部取值（含 leases 判死的 ``stale``）。
+_STATUS_PATTERN = "^(pending|running|done|failed|stale|cancelled)$"
 
-@router.get("")
+
+# ── 契约模型 ───────────────────────────────────────────────────────────────
+#
+# 挂了 ``response_model`` 之后 /openapi.json 就是闸门：改字段名/类型而不改
+# 前端，contract 测试会红。
+
+
+class JobProgress(BaseModel):
+    """流式进度快照（PR-4 起由 ``moni/llm/progress.py`` 填）。
+
+    PR-3 阶段恒为 ``None``：进度还没接线，前端只显示秒表。
+    """
+
+    stage: Literal["thinking", "searching", "writing"]
+    searches: int = 0
+    last_query: str = ""
+    last_tool_ms: int | None = None
+    last_tool_error: bool = False
+    last_event_at: str | None = None
+
+
+class JobOut(BaseModel):
+    """``llm_jobs`` 一行 + 派生字段（phase / 排队位次 / fact_check）。
+
+    ``extra="allow"`` 是故意的：pydantic 默认把未声明的字段**静默剥离**，
+    而这张表还有 result / fence / conversation_id 等列有人读。下面显式列出
+    的都是前端已经在读的字段 —— 列出来是为了让 openapi 校验类型，也顺带
+    防止改模型时把它们吃掉。
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    task_type: str
+    article_id: str
+    status: str
+    phase: str
+    created_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    duration_ms: int | None = None
+    result: str | None = None
+    error: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    attempts: int = 0
+    article_title: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cost_usd: float | None = None
+    #: 仅 pending 有值：1 基 FIFO 位次 / 当下排队总数（含正在跑的那条）。
+    queue_position: int | None = None
+    queue_total: int | None = None
+    progress: JobProgress | None = None
+    #: 仅 fact_check_plus 且 done 时有值（人话结论 + 证据链）。
+    fact_check: dict[str, Any] | None = None
+
+
+class DurationStats(BaseModel):
+    """同类任务最近的耗时基线；样本不足 3 条时 p50/p90 回 ``None``。"""
+
+    n: int
+    p50_sec: float | None = None
+    p90_sec: float | None = None
+
+
+class JobsStats(BaseModel):
+    pending: int = 0
+    running: int = 0
+    done: int = 0
+    failed: int = 0
+    stale: int = 0
+    cancelled: int = 0
+
+
+def _percentile(sorted_values: list[int], pct: int) -> float:
+    """nearest-rank 百分位（样本少时够用，不做插值）。"""
+    rank = math.ceil(pct / 100 * len(sorted_values))
+    return float(sorted_values[max(rank - 1, 0)])
+
+
+def _annotate(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """补 phase 与 pending 的排队位次（整表一次算完，避免 N+1）。"""
+    from moni.db.connection import get_db
+
+    conn = get_db()
+    # reader_chat 由独立的 reader_worker 消费，不排在阅读器摘要/核查队列里；
+    # 不排除它会让位次凭空偏大一位。
+    running = int(
+        conn.execute(
+            "SELECT COUNT(*) AS n FROM llm_jobs "
+            "WHERE status = 'running' AND task_type != 'reader_chat'"
+        ).fetchone()["n"]
+    )
+    pending_ids = [
+        str(r["id"])
+        for r in conn.execute(
+            "SELECT id FROM llm_jobs WHERE status = 'pending' AND task_type != 'reader_chat' "
+            "ORDER BY created_at ASC, id ASC"
+        )
+    ]
+    total = running + len(pending_ids)
+    position = {job_id: running + 1 + i for i, job_id in enumerate(pending_ids)}
+    for job in jobs:
+        job["phase"] = phase_of(job.get("status"))
+        if job.get("status") == "pending":
+            job["queue_position"] = position.get(str(job["id"]))
+            job["queue_total"] = total
+        elif job.get("status") == "running":
+            job["progress"] = progress.get_job(str(job.get("id")))
+    return jobs
+
+
+@router.get("", response_model=list[JobOut])
 def list_llm_jobs(
-    status: str | None = Query(default=None, pattern="^(pending|running|done|failed|cancelled)$"),
+    status: str | None = Query(default=None, pattern=_STATUS_PATTERN),
     article_id: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[dict[str, Any]]:
     """List LLM jobs newest first, optional status/article filters."""
-    return list_jobs(status=status, article_id=article_id, limit=limit)
+    return _annotate(list_jobs(status=status, article_id=article_id, limit=limit))
 
 
-@router.get("/stats/summary")
-def jobs_stats_summary() -> dict[str, int]:
+@router.get("/stats/summary", response_model=JobsStats)
+def jobs_stats_summary() -> JobsStats:
     """Return ``{status: count}`` for the jobs panel header chip.
 
     Bypasses ``moni.llm.jobs.list_jobs`` because we want a single
@@ -54,15 +180,50 @@ def jobs_stats_summary() -> dict[str, int]:
     rows = conn.execute(
         "SELECT status, COUNT(*) AS n FROM llm_jobs GROUP BY status"
     ).fetchall()
-    out: dict[str, int] = {
-        "pending": 0, "running": 0, "done": 0, "failed": 0, "cancelled": 0,
-    }
+    out = JobsStats()
     for r in rows:
-        out[r["status"]] = int(r["n"])
+        key = str(r["status"])
+        if key in JobsStats.model_fields:
+            setattr(out, key, int(r["n"]))
     return out
 
 
-@router.get("/{job_id}")
+@router.get("/stats/duration", response_model=DurationStats)
+def jobs_duration_stats(
+    task_type: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+) -> DurationStats:
+    """最近 N 条**成功**同型任务的耗时基线（p50 / p90，单位秒）。
+
+    口径固定 ``status='done' AND duration_ms > 0``：失败/取消的行会把「这类
+    任务通常要多久」带偏，``duration_ms`` 为空的旧行同理。样本不足 3 条时
+    只回 ``n``、p50/p90 为 ``None`` —— 前端据此不显示基线，而不是拿 1 个
+    样本算出一个「通常耗时」。
+
+    路由必须注册在 ``/{job_id}`` **之前**，否则 ``/stats/duration`` 会被
+    当成 job_id 吃掉。
+    """
+    from moni.db.connection import get_db
+
+    conn = get_db()
+    sql = "SELECT duration_ms FROM llm_jobs WHERE status = 'done' AND duration_ms > 0"
+    params: list[Any] = []
+    if task_type:
+        sql += " AND task_type = ?"
+        params.append(task_type)
+    sql += " ORDER BY created_at DESC, id DESC LIMIT ?"
+    params.append(limit)
+    values = sorted(int(r["duration_ms"]) for r in conn.execute(sql, params))
+    if len(values) < 3:
+        return DurationStats(n=len(values))
+    return DurationStats(
+        n=len(values),
+        p50_sec=round(_percentile(values, 50) / 1000, 1),
+        p90_sec=round(_percentile(values, 90) / 1000, 1),
+    )
+
+
+@router.get("/{job_id}", response_model=JobOut)
 def get_llm_job(job_id: str) -> dict[str, Any]:
     """Return one job row (the SPA polls this every 1s).
 
@@ -107,7 +268,7 @@ def get_llm_job(job_id: str) -> dict[str, Any]:
             "conclusion": conclusion,
             "evidence": [dict(r) for r in ev_rows],
         }
-    return job
+    return _annotate([job])[0]
 
 
 @router.post("/{job_id}/cancel")

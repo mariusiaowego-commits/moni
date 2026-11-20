@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261120011">
+  <link rel="stylesheet" href="css/main.css?v=20261120021">
   <!-- v1.0.110: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
        放在 main.css 之后，同名选择器以它们为准，便于单独回滚。 -->
   <link rel="stylesheet" href="css/source-ops.css?v=20261120011">
@@ -3578,10 +3578,20 @@
                   <small class="muted" x-show="articleDetail?.summary_at"
                          x-text="'生成于 ' + formatTime(articleDetail?.summary_at)"></small>
                 </div>
-                <div class="summary-box" x-show="articleDetail?.summary" x-cloak>
+                <div class="reader-job-status" x-show="readerJobShow('summary')" x-cloak
+                     :class="'is-' + readerJobTone('summary')" role="status" aria-live="polite">
+                  <span class="reader-job-dot" aria-hidden="true"></span>
+                  <div class="reader-job-lines">
+                    <strong x-text="readerJobText('summary')"></strong>
+                    <small x-text="readerJobDetail('summary')"></small>
+                  </div>
+                  <button type="button" class="btn btn-ghost btn-sm" x-show="readerJobRetryable('summary')"
+                          @click="generateSummary()">重试</button>
+                </div>
+                <div class="summary-box" x-show="articleDetail?.summary && !readerJobBusy('summary')" x-cloak>
                   <div class="markdown" x-html="readerRenderMarkdownPlain(articleDetail?.summary || '')"></div>
                 </div>
-                <p class="muted" x-show="!articleDetail?.summary" x-cloak>
+                <p class="muted" x-show="!articleDetail?.summary && !readerJobShow('summary')" x-cloak>
                   这篇文章还没有摘要，点下方「生成摘要」跑一次。
                 </p>
               </section>
@@ -3596,6 +3606,17 @@
                         x-show="readerTimelinessLabel" x-text="readerTimelinessLabel"></span>
                 </div>
 
+                <div class="reader-job-status" x-show="readerJobShow('fact_check')" x-cloak
+                     :class="'is-' + readerJobTone('fact_check')" role="status" aria-live="polite">
+                  <span class="reader-job-dot" aria-hidden="true"></span>
+                  <div class="reader-job-lines">
+                    <strong x-text="readerJobText('fact_check')"></strong>
+                    <small x-text="readerJobDetail('fact_check')"></small>
+                  </div>
+                  <button type="button" class="btn btn-ghost btn-sm" x-show="readerJobRetryable('fact_check')"
+                          @click="enqueueLlmJobFactCheckPlus(articleDetail?.id)">重试</button>
+                </div>
+
                 <p class="reader-tier-note" x-show="articleDetail?.has_web_fact_check">
                   联网核查：逐条联网检索证据，给出判定标签、来源链接与来源日期，下方附完整证据链。
                 </p>
@@ -3606,12 +3627,12 @@
                   这篇文章还没有跑过事实核查，点下方「事实核查」跑一次。
                 </p>
 
-                <div class="fact-lead" x-show="articleDetail?.fact_check_summary" x-cloak>
+                <div class="fact-lead" x-show="articleDetail?.fact_check_summary && !readerJobBusy('fact_check')" x-cloak>
                   <span class="fact-lead-label">结论</span>
                   <p x-text="articleDetail?.fact_check_summary"></p>
                 </div>
 
-                <div class="summary-box" x-show="articleDetail?.fact_check_conclusion" x-cloak>
+                <div class="summary-box" x-show="articleDetail?.fact_check_conclusion && !readerJobBusy('fact_check')" x-cloak>
                   <h4>核查详情</h4>
                   <div class="markdown" x-show="readerFactPreviewText"
                        x-html="readerRenderMarkdownPlain(readerFactPreviewText)"></div>
@@ -3627,7 +3648,7 @@
                   </template>
                 </div>
 
-                <dl class="reader-facts" x-show="articleDetail?.fact_check_thesis || articleDetail?.fact_check_how || articleDetail?.fact_checked_at">
+                <dl class="reader-facts" x-show="(articleDetail?.fact_check_thesis || articleDetail?.fact_check_how || articleDetail?.fact_checked_at) && !readerJobBusy('fact_check')">
                   <div x-show="articleDetail?.fact_check_thesis">
                     <dt>文章主张</dt><dd x-text="articleDetail?.fact_check_thesis"></dd>
                   </div>
@@ -3639,7 +3660,7 @@
                   </div>
                 </dl>
 
-                <div class="fact-check-evidence" x-show="articleDetail?.has_web_fact_check" x-cloak>
+                <div class="fact-check-evidence" x-show="articleDetail?.has_web_fact_check && !readerJobBusy('fact_check')" x-cloak>
                   <details>
                     <summary>
                       <span class="badge web_search">证据链</span>
@@ -3667,13 +3688,13 @@
             <div class="reader-sticky-bar">
               <div class="reader-dock-actions">
                 <div class="reader-dock-main">
-                  <button class="btn btn-primary btn-sm" @click="generateSummary()" :disabled="summaryLoading">
+                  <button class="btn btn-primary btn-sm" @click="generateSummary()" :disabled="summaryLoading || readerJobBusy('summary')">
                     <span x-show="!summaryLoading">生成摘要</span><span x-show="summaryLoading">生成中...</span>
                   </button>
-                  <button class="btn btn-secondary btn-sm" @click="generateFactCheck()" :disabled="factCheckLoading" x-show="!articleDetail?.has_web_fact_check" title="已核查过的文章可以重跑，旧结论会被替换">
+                  <button class="btn btn-secondary btn-sm" @click="generateFactCheck()" :disabled="factCheckLoading || readerJobBusy('fact_check')" x-show="!articleDetail?.has_web_fact_check" title="已核查过的文章可以重跑，旧结论会被替换">
                     <span x-show="!factCheckLoading" x-text="articleDetail?.has_fact_check ? '重新核查' : '事实核查'"></span><span x-show="factCheckLoading">核查中...</span>
                   </button>
-                  <button class="btn btn-secondary btn-sm" @click="enqueueLlmJobFactCheckPlus(articleDetail?.id)" :disabled="factCheckLoading" title="已联网核查过的文章可以重跑，旧证据链会被新结果替换" x-text="articleDetail?.has_web_fact_check ? '重新联网核查' : '联网核查'"></button>
+                  <button class="btn btn-secondary btn-sm" @click="enqueueLlmJobFactCheckPlus(articleDetail?.id)" :disabled="factCheckLoading || readerJobBusy('fact_check')" title="已联网核查过的文章可以重跑，旧证据链会被新结果替换" x-text="articleDetail?.has_web_fact_check ? '重新联网核查' : '联网核查'"></button>
                   <button class="btn btn-secondary btn-sm" @click="extractCase()" :disabled="caseExtractLoading">
                     <span x-show="!caseExtractLoading">提取案例</span><span x-show="caseExtractLoading">提取中...</span>
                   </button>
@@ -4769,8 +4790,9 @@
   <script src="vendor/dompurify-3.4.17.min.js?v=20261116001"></script>
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
-  <script src="js/app.js?v=20261120011"></script>
-  <script src="js/reader.js?v=20261119007"></script>
+  <script src="js/job_view.js?v=20261120001"></script>
+  <script src="js/app.js?v=20261120033"></script>
+  <script src="js/reader.js?v=20261120021"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
        GSAP presence, and the scale pop now honours prefers-reduced-motion. -->

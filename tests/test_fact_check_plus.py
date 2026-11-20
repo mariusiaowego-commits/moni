@@ -57,6 +57,31 @@ def fresh_db(tmp_path: Path) -> Path:
     mig_mod._CON = None
 
 
+@pytest.fixture(autouse=True)
+def _stream_call_passthrough(monkeypatch):
+    """旧用例统一 mock call_llm；流式路径直接复用它，避免真调 hermes。"""
+    from moni.llm import jobs
+    from moni.llm.stream import StreamResult
+
+    def fake_stream(job_id, provider, model, prompt, *, timeout):
+        reply = jobs.call_llm(
+            provider, model, prompt,
+            extra_args=["-t", "web"], usage=True,
+        )
+        if isinstance(reply, tuple):
+            text, usage = reply
+        else:
+            text, usage = reply, {}
+        return StreamResult(
+            text=text,
+            duration_ms=1,
+            input_tokens=int(usage.get("input_tokens") or 0),
+            output_tokens=int(usage.get("output_tokens") or 0),
+        )
+
+    monkeypatch.setattr(jobs, "_run_streaming_call", fake_stream)
+
+
 @pytest.fixture
 def client(fresh_db: Path) -> TestClient:
     """HTTP client pointed at the fresh temp DB."""
@@ -188,7 +213,11 @@ def test_get_llm_job_detail_attaches_fact_check_for_done_plus(fresh_db, client):
 
 
 def test_get_llm_job_detail_no_fact_check_for_summary(fresh_db, client):
-    """非 fact_check_plus (e.g. summary) done 不应附加 fact_check 字段."""
+    """非 fact_check_plus (e.g. summary) done 不应带 fact_check 内容.
+
+    v1.0.110 起该路由挂了 ``response_model``：字段恒定存在，没数据时为
+    ``null``。断言 intent 不变 —— 值必须是空，不是有内容。
+    """
     _insert_article("a2")
     now = datetime.now(timezone.utc).isoformat()
     get_db().execute(
@@ -199,7 +228,7 @@ def test_get_llm_job_detail_no_fact_check_for_summary(fresh_db, client):
     get_db().commit()
     r = client.get("/api/llm/jobs/job-sum1")
     assert r.status_code == 200
-    assert "fact_check" not in r.json()
+    assert r.json().get("fact_check") is None
 
 
 def test_fact_check_plus_404_unknown_article(client):
