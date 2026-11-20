@@ -188,7 +188,11 @@ def test_get_llm_job_detail_attaches_fact_check_for_done_plus(fresh_db, client):
 
 
 def test_get_llm_job_detail_no_fact_check_for_summary(fresh_db, client):
-    """非 fact_check_plus (e.g. summary) done 不应附加 fact_check 字段."""
+    """非 fact_check_plus (e.g. summary) done 不应带 fact_check 内容.
+
+    v1.0.110 起该路由挂了 ``response_model``：字段恒定存在，没数据时为
+    ``null``。断言 intent 不变 —— 值必须是空，不是有内容。
+    """
     _insert_article("a2")
     now = datetime.now(timezone.utc).isoformat()
     get_db().execute(
@@ -199,7 +203,7 @@ def test_get_llm_job_detail_no_fact_check_for_summary(fresh_db, client):
     get_db().commit()
     r = client.get("/api/llm/jobs/job-sum1")
     assert r.status_code == 200
-    assert "fact_check" not in r.json()
+    assert r.json().get("fact_check") is None
 
 
 def test_fact_check_plus_404_unknown_article(client):

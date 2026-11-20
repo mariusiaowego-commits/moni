@@ -651,6 +651,9 @@
       this.readerFactReportOpen = false;
       this.summaryLoading = false;
       this.factCheckLoading = false;
+      // 弹窗关了就停止跟随：定时器、秒表、槽位一起收（重开由
+      // resumeArticleJobs 按 article_id 重建）。
+      if (typeof this.stopReaderJobs === 'function') this.stopReaderJobs();
     },
 
     /** Esc 先退出全屏，再关闭阅读器。 */

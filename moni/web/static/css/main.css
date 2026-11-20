@@ -2681,6 +2681,31 @@ label { font-size: var(--font-14); }
   color: var(--muted-fg); background: var(--muted);
   border: 1px solid var(--border); border-radius: 8px;
 }
+/* 阅读器任务状态条：排队 / 运行 / 失败。
+   底色与正文卡片一致，靠一个 8px 圆点表达状态，不额外画边框高亮。 */
+.reader-job-status {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--card); color: var(--card-fg); font-size: var(--font-13);
+}
+.reader-job-dot {
+  flex: none; width: 8px; height: 8px; margin-top: 6px;
+  border-radius: 50%; background: var(--muted-fg);
+}
+.reader-job-lines { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.reader-job-lines strong { font-size: var(--font-13); font-weight: 620; }
+.reader-job-lines small { font-size: var(--font-12); line-height: 1.5; color: var(--muted-fg); }
+.reader-job-status .btn { margin-left: auto; flex: none; }
+.reader-job-status.is-running .reader-job-dot {
+  background: var(--accent);
+  animation: reader-job-breathe 1.8s ease-in-out infinite;
+}
+.reader-job-status.is-failed .reader-job-dot { background: var(--destructive); }
+.reader-job-status.is-stale .reader-job-dot { background: var(--warning); }
+@keyframes reader-job-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
 .fact-lead {
   padding: 12px 14px; background: var(--muted);
   border: 1px solid var(--border); border-radius: 8px;
@@ -5469,6 +5494,11 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
   .ai-pane,
   .reader-tab {
     transition: none;
+  }
+
+  /* ── 阅读器任务状态点 ── */
+  .reader-job-status.is-running .reader-job-dot {
+    animation: none;
   }
 
   /* ── status dots (infinite pulse) ── */

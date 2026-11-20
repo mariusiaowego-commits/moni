@@ -4845,6 +4845,9 @@ function app() {
       this.articleDetail = null;
       this.summaryLoading = false;
       this.factCheckLoading = false;
+      // 弹窗关了就别再轮询：定时器、秒表、槽位一起收掉（重开由
+      // resumeArticleJobs 按 article_id 重建）。
+      this.stopReaderJobs();
     },
 
     // ── Pin (v1.0.8.4) ──────────────────────────────────────
@@ -5281,14 +5284,11 @@ function app() {
           // see the job's status (pending → running → done/failed) in
           // real time.  We don't close the modal so the user can keep
           // reading the source article while the LLM works.
-          self.enqueueLlmJob('summary', data.job_id, self.articleDetail.id);
-          // Optimistically mark the article as "in flight" so the user
-          // can see the job is queued even before the panel polls.
-          self.articleDetail = {
-            ...self.articleDetail,
-            ...self._articleJobPlaceholder('summary', data.job_id),
-          };
-          self.watchArticleJob(data.job_id, self.articleDetail.id, 'summary');
+          const articleId = self.articleDetail.id;
+          // 先占住槽位（按钮立刻禁用、状态条显示「排队中」），再开始跟随。
+          self._setReaderJob('summary', self._readerJobOptimistic('summary', data.job_id, articleId));
+          self.watchArticleJob(data.job_id, articleId, 'summary');
+          self.enqueueLlmJob('summary', data.job_id, articleId);
         })
         .catch(err => { this._notify('error', '生成摘要失败: ' + err.message); })
         .finally(() => { self.summaryLoading = false; });
@@ -5312,12 +5312,10 @@ function app() {
         })
         .then(data => {
           // v1.0.5.1: same async treatment as generateSummary().
-          self.enqueueLlmJob('fact_check', data.job_id, self.articleDetail.id);
-          self.articleDetail = {
-            ...self.articleDetail,
-            ...self._articleJobPlaceholder('fact_check', data.job_id),
-          };
-          self.watchArticleJob(data.job_id, self.articleDetail.id, 'fact_check');
+          const articleId = self.articleDetail.id;
+          self._setReaderJob('fact_check', self._readerJobOptimistic('fact_check', data.job_id, articleId));
+          self.watchArticleJob(data.job_id, articleId, 'fact_check');
+          self.enqueueLlmJob('fact_check', data.job_id, articleId);
         })
         .catch(err => {
           const raw = String(err.message || '').trim();
@@ -5350,12 +5348,9 @@ function app() {
         })
         .then(data => {
           // v1.0.22: same async treatment as generateFactCheck().
-          self.enqueueLlmJob('fact_check_plus', data.job_id, id);
-          self.articleDetail = {
-            ...self.articleDetail,
-            ...self._articleJobPlaceholder('fact_check_plus', data.job_id),
-          };
+          self._setReaderJob('fact_check_plus', self._readerJobOptimistic('fact_check_plus', data.job_id, id));
           self.watchArticleJob(data.job_id, id, 'fact_check_plus');
+          self.enqueueLlmJob('fact_check_plus', data.job_id, id);
         })
         .catch(err => {
           const raw = String(err.message || '').trim();
@@ -5387,45 +5382,161 @@ function app() {
       return fallback;
     },
 
-    // v1.0.110: 文章级 LLM 任务统一跟随（摘要 / 快核 / 联网核查）。
+    // ── v1.0.110: 阅读器任务状态机（摘要 / 快核 / 联网核查）─────────
     //
-    // 钉住的失败模式：摘要与快核设完「⏳ …」占位就再没人管；联网核查只轮询
-    // 60 秒（线上实测 2~5 分钟），超时后占位永久留在页面上，用户只能手动
-    // 刷新或重进页面。现在统一成一个跟随器：
-    //   · 间隔按耗时退避，预算 30 分钟，覆盖最慢的真实任务；
-    //   · done / failed / cancelled 都回读文章详情，占位一定被服务端真值替换；
-    //   · 打开文章时按 article_id 查活跃任务续上，重进页面自动同步。
-    _articleJobWatchers: new Set(),
+    // 钉住的失败模式：等待占位被写进 articleDetail，和真实结论抢同一个字段，
+    // 失败/超时就再也撤不掉；联网核查只轮询 60 秒（线上实测 2~5 分钟）；
+    // 排队与运行期没有任何可读进度，用户除了退出重进无事可做。
+    //
+    // 现在：等待态按「槽位」存在这里（summary / fact_check，快核与联网核查
+    // 共用 fact_check 槽），与正文彻底解耦；所有文案由 job_view.js 的纯函数
+    // 生成（node 表驱动测试覆盖 7 个 phase）；终态一定回读文章详情。
+    readerJobState: { summary: null, fact_check: null },
+    /** 秒表用的渲染时刻：每秒推进一次，界面靠它重算「已运行 X 分」。 */
+    readerJobNow: 0,
+    _readerJobHandles: {},
+    _readerJobClock: null,
 
-    _isArticleJobType(taskType) {
-      return taskType === 'summary' || taskType === 'fact_check' || taskType === 'fact_check_plus';
+    /** 阅读器里的任务槽位（快核与联网核查共用 fact_check）。 */
+    _readerJobSlots() {
+      return ['summary', 'fact_check'];
     },
 
-    _articleJobLabel(taskType) {
-      const labels = {
-        summary: '摘要生成',
-        fact_check: '事实核查',
-        fact_check_plus: '联网核查',
+    readerJob(slot) {
+      return (this.readerJobState || {})[slot] || null;
+    },
+
+    /** 槽位当前视图（phase / 文案 / busy / retryable）—— 模板只读这一个入口。 */
+    readerJobView(slot) {
+      // 读一次 readerJobNow：秒表每秒重算，不靠累加，切标签页回来也不会漂。
+      this.readerJobNow;
+      const view = window.moniJobView;
+      const entry = this.readerJob(slot);
+      if (!view) {
+        return { phase: 'none', show: false, busy: false, text: '', detail: '', tone: 'idle', retryable: false };
+      }
+      return view.viewFor({
+        slot,
+        job: entry ? entry.job : null,
+        articleId: this.articleDetail ? this.articleDetail.id : null,
+        nowMs: this.readerJobNow || Date.now(),
+        errorText: entry ? entry.errorText : '',
+        progress: entry ? entry.progress : null,
+        gaveUp: !!(entry && entry.gaveUp),
+      });
+    },
+
+    readerJobShow(slot) { return this.readerJobView(slot).show; },
+    readerJobBusy(slot) { return this.readerJobView(slot).busy; },
+    readerJobText(slot) { return this.readerJobView(slot).text; },
+    readerJobDetail(slot) { return this.readerJobView(slot).detail; },
+    readerJobTone(slot) { return this.readerJobView(slot).tone; },
+    readerJobRetryable(slot) { return this.readerJobView(slot).retryable; },
+
+    _startReaderJobClock() {
+      if (this._readerJobClock) return;
+      this.readerJobNow = Date.now();
+      this._readerJobClock = setInterval(() => {
+        if (!this._readerJobSlots().some(slot => this.readerJob(slot))) {
+          this._stopReaderJobClock();
+          return;
+        }
+        this.readerJobNow = Date.now();
+      }, 1000);
+    },
+
+    _stopReaderJobClock() {
+      if (!this._readerJobClock) return;
+      clearInterval(this._readerJobClock);
+      this._readerJobClock = null;
+    },
+
+    _readerJobSlotOf(taskType) {
+      const view = window.moniJobView;
+      return (view && view.slotOf(taskType)) || null;
+    },
+
+    /** 把一个任务（服务端真值或本地占位）写进它的槽位；同槽新任务覆盖旧的。 */
+    _setReaderJob(taskType, job) {
+      const slot = this._readerJobSlotOf(taskType);
+      if (!slot || !job) return null;
+      const previous = this.readerJob(slot);
+      const sameJob = !!(previous && previous.job && previous.job.id === job.id);
+      this.readerJobState[slot] = {
+        job,
+        // 已翻成人话的失败原因留住，别每秒重翻一遍。
+        errorText: sameJob ? previous.errorText : '',
+        progress: sameJob ? previous.progress : null,
+        gaveUp: sameJob ? previous.gaveUp : false,
       };
-      return labels[taskType] || '任务';
+      this._startReaderJobClock();
+      return slot;
     },
 
-    _articleJobPlaceholder(taskType, jobId) {
-      const text = `⏳ ${this._articleJobLabel(taskType)}中... (job ${String(jobId).slice(0, 8)})`;
-      return taskType === 'summary' ? { summary: text } : { fact_check_conclusion: text };
+    _setReaderJobError(slot, text) {
+      const entry = this.readerJob(slot);
+      if (!entry) return;
+      this.readerJobState[slot] = { ...entry, errorText: text };
     },
 
+    _clearReaderJob(slot) {
+      if (!slot || !this.readerJobState) return;
+      this.readerJobState[slot] = null;
+      if (!this._readerJobSlots().some(s => this.readerJob(s))) this._stopReaderJobClock();
+    },
+
+    /** 关弹窗 / 换文章：定时器、秒表、槽位一起清，不在后台空转。 */
+    stopReaderJobs() {
+      Object.keys(this._readerJobHandles || {}).forEach(jobId => {
+        clearTimeout(this._readerJobHandles[jobId]);
+        delete this._readerJobHandles[jobId];
+      });
+      this._stopReaderJobClock();
+      this.readerJobState = { summary: null, fact_check: null };
+      this.readerJobNow = 0;
+    },
+
+    /** 刚 POST 出去、还没拿到服务端行时先占住槽位，按钮立刻进入禁用态。 */
+    _readerJobOptimistic(taskType, jobId, articleId) {
+      return {
+        id: jobId,
+        task_type: taskType,
+        article_id: articleId,
+        status: 'pending',
+        phase: 'queued',
+        created_at: new Date().toISOString(),
+      };
+    },
+
+    /**
+     * 跟随一条任务直到终态。
+     *
+     * 钉住的失败模式：旧实现把等待占位写进 articleDetail，与真实结论抢
+     * 同一个字段；失败/超时后占位撤不掉，只能刷新页面。现在等待态只活在
+     * 槽位里，终态一定回读文章详情并把槽位交还给正文。
+     */
     watchArticleJob(jobId, articleId, taskType) {
       if (!jobId) return;
-      if (!this._articleJobWatchers) this._articleJobWatchers = new Set();
-      if (this._articleJobWatchers.has(jobId)) return;   // 同一任务只跟一次
-      this._articleJobWatchers.add(jobId);
+      if (!this._readerJobHandles) this._readerJobHandles = {};
+      const key = String(jobId);
+      if (this._readerJobHandles[key]) return;   // 同一任务只跟一次
       const self = this;
+      const slot = self._readerJobSlotOf(taskType);
       const startedAt = Date.now();
       const budgetMs = 30 * 60 * 1000;
-      const settle = () => { self._articleJobWatchers.delete(jobId); };
+
+      const stop = () => {
+        clearTimeout(self._readerJobHandles[key]);
+        delete self._readerJobHandles[key];
+      };
+
       const tick = () => {
-        fetch(`/api/llm/jobs/${jobId}`, { credentials: 'same-origin' })
+        // 用户已经翻到别的文章 / 关了弹窗：收摊，别把回包写进别人的槽位。
+        if (!self.isCurrentReaderArticle(articleId)) {
+          stop();
+          return;
+        }
+        fetch(`/api/llm/jobs/${key}`, { credentials: 'same-origin' })
           .then(r => {
             if (r.status === 404) {
               const gone = new Error('job not found');
@@ -5436,48 +5547,62 @@ function app() {
             return r.json();
           })
           .then(job => {
-            if (job.status === 'done') {
-              settle();
+            const view = window.moniJobView.viewFor({
+              slot, job, articleId, nowMs: Date.now(),
+            });
+            if (view.ignore) { stop(); return; }
+            self._setReaderJob(taskType, job);
+
+            if (view.phase === 'done') {
+              stop();
               if (taskType === 'fact_check_plus') self.loadArticleEvidence(articleId);
               self._notify('success', self._articleJobLabel(taskType) + '完成');
+              self._clearReaderJob(slot);
               self._reloadArticleAfterJob(articleId);
               return;
             }
-            if (job.status === 'failed' || job.status === 'cancelled') {
-              settle();
-              const raw = String(job.error || '').trim();
-              self._notify(
-                'error',
-                self._llmErrorText(raw, self._articleJobLabel(taskType) + '没跑完，可以稍后重试。'),
-                raw && raw !== 'unknown' ? { detail: raw } : undefined
-              );
+            if (view.phase === 'failed' || view.phase === 'stale' || view.phase === 'cancelled') {
+              stop();
+              if (view.phase === 'failed') {
+                const raw = String(job.error || '').trim();
+                const human = self._llmErrorText(raw, '这次没跑完，可以稍后重试。');
+                self._setReaderJobError(slot, human);
+                self._notify('error', human, raw && raw !== 'unknown' ? { detail: raw } : undefined);
+              }
               self._reloadArticleAfterJob(articleId);
               return;
             }
+
             const elapsed = Date.now() - startedAt;
             if (elapsed > budgetMs) {
-              settle();
+              stop();
+              // 任务还在服务端跑：保留槽位但解除禁用，告诉用户重进会同步。
+              const entry = self.readerJob(slot);
+              if (entry) self.readerJobState[slot] = { ...entry, gaveUp: true };
               self._reloadArticleAfterJob(articleId);
               self._notify('warn', self._articleJobLabel(taskType) + '仍在后台运行，稍后再进本文会自动同步。');
               return;
             }
-            setTimeout(tick, elapsed < 60000 ? 3000 : elapsed < 180000 ? 6000 : 15000);
+            self._readerJobHandles[key] = setTimeout(
+              tick, elapsed < 60000 ? 3000 : elapsed < 180000 ? 6000 : 15000,
+            );
           })
           .catch(err => {
             if (err && err.status === 404) {
-              // 任务被清掉了（例如清理脚本或误传 jobId）：不要再空转 30 分钟。
-              settle();
+              // 任务被清掉了（清理脚本 / 误传 jobId）：别空转 30 分钟。
+              stop();
+              self._clearReaderJob(slot);
               self._reloadArticleAfterJob(articleId);
               return;
             }
-            if (Date.now() - startedAt > budgetMs) { settle(); return; }
-            setTimeout(tick, 5000);
+            if (Date.now() - startedAt > budgetMs) { stop(); return; }
+            self._readerJobHandles[key] = setTimeout(tick, 5000);
           });
       };
-      setTimeout(tick, 2000);
+      self._readerJobHandles[key] = setTimeout(tick, 1500);
     },
 
-    /** 任务收尾后回读服务端真值：占位一定被真实结论替换，不会卡住。 */
+    /** 任务收尾后回读服务端真值：正文一定被真实结论替换，不会卡住。 */
     _reloadArticleAfterJob(articleId) {
       const self = this;
       return fetch(`/api/articles/${articleId}`, { credentials: 'same-origin' })
@@ -5490,22 +5615,20 @@ function app() {
     resumeArticleJobs(articleId) {
       if (!articleId) return;
       const self = this;
+      // 换文章：上一篇留下的定时器和槽位先清干净，再按本篇重建。
+      if (self.articleDetail && self.articleDetail.id !== articleId) self.stopReaderJobs();
       const load = status => fetch(
         `/api/llm/jobs?article_id=${encodeURIComponent(articleId)}&status=${status}&limit=20`,
         { credentials: 'same-origin' },
       )
         .then(r => r.ok ? r.json() : [])
         .catch(() => []);
-      // 两个 status 合并成一次赋值：并发回调各自展开 articleDetail 会互相覆盖。
       Promise.all([load('pending'), load('running')]).then(results => {
         if (!self.isCurrentReaderArticle(articleId)) return;
-        const jobs = [].concat(...results.filter(Array.isArray)).filter(
-          job => job && job.id && self._isArticleJobType(job.task_type) && !self._articleJobWatchers.has(job.id),
-        );
-        if (!jobs.length) return;
-        const placeholders = {};
-        jobs.forEach(job => Object.assign(placeholders, self._articleJobPlaceholder(job.task_type, job.id)));
-        self.articleDetail = { ...self.articleDetail, ...placeholders };
+        const jobs = [].concat(...results.filter(Array.isArray))
+          .filter(job => job && job.id && self._readerJobSlotOf(job.task_type));
+        // pending 先写、running 后写：同一槽位有两条时以正在跑的为准。
+        jobs.forEach(job => self._setReaderJob(job.task_type, job));
         jobs.forEach(job => self.watchArticleJob(job.id, articleId, job.task_type));
       }).catch(() => {});
     },
@@ -5585,13 +5708,14 @@ function app() {
     llmJobsLastFetched: 0,
 
     enqueueLlmJob(taskType, jobId, articleId) {
-      // Called by generateSummary / generateFactCheck when the user
-      // kicks off a job.  Switch to the LLM-jobs panel, scroll to the
-      // new row, and start polling.
-      this.navigate('llmJobs');
-      this.loadLlmJobs();
-      // The poll loop is started by loadLlmJobs() — we don't need to
-      // call it again here.
+      // 任务已经在阅读器的槽位里跟随了。这里只刷新一次任务面板的计数，
+      // **不再跳走**：v1.0.110 之前会切到「LLM 任务」面板，用户点完按钮就
+      // 被拽离正在读的文章，还得自己走回来。
+      const self = this;
+      fetch('/api/llm/jobs/stats/summary', { credentials: 'same-origin' })
+        .then(r => r.ok ? r.json() : null)
+        .then(stats => { if (stats) self.llmJobsStats = stats; })
+        .catch(() => {});
     },
 
     loadLlmJobs() {
