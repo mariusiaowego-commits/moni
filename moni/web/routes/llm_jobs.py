@@ -129,15 +129,19 @@ def _annotate(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     from moni.db.connection import get_db
 
     conn = get_db()
+    # reader_chat 由独立的 reader_worker 消费，不排在阅读器摘要/核查队列里；
+    # 不排除它会让位次凭空偏大一位。
     running = int(
         conn.execute(
-            "SELECT COUNT(*) AS n FROM llm_jobs WHERE status = 'running'"
+            "SELECT COUNT(*) AS n FROM llm_jobs "
+            "WHERE status = 'running' AND task_type != 'reader_chat'"
         ).fetchone()["n"]
     )
     pending_ids = [
         str(r["id"])
         for r in conn.execute(
-            "SELECT id FROM llm_jobs WHERE status = 'pending' ORDER BY created_at ASC, id ASC"
+            "SELECT id FROM llm_jobs WHERE status = 'pending' AND task_type != 'reader_chat' "
+            "ORDER BY created_at ASC, id ASC"
         )
     ]
     total = running + len(pending_ids)

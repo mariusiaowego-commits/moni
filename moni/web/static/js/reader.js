@@ -607,6 +607,9 @@
 
     showArticleDetail(article) {
       if (!article || !article.id) return;
+      // 换文章（不关弹窗）也要先停掉上一篇的任务跟随：articleDetail 马上会被
+      // 覆盖，之后再判断「还是不是同一篇」就永远为真了。
+      if (typeof this.stopReaderJobs === 'function') this.stopReaderJobs();
       this.readerCloseStream();
       this.readerMessages = [];
       this.readerConversation = null;

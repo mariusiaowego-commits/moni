@@ -103,16 +103,55 @@ def test_reader_and_modal_call_resume_on_open():
 
 
 def test_closing_the_modal_stops_every_timer():
-    """关弹窗必须收掉轮询与秒表，否则用户关了就剩后台空转。"""
-    src = _read(APP_JS)
-    start = src.index("closeArticleDetail() {")
-    block = src[start : src.index("\n    },", start)]
+    """关弹窗必须收掉轮询与秒表，否则用户关了就剩后台空转。
+
+    ⚠️ 实际生效的是 **reader.js** 里的同名方法（app.js 末尾把 window.moniReader
+    的属性描述符拷过来，同名覆盖），所以这里扫 reader.js；app.js 那份只是兜底。
+    """
+    start = _read(READER_JS).index("closeArticleDetail() {")
+    reader_src = _read(READER_JS)
+    block = reader_src[start : reader_src.index("\n    },", start)]
     assert "stopReaderJobs()" in block, "关弹窗没有停掉任务跟随"
 
+    src = _read(APP_JS)
     stop_at = src.index("stopReaderJobs() {")
     stop_body = src[stop_at : src.index("\n    },", stop_at)]
     assert "clearTimeout(" in stop_body, "定时器没被清掉"
     assert "_stopReaderJobClock()" in stop_body, "秒表没被清掉"
+
+
+def test_switching_articles_stops_the_previous_watchers_first():
+    """换篇（不关弹窗）也要先收摊。
+
+    钉住的 bug：``showArticleDetail`` 里先把 ``articleDetail`` 换成新文章，
+    再调 resume；此时「还是不是同一篇」的比较恒为真，旧定时器永远不清理。
+    """
+    src = _read(READER_JS)
+    start = src.index("showArticleDetail(article) {")
+    block = src[start : src.index("fetch(`/api/articles/${article.id}`", start)]
+    assert "stopReaderJobs()" in block, "换文章前没有停掉上一篇的任务跟随"
+    # articleDetail 是在 fetch 回调里才赋值的，所以关键是「收摊必须发生在
+    # 发请求之前」—— 排在 guard 之后、fetch 之前。
+    assert block.index("stopReaderJobs()") < len(block) - 1
+    assert block.index("stopReaderJobs()") > block.index("if (!article || !article.id) return;")
+
+
+def test_late_reply_cannot_write_into_another_article_slot():
+    """fetch 在途期间切走文章：回包属于上一篇，不能写进新文章的槽位。"""
+    block = _watch_block(_read(APP_JS))
+    then_at = block.index(".then(job => {")
+    then_head = block[then_at : block.index("const view = window.moniJobView.viewFor(", then_at)]
+    assert "isCurrentReaderArticle(articleId)" in then_head, (
+        "回包落地前没有再校验一次文章身份 —— 会写穿新文章的槽位"
+    )
+
+
+def test_stopwatch_only_runs_while_something_is_busy():
+    """终态横幅要留着，但它不该让秒表每秒空转。"""
+    src = _read(APP_JS)
+    start = src.index("_startReaderJobClock() {")
+    block = src[start : src.index("\n    },", start)]
+    assert "readerJobBusy(" in block, "秒表的存活条件用的是「有槽位」而不是「有任务在跑」，失败后永不停止"
 
 
 def test_no_placeholder_text_left_in_the_detail_object():

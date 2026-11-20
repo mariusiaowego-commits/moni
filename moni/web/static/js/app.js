@@ -4841,6 +4841,9 @@ function app() {
         .catch(err => { this._notify('error', '加载文章失败: ' + err.message); });
     },
 
+    // 注意：reader.js 里有同名方法且会覆盖这里（见文件末尾的 descriptors
+    // 拷贝），实际生效的是 reader.js:closeArticleDetail。这条留作兜底，
+    // 改动时两处都要看。
     closeArticleDetail() {
       this.articleDetail = null;
       this.summaryLoading = false;
@@ -5437,7 +5440,9 @@ function app() {
       if (this._readerJobClock) return;
       this.readerJobNow = Date.now();
       this._readerJobClock = setInterval(() => {
-        if (!this._readerJobSlots().some(slot => this.readerJob(slot))) {
+        // 终态（failed / stale / cancelled）的横幅会留在页面上，但它不需要
+        // 秒表：只有 queued / running 才值得每秒重算。
+        if (!this._readerJobSlots().some(slot => this.readerJobBusy(slot))) {
           this._stopReaderJobClock();
           return;
         }
@@ -5547,6 +5552,12 @@ function app() {
             return r.json();
           })
           .then(job => {
+            // fetch 在途期间用户可能已经换篇 / 关弹窗：这时回包属于上一篇，
+            // 写进去会污染新文章的槽位（甚至把新任务清掉）。
+            if (!self.isCurrentReaderArticle(articleId)) {
+              stop();
+              return;
+            }
             const view = window.moniJobView.viewFor({
               slot, job, articleId, nowMs: Date.now(),
             });

@@ -95,3 +95,15 @@ def test_status_filter_accepts_stale(client: TestClient):
     rows = client.get("/api/llm/jobs", params={"status": "stale"}).json()
     assert [r["id"] for r in rows] == ["zombie"]
     assert rows[0]["phase"] == "stale"
+
+
+def test_reader_chat_is_not_in_the_reading_queue(client: TestClient):
+    """reader_chat 走独立 worker，不占阅读器摘要/核查的排队位次。"""
+    _seed("chat1", "running", seconds_ago=120)
+    get_db().execute("UPDATE llm_jobs SET task_type = 'reader_chat' WHERE id = 'chat1'")
+    get_db().commit()
+    _seed("p1", "pending", seconds_ago=30)
+
+    rows = {j["id"]: j for j in client.get("/api/llm/jobs").json()}
+    assert rows["p1"]["queue_position"] == 1
+    assert rows["p1"]["queue_total"] == 1
