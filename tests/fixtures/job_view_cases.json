@@ -284,6 +284,50 @@
         "retryable": true,
         "text": "仍在后台运行"
       }
+    },
+    {
+      "name": "done job shows a refreshing strip while detail is re-read",
+      "input": {
+        "slot": "fact_check",
+        "articleId": "a1",
+        "refreshing": true,
+        "job": {
+          "id": "j13",
+          "task_type": "fact_check_plus",
+          "article_id": "a1",
+          "status": "done",
+          "created_at": "2026-11-20T11:58:00.000Z"
+        }
+      },
+      "expect": {
+        "phase": "done",
+        "show": true,
+        "busy": false,
+        "tone": "running",
+        "text": "已生成，正在刷新…"
+      }
+    },
+    {
+      "name": "done job keeps a retry strip when the detail re-read failed",
+      "input": {
+        "slot": "fact_check",
+        "articleId": "a1",
+        "refreshFailed": true,
+        "job": {
+          "id": "j14",
+          "task_type": "fact_check_plus",
+          "article_id": "a1",
+          "status": "done",
+          "created_at": "2026-11-20T11:58:00.000Z"
+        }
+      },
+      "expect": {
+        "phase": "done",
+        "show": true,
+        "busy": false,
+        "tone": "failed",
+        "text": "结果已生成，点此刷新"
+      }
     }
   ]
 }
