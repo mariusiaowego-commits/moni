@@ -1106,6 +1106,44 @@ def test_historical_evidence_demotes_only_itself(fresh_db, monkeypatch):
     assert gate["stale_evidence"] == 1
 
 
+def test_undated_verified_with_stale_evidence_still_demotes(fresh_db, monkeypatch):
+    """v1.0.113 保守口径: 无日期的【已核实】不算新鲜证据.
+
+    一条 120 天【已核实】+ 一条无日期【已核实】：无法证明新鲜，按旧行为
+    整篇降【待核实】，timeliness=90d_demote。
+    """
+    _insert_article("a-undated")
+    _insert_job("job-undated", "a-undated")
+    payload = json.dumps({
+        "conclusion": "【已核实】",
+        "summary": "核心口径一致",
+        "evidence": [
+            {"claim": "旧闻", "verdict": "【已核实】",
+             "url": "https://www.pbc.gov.cn/a/1", "snippet": "旧闻原文",
+             "source_date": _ago(120)},
+            {"claim": "无日期", "verdict": "【已核实】",
+             "url": "https://www.nfra.gov.cn/a/2", "snippet": "无日期原文"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-undated", "task_type": "fact_check_plus",
+              "article_id": "a-undated", "provider": "minimax-cn",
+              "model": "MiniMax-M3", "attempts": 0})
+
+    conn = get_db()
+    art = art_row(conn, "a-undated")
+    assert art["fact_check_conclusion"] == "【待核实】"
+    assert art["fact_check_timeliness"] == "90d_demote"
+    verdicts = [
+        r["verdict"] for r in conn.execute(
+            "SELECT verdict FROM fact_check_evidence WHERE article_id='a-undated' "
+            "ORDER BY evidence_seq"
+        ).fetchall()
+    ]
+    assert verdicts == ["【待核实】", "【待核实】"]
+
+
 def test_evidence_timeliness_null_handled(fresh_db, monkeypatch):
     """days_old=NULL → timeliness=unknown, 结论【已核实】不变."""
     from moni.web.routes.fact_check_plus import compute_timeliness

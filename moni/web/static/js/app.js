@@ -5580,10 +5580,8 @@ function app() {
               const entry = self.readerJob(slot) || {};
               self.readerJobState[slot] = { ...entry, refreshing: true, refreshFailed: false };
               self._reloadArticleAfterJob(articleId).then(ok => {
-                if (!self.isCurrentReaderArticle(articleId)) {
-                  self._clearReaderJob(slot);
-                  return;
-                }
+                // 换篇后槽位已经属于新文章，这里再清会把 B 的任务抹掉。
+                if (!self.isCurrentReaderArticle(articleId)) return;
                 if (!ok) {
                   const kept = self.readerJob(slot) || {};
                   self.readerJobState[slot] = { ...kept, refreshing: false, refreshFailed: true };
@@ -5658,10 +5656,7 @@ function app() {
       const self = this;
       this.readerJobState[slot] = { ...entry, refreshing: true, refreshFailed: false };
       this._reloadArticleAfterJob(articleId).then(ok => {
-        if (!self.isCurrentReaderArticle(articleId)) {
-          self._clearReaderJob(slot);
-          return;
-        }
+        if (!self.isCurrentReaderArticle(articleId)) return;
         if (!ok) {
           const kept = self.readerJob(slot) || {};
           self.readerJobState[slot] = { ...kept, refreshing: false, refreshFailed: true };

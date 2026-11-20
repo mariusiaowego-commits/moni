@@ -180,6 +180,9 @@ def test_done_reloads_detail_before_clearing_the_slot():
     assert body.index("_clearReaderJob(slot)") > body.index(".then(ok =>"), (
         "清槽位必须发生在回读成功之后"
     )
+    assert body.count("_clearReaderJob(slot)") == 1, (
+        "回读在途切篇时不能再清一次槽位 —— 那会把新文章的任务抹掉"
+    )
     assert "refreshFailed: true" in body, "回读失败没有留下可重试的槽位状态"
 
 
