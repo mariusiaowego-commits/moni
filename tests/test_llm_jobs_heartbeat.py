@@ -112,6 +112,42 @@ def test_beat_stops_before_terminal_write(monkeypatch):
     assert "hb" not in events[first_finish:], f"finish 之后还在续租: {events}"
 
 
+def test_streaming_job_uses_stream_and_releases_lease(monkeypatch):
+    from moni.llm import jobs, progress
+    from moni.llm.stream import StreamResult
+
+    monkeypatch.setattr(jobs, "HEARTBEAT_INTERVAL_SEC", 0.01)
+    monkeypatch.setattr(jobs.leases, "heartbeat", lambda handle: True)
+
+    calls = []
+
+    raw_output = (
+        '{"conclusion":"【已核实】结论","evidence":['
+        '{"query":"央行 辽宁","url":"https://www.pbc.gov.cn/a",'
+        '"snippet":"官方公示","rationale":"官方源"}]}'
+    )
+
+    def fake_run(job_id, provider, model, prompt, *, timeout):
+        calls.append((job_id, provider, model, prompt, timeout))
+        return StreamResult(text=raw_output, duration_ms=10, input_tokens=5, output_tokens=3)
+
+    monkeypatch.setattr(jobs, "_run_streaming_call", fake_run)
+
+    _seed_article("a1")
+    _insert_job("j-stream", "a1", task_type="fact_check_plus")
+    handle = jobs.leases.acquire("llm_jobs", grace_sec=90)
+    assert handle is not None
+    row = dict(get_db().execute("SELECT * FROM llm_jobs WHERE id='j-stream'").fetchone())
+
+    jobs._run_job(row, handle)
+
+    assert calls and calls[0][0] == "j-stream"
+    assert calls[0][4] == 600
+    assert progress.get_job("j-stream") is None
+    status = get_db().execute("SELECT status FROM llm_jobs WHERE id='j-stream'").fetchone()
+    assert status["status"] == "done"
+
+
 def test_missing_article_releases_lease(monkeypatch):
     from moni.llm import jobs
 

@@ -112,6 +112,31 @@
       }
     },
     {
+      "name": "running keeps the last progress while writing",
+      "input": {
+        "slot": "fact_check",
+        "articleId": "a1",
+        "job": {
+          "id": "j12",
+          "task_type": "fact_check_plus",
+          "article_id": "a1",
+          "status": "running",
+          "started_at": "2026-11-20T11:59:30.000Z"
+        },
+        "progress": {
+          "stage": "writing",
+          "searches": 2,
+          "last_query": "邮储银行 辽宁 金融科技"
+        }
+      },
+      "expect": {
+        "phase": "running",
+        "busy": true,
+        "text": "已运行 30 秒",
+        "detail": "已检索 2 次 · 最近「邮储银行 辽宁 金融科技」"
+      }
+    },
+    {
       "name": "done is hidden here (app.js reloads the detail)",
       "input": {
         "slot": "summary",

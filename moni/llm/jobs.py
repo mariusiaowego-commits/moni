@@ -57,7 +57,9 @@ from moni.db import leases
 from moni.llm.client import call_llm
 from moni.llm.domains import evaluate_authority
 from moni.llm.fact_check_tags import conclusion_tag, with_tag
+from moni.llm import progress
 from moni.llm.prompts import render_fact_check, render_fact_check_plus, render_summary
+from moni.llm.stream import StreamMidwayError, StreamResult, run_hermes_stream
 # Re-export for backwards compat (Day 1 had DOMAIN_WHITELIST defined here;
 # Day 2 moves the canonical definition to moni.web.routes.fact_check_plus).
 # Some callers (e.g. tests) import from here.  Keep the symbol.
@@ -361,6 +363,25 @@ def _run_with_heartbeat(fn, handle: leases.LeaseHandle | None):
         beat.join(timeout=5)
 
 
+def _run_streaming_call(
+    job_id: str,
+    provider: str,
+    model: str,
+    prompt: str,
+    *,
+    timeout: int,
+) -> StreamResult:
+    """Run fact-check-plus with Hermes stream-json and publish live progress."""
+    return run_hermes_stream(
+        prompt,
+        provider=provider,
+        model=model,
+        tools="web",
+        timeout=timeout,
+        on_event=lambda event: progress.record_event(job_id, event),
+    )
+
+
 def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> None:
     """Execute a single LLM call for a claimed job, write the outcome.
 
@@ -469,22 +490,38 @@ def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> N
     t0 = time.monotonic()
     # v1.0.32: hermes -z --usage-file 落盘 token/cost, 成功后写回 llm_jobs。
     usage_file = f"/tmp/moni-llm-usage-{job_id}-{int(time.time())}.json"
+    use_stream = task_type == "fact_check_plus"
+    progress.start_job(job_id)
     try:
-        call_result = _run_with_heartbeat(
-            lambda: call_llm(
-                provider, model, prompt,
-                extra_args=extra_args,
-                usage_file=usage_file,
-                usage=True,
-            ),
-            handle,
-        )
-        if isinstance(call_result, tuple):
-            result_text, usage = call_result
+        if use_stream:
+            stream_result = _run_with_heartbeat(
+                lambda: _run_streaming_call(
+                    job_id, provider, model, prompt, timeout=600
+                ),
+                handle,
+            )
+            result_text = stream_result.text
+            usage = {
+                "input_tokens": stream_result.input_tokens,
+                "output_tokens": stream_result.output_tokens,
+                "cost_usd": 0.0,
+            }
         else:
-            # 兼容: 外部 mock / 旧实现可能仍返回纯 str (usage 记 0)。
-            result_text = call_result
-            usage = {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
+            call_result = _run_with_heartbeat(
+                lambda: call_llm(
+                    provider, model, prompt,
+                    extra_args=extra_args,
+                    usage_file=usage_file,
+                    usage=True,
+                ),
+                handle,
+            )
+            if isinstance(call_result, tuple):
+                result_text, usage = call_result
+            else:
+                # 兼容: 外部 mock / 旧实现可能仍返回纯 str (usage 记 0)。
+                result_text = call_result
+                usage = {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
     except Exception as exc:
         duration_ms = int((time.monotonic() - t0) * 1000)
         err_msg = f"{type(exc).__name__}: {exc}"
@@ -500,6 +537,23 @@ def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> N
         except Exception:  # noqa: BLE001 — 记账失败不影响失败处理
             pass
         if attempt < MAX_ATTEMPTS:
+            # 流式调用一旦收到事件，重跑会重复已经接受的检索/写作工作；
+            # 把半程失败显式终态，提示用户重跑，比自动换模型重放更安全。
+            if use_stream and isinstance(exc, StreamMidwayError):
+                logger.warning(
+                    "[llm_jobs] job %s failed midway after events — no automatic retry",
+                    job_id,
+                )
+                _mark_failed(
+                    job_id,
+                    err_msg,
+                    attempts=attempt,
+                    duration_ms=duration_ms,
+                    handle=handle,
+                )
+                _cleanup_usage_file(usage_file)
+                progress.finish_job(job_id)
+                return
             # Re-queue for a retry. v1.0.42: fenced write via leases.finish;
             # if our lease expired and someone else already took over,
             # finish() returns False and we silently drop the write.
@@ -535,6 +589,7 @@ def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> N
                 handle=handle,
             )
         _cleanup_usage_file(usage_file)
+        progress.finish_job(job_id)
         return
 
     duration_ms = int((time.monotonic() - t0) * 1000)
@@ -542,6 +597,7 @@ def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> N
     output_tokens = int(usage.get("output_tokens") or 0)
     cost_usd = float(usage.get("cost_usd") or 0.0)
     _cleanup_usage_file(usage_file)
+    progress.finish_job(job_id)
 
     # Persist the LLM output.  For summary jobs we write back into
     # ``articles.summary`` / ``articles.summary_at`` so the existing UI
