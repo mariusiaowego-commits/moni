@@ -14,8 +14,9 @@ PR-3 给这些路由挂了 ``response_model``，于是 ``/openapi.json`` 成了�
 
 from __future__ import annotations
 
+import re
+
 import pytest
-from fastapi.routing import APIRoute
 
 import moni.web.routes.fact_check_plus  # noqa: F401  (import 顺序见 llm_usage_counters)
 from moni.llm.phases import PHASES, SLOT_OF_TASK
@@ -90,12 +91,26 @@ def test_stats_summary_counts_the_stale_bucket(schema: dict):
     assert "stale" in schema["components"]["schemas"]["JobsStats"]["properties"]
 
 
-def test_stats_routes_are_registered_before_the_job_id_route():
-    """``/{job_id}`` 是通配符：它先注册就会把 ``/stats/duration`` 吃掉。"""
-    paths = [r.path for r in create_app().routes if isinstance(r, APIRoute)]
-    wildcard = paths.index("/api/llm/jobs/{job_id}")
+def test_stats_routes_are_registered_before_the_job_id_route(schema: dict):
+    """``/{job_id}`` 是通配符：它先注册就会把 ``/stats/duration`` 吃掉。
+
+    改看 ``openapi["paths"]`` 而不是 ``app.routes``：两者的 key 顺序都等于注册
+    顺序，但 openapi 是契约本身的投影（CI 上 ``app.routes`` 的内省结果不稳定，
+    实测会莫名其妙少一条）。断言失败时把 llm/jobs 的全部路径打出来。
+    """
+    paths = list(schema["paths"])
+    job_paths = [p for p in paths if "llm/jobs" in p]
+    wildcards = [
+        i for i, path in enumerate(paths)
+        if re.fullmatch(r"/api/llm/jobs/\{[^}]+\}", path)
+    ]
+    assert wildcards, f"openapi 里没有 /api/llm/jobs/<job_id>；实际注册：{job_paths}"
+
     for stats_path in ("/api/llm/jobs/stats/duration", "/api/llm/jobs/stats/summary"):
-        assert paths.index(stats_path) < wildcard, f"{stats_path} 注册在 /{{job_id}} 之后，永远走不到"
+        assert stats_path in paths, f"{stats_path} 没注册；实际注册：{job_paths}"
+        assert paths.index(stats_path) < wildcards[0], (
+            f"{stats_path} 排在 {paths[wildcards[0]]} 之后，永远走不到"
+        )
 
 
 def test_phase_vocabulary_is_the_one_the_frontend_mirrors():
