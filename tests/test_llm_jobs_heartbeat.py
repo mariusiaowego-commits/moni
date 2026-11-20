@@ -91,8 +91,6 @@ def test_beat_stops_before_terminal_write(monkeypatch):
     events: list[str] = []
     monkeypatch.setattr(jobs.leases, "heartbeat", lambda h: events.append("hb") or True)
 
-    real_finish = jobs.leases.finish
-
     def fake_finish(handle, **kwargs):
         events.append("finish")
         return True
@@ -107,10 +105,10 @@ def test_beat_stops_before_terminal_write(monkeypatch):
     row = dict(get_db().execute("SELECT * FROM llm_jobs WHERE id='j-order'").fetchone())
 
     jobs._run_job(row, handle)
-    jobs.leases.finish = real_finish
 
     assert "finish" in events
     first_finish = events.index("finish")
+    assert "hb" in events[:first_finish], f"运行期根本没续租，断言无意义: {events}"
     assert "hb" not in events[first_finish:], f"finish 之后还在续租: {events}"
 
 
@@ -146,3 +144,26 @@ def test_list_jobs_ties_break_by_id(monkeypatch):
 
     rows = jobs.list_jobs(article_id="a1", limit=10)
     assert [r["id"] for r in rows] == ["zzz999", "aaa111"], "同一 created_at 时顺序不稳定"
+
+
+def test_transient_sqlite_error_does_not_kill_the_beat(monkeypatch):
+    """一次 database-is-locked 不能让心跳线程退出，否则 90s 后任务被误判 stale。"""
+    import sqlite3
+
+    from moni.llm import jobs
+
+    monkeypatch.setattr(jobs, "HEARTBEAT_INTERVAL_SEC", 0.01)
+    calls = {"n": 0, "ok": 0}
+
+    def flaky(handle):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise sqlite3.OperationalError("database is locked")
+        calls["ok"] += 1
+        return True
+
+    monkeypatch.setattr(jobs.leases, "heartbeat", flaky)
+    handle = jobs.leases.LeaseHandle(job_id="j2", owner="o", fence=1, table="llm_jobs")
+
+    jobs._run_with_heartbeat(lambda: time.sleep(0.12) or "ok", handle)
+    assert calls["ok"] >= 1, f"两次瞬时异常后心跳没有恢复: {calls}"

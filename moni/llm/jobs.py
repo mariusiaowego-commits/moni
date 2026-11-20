@@ -85,6 +85,9 @@ MAX_ATTEMPTS: int = 2
 #: finishing writer.  30s = grace/3, so one lost beat cannot kill a job.
 HEARTBEAT_INTERVAL_SEC: float = 30.0
 
+#: 连续这么多次瞬时异常后放弃心跳（3 × 30s 仍在 90s grace 之内）。
+_HEARTBEAT_MAX_ERRORS: int = 3
+
 #: How long to sleep between polls when the queue is empty.
 _POLL_INTERVAL_SECONDS: float = 2.0
 
@@ -318,9 +321,25 @@ def _run_with_heartbeat(fn, handle: leases.LeaseHandle | None):
     stop = threading.Event()
 
     def _beat() -> None:
+        # 瞬时 SQLite 忙锁不能让心跳线程直接死掉 —— 一次抖动就意味着
+        # 90s 后任务被别的进程 sweep 成 stale。同型故障见
+        # moni/web/routes/fetch.py:74-105 与 tests/test_fetch_heartbeat.py。
+        transient_failures = 0
         try:
             while not stop.wait(HEARTBEAT_INTERVAL_SEC):
-                if not leases.heartbeat(handle):
+                try:
+                    renewed = leases.heartbeat(handle)
+                except sqlite3.Error as exc:
+                    transient_failures += 1
+                    logger.warning(
+                        "[llm_jobs] job %s heartbeat error (%d/%d): %s",
+                        handle.job_id[:8], transient_failures, _HEARTBEAT_MAX_ERRORS, exc,
+                    )
+                    if transient_failures >= _HEARTBEAT_MAX_ERRORS:
+                        return
+                    continue
+                transient_failures = 0
+                if not renewed:
                     # Lease lost (swept or re-claimed) — stop quietly; the
                     # fenced finish() will report the rejection.
                     logger.info(
