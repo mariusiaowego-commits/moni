@@ -2440,6 +2440,45 @@ function app() {
       this._fetchActiveJobId = task.job_id || null;
       this._fetchActiveBatchId = task.batch_id || null;
       if (task.kind === 'batch') this.fetchingAll = task.status === 'running';
+      this._syncModalToTaskState(task);
+    },
+
+    // v1.0.110: 从执行状态区重开一次已结束的同步时，弹窗要呈现终态，
+    // 而不是留着上一轮的「同步中...」和满高的空粒子舞台。
+    _syncModalToTaskState(task) {
+      const statusEl = document.getElementById('fetchStatusText');
+      const stage = document.getElementById('particleStage');
+      const overlay = document.getElementById('completionOverlay');
+      if (task.status === 'running') {
+        if (statusEl) statusEl.textContent = '同步中...';
+        if (stage) stage.classList.remove('is-complete');
+        if (overlay) overlay.classList.remove('show');
+        return;
+      }
+      const label = {
+        done: '完成', partial: '部分完成', failed: '失败',
+        timeout: '超时', stale: '已中止', cancelled: '已停止',
+      }[task.status] || task.status;
+      if (statusEl) statusEl.textContent = label;
+      // 失败类状态：舞台被 .is-failed 隐藏，完成条带跟着一起看不见。
+      // 与运行时同口径 —— 只留状态词和错误横幅，不摆一张空的条带。
+      if (task.status !== 'done' && task.status !== 'partial') {
+        if (overlay) overlay.classList.remove('show');
+        return;
+      }
+      const elapsed = task.elapsed_seconds || 0;
+      const r = task.result || {};
+      // 批量任务的轮询只往 task 上写 results / total_sources，不写 total_inserted，
+      // 直接读会得到「新增 0 篇」，与下面各源明细对不上。
+      const inserted = task.total_inserted != null
+        ? task.total_inserted
+        : (task.results || []).reduce((sum, x) => sum + (x.inserted || 0), 0);
+      this._showCompletion(
+        task.kind === 'batch'
+          ? `${task.total_sources || 0} 个源 · 新增 ${inserted} 篇 · 用时 ${elapsed}s`
+          : `${r.inserted || 0} 篇 · 用时 ${elapsed}s`,
+        task.status === 'partial' ? '部分完成' : '同步完成！',
+      );
     },
 
     _syncFocusFromTasks() {
@@ -2621,7 +2660,7 @@ function app() {
       t.status = status || t.status;
       this._upsertFetchTask({ ...t });
       if (this._fetchChipLingerTimers[t.id]) clearTimeout(this._fetchChipLingerTimers[t.id]);
-      // v1.0.109: 终态任务**留在执行状态区**（用户要能回看刚跑完的那次），
+      // v1.0.110: 终态任务**留在执行状态区**（用户要能回看刚跑完的那次），
       // 不再 6 秒后自动消失 —— 改成显式「清除」才移除。
       this._trimFinishedTasks();
       this._stopFetchPollIfIdle();
@@ -2658,7 +2697,7 @@ function app() {
     _bootModalParticlesForFocus() {
       if (!this.fetchProgressModal || !this.isFetchRunning) return;
       if (!this.sources || this.sources.length === 0) this.loadSources();
-      // v1.0.109: 新一轮同步 → 舞台恢复全高（上次完成态收窄过）
+      // v1.0.110: 新一轮同步 → 舞台恢复全高（上次完成态收窄过）
       const stage = document.getElementById('particleStage');
       if (stage) stage.classList.remove('is-complete');
       const boot = () => {
@@ -2895,6 +2934,13 @@ function app() {
       if (this.fetchTasks.some(t => t.status === 'running')) return true;
       if (this.fetchingAll) return true;
       return false;
+    },
+
+    // 弹窗里的实时进度块（进度条 / 当前 feed）只在同步进行中出现；
+    // 重开一次已结束的任务时不摆空进度条。
+    get isFetchLive() {
+      const status = this.fetchProgress?.status;
+      return !status || status === 'running';
     },
 
     get runningFetchTasks() {
@@ -3468,7 +3514,7 @@ function app() {
         'wechat_rss_a': '/static/icons/sources/wechat_rss.png',
         'wechat_rss_b': '/static/icons/sources/wechat_rss_b.png',
         'xwatch': '/static/icons/sources/xwatch.png',
-        // v1.0.109: 这三个之前没有自己的图标，全部落到 36kr 兜底
+        // v1.0.110: 这三个之前没有自己的图标，全部落到 36kr 兜底
         'chinese_independent_blogs': '/static/icons/sources/chinese_independent_blogs.png',
         'follow_builders': '/static/icons/sources/follow_builders.png',
         'bank_feed': '/static/icons/sources/bank_feed.png',
@@ -3511,7 +3557,7 @@ function app() {
           '36kr_rss', 'bestblog-podcast', 'bestblog-x', 'xwatch',
           'bestblog-yt', 'xbot_feed', 'huxiu',
         ];
-        // v1.0.109: 隐藏只影响「信源管理」页的列表展示；批次实际仍会跑隐藏源
+        // v1.0.110: 隐藏只影响「信源管理」页的列表展示；批次实际仍会跑隐藏源
         // （后端 Scheduler.batch_sources() 不读 is_hidden），链路少画一个源
         // 会让「13/13」和画面上的节点数对不上。
         return (this.sources || []).filter(s => s.is_active)
@@ -3748,7 +3794,7 @@ function app() {
       const title = overlay.querySelector('.completion-text');
       if (title) title.textContent = label;
       if (sub && summary) sub.textContent = summary;
-      // v1.0.109: 完成后把粒子舞台收成窄带，把版面让给结果
+      // v1.0.110: 完成后把粒子舞台收成窄带，把版面让给结果
       const stage = document.getElementById('particleStage');
       if (stage) stage.classList.add('is-complete');
       overlay.classList.add('show');
@@ -3811,7 +3857,7 @@ function app() {
         'wechat_rss_a': '/static/icons/sources/wechat_rss.png',
         'wechat_rss_b': '/static/icons/sources/wechat_rss_b.png',
         'xwatch': '/static/icons/sources/xwatch.png',
-        // v1.0.109: 这三个之前没有自己的图标，全部落到 36kr 兜底
+        // v1.0.110: 这三个之前没有自己的图标，全部落到 36kr 兜底
         'chinese_independent_blogs': '/static/icons/sources/chinese_independent_blogs.png',
         'follow_builders': '/static/icons/sources/follow_builders.png',
         'bank_feed': '/static/icons/sources/bank_feed.png',
@@ -4789,7 +4835,7 @@ function app() {
         })
         .then(data => {
           self.articleDetail = data;
-          // v1.0.109: 详情弹窗同样续上在跑的任务。
+          // v1.0.110: 详情弹窗同样续上在跑的任务。
           self.resumeArticleJobs(data.id);
         })
         .catch(err => { this._notify('error', '加载文章失败: ' + err.message); });
@@ -5341,7 +5387,7 @@ function app() {
       return fallback;
     },
 
-    // v1.0.109: 文章级 LLM 任务统一跟随（摘要 / 快核 / 联网核查）。
+    // v1.0.110: 文章级 LLM 任务统一跟随（摘要 / 快核 / 联网核查）。
     //
     // 钉住的失败模式：摘要与快核设完「⏳ …」占位就再没人管；联网核查只轮询
     // 60 秒（线上实测 2~5 分钟），超时后占位永久留在页面上，用户只能手动
