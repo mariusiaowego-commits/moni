@@ -721,6 +721,7 @@
       const t = this.articleDetail?.fact_check_timeliness;
       if (t === '30d_warn') return '含 30–90 天旧证';
       if (t === '90d_demote') return '时效降级 · 含超 90 天旧证';
+      if (t === '90d_partial') return '含超 90 天旧证（已逐条降级）';
       return '';
     },
 

@@ -5426,6 +5426,8 @@ function app() {
         errorText: entry ? entry.errorText : '',
         progress: entry ? entry.progress : null,
         gaveUp: !!(entry && entry.gaveUp),
+        refreshing: !!(entry && entry.refreshing),
+        refreshFailed: !!(entry && entry.refreshFailed),
       });
     },
 
@@ -5433,6 +5435,8 @@ function app() {
     readerJobBusy(slot) { return this.readerJobView(slot).busy; },
     readerJobText(slot) { return this.readerJobView(slot).text; },
     readerJobDetail(slot) { return this.readerJobView(slot).detail; },
+    readerJobRefreshing(slot) { return this.readerJobView(slot).refreshing === true; },
+    readerJobRefreshFailed(slot) { return this.readerJobView(slot).refreshFailed === true; },
     readerJobTone(slot) { return this.readerJobView(slot).tone; },
     readerJobRetryable(slot) { return this.readerJobView(slot).retryable; },
 
@@ -5474,6 +5478,9 @@ function app() {
         // progress 由轮询回包驱动；服务端暂时没带字段时保留上一条，不闪回。
         progress: job.progress || (sameJob ? previous.progress : null),
         gaveUp: sameJob ? previous.gaveUp : false,
+        // 终态回读状态：done 后先回读详情，成功才清槽位（见 watchArticleJob）。
+        refreshing: false,
+        refreshFailed: false,
       };
       this._startReaderJobClock();
       return slot;
@@ -5568,10 +5575,22 @@ function app() {
 
             if (view.phase === 'done') {
               stop();
-              if (taskType === 'fact_check_plus') self.loadArticleEvidence(articleId);
-              self._notify('success', self._articleJobLabel(taskType) + '完成');
-              self._clearReaderJob(slot);
-              self._reloadArticleAfterJob(articleId);
+              // 先回读详情，成功才清槽位：回读失败时保留一条「点此刷新」，
+              // 不能先清后取，否则页面会停在“没有槽位也没有新结论”的空态。
+              const entry = self.readerJob(slot) || {};
+              self.readerJobState[slot] = { ...entry, refreshing: true, refreshFailed: false };
+              self._reloadArticleAfterJob(articleId).then(ok => {
+                // 换篇后槽位已经属于新文章，这里再清会把 B 的任务抹掉。
+                if (!self.isCurrentReaderArticle(articleId)) return;
+                if (!ok) {
+                  const kept = self.readerJob(slot) || {};
+                  self.readerJobState[slot] = { ...kept, refreshing: false, refreshFailed: true };
+                  return;
+                }
+                if (taskType === 'fact_check_plus') self.loadArticleEvidence(articleId);
+                self._notify('success', self._articleJobLabel(taskType) + '完成');
+                self._clearReaderJob(slot);
+              });
               return;
             }
             if (view.phase === 'failed' || view.phase === 'stale' || view.phase === 'cancelled') {
@@ -5620,8 +5639,32 @@ function app() {
       const self = this;
       return fetch(`/api/articles/${articleId}`, { credentials: 'same-origin' })
         .then(r => r.ok ? r.json() : null)
-        .then(detail => { if (detail) self.readerRefreshDetail(articleId, detail); })
-        .catch(() => {});
+        .then(detail => {
+          if (!detail || !self.isCurrentReaderArticle(articleId)) return false;
+          self.readerRefreshDetail(articleId, detail);
+          return true;
+        })
+        .catch(() => false);
+    },
+
+    /** 回读失败后的手动重试：只重发详情回读，不重新入队任务。 */
+    refreshReaderJobResult(slot) {
+      const entry = this.readerJob(slot);
+      if (!entry || !entry.job) return;
+      const articleId = entry.job.article_id;
+      const taskType = entry.job.task_type;
+      const self = this;
+      this.readerJobState[slot] = { ...entry, refreshing: true, refreshFailed: false };
+      this._reloadArticleAfterJob(articleId).then(ok => {
+        if (!self.isCurrentReaderArticle(articleId)) return;
+        if (!ok) {
+          const kept = self.readerJob(slot) || {};
+          self.readerJobState[slot] = { ...kept, refreshing: false, refreshFailed: true };
+          return;
+        }
+        if (taskType === 'fact_check_plus') self.loadArticleEvidence(articleId);
+        self._clearReaderJob(slot);
+      });
     },
 
     /** 打开文章时把还在跑的摘要/核查任务续上，重进页面也能自动同步。 */
@@ -5630,20 +5673,31 @@ function app() {
       const self = this;
       // 换文章：上一篇留下的定时器和槽位先清干净，再按本篇重建。
       if (self.articleDetail && self.articleDetail.id !== articleId) self.stopReaderJobs();
-      const load = status => fetch(
-        `/api/llm/jobs?article_id=${encodeURIComponent(articleId)}&status=${status}&limit=20`,
+      // 一次拿回最近 10 条，按槽位取最新一条：pending/running 续上跟随，
+      // failed/stale 恢复横幅；done 不再画状态条（页面上已有「核查时间」）。
+      const resumable = new Set(['pending', 'running', 'failed', 'stale']);
+      fetch(
+        `/api/llm/jobs?article_id=${encodeURIComponent(articleId)}&limit=10`,
         { credentials: 'same-origin' },
       )
         .then(r => r.ok ? r.json() : [])
-        .catch(() => []);
-      Promise.all([load('pending'), load('running')]).then(results => {
-        if (!self.isCurrentReaderArticle(articleId)) return;
-        const jobs = [].concat(...results.filter(Array.isArray))
-          .filter(job => job && job.id && self._readerJobSlotOf(job.task_type));
-        // pending 先写、running 后写：同一槽位有两条时以正在跑的为准。
-        jobs.forEach(job => self._setReaderJob(job.task_type, job));
-        jobs.forEach(job => self.watchArticleJob(job.id, articleId, job.task_type));
-      }).catch(() => {});
+        .catch(() => [])
+        .then(jobs => {
+          if (!self.isCurrentReaderArticle(articleId)) return;
+          const latest = {};
+          (Array.isArray(jobs) ? jobs : []).forEach(job => {
+            const slot = job && self._readerJobSlotOf(job.task_type);
+            if (!slot || latest[slot]) return;   // 列表按 created_at DESC，先到即最新
+            latest[slot] = job;
+          });
+          Object.values(latest).forEach(job => {
+            if (!resumable.has(job.status)) return;
+            self._setReaderJob(job.task_type, job);
+            if (job.status === 'pending' || job.status === 'running') {
+              self.watchArticleJob(job.id, articleId, job.task_type);
+            }
+          });
+        });
     },
 
     /** 这条异步结果是否还属于阅读器里正在看的那篇。 */

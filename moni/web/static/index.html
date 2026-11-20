@@ -3587,6 +3587,8 @@
                   </div>
                   <button type="button" class="btn btn-ghost btn-sm" x-show="readerJobRetryable('summary')"
                           @click="generateSummary()">重试</button>
+                  <button type="button" class="btn btn-ghost btn-sm" x-show="readerJobRefreshFailed('summary')"
+                          @click="refreshReaderJobResult('summary')">刷新结果</button>
                 </div>
                 <div class="summary-box" x-show="articleDetail?.summary && !readerJobBusy('summary')" x-cloak>
                   <div class="markdown" x-html="readerRenderMarkdownPlain(articleDetail?.summary || '')"></div>
@@ -3615,6 +3617,8 @@
                   </div>
                   <button type="button" class="btn btn-ghost btn-sm" x-show="readerJobRetryable('fact_check')"
                           @click="enqueueLlmJobFactCheckPlus(articleDetail?.id)">重试</button>
+                  <button type="button" class="btn btn-ghost btn-sm" x-show="readerJobRefreshFailed('fact_check')"
+                          @click="refreshReaderJobResult('fact_check')">刷新结果</button>
                 </div>
 
                 <p class="reader-tier-note" x-show="articleDetail?.has_web_fact_check">
@@ -3623,8 +3627,8 @@
                 <p class="reader-tier-note" x-show="articleDetail?.has_fact_check && !articleDetail?.has_web_fact_check">
                   快速核查：只按模型自身知识判断，没有联网取证，属于模型推断，不能当事实依据引用。
                 </p>
-                <p class="muted" x-show="!articleDetail?.has_fact_check" x-cloak>
-                  这篇文章还没有跑过事实核查，点下方「事实核查」跑一次。
+                <p class="muted" x-show="!articleDetail?.has_fact_check && !readerJobBusy('fact_check')" x-cloak>
+                  这篇文章还没有跑过事实核查，点下方「联网核查」或「事实核查」跑一次。
                 </p>
 
                 <div class="fact-lead" x-show="articleDetail?.fact_check_summary && !readerJobBusy('fact_check')" x-cloak>
@@ -4790,9 +4794,9 @@
   <script src="vendor/dompurify-3.4.17.min.js?v=20261116001"></script>
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
-  <script src="js/job_view.js?v=20261120001"></script>
-  <script src="js/app.js?v=20261120033"></script>
-  <script src="js/reader.js?v=20261120021"></script>
+  <script src="js/job_view.js?v=20261120161"></script>
+  <script src="js/app.js?v=20261120161"></script>
+  <script src="js/reader.js?v=20261120161"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
        GSAP presence, and the scale pop now honours prefers-reduced-motion. -->

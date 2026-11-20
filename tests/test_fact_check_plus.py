@@ -194,7 +194,8 @@ def test_get_llm_job_detail_attaches_fact_check_for_done_plus(fresh_db, client):
         (now,),
     )
     conn.execute(
-        "UPDATE articles SET fact_check_conclusion = '【已核实】测试', fact_check_method = 'web_search' "
+        "UPDATE articles SET fact_check_conclusion = '【已核实】测试', fact_check_method = 'web_search', "
+        "fact_check_summary = '人话结论', fact_check_timeliness = 'fresh' "
         "WHERE id = 'a1'"
     )
     _insert_evidence("a1", 1)
@@ -206,6 +207,8 @@ def test_get_llm_job_detail_attaches_fact_check_for_done_plus(fresh_db, client):
     assert data["task_type"] == "fact_check_plus"
     assert "fact_check" in data
     assert data["fact_check"]["conclusion"] == "【已核实】测试"
+    assert data["fact_check"]["summary"] == "人话结论"
+    assert data["fact_check"]["timeliness"] == "fresh"
     ev = data["fact_check"]["evidence"]
     assert len(ev) == 1
     assert ev[0]["url"] == "https://www.pbc.gov.cn/notice"
@@ -1052,6 +1055,93 @@ def test_evidence_timeliness_90d_demote(fresh_db, monkeypatch):
     ).fetchone()
     assert art["fact_check_timeliness"] == "90d_demote"
     assert art["fact_check_conclusion"] == "【待核实】"
+
+
+def test_historical_evidence_demotes_only_itself(fresh_db, monkeypatch):
+    """v1.0.113 Gate 3: 一条 156 天旧证只降自己，整篇保留【已核实】.
+
+    线上 64e56ae7 场景：5 条 3 天内媒体交叉印证 + 1 条 6 月历史背景来源，
+    旧逻辑把 6 条证据全部打成【待核实】、整篇降级，用户只看到三个字。
+    """
+    _insert_article("a-mixed")
+    _insert_job("job-mixed", "a-mixed")
+
+    def ev(claim, url, days):
+        return {"claim": claim, "verdict": "【已核实】", "query": claim,
+                "url": url, "snippet": f"{claim} 原文", "source_date": _ago(days)}
+
+    payload = json.dumps({
+        "conclusion": "【已核实】",
+        "summary": "核心事实有 5 家媒体交叉印证",
+        "evidence": [
+            ev("人民日报原页", "http://yn.people.com.cn/n2/2026/1117/a.html", 3),
+            ev("第一财经报道", "https://www.yicai.com/news/103232973.html", 4),
+            ev("上海证券报", "https://paper.cnstock.com/html/2026-06/17/b.html", 3),
+            ev("新浪财经", "https://finance.sina.com.cn/blockchain/c.html", 11),
+            ev("新华网", "https://app.xinhuanet.com/news/d.html", 3),
+            ev("6 月签约历史背景", "https://www.cs.com.cn/e.html", 156),
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-mixed", "task_type": "fact_check_plus", "article_id": "a-mixed",
+              "provider": "minimax-cn", "model": "MiniMax-M3", "attempts": 0})
+
+    conn = get_db()
+    art = art_row(conn, "a-mixed")
+    assert art["fact_check_conclusion"] == "【已核实】"
+    assert art["fact_check_timeliness"] == "90d_partial"
+    assert art["fact_check_summary"].startswith("【部分参考证据超 90 天】")
+    assert "含超 90 天旧证（该条已降级）" in art["fact_check_how"]
+    verdicts = [
+        r["verdict"] for r in conn.execute(
+            "SELECT verdict FROM fact_check_evidence WHERE article_id='a-mixed' "
+            "ORDER BY evidence_seq"
+        ).fetchall()
+    ]
+    assert verdicts == ["【已核实】"] * 5 + ["【待核实】"], verdicts
+    gate = json.loads(art["fact_check_gate"])
+    assert gate["demoted_from"] is None
+    assert gate["timeliness"] == "90d_partial"
+    assert gate["stale_evidence"] == 1
+
+
+def test_undated_verified_with_stale_evidence_still_demotes(fresh_db, monkeypatch):
+    """v1.0.113 保守口径: 无日期的【已核实】不算新鲜证据.
+
+    一条 120 天【已核实】+ 一条无日期【已核实】：无法证明新鲜，按旧行为
+    整篇降【待核实】，timeliness=90d_demote。
+    """
+    _insert_article("a-undated")
+    _insert_job("job-undated", "a-undated")
+    payload = json.dumps({
+        "conclusion": "【已核实】",
+        "summary": "核心口径一致",
+        "evidence": [
+            {"claim": "旧闻", "verdict": "【已核实】",
+             "url": "https://www.pbc.gov.cn/a/1", "snippet": "旧闻原文",
+             "source_date": _ago(120)},
+            {"claim": "无日期", "verdict": "【已核实】",
+             "url": "https://www.nfra.gov.cn/a/2", "snippet": "无日期原文"},
+        ],
+    }, ensure_ascii=False)
+    monkeypatch.setattr("moni.llm.jobs.call_llm", lambda *a, **k: payload)
+
+    _run_job({"id": "job-undated", "task_type": "fact_check_plus",
+              "article_id": "a-undated", "provider": "minimax-cn",
+              "model": "MiniMax-M3", "attempts": 0})
+
+    conn = get_db()
+    art = art_row(conn, "a-undated")
+    assert art["fact_check_conclusion"] == "【待核实】"
+    assert art["fact_check_timeliness"] == "90d_demote"
+    verdicts = [
+        r["verdict"] for r in conn.execute(
+            "SELECT verdict FROM fact_check_evidence WHERE article_id='a-undated' "
+            "ORDER BY evidence_seq"
+        ).fetchall()
+    ]
+    assert verdicts == ["【待核实】", "【待核实】"]
 
 
 def test_evidence_timeliness_null_handled(fresh_db, monkeypatch):

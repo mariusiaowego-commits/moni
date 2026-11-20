@@ -82,10 +82,11 @@ def test_reopen_resumes_active_jobs_by_article_id():
     start = src.index("resumeArticleJobs(articleId) {")
     block = src[start : src.index("    /** 这条异步结果是否还属于阅读器里正在看的那篇。", start)]
     assert "article_id=" in block, "续跑没有按 article_id 过滤"
-    for status in ("pending", "running"):
+    assert "&limit=10" in block, "续跑没有一次取回最近任务"
+    for status in ("pending", "running", "failed", "stale"):
         assert f"'{status}'" in block, f"续跑没有覆盖 {status} 状态"
     assert "watchArticleJob(job.id, articleId, job.task_type)" in block, "查到在跑任务后没有接上跟随器"
-    assert "Promise.all(" in block, "两个 status 分开请求会各写各的槽位"
+    assert "Promise.all(" not in block, "单次查询已替代两次 status 请求"
 
 
 def test_missing_job_settles_instead_of_retrying():
@@ -158,6 +159,45 @@ def test_no_placeholder_text_left_in_the_detail_object():
     """等待态不能再往 articleDetail 里写「⏳」，那是失败撤不掉的根源。"""
     src = _read(APP_JS)
     assert "⏳" not in src, "还有入口在往正文里塞占位符"
+
+
+def test_empty_state_hint_hides_while_a_job_is_running():
+    """v1.0.113: 点了联网核查之后，空态提示不能再喊“还没跑过”。"""
+    html = _read(INDEX_HTML)
+    assert "!articleDetail?.has_fact_check && !readerJobBusy('fact_check')" in html, (
+        "空态提示只看历史结论，任务在跑时仍会显示"
+    )
+    assert "readerJobRefreshFailed('fact_check')" in html, "回读失败没有给刷新按钮"
+    assert "refreshReaderJobResult('fact_check')" in html, "刷新按钮没有接回读方法"
+
+
+def test_done_reloads_detail_before_clearing_the_slot():
+    """v1.0.113: 先清槽位再回读，失败时页面会停在“无槽位也无新结论”。"""
+    block = _watch_block(_read(APP_JS))
+    done_at = block.index("if (view.phase === 'done') {")
+    body = block[done_at : block.index("if (view.phase === 'failed'", done_at)]
+    assert "_reloadArticleAfterJob(articleId).then(" in body, "done 分支没有等回读"
+    assert body.index("_clearReaderJob(slot)") > body.index(".then(ok =>"), (
+        "清槽位必须发生在回读成功之后"
+    )
+    assert body.count("_clearReaderJob(slot)") == 1, (
+        "回读在途切篇时不能再清一次槽位 —— 那会把新文章的任务抹掉"
+    )
+    assert "refreshFailed: true" in body, "回读失败没有留下可重试的槽位状态"
+
+
+def test_resume_uses_one_query_and_skips_done():
+    """v1.0.113: 重进文章一次查询取每槽最新一条；done 不再画状态条。"""
+    src = _read(APP_JS)
+    start = src.index("resumeArticleJobs(articleId) {")
+    block = src[start : src.index("\n    },", start)]
+    assert "&limit=10" in block, "恢复任务没有走单次查询"
+    assert "load('pending')" not in block and "load('running')" not in block, (
+        "还在按 status 分两次请求"
+    )
+    assert "resumable" in block and "'failed'" in block and "'stale'" in block, (
+        "恢复范围没有覆盖 failed / stale"
+    )
     assert "_articleJobPlaceholder" not in src, "旧占位符 helper 还在"
 
 

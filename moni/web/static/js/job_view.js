@@ -111,6 +111,35 @@
     var createdMs = parseMs(job.created_at);
     var startedMs = parseMs(job.started_at) || createdMs;
 
+    // done 之后 app.js 会先回读文章详情，成功才清槽位。回读在途/失败时
+    // 需要一条轻量提示，否则进度条一闪就没、页面看起来像什么都没发生。
+    if (phase === 'done' && opts.refreshFailed) {
+      return {
+        slot: slot,
+        phase: phase,
+        show: true,
+        busy: false,
+        text: '结果已生成，点此刷新',
+        detail: '详情没有拉到，重试一次就能看到结论',
+        tone: 'failed',
+        retryable: false,
+        ignore: false,
+      };
+    }
+    if (phase === 'done' && opts.refreshing) {
+      return {
+        slot: slot,
+        phase: phase,
+        show: true,
+        busy: false,
+        text: '已生成，正在刷新…',
+        detail: '正在回读文章详情',
+        tone: 'running',
+        retryable: false,
+        ignore: false,
+      };
+    }
+
     if (phase === 'none' || phase === 'done') {
       // done 的交接由 app.js 做（回读详情并清空槽位），这里只负责隐藏状态条。
       return emptyView({ slot: slot, phase: phase });
