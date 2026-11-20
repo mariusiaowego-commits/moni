@@ -61,7 +61,7 @@ _SRC_FILE = Path(__file__).parent.parent / "moni" / "fetch" / "sources" / "xbot_
 #: ⇒ 两条护栏**不能互相替代**；锚点必须是 base。
 #:
 #: **为什么锚点必须是 base 而不是更早的提交**：本 sprint 的改动在 base 之上
-#: 是**已提交**的（commit ``befd901`` 起）。写测试与提交之间 base 曾多次前移
+#: 是**已提交**的（squash 合并成 ``60a2a06``）。写测试与提交之间 base 曾多次前移
 #: （dad 连续合 PR #216~#222），每次都要跟着更新，否则 dad 在那之后的任何合并
 #: 都会被算成「我的越界改动」
 #: （实测：base 停在 ``bd53452`` 时，dad 的 PR #218 的 ``moni/db/migrate.py``
@@ -70,10 +70,22 @@ _SRC_FILE = Path(__file__).parent.parent / "moni" / "fetch" / "sources" / "xbot_
 #: **残留提醒（可接受）**：base 是硬编码，历史被重写时会 **fail-closed**
 #: （测试红），不会假绿。
 BASE_COMMIT = "0aef2054298e45dea94572422918f8519b1f00da"
-#: sprint-51 交付 commit。范围护栏钉在 ``BASE_COMMIT..SPRINT_TIP`` 这条
-#: **已合并**的历史区间上：sprint-51 之后的分支（如 52）不再触发误报，
-#: 而 sprint-51 本身的越界改动仍能被这两条断言咬住。
-SPRINT_TIP = "befd901"
+#: sprint-51 的**合并提交**（``60a2a06`` = PR #221 squash 合并进 main 的那个
+#: commit）。范围护栏钉在 ``BASE_COMMIT..SPRINT_TIP`` 这条**已合并**的历史区间
+#: 上：sprint-51 之后的分支（如 52）不再触发误报，而 sprint-51 本身的越界改动
+#: 仍能被这两条断言咬住。
+#:
+#: ⚠️ **必须钉合并提交，不能钉分支提交**（2026-11-20 踩过，CI run 44664882603）：
+#: 原来钉的是分支上的 ``befd901``。PR #221 走的是 **squash 合并** —— 进 main 的
+#: 是新提交 ``60a2a06``，``befd901`` **从未进入 main 历史**。本地能过纯属侥幸
+#: （本机对象库里还残留着那个对象）；CI 每次全新 checkout 只拿 main 可达的对象
+#: ⇒ ``git diff`` 退出码 128 ⇒ 两条护栏红。之前一直是绿的，是因为 PR 分支还在
+#: 远端时 ``fetch-depth: 0`` 把 ``refs/heads/*`` 一起拉了，分支一删对象就消失，
+#: 属于**延迟爆的红**。
+#:
+#: 同理，任何后续维护：改这里之前先跑
+#: ``git merge-base --is-ancestor <新锚点> origin/main``，必须为真（永久可达）。
+SPRINT_TIP = "60a2a069746885ff4d6e4ec4fe9fa32c571c07e1"
 
 
 @pytest.fixture
@@ -400,21 +412,52 @@ def test_author_blocked_counter_stays_independent_int():
 
 # ── 改动范围护栏（warden EV-15）─────────────────────────────────────────
 
+def _require_commit(rev: str) -> None:
+    """锚点必须在本 clone 里存在，否则 fail-closed 并给可操作的报错。
+
+    范围护栏断言的是**已合并进 main 的历史区间**，天然要求完整历史。浅克隆
+    （``fetch-depth: 1``）或历史被改写时对象会缺失；此时 ``git diff`` 只会抛
+    ``CalledProcessError: exit status 128``，看不出该改什么 —— 这里先显式
+    报出来。**不 skip**：跳过会让护栏静默变成假绿。
+    """
+    probe = subprocess.run(
+        ["git", "cat-file", "-e", f"{rev}^{{commit}}"],
+        capture_output=True, text=True,
+    )
+    if probe.returncode != 0:
+        raise AssertionError(
+            f"锚点 commit {rev} 在本 clone 里不存在。范围护栏钉的是已合并进 main "
+            f"的历史区间，需要完整历史（CI 的 actions/checkout 必须 fetch-depth: 0；"
+            f"本地请先 git fetch --all）。若确认历史被改写，请把 BASE_COMMIT / "
+            f"SPRINT_TIP 换成仍可从 main 到达的等价区间（"
+            f"git merge-base --is-ancestor <rev> origin/main 必须为真）。"
+        )
+
+
+def _diff_names(*pathspec: str) -> list[str]:
+    """``BASE_COMMIT..SPRINT_TIP`` 区间内的改动文件名，锚点缺失时 fail-closed。"""
+    for rev in (BASE_COMMIT, SPRINT_TIP):
+        _require_commit(rev)
+    proc = subprocess.run(
+        ["git", "diff", "--name-only", f"{BASE_COMMIT}..{SPRINT_TIP}", "--", *pathspec],
+        capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        raise AssertionError(
+            f"git diff {BASE_COMMIT}..{SPRINT_TIP} 失败（exit {proc.returncode}）："
+            f"{proc.stderr.strip()}"
+        )
+    return proc.stdout.split()
+
+
 def test_only_one_source_file_changed():
     """EV-15: sprint-51 生产代码只改了 1 个文件（xbot_feed.py）。"""
-    out = subprocess.run(
-        ["git", "diff", "--name-only", f"{BASE_COMMIT}..{SPRINT_TIP}", "--", "moni/"],
-        check=True, capture_output=True, text=True,
-    ).stdout.split()
+    out = _diff_names("moni/")
     assert out == ["moni/fetch/sources/xbot_feed.py"], \
         f"生产代码改动应只有 xbot_feed.py，实际: {out}"
 
 
 def test_no_migration_or_web_changes():
     """sprint-51 区间内不许动 db / web / 前端（范围收窄）。"""
-    out = subprocess.run(
-        ["git", "diff", "--name-only", f"{BASE_COMMIT}..{SPRINT_TIP}", "--",
-         "moni/db/", "moni/web/", "static/", "config/"],
-        check=True, capture_output=True, text=True,
-    ).stdout.split()
+    out = _diff_names("moni/db/", "moni/web/", "static/", "config/")
     assert out == [], f"越界改动: {out}"
