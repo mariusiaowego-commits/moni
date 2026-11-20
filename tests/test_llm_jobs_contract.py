@@ -77,6 +77,9 @@ def test_progress_contract_is_declared_but_optional(schema: dict):
     assert prog["required"] == ["stage"]
     stage = prog["properties"]["stage"]
     assert set(stage.get("enum") or []) == {"thinking", "searching", "writing"}
+    assert set(prog["properties"]) == {
+        "stage", "searches", "last_query", "last_tool_ms", "last_tool_error", "last_event_at",
+    }
 
 
 def test_duration_stats_shape(schema: dict):

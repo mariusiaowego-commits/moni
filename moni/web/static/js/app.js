@@ -5471,7 +5471,8 @@ function app() {
         job,
         // 已翻成人话的失败原因留住，别每秒重翻一遍。
         errorText: sameJob ? previous.errorText : '',
-        progress: sameJob ? previous.progress : null,
+        // progress 由轮询回包驱动；服务端暂时没带字段时保留上一条，不闪回。
+        progress: job.progress || (sameJob ? previous.progress : null),
         gaveUp: sameJob ? previous.gaveUp : false,
       };
       this._startReaderJobClock();
@@ -5560,6 +5561,7 @@ function app() {
             }
             const view = window.moniJobView.viewFor({
               slot, job, articleId, nowMs: Date.now(),
+              progress: job.progress || (self.readerJob(slot) || {}).progress || null,
             });
             if (view.ignore) { stop(); return; }
             self._setReaderJob(taskType, job);

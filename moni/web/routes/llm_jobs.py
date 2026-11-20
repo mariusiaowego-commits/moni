@@ -33,6 +33,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict
 
+from moni.llm import progress
 from moni.llm.jobs import get_job, list_jobs
 from moni.llm.phases import phase_of
 
@@ -151,6 +152,8 @@ def _annotate(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if job.get("status") == "pending":
             job["queue_position"] = position.get(str(job["id"]))
             job["queue_total"] = total
+        elif job.get("status") == "running":
+            job["progress"] = progress.get_job(str(job.get("id")))
     return jobs
 
 

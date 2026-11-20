@@ -1,0 +1,7 @@
+{"type":"system","subtype":"init","model":"argon4","session_id":"sample-session-redacted","timestamp":1782950400000}
+{"type":"tool_use","name":"web_search","tool_call_id":"sample-call-1","input":{"query":"央行 辽宁 金融科技"},"timestamp":1782950401000}
+{"type":"tool_result","name":"web_search","tool_call_id":"sample-call-1","output":"result omitted","duration_ms":1800,"is_error":false,"timestamp":1782950402800}
+{"type":"tool_use","name":"web_search","tool_call_id":"sample-call-2","input":{"query":"邮储银行 中信 盛京"},"timestamp":1782950403000}
+{"type":"tool_result","name":"web_search","tool_call_id":"sample-call-2","output":"result omitted","duration_ms":1500,"is_error":false,"timestamp":1782950404500}
+{"type":"text","text":"正在整理结论。","timestamp":1782950405000}
+{"type":"result","session_id":"sample-session-redacted","exit_code":0,"text":"【已核实】结论与证据已写入。","tokens":{"input":1200,"output":300,"total":1500},"duration_ms":5200}
