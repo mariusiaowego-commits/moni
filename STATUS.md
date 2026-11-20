@@ -3,6 +3,40 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
+## 已发布: **v1.0.113 — 核查等待态收口 + 时效门禁逐条降级** (2026-11-20 · PR #270 → `c0074f1` · tag `v1.0.113` · Sprint 26112066)
+
+dad 报的 4 条反馈：点了联网核查还提示“没跑过”；停留很久后进度条消失回到“未核查”；
+重进有结果却没有任何“终值还是要等”的提示；任务 `39bd90ff` 6 条证据全【待核实】、结论只有三个字。
+
+**① 空态提示**
+`index.html` 的提示条件补 `!readerJobBusy('fact_check')`，并按「联网核查 / 事实核查」区分文案。
+
+**② 终态回读**
+done 先回读详情、成功才清槽位；回读期间显示「已生成，正在刷新…」，失败保留
+「结果已生成，点此刷新」（按钮只重发回读，不重新入队）。切篇后回调直接 `return`，
+不再误清另一篇的槽位（审计 P2）。
+
+**③ 重进恢复**
+`resumeArticleJobs` 改单次 `GET /api/llm/jobs?article_id=X&limit=10`，按槽位取最新一条，
+仅恢复 `pending/running/failed/stale`；done 不重复画状态条。
+
+**④ 时效门禁（Gate 3）**
+只把超 90 天的【已核实】证据逐条降级；仍有新鲜【已核实】时整篇保留【已核实】，
+`timeliness=90d_partial`，summary 前缀「部分参考证据超 90 天」。无新鲜证据才整篇降级（旧行为）。
+`GET /api/llm/jobs/{id}` 的 `fact_check` 载荷补 `summary` / `timeliness`。
+
+**验证**
+受影响 7 个文件 `117 passed`；全量 `2411 passed, 2 skipped`；`test_frontend_render_hygiene` `36 passed`；
+CI `pytest · py3.12` success；agy 复审 APPROVE。生产重跑文章 `64e56ae7`：
+`conclusion=【已核实】(已过期 30-90 天)`、`timeliness=90d_partial`、`demoted_from=null`、
+`evidence` 已核实 4 条（3–50 天）/ 待核实 2 条（含 156 天那条）、弹窗带人话 summary。
+
+**部署**：`v1.0.113` = `c0074f1`，8900 PID **75940**；备份
+`data/backups/news.db.pre-v1.0.113-redeploy-*`（`integrity_check` ok）。
+一条 CI 教训：`app.js` 二次改动 / `reader.js` 改动都要 bump `?v=`，否则
+`test_versioned_assets_busted_after_their_last_commit` 直接红。
+
+---
 ## 已发布: **v1.0.112 — 浏览器抓取卫生（文档外迁 / 脱敏 / Profile 7 迁移 / daemon 锁）** (2026-11-20 · PR #267 → `44eb3ea`，同版本含 PR #268 → `ffc8b57` · tag `v1.0.112` · Sprint 26112065)
 
 公开仓暴露治理的第一刀，外加把 36kr 用的 Chrome profile 从用户真实 Chrome 目录里拔出来。
@@ -42,7 +76,7 @@
 **部署**：`v1.0.112` tag = `ffc8b57`（15:07:50），8900 PID **41055** 启动 15:08:29 晚于 release 提交；
 `/`、`/api/fetch/sources`、`/api/articles` 均 200；9223 无监听（无孤儿 Chrome）。
 
-**同版本另含** PR #268 联网核查 JSON 解析修复（另一会话交付，细节见该 PR）。
+**同版本另含** PR #268 联网核查 JSON 解析修复（本会话交付，细节见该 PR）。
 
 ## 已发布: **v1.0.111 — 阅读器任务状态机 + 真进度** (2026-11-20 · PR #265 → `e71773c` · tag `v1.0.111` · Sprint 26112063)
 
