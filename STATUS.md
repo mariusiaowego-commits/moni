@@ -3,33 +3,6 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
-## 已发布: **v1.0.111 — 阅读器任务状态机 + 真进度** (2026-11-20 · PR #265 → `e71773c` · tag `v1.0.111` · Sprint 26112063)
-
-dad 报的原始问题：点「重新联网核查」后只有一个「核查中」，退出弹窗再进来变回「待核查」，
-可大模型任务其实还在跑；停在弹窗里也没有任何进度，只能退出去刷新。
-
-**① 等待态从 `articleDetail` 剥离成槽位状态**
-`summary` / `fact_check` 两槽（快核与联网核查共用后者），文案全部由纯函数 `job_view.js` 产出。
-根因是把「⏳ 占位」写进正文字段，失败/超时后撤不掉，只能刷新页面。
-
-**② 契约层固定 7 个 phase**
-`moni/llm/phases.py`（含用于判死的 `stale`）+ `response_model` 挂到 4 个路由，`/openapi.json` 当闸门。
-
-**③ 后端补进度数据**
-`GET /stats/duration` 回 p50/p90（只统计 `status='done' AND duration_ms>0`，n<3 回 None）；
-pending 回 `queue_position` / `queue_total`；`?status=` 白名单补 `stale`。
-
-**④ 前端状态条**
-排队中·第 X/Y 位 / 已运行 M 分 S 秒 / 失败原因 + 重试 / stale「服务中断或超时中止」；
-queued/running 时旧结论隐藏；关弹窗 `stopReaderJobs()` 收定时器与秒表；按钮等待态只用 `:disabled`。
-
-**验证**：测试闸门 41 passed（契约 / 时长统计 / 队列位次 / node 跑 `job_view.js` / AST 不变量 / 前端接线）；
-全量 `2384 passed, 2 skipped, 1 failed`（唯一失败仍是 `test_migration_039` 沙箱不能建 worktree，非沙箱重跑 33 passed）。
-界面在 8901 + 生产 DB 副本实测 pending / running / failed 三态，秒表真实走动；
-接口实测 `queue_position=1`、`p50_sec=66.4 / p90_sec=161.7`（n=45）。
-
-**未做**：流式第二层（`progress` 字段已声明、恒为 null）。
-
 ## 已发布: **v1.0.112 — 浏览器抓取卫生（文档外迁 / 脱敏 / Profile 7 迁移 / daemon 锁）** (2026-11-20 · PR #267 → `44eb3ea`，同版本含 PR #268 → `ffc8b57` · tag `v1.0.112` · Sprint 26112065)
 
 公开仓暴露治理的第一刀，外加把 36kr 用的 Chrome profile 从用户真实 Chrome 目录里拔出来。
@@ -70,6 +43,33 @@ queued/running 时旧结论隐藏；关弹窗 `stopReaderJobs()` 收定时器与
 `/`、`/api/fetch/sources`、`/api/articles` 均 200；9223 无监听（无孤儿 Chrome）。
 
 **同版本另含** PR #268 联网核查 JSON 解析修复（另一会话交付，细节见该 PR）。
+
+## 已发布: **v1.0.111 — 阅读器任务状态机 + 真进度** (2026-11-20 · PR #265 → `e71773c` · tag `v1.0.111` · Sprint 26112063)
+
+dad 报的原始问题：点「重新联网核查」后只有一个「核查中」，退出弹窗再进来变回「待核查」，
+可大模型任务其实还在跑；停在弹窗里也没有任何进度，只能退出去刷新。
+
+**① 等待态从 `articleDetail` 剥离成槽位状态**
+`summary` / `fact_check` 两槽（快核与联网核查共用后者），文案全部由纯函数 `job_view.js` 产出。
+根因是把「⏳ 占位」写进正文字段，失败/超时后撤不掉，只能刷新页面。
+
+**② 契约层固定 7 个 phase**
+`moni/llm/phases.py`（含用于判死的 `stale`）+ `response_model` 挂到 4 个路由，`/openapi.json` 当闸门。
+
+**③ 后端补进度数据**
+`GET /stats/duration` 回 p50/p90（只统计 `status='done' AND duration_ms>0`，n<3 回 None）；
+pending 回 `queue_position` / `queue_total`；`?status=` 白名单补 `stale`。
+
+**④ 前端状态条**
+排队中·第 X/Y 位 / 已运行 M 分 S 秒 / 失败原因 + 重试 / stale「服务中断或超时中止」；
+queued/running 时旧结论隐藏；关弹窗 `stopReaderJobs()` 收定时器与秒表；按钮等待态只用 `:disabled`。
+
+**验证**：测试闸门 41 passed（契约 / 时长统计 / 队列位次 / node 跑 `job_view.js` / AST 不变量 / 前端接线）；
+全量 `2384 passed, 2 skipped, 1 failed`（唯一失败仍是 `test_migration_039` 沙箱不能建 worktree，非沙箱重跑 33 passed）。
+界面在 8901 + 生产 DB 副本实测 pending / running / failed 三态，秒表真实走动；
+接口实测 `queue_position=1`、`p50_sec=66.4 / p90_sec=161.7`（n=45）。
+
+**未做**：流式第二层（`progress` 字段已声明、恒为 null）。
 
 ## 已发布: **v1.0.110 — 信源管理 UI 返修** (2026-11-20 · PR #260 → `9877a00` · tag `v1.0.110` · Sprint 26112001)
 
