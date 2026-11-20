@@ -502,7 +502,7 @@ class ChromeProfileMigrator:
                 "legacy_profile_dir": "Default",
                 "total_cookies": p6_def_total,
                 "x_cookies": p6_def_x,
-                "account": "matthew.qi.tao@gmail.com",
+                "account": "(unknown)",
             }
 
         profile_map = {

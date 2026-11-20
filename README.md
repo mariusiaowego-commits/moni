@@ -110,7 +110,7 @@ moni/
   cli/main.py — moni db init / fetch / web 入口
 config/       sources.yaml + tags.yaml + 36kr_cookies.json (gitignore)
 data/         news.db (SQLite, gitignore)
-docs/         plans/ + BROWSER_FETCHER_PATTERN.md + CRON.md + archive/
+docs/         plans/ + CRON.md + archive/
 scripts/      web.sh + web-8901.sh + dev_8900.sh + backfill_bb_resource_id.sh
 ```
 
@@ -135,7 +135,6 @@ scripts/      web.sh + web-8901.sh + dev_8900.sh + backfill_bb_resource_id.sh
 - `vibe-coding-log.md` — session 日志 (本地)
 - `docs/plans/` — 历史 plan 文档 (双写到 Obsidian)
 - `docs/CRON.md` — cron + worker 详细 manual testing
-- `docs/BROWSER_FETCHER_PATTERN.md` — 36kr 反爬 + Chrome daemon 设计
 
 ## License
 

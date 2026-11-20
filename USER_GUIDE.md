@@ -436,35 +436,20 @@ python3 -m moni fetch --dry-run
 python3 -m moni fetch --health
 ```
 
-### 4.1.1 36kr captcha 维护 (v1.0.5.5+)
+### 4.1.1 浏览器抓取源维护
 
-36kr.com 用字节跳动 TTGCaptcha 拦截所有非浏览器客户端 (httpx 返 1460 bytes captcha HTML)。v1.0.5.5 起 36kr fetcher 走真 Chrome (Profile 7, port 9223) 同步。
-
-**首次配置** (一次性, 30 秒):
+需要过反爬/验证码的信源，维护步骤与站点清单在私有知识库（不在本仓库展开）。
+本机入口：
 
 ```bash
-# 1. 清残留 Chrome
-pkill -f "remote-debugging-port=9223" 2>/dev/null; sleep 1
-
-# 2. 启 headed Chrome 弹窗, 拖动 TTGCaptcha 滑块
-cd /Users/mt16/dev/moni
+# headed warmup（沙箱外运行，手动完成验证码后回车）
 MONI_36KR_HEADED=1 /usr/local/bin/python3 scripts/manual_captcha.py
-# → Chrome 窗口弹出 → 36kr.com/feed 加载 → 拖滑块过 captcha
-# → terminal 按 Enter → cookie 落盘 Profile 7
 
-# 3. 验证能抓真文章
-/usr/local/bin/python3 -m moni fetch --source 36kr_rss
-# 应该看到 fetched=30 inserted=20+
+# 验证抓取
+/usr/local/bin/python3 -m moni fetch --source <source_name>
 ```
 
-**Cookie 失效后** (1-4 周一次, 看 36kr 风控严格度):
-
-如果 `moni fetch --source 36kr_rss` 看到 `36kr returned a captcha challenge page` 警告, 重跑步骤 2 一次。
-
-**注意事项**:
-- **不要**在本机日常工作浏览器登 36kr 触发 ban (会污染 Profile 6 风控状态)
-- Profile 7 是 moni 专用 cookie 仓, 与 x-watch 用的 Profile 6 隔离
-- 如果 Profile 7 被 ban (持续要 captcha 怎么也过不了), 改 `MONI_CHROME_USER_DATA_DIR` env var 用 Profile 8
+profile 固定在 `~/.moni/chrome/daemon`（端口 9223），与 x-watch 的 9222 隔离。
 
 ### 4.1.2 WeChatRSS 多账号 (v1.0.5.6+)
 
@@ -1380,7 +1365,7 @@ python3 -m moni.db.migrate
 
 ### 12.2 Following 同步 (Channel C)
 
-前置：本机 Chrome **Profile 6** 已登录 X（端口 9222）。与 moni 36kr 用的 Profile 7/9223 隔离。
+前置：本机 Chrome **Profile 6** 已登录 X（端口 9222）。与 moni 浏览器抓取用的 daemon profile/9223 隔离。
 
 ```bash
 # 只打印，不写库（默认）
@@ -1451,14 +1436,14 @@ display_name / url / 同步间隔 / notes / fetch_config, 并把你取消掉的 
 
 | Chrome UI 里的名字 | 磁盘目录 | 谁的数据 | 账号 |
 |---|---|---|---|
-| 用户1 | `Default` | 你的 | fledgeel@gmail.com |
-| 您的 Chrome | `Profile` | 你的 | linqin7533@gmail.com |
-| **Marius（你日常在用的）** | `Profile 1` | 你的 | mariusiaowego@gmail.com |
-| **hermes** | `Profile 6` | 你的 | matthew.qi.tao@gmail.com |
-| （Chrome UI 里看不到） | `Profile 7` | **moni 的 36kr daemon** | — |
-| （Chrome UI 里看不到） | `Profile 6/Default` | **moni 的 xwatch**（借住在 hermes 目录里） | matthew.qi.tao@gmail.com |
+| 用户1 | `Default` | 你的 | — |
+| 您的 Chrome | `Profile` | 你的 | — |
+| **Marius（你日常在用的）** | `Profile 1` | 你的 | — |
+| **hermes** | `Profile 6` | 你的 | — |
+| （Chrome UI 里看不到） | `~/.moni/chrome/daemon` | **moni 的浏览器抓取 daemon** | — |
+| （Chrome UI 里看不到） | `Profile 6/Default` | **moni 的 xwatch**（借住在 hermes 目录里） | — |
 
-**结论一句话**：Chrome 前端显示的是**名字**（Marius / hermes），磁盘上是**编号**（Profile 1 / Profile 6），两套对不上，所以容易搞错。moni 用的两个（`Profile 7` 和 `Profile 6/Default`）在 Chrome UI 里根本看不到。
+**结论一句话**：Chrome 前端显示的是**名字**（Marius / hermes），磁盘上是**编号**（Profile 1 / Profile 6），两套对不上，所以容易搞错。moni 用的两个（`~/.moni/chrome/daemon` 和 `Profile 6/Default`）在 Chrome UI 里根本看不到。
 
 ### v1.0.59 xwatch 搬迁事故与强制护栏
 
@@ -1476,7 +1461,7 @@ display_name / url / 同步间隔 / notes / fetch_config, 并把你取消掉的 
 3. 搬迁后必须用**系统 Google Chrome（headed，有窗口）**验证 `https://x.com/home` 已登录；**绝不可以使用 `chrome-headless-shell` 打开 xwatch profile**。验证脚本：`scripts/verify-xwatch-profile.py`（需在沙箱外运行）。
 
 ### moni 当前使用的是哪两个？
-- **`Profile 7`**：用于 moni 的 36kr daemon 同步（端口 9223）。
+- **`~/.moni/chrome/daemon`**：用于 moni 的浏览器抓取 daemon（端口 9223）。
 - **`Profile 6/Default`**：用于 moni 的 xwatch 同步（端口 9222）。此前因参数 `--user-data-dir` 错误指定为 `Profile 6`，Chrome 自动在其内部套了一层 `Default/` 目录，"借住"在了用户的 hermes 配置文件夹下。
 
 ### 目录搬迁治理计划 (v1.0.56)
