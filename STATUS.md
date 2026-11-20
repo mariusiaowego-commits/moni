@@ -3,7 +3,7 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
-## 已发布: **v1.0.110 — 信源管理 UI 返修** (2026-11-20 · PR #260 → `0d0a521` · tag `v1.0.110` · Sprint 26112001)
+## 已发布: **v1.0.110 — 信源管理 UI 返修** (2026-11-20 · PR #260 → `9877a00` · tag `v1.0.110` · Sprint 26112001)
 
 dad 在 v1.0.109 上线后继续提了 5 条，加两轮独立审计，本版一次修完：
 
@@ -38,16 +38,22 @@ cron 刷新按钮改 icon-only（去掉底色与描边）、全站 modal 去毛�
 无法建 worktree，提权单跑 **1 passed**）；前端子集 **564 passed**；`test_frontend_render_hygiene.py`
 **36 passed**（资源 `?v=` 统一 `20261120011`）。独立只读审计 **APPROVE**（无 P0/P1），
 其抓出的「批量重开新增 0 篇」与 3 条 P2 已修。
+rebase 到 `845fa89`（含 #261 滚动锁 / #262 心跳续租）后复跑：
+`pytest -k "frontend or fetch or source or motion or microinteraction or render or modal or llm_jobs or scroll"`
+→ **580 passed, 2 skipped**；`test_frontend_modal_scroll_lock.py` + `test_llm_jobs_heartbeat.py` → **10 passed**。
 
-**合并方式**：GitHub 额度用尽不可达，本次为**纯本地**操作 ——
-`git merge --squash feat/source-management-ui-followup` → `0d0a521`，`git tag -a v1.0.110`。
-tag 与关 PR 未推到远端，等 GitHub 恢复后补推。
+**合并方式**：GitHub 不可达期间先做过一次纯本地 squash（`0d0a521`）；恢复后改走 PR ——
+分支 rebase 到 `845fa89` → **PR #260** squash 合并 → **`9877a00`**。本地 main 用
+`git rebase --onto origin/main 0d0a521 main` 丢掉重复 squash、只重放 STATUS 提交（`61dc5f3`）；
+`v1.0.110` 重指 `9877a00` 后推送，远端 `refs/tags/v1.0.110` = `9416887` → `9877a00`，
+旧本地 squash 留在 `refs/backup/v1.0.110-local` 备查。
 
-**部署**：8900 重启 PID **56830**，`version v1.0.110 / commit 0d0a521 / schema 52 / worktree_dirty=false`；
-备份 `data/backups/news.db.pre-v1.0.110-20261120-104214`；schema 无变化，未跑 migration。
-**线上冒烟**：`/fetch` 200；`index.html` 带 `main.css?v=20261120011` / `app.js?v=20261120011`；
-线上 CSS 含 `auto-fit, minmax(300px` 与 `min-width: 1198px`；JS 含 `_syncModalToTaskState`；
-`/api/config/sources` 18 条全部带 `is_hidden`。
+**部署**：8900 重启 PID **67861**（`launchctl kickstart -k gui/501/com.moni.web`），
+`version v1.0.110 / commit 61dc5f3 / commits_ahead 1 / schema 52 / worktree_dirty=false`；
+备份 `data/backups/news.db.pre-v1.0.110-redeploy-20261120-111123`（`integrity_check` ok / schema 52 / 5660 篇）；
+schema 无变化，未跑 migration。
+**线上冒烟**：`/` 200（300421B）；静态版本 `?v=20261120011`；线上 `modal.js` 含 `_syncScrollLock`（7 处），
+`app.js` 无 `modal-locked` 残留（#261 锁收敛生效）；`/api/config/sources` 18 条全部带 `is_hidden`，其中 2 条已隐藏。
 
 ## 已发布: **v1.0.109 — 信源管理改版** (2026-11-19 · PR #253 → `1993082` · tag `v1.0.109` · Sprint 26111901)
 
