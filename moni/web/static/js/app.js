@@ -4746,11 +4746,8 @@ function app() {
     init() {
       // Apply saved theme (from theme.js mixin)
       this.initTheme();
-      // v1.0.109: 同步进度弹窗打开时锁住页面滚动 —— 之前滚轮会穿透到
-      // 背后的信源管理页，页面跟着一起滚。
-      this.$watch('fetchProgressModal', (open) => {
-        document.body.classList.toggle('modal-locked', !!open);
-      });
+      // v1.0.110: 滚动锁统一在 modal.js 的 _syncScrollLock() 里按「是否有
+      // 可见浮层」计算（v1.0.109 这里只锁了 fetchProgressModal 一个）。
       // Load service status for topnav indicator
       this.loadServiceStatus();
       // v1.0.5.10: deep-link from current URL — visiting /crud opens

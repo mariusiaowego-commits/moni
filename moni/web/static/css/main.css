@@ -222,7 +222,6 @@ body {
 
 /* v1.0.109: 弹窗打开时锁住页面滚动。
    之前滚轮会穿透到背后的信源管理页，弹窗里滚一层、背后又滚一层。 */
-body.modal-locked { overflow: hidden; }
 
 h1 { font-size: var(--font-28); }
 h2 { font-size: var(--font-24); }
