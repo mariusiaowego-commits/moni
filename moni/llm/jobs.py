@@ -52,7 +52,7 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 
-from moni.db.connection import get_db
+from moni.db.connection import close_db, get_db
 from moni.db import leases
 from moni.llm.client import call_llm
 from moni.llm.domains import evaluate_authority
@@ -77,6 +77,13 @@ _VALID_TASK_TYPES = ("summary", "fact_check", "fact_check_plus")
 #: How many times we'll try a single LLM call before giving up.
 #: 1 = no retry; 2 = original + 1 retry.  Pinned to 2 by v1.0.5.1.
 MAX_ATTEMPTS: int = 2
+
+#: Lease renewal cadence while a job is running.  ``leases.acquire`` only
+#: stamps the heartbeat once; a fact-check_plus call routinely runs 2-5
+#: minutes, so without this a *second* worker process (8901 / CLI) would
+#: sweep the row to ``stale`` after the 90s grace and fence out the
+#: finishing writer.  30s = grace/3, so one lost beat cannot kill a job.
+HEARTBEAT_INTERVAL_SEC: float = 30.0
 
 #: How long to sleep between polls when the queue is empty.
 _POLL_INTERVAL_SECONDS: float = 2.0
@@ -161,7 +168,7 @@ def list_jobs(
         FROM llm_jobs j
         LEFT JOIN articles a ON a.id = j.article_id
         {where_sql}
-        ORDER BY j.created_at DESC
+        ORDER BY j.created_at DESC, j.id DESC
         LIMIT ?
         """,
         params,
@@ -290,6 +297,51 @@ def _process_one_pending() -> bool:
     return True
 
 
+def _run_with_heartbeat(fn, handle: leases.LeaseHandle | None):
+    """Run ``fn()`` while renewing the job lease every ``HEARTBEAT_INTERVAL_SEC``.
+
+    ``leases.acquire`` stamps ``lease_heartbeat_at`` exactly once.  A
+    fact_check_plus call runs for minutes, so without renewal any *other*
+    worker process would see a 90s-old heartbeat, sweep the row to
+    ``stale``, and the finishing writer would be fenced out (rowcount=0)
+    even though the article writeback already happened.
+
+    Only the LLM call is wrapped: every ``leases.finish()`` in ``_run_job``
+    must run *after* the beat thread has joined, otherwise the heartbeat
+    write and the terminal write race.  One daemon thread per job — it
+    exits with the call, and ``close_db()`` releases this thread's
+    per-thread SQLite connection before it dies.
+    """
+    if handle is None:
+        return fn()
+
+    stop = threading.Event()
+
+    def _beat() -> None:
+        try:
+            while not stop.wait(HEARTBEAT_INTERVAL_SEC):
+                if not leases.heartbeat(handle):
+                    # Lease lost (swept or re-claimed) — stop quietly; the
+                    # fenced finish() will report the rejection.
+                    logger.info(
+                        "[llm_jobs] job %s lease lost — heartbeat stops",
+                        handle.job_id[:8],
+                    )
+                    return
+        finally:
+            close_db()
+
+    beat = threading.Thread(
+        target=_beat, name="moni-llm-heartbeat", daemon=True
+    )
+    beat.start()
+    try:
+        return fn()
+    finally:
+        stop.set()
+        beat.join(timeout=5)
+
+
 def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> None:
     """Execute a single LLM call for a claimed job, write the outcome.
 
@@ -310,7 +362,12 @@ def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> N
     ).fetchone()
     if article_row is None:
         # Article was deleted between enqueue and run — fail cleanly.
-        _mark_failed(job_id, f"article {article_id!r} not found", attempts=attempt)
+        _mark_failed(
+            job_id,
+            f"article {article_id!r} not found",
+            attempts=attempt,
+            handle=handle,
+        )
         return
 
     article_dict = dict(article_row)
@@ -372,10 +429,20 @@ def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> N
             # turn ceiling, but bounded by call_llm timeout (default 120s).
             extra_args = ["-t", "web"]
         else:
-            _mark_failed(job_id, f"unsupported task_type {task_type!r}", attempts=attempt)
+            _mark_failed(
+                job_id,
+                f"unsupported task_type {task_type!r}",
+                attempts=attempt,
+                handle=handle,
+            )
             return
     except Exception as exc:
-        _mark_failed(job_id, f"prompt render failed: {exc}", attempts=attempt)
+        _mark_failed(
+            job_id,
+            f"prompt render failed: {exc}",
+            attempts=attempt,
+            handle=handle,
+        )
         return
 
     # Make the LLM call (already retried internally? No — we do our own
@@ -384,11 +451,14 @@ def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> N
     # v1.0.32: hermes -z --usage-file 落盘 token/cost, 成功后写回 llm_jobs。
     usage_file = f"/tmp/moni-llm-usage-{job_id}-{int(time.time())}.json"
     try:
-        call_result = call_llm(
-            provider, model, prompt,
-            extra_args=extra_args,
-            usage_file=usage_file,
-            usage=True,
+        call_result = _run_with_heartbeat(
+            lambda: call_llm(
+                provider, model, prompt,
+                extra_args=extra_args,
+                usage_file=usage_file,
+                usage=True,
+            ),
+            handle,
         )
         if isinstance(call_result, tuple):
             result_text, usage = call_result
@@ -498,6 +568,7 @@ def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> N
             f"DB writeback failed: {exc}",
             attempts=attempt,
             duration_ms=duration_ms,
+            handle=handle,
         )
         return
 
