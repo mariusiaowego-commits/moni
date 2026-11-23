@@ -3,7 +3,7 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
-## 已合并（待部署）: **BestBlogs 全量抓取 + 链式打标** (2026-11-23 · PR #274 → `846b501` · Sprint 26112368)
+## 已发布: **v1.0.115 — BestBlogs 全量抓取 + 链式打标** (2026-11-23 · PR #274 → `846b501` · tag `v1.0.115` · Sprint 26112368)
 
 财新在 BestBlogs 合并列表第 139 位，但 `max_articles_total=1000` 每轮只跑到第 ~106 个 feed 就截断。
 本 sprint 改为每个 feed 全量取条目，tag 门决定入库/丢弃；`max_articles_total` 变成用户可调安全阀（默认 200000）。
@@ -15,8 +15,15 @@ PIL 环境缺失、沙箱禁写 git worktree，后者放开单跑 passed）。�
 UI 实测 1530×873：跑批日志显示 `478/478（失败 11）`，展开行为候选/选中/tag 丢弃/上限截断/链式打标。
 migration 编号避让 sprint-67 BV Direction V2 已占用的 053/054，本分支使用 **055**。
 
-**状态**：已合并进 `main`（squash `846b501`，tree 与分支提交 `879cbe3` 完全一致，CI `pytest · py3.12` success），
-远程与本地 `fetch` 分支已删除。**未部署**：8900 仍跑 v1.0.114，`v1.0.115` tag 未打（等授权）。
+**部署**：`main` = `bfc7274`（含 PR #275 文档回填），tag `v1.0.115` → `846b501`；
+生产 checkout `/Users/mt16/dev/moni` 快进到 `bfc7274`，8900 PID **38207**；
+schema 52 → **55**（`cron_runs.extra` 已加），迁移前备份
+`data/backups/news.db.pre-v1.0.115-redeploy-20261123-145626`（138 MB）。
+核验：`/api/fetch/sources` 200、`/api/config/sources/src-bestblogs` 200
+（`per_feed=0` / `total=200000` / `timeout_sec=2700`）、`/api/cron/runs` 的 `extra` 已解析、
+页面引用 `app.js?v=20261123002`。
+**未生效**：调度进程 `com.moni.cron` 当前未加载（`launchctl` 查无此服务），9:10 自动抓取不会触发，
+需 `bash scripts/install-launchd.sh install`（待授权）。
 
 ## 已发布: **v1.0.114 — 银行同业抓取可见性** (2026-11-23 · PR #272 → `12ffca3`、PR #273 → `a9ac7b5` · tag `v1.0.114` · Sprint 26112067)
 
