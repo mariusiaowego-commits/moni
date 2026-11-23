@@ -766,9 +766,20 @@ Gate 2 降级后 summary 与逐条判定不同步、brief 脚注不受 flag 控�
   `(direction_id, research_version)`）、`article_bv_direction`（方向分，主键含
   `research_version`）；`_CURRENT_VERSION 52 → 53`；不改既有列、不回填。
 - **`moni/scoring/direction.py`**：研究提示词 `bv_direction_research_v1`（五条硬句写死）、
-  `parse_research` 全量校验（10 key / 四档锚点 / 问题 ≤30 字 / 禁词 / 写作禁词）、
+  `parse_research` 全量校验（10 key / 四档锚点 / 问题 ≤30 字 / 禁词 / 写作禁词 / 模板占位符）、
   `research_to_rubric` 只换 question/anchors/template、权重与 label 从 `RUBRIC_V1` 继承、
   `usable_research` 只看最大 `research_version` 且不回退旧版。
+- **只读审计后加固**（独立审计 PASS WITH NITS，P1×2 / P2×3 / P3×5 已修，P3-3 属 main 的
+  `rubric.py` 不在本分支范围）：
+  - 版本号不可解析 / ≤0 / 非整数 → 直接判「损坏」并拒绝，不降级为 0（原来会被当作 v0 排在
+    v1 之后、导致最新行根本没被检查、静默回退旧版）。
+  - `usable_research` 支持按 `direction_id` 过滤，多方向时不会取到别的方向的版本。
+  - `label` / `brief` 一律取调用方入参，忽略模型输出（提示词从不要求模型输出这两项）。
+  - `article_bv_direction` 补 `articles(id)` 与 `bv_direction(id)` 两个 `ON DELETE CASCADE`
+    外键（迁移未上过生产，改表零成本），对齐仓库其余 7 处子表的惯例。
+  - `usable_research` 校验 `prompt_id`，旧提示词产出的研究判为不可用。
+  - 严格类型：非字符串的 question/scope/anchors/template 一律拒；锚点只收 dict（拒绝位置
+    列表与多余档位）；`research_to_rubric` 校验维度 key/label/权重仍等于 `RUBRIC_V1`。
 - **rebase**：分支原落后 main 51 个提交；2026-11-23 rebase 到当时最新 main（`4f9b5e2`），
   冲突仅 `moni/db/migrate.py` 一处（版本号），按 053 解决。main 后续仍在推进，推分支前会再 rebase 一次。
 - **测试**：`/usr/local/bin/python3 -m pytest tests/ -p no:cacheprovider -q` → **2437 passed /
@@ -817,7 +828,7 @@ CRUD/CLI 写路径补重算、长文 4 窗取证、5 次调用硬上限、引文
 （`按通用业务价值排序`、`通用`/`阅读` chip、页脚免责句）；首页 200，`app.js` 含 Pin 质量函数、
 `main.css` 含 `quality-col-head`。
 
-**遗留**：方向分/方向研究按 B 方案留到 Sprint 53（复用 `score_general_bv(rubric=...)`）。
+**遗留**：方向分/方向研究按 B 方案另开 sprint 做（复用 `score_general_bv(rubric=...)`）→ 见 Sprint 67。
 
 ---
 

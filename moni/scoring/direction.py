@@ -8,6 +8,11 @@ of its own.  Nothing here talks to the DB or the model; callers inject both.
 The general rubric in :mod:`moni.scoring.rubric` stays the single source of
 truth for keys, labels and weights.  Research output may only replace the
 question, the four anchors and the reason template.
+
+Validation is deliberately strict: a payload that cannot be read exactly the
+way the prompt asks for is rejected instead of being repaired.  A repaired
+payload silently becomes a rubric nobody reviewed, and the score it produces
+is then unexplainable.
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ DIRECTION_PROMPT_ID = "bv_direction_research_v1"
 LABEL_MAX_CHARS = 6
 QUESTION_MAX_CHARS = 30
 ANCHOR_COUNT = 4
+ANCHOR_LEVELS = ("0", "3", "6", "10")
 
 STATUS_RUNNING = "running"
 STATUS_PASSED = "passed"
@@ -70,7 +76,7 @@ class DirectionResearch:
             "dimensions": {
                 dim.key: {
                     "question": dim.question,
-                    "anchors": dict(zip(("0", "3", "6", "10"), dim.anchors)),
+                    "anchors": dict(zip(ANCHOR_LEVELS, dim.anchors)),
                     "template": dim.template,
                 }
                 for dim in self.dimensions
@@ -127,8 +133,17 @@ def build_research_prompt(label: str, brief: str) -> str:
 
 def parse_research(
     raw: str | Mapping[str, Any] | None,
+    *,
+    label: str = "",
+    brief: str = "",
 ) -> tuple[DirectionResearch | None, str | None]:
-    """Validate one research payload.  Returns ``(research, error)``."""
+    """Validate one research payload.  Returns ``(research, error)``.
+
+    ``label`` and ``brief`` come from the caller, never from the model: the
+    prompt asks for ``scope`` / ``out_of_scope`` / ``dimensions`` only, and a
+    model that invents its own direction name would silently fork the
+    configuration.  The model output for those two fields is ignored.
+    """
     if isinstance(raw, Mapping):
         data: Mapping[str, Any] | None = raw
     elif isinstance(raw, str):
@@ -144,14 +159,18 @@ def parse_research(
         return None, "scope 为空"
     if not out_of_scope:
         return None, "out_of_scope 为空"
+    for field, text in (("scope", scope), ("out_of_scope", out_of_scope)):
+        hit = _banned_in(field, (text,))
+        if hit:
+            return None, hit
 
     dimensions, error = _dimensions_from_payload(data)
     if dimensions is None:
         return None, error
     return (
         DirectionResearch(
-            label=_text(data.get("label")),
-            brief=_text(data.get("brief")),
+            label=(label or "").strip(),
+            brief=(brief or "").strip(),
             scope=scope,
             out_of_scope=out_of_scope,
             dimensions=dimensions,
@@ -161,8 +180,15 @@ def parse_research(
 
 
 def research_to_rubric(research: DirectionResearch, version: int | None = None) -> Rubric:
-    """Attach the validated question set to a numbered rubric."""
+    """Attach the validated question set to a numbered rubric.
+
+    The dimension set must still match the base rubric's keys, labels and
+    weights -- a direction may only rewrite questions, anchors and templates.
+    """
     numbered = research.version if version is None else version
+    if _positive_int(numbered) is None:
+        raise ValueError(f"方向研究版本号非法：{numbered!r}")
+    _assert_matches_base_rubric(research)
     return Rubric(rubric_id_for(numbered), research.dimensions)
 
 
@@ -171,20 +197,37 @@ def usable_research(
     *,
     label: str,
     brief: str,
+    direction_id: int | None = None,
 ) -> tuple[DirectionResearch | None, str | None]:
     """Gate on the highest ``research_version`` row.  Never falls back.
 
     ``rows`` may be ``sqlite3.Row`` or dicts with ``research_version``,
     ``status``, ``label_snapshot``, ``brief_snapshot`` and ``rubric_json``.
+    When ``direction_id`` is given, only that direction's rows are consulted.
     """
-    latest = _latest_row(rows)
-    if latest is None:
-        return None, "还没有研究版本"
+    candidates = list(rows)
+    if direction_id is not None:
+        candidates = [
+            row
+            for row in candidates
+            if _positive_int(_get(row, "direction_id")) == direction_id
+        ]
+        if not candidates:
+            return None, "该方向还没有研究版本"
 
-    version = _int(_get(latest, "research_version"))
+    latest, error = _latest_row(candidates)
+    if latest is None:
+        return None, error or "还没有研究版本"
+
+    version = _positive_int(_get(latest, "research_version"))
     status = _text(_get(latest, "status"))
+    if version is None:
+        return None, "研究版本号损坏"
     if status != STATUS_PASSED:
         return None, f"最新版本 v{version} 状态为 {status or '未知'}"
+    prompt_id = _text(_get(latest, "prompt_id"))
+    if prompt_id != DIRECTION_PROMPT_ID:
+        return None, f"研究提示词版本不匹配：{prompt_id or '空'}"
     if _text(_get(latest, "label_snapshot")).strip() != (label or "").strip():
         return None, "方向名与最新研究快照不一致"
     if _text(_get(latest, "brief_snapshot")).strip() != (brief or "").strip():
@@ -198,14 +241,14 @@ def usable_research(
         return None, error
     return (
         DirectionResearch(
-            label=label.strip(),
-            brief=brief.strip(),
+            label=(label or "").strip(),
+            brief=(brief or "").strip(),
             scope=_text(_get(latest, "scope")) or _text(payload.get("scope")),
             out_of_scope=_text(_get(latest, "out_of_scope"))
             or _text(payload.get("out_of_scope")),
             dimensions=dimensions,
             version=version,
-            prompt_id=_text(_get(latest, "prompt_id")) or DIRECTION_PROMPT_ID,
+            prompt_id=prompt_id,
         ),
         None,
     )
@@ -247,6 +290,8 @@ def _dimensions_from_payload(
         template = _text(item.get("template")).strip()
         if not template:
             return None, f"理由模板为空：{key}"
+        if "{" not in template or "}" not in template:
+            return None, f"理由模板缺少占位符：{key}"
 
         hit = _banned_in(key, (question, *anchors, template))
         if hit:
@@ -266,17 +311,34 @@ def _dimensions_from_payload(
 
 
 def _anchors(raw: Any, key: str) -> tuple[tuple[str, str, str, str] | None, str | None]:
-    if isinstance(raw, Mapping):
-        values = [_text(raw.get(level)).strip() for level in ("0", "3", "6", "10")]
-    elif isinstance(raw, (list, tuple)):
-        values = [_text(value).strip() for value in raw]
-    else:
+    """Only the four named levels are accepted.
+
+    A positional list would let the model swap two levels without any of it
+    showing up in the output, and the score would then use the wrong anchor.
+    """
+    if not isinstance(raw, Mapping):
         return None, f"锚点格式不对：{key}"
-    if len(values) != ANCHOR_COUNT:
-        return None, f"锚点不足四档：{key}"
+    levels = {str(name): value for name, value in raw.items()}
+    extra = [name for name in levels if name not in ANCHOR_LEVELS]
+    if extra:
+        return None, f"锚点档位多余：{key}：{'、'.join(sorted(extra))}"
+    missing = [level for level in ANCHOR_LEVELS if level not in levels]
+    if missing:
+        return None, f"锚点档位缺失：{key}：{'、'.join(missing)}"
+    values = [_text(levels[level]).strip() for level in ANCHOR_LEVELS]
     if not all(values):
         return None, f"锚点有空档：{key}"
     return (values[0], values[1], values[2], values[3]), None
+
+
+def _assert_matches_base_rubric(research: DirectionResearch) -> None:
+    base = RUBRIC_V1.by_key
+    if tuple(dim.key for dim in research.dimensions) != RUBRIC_V1.keys:
+        raise ValueError("方向研究的维度键与基准十维不一致")
+    for dim in research.dimensions:
+        reference = base[dim.key]
+        if dim.label != reference.label or dim.weight != reference.weight:
+            raise ValueError(f"方向研究维度 {dim.key} 的 label/权重与基准不一致")
 
 
 def _banned_in(key: str, texts: tuple[str, ...]) -> str | None:
@@ -289,14 +351,23 @@ def _banned_in(key: str, texts: tuple[str, ...]) -> str | None:
     return None
 
 
-def _latest_row(rows: Iterable[Mapping[str, Any]]) -> Mapping[str, Any] | None:
+def _latest_row(
+    rows: Iterable[Mapping[str, Any]],
+) -> tuple[Mapping[str, Any] | None, str | None]:
+    """Pick the row with the highest version.
+
+    A row whose version cannot be read is corruption, not an old row: the
+    newest version may be the unreadable one, so nothing may be used.
+    """
     latest: Mapping[str, Any] | None = None
     latest_version = -1
     for row in rows:
-        version = _int(_get(row, "research_version"))
+        version = _positive_int(_get(row, "research_version"))
+        if version is None:
+            return None, "研究版本号损坏"
         if version > latest_version:
             latest, latest_version = row, version
-    return latest
+    return latest, None
 
 
 def _get(row: Mapping[str, Any], key: str) -> Any:
@@ -307,14 +378,23 @@ def _get(row: Mapping[str, Any], key: str) -> Any:
 
 
 def _text(value: Any) -> str:
-    return "" if value is None else str(value)
+    """Only real strings pass.  ``str()`` would turn ``True`` into ``"True"``."""
+    return value if isinstance(value, str) else ""
 
 
-def _int(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
+def _positive_int(value: Any) -> int | None:
+    """Parse a positive integer.  ``None`` means the value is unusable."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text.isdigit():
+            return None
+        number = int(text)
+        return number if number > 0 else None
+    return None
 
 
 __all__ = [

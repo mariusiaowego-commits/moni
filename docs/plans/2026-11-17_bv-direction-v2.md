@@ -113,6 +113,44 @@ S2/S3 另行补充。
 - 研究结果保存完整 `rubric_json`，不另建维度表；版本号从 1 递增。
 - 方向分与通用分都只在简报链路产生，不在 Pin 页面触发模型调用。
 
+## 10. 独立审计后的加固（2026-11-23）
+
+只读审计结论 **PASS WITH NITS**（无 P0）。本轮修掉 P1×2 / P2×3 / P3×5（除 P3-3）：
+
+| 编号 | 问题 | 修法 |
+| --- | --- | --- |
+| P1-1 | `_int()` 把无法解析的版本号吞成 0，损坏行被当作 v0 排在 v1 之后，最新行根本没被检查 → 静默回退旧版（违反「不回退旧版」） | `_positive_int()` 严格解析；任何一行版本号不可解析 / ≤0 / 非整数 → 整批判「研究版本号损坏」并拒绝，不降级 |
+| P1-2 | `usable_research` 不按 `direction_id` 过滤，多方向时可能取到别的方向的版本 | 加可选 `direction_id` 形参；给了就只在该方向的行里取最大版本 |
+| P2-1 | `parse_research` 的 label/brief 取自模型输出，而提示词从不要求模型输出这两项 → 恒为空；`to_payload()` 也不含这两字段 | `parse_research(raw, *, label="", brief="")` 改用调用方入参，忽略模型输出 |
+| P2-2 | `article_bv_direction` 无外键 → 删文章/删方向留孤儿行（仓库其余 7 处子表都有 CASCADE） | 迁移 053 补 `articles(id)` 与 `bv_direction(id)` 两个 `ON DELETE CASCADE` |
+| P2-3 | `prompt_id` 存了不校验 → 旧提示词产出的研究被判为可用 | `usable_research` 比对 `prompt_id != DIRECTION_PROMPT_ID` 即拒 |
+| P3-1 | `_text()` 对任何值 `str()`，int/True 被静默接受 | 改为只收真字符串，否则返回空串 → 由「问题为空」「锚点有空档」拦下 |
+| P3-2 | 理由模板不校验 `{…}` 占位符 | 模板必须同时含 `{` 与 `}` |
+| P3-4 | scope / out_of_scope 不做禁词检查 | 一并过 `banned_hits` / `writing_hits` / `BANNED_PATTERN` |
+| P3-5 | 锚点接受 list 按位置映射，反序会整体错位；dict 多余档位被静默丢弃 | 只接受 dict，档位必须正好是 0/3/6/10 |
+| P3-6 | `research_to_rubric` 不校验入参，可造出 999 权重 rubric | 校验维度 key/label/权重仍等于 `RUBRIC_V1`；版本号必须为正整数，否则 `ValueError` |
+| P3-7 | 缺 `tests/test_migration_053_bv_direction.py` | 补 14 个用例：表/索引/唯一键/两个外键的 CASCADE/幂等 |
+| P3-8 | Sprint 号 4 处不一致 | 迁移文件注释与测试 docstring 统一为 Sprint 67 |
+
+**P3-3 未修**：`BANNED_PATTERN` 允许换行或超长间隔绕过（`moni/scoring/rubric.py:30`，main 已有），
+属 main 的问题、不是本分支引入，按「不顺手修相邻问题」留在待办。
+
+`parse_research` 的签名变了（多了 keyword-only 的 label/brief），`usable_research` 多了一个
+keyword-only 的 `direction_id`。两者都是本分支新引入的 API，尚未进入 main，没有兼容负担。
+
+### 修完后的测试证据
+
+```
+$ /usr/local/bin/python3 -m pytest tests/test_scoring_direction.py -p no:cacheprovider -q
+41 passed in 0.39s
+
+$ /usr/local/bin/python3 -m pytest tests/test_migration_053_bv_direction.py -p no:cacheprovider -q
+14 passed in 1.29s
+
+$ /usr/local/bin/python3 -m pytest tests/ -p no:cacheprovider -q
+2469 passed, 2 skipped, 2 warnings in 369.09s (0:06:09)
+```
+
 ## 9. S2 / S3 落地计划（待用户裁决后才开工）
 
 S1 只交付纯函数与建表，**没有入口、没有 runner、没有 UI**——合进去是一套跑不到的功能。

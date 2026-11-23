@@ -1,4 +1,4 @@
--- 053: Business-value direction scoring (sprint 53, design 2026-11-16 §10)
+-- 053: Business-value direction scoring (Sprint 67, design 2026-11-16 §10)
 --
 -- Additive only.  The general ten-dimension score keeps living on
 -- articles.business_value_*; a direction run writes its own table row so the
@@ -7,6 +7,10 @@
 -- research_version is monotonic per direction.  Only the highest version is
 -- ever consulted (running / passed / failed / expired); older rows stay as an
 -- audit trail and are never used as a fallback.
+--
+-- FK CASCADE: deleting an article drops its direction scores, and deleting a
+-- direction drops its research rows and scores -- the same rule the rest of
+-- the child tables follow.
 
 CREATE TABLE IF NOT EXISTS bv_direction (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,7 +51,9 @@ CREATE TABLE IF NOT EXISTS article_bv_direction (
     content_hash        TEXT NOT NULL,
     rubric_id           TEXT,
     scored_at           TEXT NOT NULL,
-    PRIMARY KEY (article_id, direction_id, research_version)
+    PRIMARY KEY (article_id, direction_id, research_version),
+    FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE,
+    FOREIGN KEY (direction_id) REFERENCES bv_direction(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_bvd_research_latest
