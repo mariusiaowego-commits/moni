@@ -934,7 +934,7 @@
                  x-show="fetchProgress?.status === 'done' && (fetchProgress?.result?.inserted || 0) === 0 && (fetchProgress?.result?.raw_items || 0) > 0"
                  x-text="`同步正常：检查 ${fetchProgress?.result?.raw_items} 篇均已在库，无新增`"></div>
             <div class="fetch-result-headline"
-                 x-show="(fetchProgress?.result?.inserted || 0) > 0"
+                 x-show="(fetchProgress?.result?.inserted || 0) > 0 && fetchProgress?.result?.skipped_existing != null"
                  x-text="`同步完成：新增 ${fetchProgress?.result?.inserted} 篇，${fetchProgress?.result?.skipped_existing || 0} 篇已在库`"></div>
             <div class="fetch-result-pipeline"><b x-text="fetchProgress?.result?.fetched || 0"></b> 原始 → <b x-text="fetchProgress?.result?.parsed || 0"></b> 解析 → <b x-text="fetchProgress?.result?.inserted || 0"></b> 入库</div>
             <div class="fetch-result-note">
