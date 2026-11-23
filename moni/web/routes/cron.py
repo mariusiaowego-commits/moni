@@ -9,6 +9,7 @@ values seen in ``cron_runs``.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -145,6 +146,13 @@ def list_cron_runs(
         finished = row["finished_at"]
         n = int(row["new_articles"] or 0)
         err = row["error"]
+        extra = None
+        if row["extra"]:
+            try:
+                parsed = json.loads(row["extra"])
+                extra = parsed if isinstance(parsed, dict) else None
+            except (TypeError, ValueError):
+                extra = None
         out.append(
             CronRun(
                 id=row["id"],
@@ -161,6 +169,7 @@ def list_cron_runs(
                 log_url=None,
                 error_message=err,
                 error=err,
+                extra=extra,
             )
         )
     return out

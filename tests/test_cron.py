@@ -1015,3 +1015,103 @@ class TestFailureIsolationInJobs:
         # No source enabled, but the job itself succeeded
         assert rows[0]["success"] == 1
         assert rows[0]["sources_run"] == 0
+
+
+# ── 7. sweep counters + chained tagging (v1.0.115) ────────────────────────
+
+
+class _StatsFetcher(BaseFetcher):
+    """Fetcher that exposes BestBlogs-style sweep counters."""
+
+    source_name: str = "fake_stats"
+    run_stats = {
+        "feeds_total": 5,
+        "feeds_scanned": 5,
+        "feeds_failed": 1,
+        "candidates_new": 2,
+        "selected": 2,
+        "budget_capped": False,
+    }
+
+    def fetch(self):
+        return [
+            {"url": "http://example.com/stats-a", "title": "A"},
+            {"url": "http://example.com/stats-b", "title": "B"},
+        ]
+
+    def parse(self, raw):
+        return {
+            "title": raw["title"],
+            "url": raw["url"],
+            "content": "fake content",
+            "published_at": None,
+            "source": self.source_name,
+        }
+
+
+class TestSweepCountersAndTagChain:
+    """cron_runs.extra carries the sweep counters and the chained tag result."""
+
+    def _run_job(self, isolated_db, tmp_config_dir, monkeypatch):
+        from moni.cron import jobs as cron_jobs
+
+        _FETCHER_REGISTRY.pop("fake_stats", None)
+        _FETCHER_REGISTRY["fake_stats"] = _StatsFetcher
+        sources_yaml = tmp_config_dir / "sources.yaml"
+        last_run_path = tmp_config_dir / ".last_run.json"
+        _write_sources_yaml(sources_yaml, [
+            {"source_name": "fake_stats", "feed_url": "http://x/stats",
+             "fetch_interval_min": 30, "enabled": True},
+        ])
+        last_run_path.write_text(json.dumps({}), encoding="utf-8")
+        from moni.fetch.scheduler import Scheduler as FetchScheduler
+
+        tmp_fetch = FetchScheduler(
+            config_path=sources_yaml, last_run_path=last_run_path
+        )
+        monkeypatch.setattr(
+            cron_jobs, "FetchScheduler", lambda *a, **kw: tmp_fetch
+        )
+        try:
+            cron_jobs.fetch_all_sources()
+        finally:
+            _FETCHER_REGISTRY.pop("fake_stats", None)
+        return get_db()
+
+    def test_extra_records_sweep_counters(
+        self, isolated_db, tmp_config_dir, monkeypatch
+    ):
+        conn = self._run_job(isolated_db, tmp_config_dir, monkeypatch)
+        row = conn.execute(
+            "SELECT extra FROM cron_runs WHERE job_id='fetch_all_sources'"
+        ).fetchone()
+        extra = json.loads(row["extra"])
+        stats = extra["sources"]["fake_stats"]
+        assert stats["feeds_scanned"] == 5
+        assert stats["candidates_new"] == 2
+        assert stats["inserted"] == 2
+        assert extra["duration_sec"] >= 0
+        # No tag model in tests → chain records the skip instead of running.
+        assert extra["tag_chain"]["skipped"] == "no active tag model"
+
+    def test_chain_runs_when_tag_model_configured(
+        self, isolated_db, tmp_config_dir, monkeypatch
+    ):
+        from moni.cron import jobs as cron_jobs
+
+        monkeypatch.setattr(cron_jobs, "_tag_model_configured", lambda: True)
+        called: dict = {}
+        monkeypatch.setattr(
+            cron_jobs, "predict_tags_pending", lambda **kw: called.update(kw)
+        )
+
+        conn = self._run_job(isolated_db, tmp_config_dir, monkeypatch)
+
+        assert called["triggered_by"] == "fetch_all_sources"
+        assert called["max_articles"] == cron_jobs.TAG_CHAIN_MAX_ARTICLES
+        row = conn.execute(
+            "SELECT extra FROM cron_runs WHERE job_id='fetch_all_sources'"
+        ).fetchone()
+        chain = json.loads(row["extra"])["tag_chain"]
+        assert chain["pending_before"] >= 2
+        assert "skipped" not in chain

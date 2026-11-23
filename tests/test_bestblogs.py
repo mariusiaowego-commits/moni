@@ -374,6 +374,121 @@ class TestChunkedFlush:
         assert chunks == []
 
 
+# ── full sweep: every feed, every item, cap as safety valve ──────────────
+
+
+class TestFullSweep:
+    """A run must take every item from every feed.
+
+    ``max_articles_total`` stays a user-set safety valve (200000 by
+    default) instead of a fairness mechanism — 478 feeds x <=50 items
+    never reaches it, so no feed is cut off by feed order.
+    """
+
+    def _fetcher(
+        self,
+        monkeypatch,
+        *,
+        feeds=4,
+        items_per_feed=3,
+        max_per_feed=0,
+        max_total=200000,
+        known=(),
+    ):
+        import moni.fetch.sources.bestblogs as bestblogs
+
+        monkeypatch.setattr(
+            bestblogs, "_OVERRIDES_PATH", Path("/nonexistent/feed_overrides.json")
+        )
+        monkeypatch.setattr(
+            bestblogs, "_load_known_urls", lambda name: set(known)
+        )
+        f = FetcherBestBlogs()
+        monkeypatch.setattr(f, "_resolve_urls", lambda: ["http://opml"])
+        monkeypatch.setattr(f, "_load_config", lambda: {
+            "max_feeds": feeds,
+            "max_articles_per_feed": max_per_feed,
+            "max_articles_total": max_total,
+            "request_delay": 0,
+            "flush_every_feeds": 0,
+        })
+        monkeypatch.setattr(
+            f, "_fetch_opml",
+            lambda url: [(f"feed{i}", f"http://feed/{i}") for i in range(feeds)],
+        )
+        monkeypatch.setattr(
+            f, "_fetch_feed",
+            lambda url, title: [
+                {"title": f"{title}-{j}", "url": f"{url}/a{j}"}
+                for j in range(items_per_feed)
+            ],
+        )
+        return f
+
+    @staticmethod
+    def _collect(f, monkeypatch) -> list[str]:
+        urls: list[str] = []
+        monkeypatch.setattr(
+            f, "ingest_chunk", lambda articles: urls.extend(a["url"] for a in articles)
+        )
+        f.fetch()
+        return urls
+
+    def test_zero_per_feed_takes_every_item(self, monkeypatch):
+        f = self._fetcher(monkeypatch, items_per_feed=5, max_per_feed=0)
+        assert len(self._collect(f, monkeypatch)) == 20
+
+    def test_positive_per_feed_cap_still_applies(self, monkeypatch):
+        f = self._fetcher(monkeypatch, items_per_feed=5, max_per_feed=2)
+        assert len(self._collect(f, monkeypatch)) == 8
+
+    def test_known_urls_are_skipped(self, monkeypatch):
+        f = self._fetcher(
+            monkeypatch, known={"http://feed/0/a0", "http://feed/1/a2"}
+        )
+        urls = self._collect(f, monkeypatch)
+        assert "http://feed/0/a0" not in urls
+        assert "http://feed/1/a2" not in urls
+        assert len(urls) == 10
+
+    def test_high_cap_never_truncates(self, monkeypatch):
+        f = self._fetcher(monkeypatch, max_total=200000)
+        urls = self._collect(f, monkeypatch)
+        assert len(urls) == 12
+        assert f.run_stats["budget_capped"] is False
+
+    def test_cap_still_guards_runaway(self, monkeypatch):
+        f = self._fetcher(monkeypatch, max_total=3)
+        urls = self._collect(f, monkeypatch)
+        assert len(urls) == 3
+        assert f.run_stats["budget_capped"] is True
+        assert f.run_stats["feeds_scanned"] == 1
+
+    def test_failed_feed_is_counted(self, monkeypatch):
+        f = self._fetcher(monkeypatch)
+
+        def fake_fetch(url, title):
+            f._last_feed_failed = url.endswith("/1")
+            return [{"title": title, "url": f"{url}/a0"}]
+
+        monkeypatch.setattr(f, "_fetch_feed", fake_fetch)
+        self._collect(f, monkeypatch)
+        assert f.run_stats["feeds_failed"] == 1
+        assert f.run_stats["feeds_total"] == 4
+
+    def test_run_stats_count_candidates_and_selection(self, monkeypatch):
+        f = self._fetcher(monkeypatch, items_per_feed=4)
+        self._collect(f, monkeypatch)
+        assert f.run_stats == {
+            "feeds_total": 4,
+            "feeds_scanned": 4,
+            "feeds_failed": 0,
+            "candidates_new": 16,
+            "selected": 16,
+            "budget_capped": False,
+        }
+
+
 # ── feed overrides (v1.0.68) ─────────────────────────────────────────────
 
 

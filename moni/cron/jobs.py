@@ -57,6 +57,9 @@ CST = ZoneInfo("Asia/Shanghai")
 #: table (``moni/db/leases.py``) and is out of scope here.
 _PREDICT_TAGS_LOCK = threading.Lock()
 
+#: Chain trigger: how many pending articles one post-fetch tagging run may take.
+TAG_CHAIN_MAX_ARTICLES = 2000
+
 #: Cap on tags accepted per article — ``predict_tag.md`` asks for 1-3.
 _MAX_TAGS_PER_ARTICLE = 3
 
@@ -127,6 +130,7 @@ def fetch_all_sources() -> dict[str, Any] | None:
     """
     job_id = "fetch_all_sources"
     triggered_at = _cst_now().isoformat()
+    started_at_dt = _cst_now()
     history = CronRunHistory()
 
     logger.info("[%s] job started at %s", job_id, triggered_at)
@@ -156,6 +160,7 @@ def fetch_all_sources() -> dict[str, Any] | None:
     total_inserted = 0
     sources_run = 0
     sources_failed = 0
+    sources_extra: dict[str, dict[str, Any]] = {}
 
     # Create ONE cron_runs row for the whole job; record its rowid so we can
     # write per-source fetch_log entries linked to it.
@@ -199,6 +204,12 @@ def fetch_all_sources() -> dict[str, Any] | None:
 
             result: dict[str, Any] = fetcher.run()
 
+            # BestBlogs-family fetchers expose their sweep counters here
+            # (feeds_scanned / candidates_new / budget_capped ...).
+            run_stats = getattr(fetcher, "run_stats", None)
+            if isinstance(run_stats, dict) and run_stats:
+                sources_extra[source_name] = dict(run_stats)
+
             fetched = result.get("fetched", 0)
             parsed = result.get("parsed", 0)
             inserted = result.get("inserted", 0)
@@ -233,6 +244,13 @@ def fetch_all_sources() -> dict[str, Any] | None:
             error = f"{type(exc).__name__}: {exc}"
             logger.error("[%s] fetch failed: %s", source_name, error)
             sources_failed += 1
+
+        if source_name in sources_extra:
+            sources_extra[source_name].update({
+                "parsed": parsed,
+                "inserted": inserted,
+                "dropped_tag_filter": dropped_tag_filter,
+            })
 
         # Always mark fetched so the interval timer resets, even on failure
         try:
@@ -284,11 +302,18 @@ def fetch_all_sources() -> dict[str, Any] | None:
         try:
             from ..db.connection import get_db
             conn = get_db()
+            extra: dict[str, Any] = {
+                "duration_sec": round(
+                    (_cst_now() - started_at_dt).total_seconds(), 1
+                ),
+            }
+            if sources_extra:
+                extra["sources"] = sources_extra
             conn.execute(
                 """
                 UPDATE cron_runs
                 SET finished_at=?, success=?, error=?,
-                    new_articles=?, sources_run=?
+                    new_articles=?, sources_run=?, extra=?
                 WHERE id=?
                 """,
                 (
@@ -297,6 +322,7 @@ def fetch_all_sources() -> dict[str, Any] | None:
                     None if overall_success else f"{sources_failed} source(s) failed",
                     total_inserted,
                     sources_run,
+                    json.dumps(extra, ensure_ascii=False),
                     cron_run_rowid,
                 ),
             )
@@ -304,11 +330,82 @@ def fetch_all_sources() -> dict[str, Any] | None:
         except Exception as exc:
             logger.error("[%s] Failed to update cron_runs row: %s", job_id, exc)
 
+    # ── Chain: tag the articles this run just inserted ───────────────────
+    # Replaces the old 9:25 standalone cron entry.  Runs after the fetch row
+    # is finalised so a slow LLM never makes the fetch look unfinished.
+    if total_inserted > 0:
+        _run_tag_chain(job_id=job_id, cron_run_rowid=cron_run_rowid)
+
     logger.info(
         "[%s] finished at %s — sources_run=%d inserted=%d failed=%d",
         job_id, finished_at, sources_run, total_inserted, sources_failed,
     )
     return None
+
+
+def _pending_tag_count() -> int:
+    """Articles with no ``article_tags`` row yet."""
+    conn = get_db()
+    row = conn.execute(
+        """
+        SELECT COUNT(*)
+        FROM articles a
+        LEFT JOIN article_tags at ON at.article_id = a.id
+        WHERE at.article_id IS NULL
+        """
+    ).fetchone()
+    return int(row[0] or 0)
+
+
+def _run_tag_chain(*, job_id: str, cron_run_rowid: int) -> None:
+    """Tag pending articles right after a fetch run; record the outcome."""
+    if not _tag_model_configured():
+        # Without a model the chained job would only write an error row.
+        _write_tag_chain(cron_run_rowid, {"skipped": "no active tag model"})
+        return
+
+    chain: dict[str, Any] = {}
+    try:
+        pending_before = _pending_tag_count()
+        chain["pending_before"] = pending_before
+        if pending_before:
+            predict_tags_pending(
+                batch_size=min(pending_before, TAG_CHAIN_MAX_ARTICLES),
+                max_articles=TAG_CHAIN_MAX_ARTICLES,
+                triggered_by=job_id,
+            )
+        chain["pending_after"] = _pending_tag_count()
+    except Exception as exc:
+        logger.error("[%s] chained tagging failed: %s", job_id, exc)
+        chain["error"] = f"{type(exc).__name__}: {exc}"
+
+    _write_tag_chain(cron_run_rowid, chain)
+
+
+def _tag_model_configured() -> bool:
+    try:
+        resolve_active_model("active_tag_model_id")
+        return True
+    except Exception:
+        return False
+
+
+def _write_tag_chain(cron_run_rowid: int, chain: dict[str, Any]) -> None:
+    if not cron_run_rowid:
+        return
+    try:
+        conn = get_db()
+        conn.execute(
+            """
+            UPDATE cron_runs
+            SET extra = json_set(COALESCE(extra, '{}'), '$.tag_chain', json(?))
+            WHERE id = ?
+            """,
+            (json.dumps(chain, ensure_ascii=False), cron_run_rowid),
+        )
+        conn.commit()
+    except Exception as exc:
+        logger.warning("failed to record tag chain: %s", exc)
 
 
 def predict_tags_pending(
@@ -318,6 +415,7 @@ def predict_tags_pending(
     provider: str | None = None,
     model: str | None = None,
     llm_call_fn: Any = None,
+    triggered_by: str | None = None,
 ) -> dict[str, Any] | None:
     """Tag untagged articles with LLM-predicted tags.
 
@@ -342,6 +440,10 @@ def predict_tags_pending(
     llm_call_fn : Any
         Optional callable ``fn(prompt: str) -> str`` used instead of the
         real LLM (test injection).
+    triggered_by : str | None
+        Job id that chained this run (e.g. ``fetch_all_sources``).  Stored
+        in ``cron_runs.extra`` so a chained tick is distinguishable from a
+        manual/scheduled one.
 
     Logging
     -------
@@ -356,6 +458,7 @@ def predict_tags_pending(
     job_id = "predict_tags_pending"
     triggered_at = _cst_now().isoformat()
     history = CronRunHistory()
+    run_extra = {"triggered_by": triggered_by} if triggered_by else None
 
     logger.info("[%s] job started at %s", job_id, triggered_at)
 
@@ -378,6 +481,7 @@ def predict_tags_pending(
                 error="skipped: another run already in progress",
                 new_articles=0,
                 sources_run=0,
+                extra=run_extra,
             )
         except Exception as exc:
             logger.error("[%s] Failed to write skipped cron_runs row: %s", job_id, exc)
@@ -393,6 +497,7 @@ def predict_tags_pending(
             provider=provider,
             model=model,
             llm_call_fn=llm_call_fn,
+            run_extra=run_extra,
         )
     finally:
         _PREDICT_TAGS_LOCK.release()
@@ -408,6 +513,7 @@ def _predict_tags_pending_locked(
     provider: str | None,
     model: str | None,
     llm_call_fn: Any,
+    run_extra: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Body of ``predict_tags_pending`` — runs with the job mutex held."""
     conn = get_db()
@@ -422,7 +528,7 @@ def _predict_tags_pending_locked(
         logger.warning("[%s] No active tags defined in tag_definitions — nothing to do", job_id)
         finished_at = _cst_now().isoformat()
         history.log_run(job_id, triggered_at=triggered_at, finished_at=finished_at,
-                        success=True, new_articles=0, sources_run=0)
+                        success=True, new_articles=0, sources_run=0, extra=run_extra)
         return None
 
     # ── Find untagged articles ─────────────────────────────────────────────
@@ -446,7 +552,7 @@ def _predict_tags_pending_locked(
         logger.info("[%s] No pending articles — nothing to do", job_id)
         finished_at = _cst_now().isoformat()
         history.log_run(job_id, triggered_at=triggered_at, finished_at=finished_at,
-                        success=True, new_articles=0, sources_run=0)
+                        success=True, new_articles=0, sources_run=0, extra=run_extra)
         return None
 
     logger.info("[%s] %d article(s) pending tagging", job_id, len(article_rows))
@@ -476,7 +582,8 @@ def _predict_tags_pending_locked(
                          job_id, exc)
             finished_at = _cst_now().isoformat()
             history.log_run(job_id, triggered_at=triggered_at, finished_at=finished_at,
-                            success=False, error=str(exc), new_articles=0, sources_run=0)
+                            success=False, error=str(exc), new_articles=0, sources_run=0,
+                            extra=run_extra)
             return None
     logger.info("[%s] using model %s/%s", job_id, provider, model)
 
@@ -556,6 +663,7 @@ def _predict_tags_pending_locked(
             error="; ".join(error_parts) if error_parts else None,
             new_articles=processed,
             sources_run=processed,
+            extra=run_extra,
         )
     except Exception as exc:
         logger.error("[%s] Failed to write cron_runs row: %s", job_id, exc)
