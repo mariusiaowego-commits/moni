@@ -49,7 +49,7 @@ CI `pytest · py3.12` success；agy 复审 APPROVE。生产重跑文章 `64e56ae
 
 **② 邮箱脱敏**
 5 个 tracked 文件里的 4 个真实 Gmail 换成 `user1..6@example.com` 合成账号，断言同步改。
-实测 `rg "matthew\.qi\.tao|fledgeel|linqin7533|mariusiaowego@"` → 0 命中。
+实测按 4 个真实 Gmail 的本地部分逐文件扫描 → 0 命中（不在文档里复述具体字符串）。
 历史 commit 里的邮箱不动（要 `filter-repo`，非本 sprint 范围）。
 
 **③ Profile 7 迁移**
