@@ -600,13 +600,23 @@ def cmd_export(fmt: str) -> None:
 cron_parser = SUB.add_parser("cron", help="Cron scheduler operations")
 cron_sub = cron_parser.add_subparsers(dest="cron_subcmd", required=True)
 
-cron_sub.add_parser("start", help="Start the BackgroundScheduler (background daemon)")
+cron_start_parser = cron_sub.add_parser(
+    "start", help="Start the cron scheduler (background daemon by default)"
+)
+cron_start_parser.add_argument(
+    "--foreground",
+    action="store_true",
+    help="Run in the foreground so launchd/systemd supervises the real process",
+)
 cron_sub.add_parser("stop", help="Stop the running scheduler")
 cron_sub.add_parser("status", help="Show scheduler running state")
 
 
-def cmd_cron_start() -> int:
-    """Start the cron scheduler as a background daemon.
+def cmd_cron_start(foreground: bool = False) -> int:
+    """Start the cron scheduler.
+
+    Default: fork a detached background daemon (manual use).
+    ``--foreground``: stay in the current process so launchd supervises it.
 
     Forks a child process that:
     1. Runs DB migration (so cron_runs/fetch_log tables exist).
@@ -637,6 +647,21 @@ def cmd_cron_start() -> int:
     except ImportError:
         print("ERROR: apscheduler is not installed. Run: pip install apscheduler")
         return 1
+
+    if foreground:
+        pid_path.write_text(str(os.getpid()))
+        try:
+            CronScheduler().start()
+            import time
+
+            while True:
+                time.sleep(3600)
+        finally:
+            try:
+                pid_path.unlink()
+            except OSError:
+                pass
+        return 0
 
     pid = os.fork()
     if pid == 0:
@@ -926,7 +951,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.subcmd == "cron":
         if args.cron_subcmd == "start":
-            return cmd_cron_start()
+            return cmd_cron_start(foreground=getattr(args, "foreground", False))
         elif args.cron_subcmd == "stop":
             return cmd_cron_stop()
         elif args.cron_subcmd == "status":

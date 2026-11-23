@@ -12,6 +12,7 @@
         <string>moni.cli.main</string>
         <string>cron</string>
         <string>start</string>
+        <string>--foreground</string>
     </array>
 
     <key>WorkingDirectory</key>
@@ -29,7 +30,11 @@
 
     <!-- Keep alive: restart on crash, but not on successful exit (stop command) -->
     <key>KeepAlive</key>
-    <true/>
+    <dict>
+        <!-- Restart only after a crash; a clean `moni cron stop` (exit 0) stays stopped. -->
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
 
     <!-- Run at load even without a launchd trigger -->
     <key>RunAtLoad</key>
