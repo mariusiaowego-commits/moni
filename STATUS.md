@@ -3,7 +3,7 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
-## 进行中: **定时任务控制台（cron-console）** (2026-11-23 · PR #277 · Sprint 26112369)
+## 已发布: **v1.0.116 — 定时任务控制台 + launchd 前台监督 + BV Direction V2 S1 内核** (2026-11-23 · PR #277 → `f773058`、PR #279 → `b804ded`、PR #225 → `e8fd419` · tag `v1.0.116` · Sprint 26112369 / 26112367)
 
 定时任务原本只存在于 `config/schedule.yaml`，启动时一次性读取；界面只有跑批日志，
 看不到任务清单、下次触发时间，不能改时间/启停/立即运行，`POST /api/cron/jobs` 还会写假记录。
@@ -14,12 +14,26 @@ API：`GET/PUT /api/cron/jobs`、`POST /api/cron/jobs/{id}/run`（409 防重）�
 `GET /api/cron/runs?job_id=`；旧 `POST /api/cron/jobs` 返回 410。
 前端：配置管理新增「定时任务」页（状态条 + 6 列表格 + 编辑弹窗 + 立即运行），跑批日志加任务过滤。
 
-**验证**：定向 187 passed（`test_cron_registry` / `test_cron` / `test_api` / `test_frontend_render_hygiene`）；
-后端分支全量 2528 passed / 1 failed（PIL 环境缺失，与本分支无关）/ 2 skipped；
-生产库副本跑 056（schema 56）+ 本地 8929 实例 CDP 实测：5 行任务、人话计划、编辑弹窗取值正确、
-`fetch_all_sources` 不显示 batch_size、状态条正确显示「调度器离线」。
+**launchd 修复（#279）**：旧 plist 跑 `cron start`（fork 后父进程退出），launchd 监督到的是错误进程，
+每 10s 重试并刷日志。改为 `cron start --foreground`，`KeepAlive={SuccessfulExit:false}`，
+正常 `moni cron stop` 后不再自动拉起。
 
-**状态**：PR #277 待合并；未部署，未改生产库。
+**BV Direction V2 S1（#225，另一会话开发）**：migration 053/054 建 `bv_direction` /
+`bv_direction_research` / `article_bv_direction`，新增 `moni/scoring/direction.py` 研究提示词与校验。
+本阶段只落内核，**无 route、无入口、无 UI**，不改变现有抓取/打标行为；S2/S3 在
+`feat/bv-direction-v2-s2-config`（worktree `moni-worktrees/bv-direction-v2`，ahead 8 / behind 7），本次未部署。
+
+**验证**：定向 187 passed（`test_cron_registry` / `test_cron` / `test_api` / `test_frontend_render_hygiene`），
+新增 `test_cli_cron_foreground` 2 passed；后端全量 2528 passed / 1 failed（PIL 环境缺失，与本分支无关）/ 2 skipped；
+CI `pytest · py3.12` 对 #277、#279 均 SUCCESS。
+
+**部署**：`main` = `b804ded`，tag `v1.0.116` → `b804ded`；生产 checkout `/Users/mt16/dev/moni`
+快进到 `b804ded`；schema **56**（053/054/056 已于 16:41:47 CST 执行，`cron_jobs` 5 行）；
+迁移前备份 `data/backups/news.db.pre-v1.0.116-redeploy-20261123-164141`（138 MB）。
+8900 web 重启后 PID **6397**；`com.moni.cron` 由 launchd 前台监督，PID **5874**，
+`launchctl` state `running`，日志 15s 内行数不变（982 → 982，不再 10s 重试）。
+`/api/cron/status` → `running:true, heartbeat_age_sec:11.5, job_count:5`；
+`/config?tab=jobs` 实测 5 行任务、`抓取所有源 · 工作日 09:10`、状态条「调度器在线 · 最近心跳：7 秒前（5 个任务 · 版本 v1）」。
 
 ## 已发布: **v1.0.115 — BestBlogs 全量抓取 + 链式打标** (2026-11-23 · PR #274 → `846b501` · tag `v1.0.115` · Sprint 26112368)
 
@@ -40,8 +54,8 @@ schema 52 → **55**（`cron_runs.extra` 已加），迁移前备份
 核验：`/api/fetch/sources` 200、`/api/config/sources/src-bestblogs` 200
 （`per_feed=0` / `total=200000` / `timeout_sec=2700`）、`/api/cron/runs` 的 `extra` 已解析、
 页面引用 `app.js?v=20261123002`。
-**未生效**：调度进程 `com.moni.cron` 当前未加载（`launchctl` 查无此服务），9:10 自动抓取不会触发，
-需 `bash scripts/install-launchd.sh install`（待授权）。
+**调度进程**：当轮未加载（`launchctl` 查无此服务），已在 **v1.0.116** 用 `bash scripts/install-launchd.sh install`
+重装并由 launchd 前台监督，9:10 自动抓取恢复。
 
 ## 已发布: **v1.0.114 — 银行同业抓取可见性** (2026-11-23 · PR #272 → `12ffca3`、PR #273 → `a9ac7b5` · tag `v1.0.114` · Sprint 26112067)
 
