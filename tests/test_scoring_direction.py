@@ -236,7 +236,16 @@ def test_template_without_placeholder_is_rejected():
 
 def test_template_with_a_broken_placeholder_is_rejected():
     """``}{`` and ``{{}}`` are not a placeholder -- they would blow up later."""
-    for broken in ("}{", "{{}}", "{ }", "{a{b}c}", "x{{y}}z", "{}"):
+    for broken in (
+        "}{",
+        "{{}}",
+        "{ }",
+        "{a{b}c}",
+        "x{{y}}z",
+        "{}",
+        "{a}}",
+        "{{a}",
+    ):
         payload = _payload()
         payload["dimensions"]["rule_delta"]["template"] = broken
         research, error = parse_research(payload)

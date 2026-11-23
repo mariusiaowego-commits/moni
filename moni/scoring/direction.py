@@ -40,7 +40,7 @@ SCOPE_MAX_CHARS = 80
 
 #: A reason template must carry at least one real ``{placeholder}``:
 #: non-blank, no nested braces.
-_PLACEHOLDER = re.compile(r"\{[^{}]*\S[^{}]*\}")
+_PLACEHOLDER = re.compile(r"\{[^{}]*[^\s{}][^{}]*\}")
 
 STATUS_RUNNING = "running"
 STATUS_PASSED = "passed"

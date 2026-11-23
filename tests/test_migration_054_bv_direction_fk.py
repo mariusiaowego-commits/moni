@@ -343,7 +343,9 @@ def test_054_merges_a_leftover_staging_table_with_the_real_one(db):
         "research_version INTEGER NOT NULL, score INTEGER, note TEXT, "
         "status TEXT NOT NULL, error TEXT, breakdown_json TEXT, "
         "content_hash TEXT NOT NULL, rubric_id TEXT, scored_at TEXT NOT NULL, "
-        "PRIMARY KEY (article_id, direction_id, research_version))"
+        "PRIMARY KEY (article_id, direction_id, research_version), "
+        "FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE, "
+        "FOREIGN KEY (direction_id) REFERENCES bv_direction(id) ON DELETE CASCADE)"
     )
     db.execute(
         "INSERT INTO article_bv_direction_new (article_id, direction_id, "
@@ -360,6 +362,44 @@ def test_054_merges_a_leftover_staging_table_with_the_real_one(db):
         row[0] for row in db.execute("SELECT score FROM article_bv_direction")
     )
     assert scores == [11, 66]
+    # The whole point of this migration: the rebuilt table has the constraints.
+    assert _fk_targets(db, "article_bv_direction") == {"articles", "bv_direction"}
+
+
+def test_054_merging_prefers_the_staging_row_on_a_real_conflict(db):
+    """Same primary key in both tables -- the staging row wins.
+
+    The staging table is the newer copy, so it is the one to keep; the
+    OR IGNORE in the migration makes that the behaviour.
+    """
+    article_id = _article(db)
+    direction_id = _direction(db)
+    _score(db, article_id, direction_id, 66)
+
+    db.execute("PRAGMA foreign_keys = OFF")
+    db.execute(
+        "CREATE TABLE article_bv_direction_new ("
+        "article_id TEXT NOT NULL, direction_id INTEGER NOT NULL, "
+        "research_version INTEGER NOT NULL, score INTEGER, note TEXT, "
+        "status TEXT NOT NULL, error TEXT, breakdown_json TEXT, "
+        "content_hash TEXT NOT NULL, rubric_id TEXT, scored_at TEXT NOT NULL, "
+        "PRIMARY KEY (article_id, direction_id, research_version), "
+        "FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE, "
+        "FOREIGN KEY (direction_id) REFERENCES bv_direction(id) ON DELETE CASCADE)"
+    )
+    db.execute(
+        "INSERT INTO article_bv_direction_new (article_id, direction_id, "
+        "research_version, score, status, content_hash, scored_at) "
+        "VALUES (?, ?, 1, 99, 'ready', 'h', ?)",
+        (article_id, direction_id, NOW),
+    )
+    db.execute("PRAGMA foreign_keys = ON")
+    db.commit()
+
+    _run_sql_file(db, MIGRATION_054)
+
+    scores = [row[0] for row in db.execute("SELECT score FROM article_bv_direction")]
+    assert scores == [99]
 
 
 def test_054_is_atomic_when_a_statement_fails(db, monkeypatch):
@@ -393,3 +433,26 @@ def test_054_is_atomic_when_a_statement_fails(db, monkeypatch):
 
     # The old table is still there with its rows -- nothing was half-done.
     assert db.execute("SELECT COUNT(*) FROM article_bv_direction").fetchone()[0] == 1
+
+
+# ── 7. the script itself must be atomic ───────────────────────────────
+
+
+def test_054_runs_inside_one_transaction():
+    """Without an explicit transaction the runner falls back to a path that
+    is only accidentally atomic.
+
+    ``_run_sql_file`` tries ``executescript`` first and, when a statement
+    fails there, retries statement by statement.  A migration file that
+    opens no transaction of its own therefore gets the per-statement path,
+    whose atomicity depends on an implicit transaction that a DDL statement
+    can end at any time.  The rebuild must be one transaction, so the file
+    says so.
+    """
+    sql = MIGRATION_054.read_text(encoding="utf-8")
+    assert "BEGIN IMMEDIATE" in sql
+    assert "COMMIT" in sql
+    # The pragmas have to sit outside the transaction: PRAGMA foreign_keys
+    # is a no-op inside one.
+    assert sql.index("PRAGMA foreign_keys = OFF") < sql.index("BEGIN IMMEDIATE")
+    assert sql.index("COMMIT") < sql.index("PRAGMA foreign_keys = ON")
