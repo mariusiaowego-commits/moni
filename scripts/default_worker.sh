@@ -824,7 +824,7 @@ ${new_summaries}"
     # v1.0.10: enrichment (fact_check / business_value / brief re-read).
     # Runs when brief mode or either enrichment flag is on. Rebuilds
     # article_content from DB so format prompt sees writebacks.
-    local brief_val include_fc_val include_bv_val
+    local brief_val include_fc_val include_bv_val include_ctx_val
     brief_val=$(python3 -c "
 import json, sys
 d = json.load(open(sys.argv[1]))
@@ -843,16 +843,22 @@ d = json.load(open(sys.argv[1]))
 p = d.get('payload', {}) if isinstance(d.get('payload'), dict) else {}
 print('true' if p.get('include_business_value') else 'false')
 " "$manifest_path" 2>/dev/null || echo "false")
+    include_ctx_val=$(python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+p = d.get('payload', {}) if isinstance(d.get('payload'), dict) else {}
+print('true' if p.get('include_user_context') else 'false')
+" "$manifest_path" 2>/dev/null || echo "false")
 
     if task_should_abort "$task_id"; then
         return 0
     fi
 
     if [[ -n "$article_ids_str" ]] && \
-       { [[ "$brief_val" == "true" ]] || [[ "$include_fc_val" == "true" ]] || [[ "$include_bv_val" == "true" ]]; }; then
+       { [[ "$brief_val" == "true" ]] || [[ "$include_fc_val" == "true" ]] || [[ "$include_bv_val" == "true" ]] || [[ "$include_ctx_val" == "true" ]]; }; then
         update_progress "$task_id" "enrich_business_value" 50 \
             "正在富化（事实核查/业务价值）..."
-        log "ENRICH $task_id — running moni.share.enrichment (brief=$brief_val fc=$include_fc_val bv=$include_bv_val)"
+        log "ENRICH $task_id — running moni.share.enrichment (brief=$brief_val fc=$include_fc_val bv=$include_bv_val ctx=$include_ctx_val)"
 
         # Prefer python -m so editable install resolves moni package.
         # Command substitution around a background+wait child would delay

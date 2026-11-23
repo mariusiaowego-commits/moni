@@ -43,6 +43,11 @@ BV_ARTICLE_BUDGET_SEC = 120.0
 MIN_BV_ARTICLE_BUDGET = 60.0
 THIN_CONTENT_CHARS = 200
 
+# User-curated context budget.  These are prompt inputs, not rendered copy:
+# keep them small enough that a 10-article brief does not crowd out raw_content.
+USER_CONTEXT_PER_ARTICLE_CHARS = 2400
+USER_CONTEXT_TOTAL_CHARS = 12000
+
 FACT_CHECK_PROMPT = """你是 moni 事实核查助手。只基于文内声明，不编造。
 
 要求（短）：
@@ -678,6 +683,7 @@ def _load_flags(manifest_path: str | None) -> dict[str, Any]:
         "include_abstract": True,
         "include_fact_check": False,
         "include_business_value": False,
+        "include_user_context": False,
         "include_quality_score": False,
         "brief": False,
         "bb_summary_source": "moni_ai",
@@ -1593,6 +1599,71 @@ def _fact_check_material(row: sqlite3.Row, summary: str = "") -> str:
     return block
 
 
+_CONTEXT_KIND_LABELS = {
+    "chat": "AI 对话",
+    "note": "手记",
+    "quote": "原文摘录",
+    "summary": "摘要",
+    "fact_check": "核查",
+}
+
+
+def _load_user_contexts(
+    conn: sqlite3.Connection, article_ids: list[str]
+) -> dict[str, list[dict[str, Any]]]:
+    if not article_ids:
+        return {}
+    placeholders = ",".join("?" * len(article_ids))
+    try:
+        rows = conn.execute(
+            "SELECT article_id, kind, title, body FROM article_contexts "
+            f"WHERE article_id IN ({placeholders}) "
+            "ORDER BY article_id, sort_order, created_at",
+            article_ids,
+        ).fetchall()
+    except sqlite3.OperationalError:
+        # Pre-056 databases (or hand-built test DBs) have no table yet.
+        return {}
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(str(row["article_id"]), []).append(dict(row))
+    return grouped
+
+
+def _user_context_material(
+    items: list[dict[str, Any]], *, budget: int
+) -> tuple[str, int]:
+    if not items or budget <= 0:
+        return "", 0
+    lines: list[str] = []
+    used = 0
+    for item in items:
+        body = (item.get("body") or "").strip()
+        if not body:
+            continue
+        label = _CONTEXT_KIND_LABELS.get(str(item.get("kind") or ""), "上下文")
+        title = (item.get("title") or "").strip()
+        prefix = f"- [{label}]"
+        body_head = body.lstrip()
+        title_repeated = bool(title) and (
+            body_head.startswith(f"{title}：") or body_head.startswith(f"{title}:")
+        )
+        if title and not title_repeated:
+            prefix += f" {title}:"
+        line = f"{prefix} {body}"
+        remaining = budget - used
+        if remaining <= 0:
+            break
+        if len(line) > remaining:
+            line = line[: max(remaining - 1, 0)] + "…"
+        lines.append(line)
+        used += len(line)
+    if not lines:
+        return "", 0
+    material = "\n\n**用户上下文（用户整理，非核查结论）**:\n" + "\n".join(lines)
+    return material, used
+
+
 def rebuild_article_content(
     db_path: str,
     article_ids: list[str],
@@ -1600,6 +1671,7 @@ def rebuild_article_content(
     brief: bool = False,
     bb_summary_source: str = "moni_ai",
     include_fact_check: bool = True,
+    include_user_context: bool = False,
 ) -> str:
     """Re-read articles and build prompt body blocks (post-enrichment).
 
@@ -1607,12 +1679,25 @@ def rebuild_article_content(
     v1.0.24: append 事实核查证据 section (MD) when brief=True.
     include_fact_check=False: omit the fact-check block entirely (a BV-only
     report used to inherit historical fact-check rows).
+    include_user_context=True: append the user's saved contexts as a
+    clearly-labelled block; capped per article and across the whole prompt.
     """
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         rows = _article_rows(conn, article_ids)
         fact_check_summaries = _fact_check_summaries(conn, article_ids)
+        user_contexts = (
+            _load_user_contexts(conn, article_ids) if include_user_context else {}
+        )
+        context_budget = USER_CONTEXT_TOTAL_CHARS
+        context_article_count = max(
+            1, sum(1 for items in user_contexts.values() if items)
+        )
+        per_article_context_budget = min(
+            USER_CONTEXT_PER_ARTICLE_CHARS,
+            max(600, USER_CONTEXT_TOTAL_CHARS // context_article_count),
+        )
         evidence_md = ""
         if brief and include_fact_check and article_ids:
             try:
@@ -1715,6 +1800,15 @@ def rebuild_article_content(
         if include_fact_check:
             block += _fact_check_material(row, fact_check_summaries.get(str(row["id"]), ""))
 
+        if include_user_context:
+            material, used = _user_context_material(
+                user_contexts.get(str(row["id"]), []),
+                budget=min(per_article_context_budget, context_budget),
+            )
+            if material:
+                block += material
+                context_budget -= used
+
         parts.append(block)
 
     body = "\n\n---\n\n".join(parts)
@@ -1770,6 +1864,7 @@ def main(argv: list[str] | None = None) -> int:
             brief=bool(flags.get("brief")),
             bb_summary_source=str(flags.get("bb_summary_source") or "moni_ai"),
             include_fact_check=bool(flags.get("include_fact_check")),
+            include_user_context=bool(flags.get("include_user_context")),
         )
         print(text)
     return 0

@@ -506,6 +506,7 @@ def create_brief(body: BriefCreateRequest) -> BriefCreateResponse:
         "include_abstract": bool(opts.get("include_abstract", True)),
         "include_fact_check": bool(opts.get("include_fact_check", True)),
         "include_business_value": bool(opts.get("include_business_value", True)),
+        "include_user_context": bool(opts.get("include_user_context", False)),
         "include_quality_score": bool(opts.get("include_quality_score", True)),
         "brief": True,
         "bb_enhance": bool(opts.get("bb_enhance", False)),
