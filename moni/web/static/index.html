@@ -2845,6 +2845,7 @@
           <button class="tab-btn" :class="{ active: configTab === 'tags' }"    @click="switchConfigTab('tags')">业务 tag</button>
           <button class="tab-btn" :class="{ active: configTab === 'filters' }" @click="switchConfigTab('filters')">关键词过滤</button>
           <button class="tab-btn" :class="{ active: configTab === 'llm' }"     @click="switchConfigTab('llm')">大模型设置</button>
+          <button class="tab-btn" :class="{ active: configTab === 'jobs' }"    @click="switchConfigTab('jobs')">定时任务</button>
           <button class="tab-btn" :class="{ active: configTab === 'cron' }"    @click="switchConfigTab('cron')">跑批日志</button>
         </div>
 
@@ -3363,8 +3364,106 @@
         </div>
         </div><!-- /configTab === llm -->
 
-        <!-- ── Tab 5: 跑批日志 (原一级菜单) ── -->
+        <!-- ── Tab 5: 定时任务 ── -->
+        <div x-show="configTab === 'jobs'">
+          <div class="surface-muted" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 14px; border-radius: 6px;">
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <span class="status-badge" :class="cronStatusBadgeClass()" x-text="cronStatusBadgeText()"></span>
+              <span class="muted" style="font-size: var(--font-13);" :title="cronStatusError || ''" x-text="cronStatusSummaryText()"></span>
+            </div>
+            <button type="button" class="icon-btn" :disabled="cronJobsLoading || cronStatusLoading"
+                    @click="refreshCronConsole()" title="刷新定时任务与调度器状态" aria-label="刷新">
+              <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path><path d="M16 21h5v-5"></path></svg>
+            </button>
+          </div>
+
+          <div x-show="cronJobsError" x-cloak
+               style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; padding: 10px 14px; border-radius: 6px; border: 1px solid var(--destructive);">
+            <span class="text-danger" style="font-size: var(--font-13);" x-text="'加载定时任务失败：' + cronJobsError"></span>
+            <button type="button" class="btn-secondary" @click="refreshCronConsole()">重试</button>
+          </div>
+
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>任务</th>
+                  <th>计划</th>
+                  <th>上次运行</th>
+                  <th>下次运行</th>
+                  <th>状态</th>
+                  <th style="text-align: right;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="job in cronJobs" :key="'cron-job-' + job.id">
+                  <tr>
+                    <td>
+                      <div style="font-weight: 500;" :title="job.func_path || ''" x-text="job.name || job.id"></div>
+                      <div class="muted" style="font-size: var(--font-12);" :title="job.func_path || ''" x-text="cronJobSubLabel(job)"></div>
+                    </td>
+                    <td class="nowrap" x-text="formatCronSchedule(job.schedule)"></td>
+                    <td class="nowrap" x-text="job.last_run_at ? formatTime(job.last_run_at) : '尚未运行'"></td>
+                    <td class="nowrap">
+                      <span :class="!job.is_active ? 'muted' : ''"
+                            x-text="!job.is_active ? '已停用（不触发）' : (job.next_run_at ? formatTime(job.next_run_at) : '-')"></span>
+                    </td>
+                    <td class="nowrap">
+                      <span class="status-badge"
+                            :class="job.is_active ? 'status-success' : 'status-cancelled'"
+                            x-text="job.is_active ? '启用' : '停用'"></span>
+                    </td>
+                    <td style="text-align: right;">
+                      <div class="row-actions" style="justify-content: flex-end;">
+                        <button type="button" class="link-btn" @click="openCronJobModal(job)">编辑</button>
+                        <button type="button" class="link-btn"
+                                :disabled="!!cronJobRunningId[job.id]"
+                                @click="runCronJobNow(job)"
+                                x-text="cronJobRunningId[job.id] ? '提交中…' : '立即运行'"></button>
+                        <button type="button" class="link-btn" @click="openCronJobHistory(job)">历史</button>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="cronJobsLoading && cronJobs.length === 0">
+                  <td colspan="6" class="empty-row">正在加载定时任务…</td>
+                </tr>
+                <tr x-show="!cronJobsLoading && !cronJobsError && cronJobs.length === 0">
+                  <td colspan="6" class="empty-row">暂无定时任务配置</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="muted" style="font-size: var(--font-12); margin-top: 8px;">修改计划后约 15 秒内由调度器自动热生效，无需重启服务</p>
+        </div>
+
+        <!-- ── Tab 6: 跑批日志 (原一级菜单) ── -->
         <div x-show="configTab === 'cron'">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <label class="muted" style="font-size: var(--font-13);" for="cron-run-job-filter">任务筛选</label>
+              <select id="cron-run-job-filter" x-model="cronRunJobFilter" @change="loadCronRuns()"
+                      style="padding: 4px 8px; font-size: var(--font-13);">
+                <option value="">全部任务</option>
+                <template x-for="j in cronJobs" :key="'cron-filter-' + j.id">
+                  <option :value="j.id" x-text="(j.name || j.id) + ' (' + j.id + ')'"></option>
+                </template>
+              </select>
+              <button type="button" class="link-btn" x-show="cronRunJobFilter" x-cloak
+                      @click="cronRunJobFilter = ''; loadCronRuns()">查看全部</button>
+            </div>
+            <button type="button" class="icon-btn" :disabled="cronRunsLoading"
+                    @click="loadCronRuns()" title="刷新跑批日志" aria-label="刷新">
+              <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path><path d="M16 21h5v-5"></path></svg>
+            </button>
+          </div>
+
+          <div x-show="cronRunsError" x-cloak
+               style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; padding: 10px 14px; border-radius: 6px; border: 1px solid var(--destructive);">
+            <span class="text-danger" style="font-size: var(--font-13);" x-text="'加载跑批日志失败：' + cronRunsError"></span>
+            <button type="button" class="btn-secondary" @click="loadCronRuns()">重试</button>
+          </div>
+
           <div class="table-container">
             <table>
               <thead>
@@ -3397,9 +3496,19 @@
                   </tr>
                 </tbody>
               </template>
-              <tbody x-show="cronRuns.length === 0">
+              <tbody x-show="cronRunsLoading && cronRuns.length === 0">
                 <tr>
-                  <td colspan="7" class="empty-row">暂无数据</td>
+                  <td colspan="7" class="empty-row">正在加载跑批日志…</td>
+                </tr>
+              </tbody>
+              <tbody x-show="!cronRunsLoading && !cronRunsError && cronRuns.length === 0">
+                <tr>
+                  <td colspan="7" class="empty-row">
+                    <span x-text="cronRunJobFilter ? '该任务暂无跑批记录' : '暂无跑批记录'"></span>
+                    <button type="button" class="link-btn" style="margin-left: 8px;"
+                            x-show="cronRunJobFilter" x-cloak
+                            @click="cronRunJobFilter = ''; loadCronRuns()">查看全部</button>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -3408,6 +3517,68 @@
       </section>
 
     </main>
+
+    <!-- ══ Cron Job Edit Modal ════════════════════════════════════ -->
+    <div class="modal-backdrop" x-show="cronJobModalOpen" x-cloak
+         @click.self="closeCronJobModal()"
+         @keydown.escape.window="if (cronJobModalOpen) closeCronJobModal()">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>编辑定时任务</h3>
+        </div>
+        <div class="modal-body">
+          <div class="form-row">
+            <label>任务</label>
+            <div style="font-weight: 500;" x-text="(cronJobForm.name || cronJobForm.id) + (cronJobForm.id ? '（' + cronJobForm.id + '）' : '')"></div>
+            <small class="muted">任务标识与执行函数由系统固定，不可修改</small>
+          </div>
+          <div class="form-row">
+            <label for="cron-job-time">触发时间（北京时间） <span class="required">*</span></label>
+            <input id="cron-job-time" type="time" step="60" x-model="cronJobForm.time">
+          </div>
+          <div class="form-row">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+              <label style="margin-bottom: 0;">执行周期 <span class="required">*</span></label>
+              <div style="display: flex; gap: 6px;">
+                <button type="button" class="link-btn" @click="setCronJobDaysPreset('workdays')">工作日</button>
+                <button type="button" class="link-btn" @click="setCronJobDaysPreset('everyday')">每天</button>
+              </div>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+              <template x-for="d in CRON_WEEKDAYS" :key="d.key">
+                <label style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; font-weight: 400; margin-bottom: 0;"
+                       :style="cronJobForm.days.includes(d.key) ? 'border-color: var(--primary); background: var(--muted); font-weight: 500;' : ''">
+                  <input type="checkbox"
+                         :checked="cronJobForm.days.includes(d.key)"
+                         @change="toggleCronJobDay(d.key)"
+                         style="width: auto; margin: 0;">
+                  <span x-text="d.label"></span>
+                </label>
+              </template>
+            </div>
+          </div>
+          <div class="form-row">
+            <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 0;">
+              <input type="checkbox" x-model="cronJobForm.is_active" style="width: auto; margin: 0;">
+              <span>启用该定时任务</span>
+            </label>
+            <small class="muted">停用后不会按计划自动触发，仍可手动「立即运行」</small>
+          </div>
+          <div class="form-row" x-show="cronJobForm.func_path === 'moni.cron.jobs:extract_events_pending'">
+            <label for="cron-job-batch-size">单批处理文章数 (batch_size) <span class="required">*</span></label>
+            <input id="cron-job-batch-size" type="number" min="1" max="200" step="1" x-model="cronJobForm.batch_size">
+            <small class="muted">每次抽取处理的待处理文章上限（1–200）</small>
+          </div>
+          <p class="text-danger" x-show="cronJobFormError" x-text="cronJobFormError" style="margin-top: 8px;"></p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-secondary" @click="closeCronJobModal()">取消</button>
+          <button type="button" class="btn-primary" :disabled="cronJobFormSaving" @click="saveCronJob()">
+            <span x-text="cronJobFormSaving ? '保存中…' : '保存'"></span>
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- ══ LLM Provider Form Modal ════════════════════════════════ -->
     <div class="modal-backdrop" x-show="llmProviderFormOpen" x-cloak
@@ -4771,7 +4942,7 @@
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
-  <script src="js/app.js?v=20261123002"></script>
+  <script src="js/app.js?v=20261123003"></script>
   <script src="js/reader.js?v=20261120161"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind

@@ -161,27 +161,29 @@ class DeletePreviewResponse(BaseModel):
 
 
 class CronJob(BaseModel):
-    """A scheduled cron job definition."""
+    """A scheduled cron job from the ``cron_jobs`` registry (migration 056)."""
 
-    id: int
+    id: str
     name: str
-    schedule: str  # cron expression, e.g. "0 * * * *"
-    source_id: int | None = None
+    func_path: str = ""
+    trigger_type: str = "cron"
+    schedule: dict[str, Any] = Field(default_factory=dict)
+    func_kwargs: dict[str, Any] = Field(default_factory=dict)
     is_active: bool = True
-    last_run_at: datetime | None = None
-    next_run_at: datetime | None = None
-    created_at: datetime
+    last_run_at: datetime | str | None = None
+    next_run_at: datetime | str | None = None
+    created_at: datetime | str | None = None
+    updated_at: datetime | str | None = None
 
-    model_config = ConfigDict(from_attributes=True)
 
+class CronJobUpdate(BaseModel):
+    """Partial update for one job; omitted fields stay unchanged."""
 
-class CronJobCreate(BaseModel):
-    """Schema for creating a new cron job."""
-
-    name: str
-    schedule: str
-    source_id: int | None = None
-    is_active: bool = True
+    hour: int | None = None
+    minute: int | None = None
+    day_of_week: str | None = None
+    func_kwargs: dict[str, Any] | None = None
+    is_active: bool | None = None
 
 
 class CronRun(BaseModel):
@@ -680,7 +682,7 @@ __all__ = [
     "FactCheckRequest",
     "DeletePreviewResponse",
     "CronJob",
-    "CronJobCreate",
+    "CronJobUpdate",
     "CronRun",
     "FetchSource",
     "HealthResponse",

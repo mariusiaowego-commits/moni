@@ -773,14 +773,14 @@ class TestCron:
         assert r.status_code == 200
         assert isinstance(r.json(), list)
 
-    def test_post_create_job_201(self, client: TestClient):
+    def test_post_create_job_gone(self, client: TestClient):
+        # v1.0.116: job definitions are code-bound (cron_jobs seeded from YAML),
+        # so the legacy create endpoint returns 410 instead of writing a fake run.
         r = client.post(
             "/api/cron/jobs",
             json={"name": "test-job", "schedule": "0 * * * *"},
         )
-        assert r.status_code == 201
-        data = r.json()
-        assert data["name"] == "test-job"
+        assert r.status_code == 410
 
     def test_get_runs_200(self, client: TestClient):
         r = client.get("/api/cron/runs")
