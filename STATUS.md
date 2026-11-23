@@ -3,6 +3,30 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
+## 进行中: **v1.0.117 — 文章上下文包** (2026-11-23 · 分支 `feat/article-context-pack` · Sprint 26112370)
+
+阅读器 AI 回答可一键存为该文章的上下文快照；分享默认不带，分享前可勾选，产物里作为独立小节。
+不依赖原会话：删会话不删快照，删文章 CASCADE。
+
+**数据/API**：migration 057 `article_contexts`（`source_message_id` 无 FK + 唯一索引）；
+`GET/POST/DELETE /api/articles/{id}/contexts`、`GET /api/article-contexts/summary`。
+
+**渲染**：新增 `moni/share/context_pack.py` 单一入口（单篇 2400 / 全局 12000 字符预算）。
+文本格式 worker 落盘后追加确定性附录；HTML 简报卡片内插入 `.sec-contexts`；自定义 HTML 注入独立 section。
+上下文**不进入 LLM 输入**，避免被改写或混进核查结论。PNG 暂不支持，前端置灰。
+
+**UI**：消息动作行「存为上下文」/「已存为上下文」；AI 头部「上下文 · N」；AI 列内上下文面板；
+分享步骤 3 与一键简报各一个开关；确认弹窗与摘要显示条数。
+顺带修 A1（阅读器 modal 永久 `scale(0.98)`）与 A3（嵌套弹窗 Escape 连带关阅读器）。
+
+**验证**：`test_article_contexts` 12 passed；四文件联合 77 passed；前端 55 passed；
+reader/share/brief 41 passed；复跑 57 passed。真实 DB 副本产物：Markdown 4930 bytes、
+HTML 块位于事实核查后、自定义 HTML 注入成功。Playwright 1280×633 与 760×900：
+`transform none`、面板 3 条、`含上下文 3 条`、PNG `disabled=true`。
+
+**待办**：开 PR → 独立 audit（base == latest main）→ 当轮授权后 squash merge → 部署/tag。
+
+---
 ## 已发布: **v1.0.116 — 定时任务控制台 + launchd 前台监督 + BV Direction V2 S1 内核** (2026-11-23 · PR #277 → `f773058`、PR #279 → `b804ded`、PR #225 → `e8fd419` · tag `v1.0.116` · Sprint 26112369 / 26112367)
 
 定时任务原本只存在于 `config/schedule.yaml`，启动时一次性读取；界面只有跑批日志，

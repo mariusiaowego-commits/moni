@@ -205,6 +205,21 @@ _stop_child_group() {
     _child_pid=""
 }
 
+# Append the deterministic user-context appendix to a text artifact.
+# Contexts are rendered outside the LLM on purpose: they are the user's
+# own notes and must not be rewritten or folded into fact-check copy.
+_append_user_context_section() {
+    local target="$1"
+    local enabled="$2"
+    local ids="$3"
+    [[ "$enabled" == "true" && -n "$ids" && -f "$target" ]] || return 0
+    local section
+    section=$("$PYTHON_BIN" -m moni.share.context_pack \
+        --db "$DB_PATH" --article-ids "$ids" 2>>"$LOG_FILE") || return 0
+    [[ -n "${section//[$'\n\t ']/}" ]] || return 0
+    printf '\n\n%s\n' "$section" >>"$target"
+}
+
 _worker_cleanup() {
     _stop_child_group
 }
@@ -855,10 +870,10 @@ print('true' if p.get('include_user_context') else 'false')
     fi
 
     if [[ -n "$article_ids_str" ]] && \
-       { [[ "$brief_val" == "true" ]] || [[ "$include_fc_val" == "true" ]] || [[ "$include_bv_val" == "true" ]] || [[ "$include_ctx_val" == "true" ]]; }; then
+       { [[ "$brief_val" == "true" ]] || [[ "$include_fc_val" == "true" ]] || [[ "$include_bv_val" == "true" ]]; }; then
         update_progress "$task_id" "enrich_business_value" 50 \
             "正在富化（事实核查/业务价值）..."
-        log "ENRICH $task_id — running moni.share.enrichment (brief=$brief_val fc=$include_fc_val bv=$include_bv_val ctx=$include_ctx_val)"
+        log "ENRICH $task_id — running moni.share.enrichment (brief=$brief_val fc=$include_fc_val bv=$include_bv_val)"
 
         # Prefer python -m so editable install resolves moni package.
         # Command substitution around a background+wait child would delay
@@ -907,12 +922,15 @@ print(p.get('title') or ('同业简报 — ' + date.today().isoformat()))
         local brief_err brief_out
         brief_err=$(mktemp "${TMPDIR:-/tmp}/moni_brief_XXXXXX.err")
         brief_out=$(mktemp "${TMPDIR:-/tmp}/moni_brief_XXXXXX.out")
+        local brief_ctx_args=()
+        [[ "$include_ctx_val" == "true" ]] && brief_ctx_args=(--include-user-context)
         if _run_worker_child "$brief_out" "$brief_err" \
             "$PYTHON_BIN" -m moni.share.brief_html \
             --db "$DB_PATH" \
             --article-ids "$article_ids_str" \
             --output "$output_path" \
             --title "$brief_title" \
+            ${brief_ctx_args[@]+"${brief_ctx_args[@]}"} \
             ; then
             cat "$brief_err" >>"$LOG_FILE" 2>/dev/null || true
             rm -f "$brief_err" "$brief_out"
@@ -1096,6 +1114,7 @@ print(p.get('generation_approach',''))
         output_dir=$(dirname "$output_path")
         mkdir -p "$output_dir"
         printf '%s\n' "$article_content" > "$output_path"
+        _append_user_context_section "$output_path" "$include_ctx_val" "$article_ids_str"
         task_status_update "$task_id" "done" "$output_path"
         sqlite3 "$DB_PATH" \
             "UPDATE share_tasks SET progress_pct=100 WHERE id='$task_id'" \
@@ -1253,6 +1272,11 @@ PYEOF
             output_path="$artifacts_dir/${task_id}-${format}.html"
             cp "$real_html" "$output_path"
             log "HTML artifact copied from $real_html -> $output_path"
+            if [[ "$include_ctx_val" == "true" ]]; then
+                "$PYTHON_BIN" -m moni.share.context_pack \
+                    --db "$DB_PATH" --article-ids "$article_ids_str" \
+                    --inject-html "$output_path" 2>>"$LOG_FILE" || true
+            fi
         fi
     fi
 
@@ -1267,6 +1291,7 @@ PYEOF
             
             # 将 LLM 输出写到临时 Markdown 文件
             echo "$hermes_output" > "$md_temp"
+            _append_user_context_section "$md_temp" "$include_ctx_val" "$article_ids_str"
             
             # 调用 generate_pdf.py 生成 PDF
             if python3 "$REPO_ROOT/scripts/generate_pdf.py" "$md_temp" "$pdf_output" "$info_graphic_title" 2>&1; then
@@ -1286,6 +1311,7 @@ PYEOF
         mkdir -p "$output_dir"
         output_path="$output_dir/${task_id}.out"
         echo "$hermes_output" > "$output_path"
+        _append_user_context_section "$output_path" "$include_ctx_val" "$article_ids_str"
     fi
 
     # v1.0.5.17: 5-stage progress tracking.  Each stage transition

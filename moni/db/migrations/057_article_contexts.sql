@@ -1,4 +1,4 @@
--- 056: article-level user context (Sprint 69 spike)
+-- 057: article-level user context (Sprint 70)
 --
 -- The reader AI panel produces answers that currently die with the
 -- conversation.  This table lets the user pin selected answers (and later
@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS article_contexts (
 
 CREATE INDEX IF NOT EXISTS idx_article_contexts_article
     ON article_contexts(article_id, sort_order, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_article_contexts_message
+    ON article_contexts(article_id, source_message_id)
+    WHERE source_message_id IS NOT NULL;
 
 INSERT OR IGNORE INTO schema_version (version, applied_at)
-VALUES (56, datetime('now'));
+VALUES (57, datetime('now'));

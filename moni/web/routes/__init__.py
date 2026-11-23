@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from moni.web.routes.article_contexts import router as article_contexts_router
 from moni.web.routes.articles import router as articles_router
 # v1.0.88 (sprint-38): 作者屏蔽名单 —— 三个独立端点
 # (POST / DELETE / GET ``{source_id}/blocked-authors``)。
@@ -43,6 +44,7 @@ from moni.web.routes.stats import router as stats_router  # v1.0.19: W1 量化�
 
 _routers: list[APIRouter] = [
     pins_router,  # v1.0.8: BEFORE articles_router (see above)
+    article_contexts_router,  # Sprint 70: article-level user context snapshots
     articles_router,
     author_blocks_router,  # v1.0.88 (sprint-38): 作者屏蔽名单
     basket_router,

@@ -27,6 +27,8 @@ from moni.share.enrichment import (
     pick_source_summary,
     _format_date,
 )
+from moni.share.context_pack import html_block as _context_html_block
+from moni.share.context_pack import load_contexts_db
 
 # Display copy when raw body is missing / too short (aligned with PDF brief prompt v1.0.15)
 _THIN_SUMMARY_COPY = "仅标题/短帖入库，正文未同步，无可展开摘要。"
@@ -838,8 +840,14 @@ def render_brief_html(
     *,
     title: str | None = None,
     report_date: str | None = None,
+    include_user_context: bool = False,
 ) -> str:
     rows = _load_rows(db_path, article_ids)
+    user_contexts = (
+        load_contexts_db(db_path, [str(r["id"]) for r in rows])
+        if include_user_context
+        else {}
+    )
     d = report_date or date.today().isoformat()
     title = title or f"同业简报 — {d}"
     n = len(rows)
@@ -984,6 +992,9 @@ def render_brief_html(
             if card_window
             else ""
         )
+        context_html = _context_html_block(
+            user_contexts.get(str(r["id"])) or []
+        )
 
         cards.append(
             f"""
@@ -1008,6 +1019,7 @@ def render_brief_html(
     <h3 class="sec-label">事实核查</h3>
     <ul class="fc">{''.join(fc_lis)}</ul>
   </div>
+  {context_html}
   <div class="orig-wrap">
     <button type="button" class="fold-btn" aria-expanded="false"
             data-label-open="{_esc(fold_open)}" data-label-close="{_esc(fold_close)}">
@@ -1258,6 +1270,35 @@ def render_brief_html(
     border: none; border-radius: 10px; color: #292524; font-size: 1.02rem; line-height: 1.75;
   }}
   .summary-block.is-thin {{ background: var(--tone-1); color: var(--muted); font-size: 0.95rem; }}
+  .sec-contexts {{
+    border-left: 3px solid var(--accent-soft);
+    padding-left: 16px;
+  }}
+  .ctx-list {{
+    list-style: none; padding: 0; margin: 0;
+    display: flex; flex-direction: column; gap: 14px;
+  }}
+  .ctx-item {{
+    background: var(--tone-0);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }}
+  .ctx-meta {{
+    display: flex; align-items: baseline; gap: 8px;
+    margin: 0 0 6px;
+  }}
+  .ctx-kind {{
+    font-family: var(--sans); font-size: 0.72rem; font-weight: 650;
+    letter-spacing: 0.04em; color: var(--accent);
+    border: 1px solid var(--accent-soft); border-radius: 3px;
+    padding: 1px 6px;
+  }}
+  .ctx-title {{ font-weight: 650; color: #1c1917; }}
+  .ctx-body {{
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    font-size: 0.98rem; line-height: 1.7; color: #292524;
+  }}
+  .ctx-note {{ margin: 10px 0 0; font-size: 0.8rem; color: var(--muted); }}
   .orig-body blockquote, blockquote {{
     margin: 0.7em 0; padding: 10px 14px; border-left: 3px solid var(--tone-2);
     background: var(--tone-0); border-radius: 0 8px 8px 0; color: #44403c;
@@ -1451,10 +1492,16 @@ def write_brief_html(
     output_path: str | Path,
     *,
     title: str | None = None,
+    include_user_context: bool = False,
 ) -> Path:
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    html_doc = render_brief_html(db_path, article_ids, title=title)
+    html_doc = render_brief_html(
+        db_path,
+        article_ids,
+        title=title,
+        include_user_context=include_user_context,
+    )
     out.write_text(html_doc, encoding="utf-8")
     return out
 
@@ -1465,6 +1512,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--article-ids", required=True, help="JSON list of ids")
     p.add_argument("--output", required=True)
     p.add_argument("--title", default=None)
+    p.add_argument("--include-user-context", action="store_true")
     args = p.parse_args(argv)
     try:
         ids = json.loads(args.article_ids)
@@ -1472,7 +1520,13 @@ def main(argv: list[str] | None = None) -> int:
         import ast
 
         ids = ast.literal_eval(args.article_ids)
-    path = write_brief_html(args.db, list(ids), args.output, title=args.title)
+    path = write_brief_html(
+        args.db,
+        list(ids),
+        args.output,
+        title=args.title,
+        include_user_context=args.include_user_context,
+    )
     print(str(path))
     return 0
 
