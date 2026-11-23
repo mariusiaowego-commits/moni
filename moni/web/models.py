@@ -680,6 +680,7 @@ __all__ = [
     "Direction",
     "DirectionCreate",
     "DirectionResearchAction",
+    "DirectionResearchSummary",
     "DirectionUpdate",
     "Article",
     "ArticleCreate",
@@ -730,6 +731,22 @@ class DirectionResearchAction(BaseModel):
     direction_id: int
     research_version: int
     status: str
+
+
+class DirectionResearchSummary(BaseModel):
+    """Latest research row as shown in the config panel."""
+
+    research_id: int
+    direction_id: int
+    research_version: int
+    status: str
+    scope: str | None = None
+    out_of_scope: str | None = None
+    error: str | None = None
+    prompt_id: str | None = None
+    model: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
 
 
 class Direction(BaseModel):

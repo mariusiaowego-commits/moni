@@ -34,6 +34,8 @@ from .rubric import (
 DIRECTION_PROMPT_ID = "bv_direction_research_v1"
 LABEL_MAX_CHARS = 6
 QUESTION_MAX_CHARS = 30
+ANCHOR_MAX_CHARS = 60
+TEMPLATE_MAX_CHARS = 120
 ANCHOR_COUNT = 4
 ANCHOR_LEVELS = ("0", "3", "6", "10")
 SCOPE_MAX_CHARS = 80
@@ -297,6 +299,8 @@ def _dimensions_from_payload(
         template = _text(item.get("template")).strip()
         if not template:
             return None, f"理由模板为空：{key}"
+        if len(template) > TEMPLATE_MAX_CHARS:
+            return None, f"理由模板超过 {TEMPLATE_MAX_CHARS} 字：{key}"
         if not _has_placeholder(template):
             return None, f"理由模板缺少占位符：{key}"
 
@@ -335,6 +339,8 @@ def _anchors(raw: Any, key: str) -> tuple[tuple[str, str, str, str] | None, str 
     values = [_text(levels[level]).strip() for level in ANCHOR_LEVELS]
     if not all(values):
         return None, f"锚点有空档：{key}"
+    if any(len(value) > ANCHOR_MAX_CHARS for value in values):
+        return None, f"锚点超过 {ANCHOR_MAX_CHARS} 字：{key}"
     return (values[0], values[1], values[2], values[3]), None
 
 
@@ -438,6 +444,7 @@ def _positive_int(value: Any) -> int | None:
 
 
 __all__ = [
+    "ANCHOR_MAX_CHARS",
     "DirectionResearch",
     "LABEL_MAX_CHARS",
     "DIRECTION_PROMPT_ID",
@@ -447,6 +454,7 @@ __all__ = [
     "STATUS_FAILED",
     "STATUS_PASSED",
     "STATUS_RUNNING",
+    "TEMPLATE_MAX_CHARS",
     "brief_reject_reason",
     "build_research_prompt",
     "label_reject_reason",

@@ -59,7 +59,7 @@ def test_run_research_persists_success(db):
             brief="微信里的银行动作",
         ),
         call_model=lambda _prompt: json.dumps(_payload(), ensure_ascii=False),
-        model_name="test-model",
+        model_name=lambda: "test-model",
     )
 
     assert error is None
@@ -83,7 +83,7 @@ def test_run_research_persists_invalid_output_as_failed(db):
             brief="微信里的银行动作",
         ),
         call_model=lambda _prompt: "这不是 JSON",
-        model_name="test-model",
+        model_name=lambda: "test-model",
     )
 
     assert error is not None
@@ -110,7 +110,7 @@ def test_run_research_persists_model_exception_as_failed(db):
             brief="微信里的银行动作",
         ),
         call_model=broken,
-        model_name="test-model",
+        model_name=lambda: "test-model",
     )
     assert error and "模型超时" in error
     row = db.execute(
@@ -132,7 +132,7 @@ def test_runner_runs_jobs_serially(db):
             order.append(1)
         return json.dumps(_payload(), ensure_ascii=False)
 
-    runner = DirectionResearchRunner(slow, "test")
+    runner = DirectionResearchRunner(slow, lambda: "test")
     request = ResearchRequest(
         direction_id=direction_id,
         research_version=research["research_version"],

@@ -35,7 +35,7 @@ def run_research(
     request: ResearchRequest,
     *,
     call_model: Callable[[str], str],
-    model_name: str,
+    model_name: Callable[[], str],
 ) -> str | None:
     """Run one research synchronously and persist the outcome.
 
@@ -49,6 +49,7 @@ def run_research(
     try:
         try:
             raw = call_model(research_prompt(request))
+            model = model_name()
         except Exception as exc:  # noqa: BLE001 - persisted, never raised
             log.warning("direction research %s failed: %s", request, exc)
             direction_store.finish_research_failure(
@@ -63,7 +64,7 @@ def run_research(
             direction_id=request.direction_id,
             research_version=request.research_version,
             raw_research=raw,
-            model=model_name,
+            model=model,
         )[1]
     except Exception as exc:  # noqa: BLE001 - the queue must survive
         log.exception("direction research %s persistence failed", request)
@@ -82,7 +83,11 @@ def run_research(
 class DirectionResearchRunner:
     """Single-worker, in-process queue for research requests."""
 
-    def __init__(self, model_call: Callable[[str], str], model_name: str):
+    def __init__(
+        self,
+        model_call: Callable[[str], str],
+        model_name: Callable[[], str],
+    ):
         self._model_call = model_call
         self._model_name = model_name
         self._lock = threading.Lock()
@@ -131,17 +136,17 @@ class DirectionResearchRunner:
             return len(self._pending)
 
     def wait_idle(self, timeout: float = 30.0) -> bool:
-        """Wait for all submitted work to finish. False on timeout."""
+        """Wait for the worker thread to exit, including its cleanup."""
         deadline = time.monotonic() + timeout
-        with self._lock:
-            thread = self._thread
         while time.monotonic() < deadline:
-            if self.pending_count == 0 and self.active is None:
-                return True
             with self._lock:
                 thread = self._thread
-            if thread is None or not thread.is_alive():
-                return self.pending_count == 0 and self.active is None
+                idle = not self._pending and self._active is None
+            if idle and thread is None:
+                return True
+            if idle and thread is not None and not thread.is_alive():
+                thread.join(timeout=max(0.0, deadline - time.monotonic()))
+                return not thread.is_alive()
             time.sleep(0.02)
         return False
 

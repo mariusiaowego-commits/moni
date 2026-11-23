@@ -25,6 +25,7 @@ from moni.web.models import (
     Direction,
     DirectionCreate,
     DirectionResearchAction,
+    DirectionResearchSummary,
     DirectionUpdate,
 )
 
@@ -102,7 +103,7 @@ def _ensure_runner() -> DirectionResearchRunner:
     global _runner
     with _runner_lock:
         if _runner is None:
-            _runner = DirectionResearchRunner(_model_call, _model_name())
+            _runner = DirectionResearchRunner(_model_call, _model_name)
         return _runner
 
 
@@ -152,15 +153,14 @@ def get_direction(direction_id: int) -> Direction:
 
 
 @router.get("/{direction_id}/research")
-def get_research(direction_id: int) -> dict[str, Any]:
+def get_research(direction_id: int) -> DirectionResearchSummary:
     conn = get_db()
     direction_store.recover_stale_running(conn)
     direction = _get_direction_or_404(direction_id)
     summary = direction_store.research_summary(conn, direction)
     if summary is None:
         raise NotFoundError(message="该方向还没有研究版本")
-    summary["direction_id"] = direction_id
-    return summary
+    return DirectionResearchSummary(direction_id=direction_id, **summary)
 
 
 @router.post("/{direction_id}/research", response_model=DirectionResearchAction, status_code=202)

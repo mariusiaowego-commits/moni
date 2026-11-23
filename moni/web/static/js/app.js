@@ -1190,7 +1190,7 @@ function app() {
       const nextLabel = this.configModalTarget.label.trim();
       const nextBrief = this.configModalTarget.brief.trim();
       const original = this.configDirections.find(d => d.id === this.configModalTarget.id);
-      const briefChanged = isEdit && (!original || original.label !== nextLabel || original.brief !== nextBrief);
+      const briefChanged = isEdit && original && (original.label !== nextLabel || original.brief !== nextBrief);
       const body = isEdit
         ? { label: nextLabel, brief: nextBrief, enabled: this.configModalTarget.enabled }
         : { label: nextLabel, brief: nextBrief };

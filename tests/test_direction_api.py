@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-import time
+import threading
 
 import pytest
 from fastapi.testclient import TestClient
@@ -22,7 +22,11 @@ def client(tmp_path, monkeypatch):
 
     from moni.web.routes import directions as directions_route
 
+    release_model = threading.Event()
+    directions_route._release_model = release_model
+
     def fake_model_call(_prompt: str) -> str:
+        release_model.wait(timeout=5)
         return json.dumps(_payload(), ensure_ascii=False)
 
     monkeypatch.setattr(
@@ -35,7 +39,11 @@ def client(tmp_path, monkeypatch):
         # monkeypatched model call above.
         directions_route._runner = None
         yield test_client
+        release_model.set()
+        if directions_route._runner is not None:
+            directions_route._runner.wait_idle(timeout=5)
         directions_route._runner = None
+        directions_route._release_model = None
     close_db()
 
 
@@ -116,21 +124,29 @@ def test_research_action_returns_202_and_conflicts_on_duplicate(client: TestClie
     duplicate = client.post(f"/api/directions/{created['id']}/research")
     assert duplicate.status_code == 409
 
-    from moni.web.routes.directions import _runner
-
-    assert _runner is not None
-    for _ in range(100):
-        if _runner.active is None and _runner.pending_count == 0:
-            break
-        time.sleep(0.02)
-    assert _runner.pending_count == 0
-
     research = client.get(f"/api/directions/{created['id']}/research")
     assert research.status_code == 200
     # The fake model returns a valid payload, so the run may already have
     # finished; both "running" and "passed" are legal post-submit states.
     assert research.json()["status"] in {"running", "passed"}
     assert research.json()["prompt_id"] == "bv_direction_research_v1"
+
+
+def test_research_action_reaches_passed_after_release(client: TestClient):
+    from moni.web.routes import directions as directions_route
+
+    created = _create(client)
+    response = client.post(f"/api/directions/{created['id']}/research")
+    assert response.status_code == 202
+
+    assert directions_route._release_model is not None
+    directions_route._release_model.set()
+    assert directions_route._runner is not None
+    assert directions_route._runner.wait_idle(timeout=5)
+
+    research = client.get(f"/api/directions/{created['id']}/research")
+    assert research.status_code == 200
+    assert research.json()["status"] == "passed"
 
 
 def test_research_not_found(client: TestClient):
