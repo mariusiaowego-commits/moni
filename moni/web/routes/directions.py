@@ -15,10 +15,7 @@ from fastapi import APIRouter
 
 from moni.db.connection import get_db
 from moni.scoring import direction_store
-from moni.scoring.direction import (
-    DIRECTION_PROMPT_ID,
-    STATUS_RUNNING,
-)
+from moni.scoring.direction import STATUS_RUNNING
 from moni.scoring.direction_runner import (
     DirectionResearchRunner,
     ResearchRequest,
@@ -51,7 +48,6 @@ def _research_action(row: dict[str, Any] | None) -> DirectionResearchAction | No
 
 def _direction_response(direction: dict[str, Any]) -> Direction:
     conn = get_db()
-    direction_store.recover_stale_running(conn)
     research = direction_store.research_summary(conn, direction)
     usable, usable_error = direction_store.direction_usable(conn, direction)
     research_row = None
@@ -84,16 +80,29 @@ def _get_direction_or_404(direction_id: int) -> dict[str, Any]:
 
 def _model_call(prompt: str) -> str:
     from moni.llm.client import call_llm, resolve_active_model
+    from moni.llm.runner import read_model_mode
 
+    if read_model_mode() == "profile":
+        return call_llm("", "", prompt)
     provider, model = resolve_active_model()
     return call_llm(provider, model, prompt)
+
+
+def _model_name() -> str:
+    from moni.llm.client import resolve_active_model
+    from moni.llm.runner import read_model_mode
+
+    if read_model_mode() == "profile":
+        return "profile"
+    provider, model = resolve_active_model()
+    return f"{provider}/{model}"
 
 
 def _ensure_runner() -> DirectionResearchRunner:
     global _runner
     with _runner_lock:
         if _runner is None:
-            _runner = DirectionResearchRunner(_model_call, "active-summary-model")
+            _runner = DirectionResearchRunner(_model_call, _model_name())
         return _runner
 
 
@@ -151,7 +160,6 @@ def get_research(direction_id: int) -> dict[str, Any]:
     if summary is None:
         raise NotFoundError(message="该方向还没有研究版本")
     summary["direction_id"] = direction_id
-    summary["prompt_id"] = DIRECTION_PROMPT_ID
     return summary
 
 

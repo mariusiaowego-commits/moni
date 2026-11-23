@@ -70,36 +70,42 @@ def update_direction(
     brief: str | None = None,
     enabled: bool | None = None,
 ) -> tuple[dict[str, Any] | None, str | None]:
-    row = get_direction(conn, direction_id)
-    if row is None:
-        return None, "方向不存在"
-
-    next_label = row["label"] if label is None else label
-    next_brief = row["brief"] if brief is None else brief
-    if label is not None or brief is not None:
-        error = _reject_reason(next_label, next_brief)
-        if error:
-            return None, error
-
     now = _now()
     conn.execute("BEGIN IMMEDIATE")
     try:
+        row = conn.execute(
+            "SELECT label, brief, enabled FROM bv_direction WHERE id=?",
+            (direction_id,),
+        ).fetchone()
+        if row is None:
+            conn.rollback()
+            return None, "方向不存在"
+
+        next_label = row["label"] if label is None else label.strip()
+        next_brief = row["brief"] if brief is None else brief.strip()
+        next_enabled = bool(row["enabled"]) if enabled is None else bool(enabled)
+        research_invalidated = next_label != row["label"] or next_brief != row["brief"]
+        if research_invalidated:
+            error = _reject_reason(next_label, next_brief)
+            if error:
+                conn.rollback()
+                return None, error
+
         conn.execute(
             "UPDATE bv_direction SET label=?, brief=?, enabled=?, updated_at=? "
             "WHERE id=?",
             (
-                next_label.strip(),
-                next_brief.strip(),
-                1 if enabled is None else (1 if enabled else 0),
+                next_label,
+                next_brief,
+                1 if next_enabled else 0,
                 now,
                 direction_id,
             ),
         )
         # A research snapshot carries the label and brief it was built
-        # from.  Changing either invalidates the old result; leaving the
-        # row as ``passed`` would make the config page claim it is
-        # usable while the gate refuses it.
-        if label is not None or brief is not None:
+        # from.  Only a real change invalidates it; toggling ``enabled``
+        # alone must keep a passed research result usable.
+        if research_invalidated:
             conn.execute(
                 "UPDATE bv_direction_research SET status=? "
                 "WHERE direction_id=? AND status=?",
@@ -156,33 +162,17 @@ def recover_stale_running(
 ) -> int:
     """Fail research rows left running by a crashed process.
 
-    Called before starting a new run and by the route that reads
-    status, so the UI never waits forever on a dead worker.
+    Called by the routes that read status, so the UI never waits forever
+    on a dead worker.  ``start_research`` uses the transaction-internal
+    helper instead.
     """
-    cutoff = (now or datetime.now(timezone.utc)).timestamp() - RESEARCH_STALE_AFTER_SEC
-    started = conn.execute(
-        "SELECT id, started_at FROM bv_direction_research WHERE status=?",
-        (STATUS_RUNNING,),
-    ).fetchall()
-    dead: list[tuple[int, str]] = []
-    for row in started:
-        try:
-            started_at = datetime.fromisoformat(row["started_at"])
-        except (TypeError, ValueError):
-            dead.append((int(row["id"]), "研究开始时间无法解析"))
-            continue
-        if started_at.timestamp() < cutoff:
-            dead.append((int(row["id"]), "研究中断或超时"))
+    now = now or datetime.now(timezone.utc)
+    dead = _stale_running_rows(conn, now)
     if not dead:
         return 0
     conn.execute("BEGIN IMMEDIATE")
     try:
-        for research_id, reason in dead:
-            conn.execute(
-                "UPDATE bv_direction_research SET status=?, error=?, finished_at=? "
-                "WHERE id=? AND status=?",
-                (STATUS_FAILED, reason, _now(), research_id, STATUS_RUNNING),
-            )
+        _recover_stale_running_locked(conn, now=now, dead=dead)
         conn.commit()
     except sqlite3.Error:
         conn.rollback()
@@ -190,33 +180,73 @@ def recover_stale_running(
     return len(dead)
 
 
+def _stale_running_rows(
+    conn: sqlite3.Connection, now: datetime
+) -> list[tuple[int, str]]:
+    cutoff = now.timestamp() - RESEARCH_STALE_AFTER_SEC
+    dead: list[tuple[int, str]] = []
+    for row in conn.execute(
+        "SELECT id, started_at FROM bv_direction_research WHERE status=?",
+        (STATUS_RUNNING,),
+    ).fetchall():
+        try:
+            started_at = datetime.fromisoformat(row["started_at"])
+        except (TypeError, ValueError):
+            dead.append((int(row["id"]), "研究开始时间无法解析"))
+            continue
+        if started_at.timestamp() < cutoff:
+            dead.append((int(row["id"]), "研究中断或超时"))
+    return dead
+
+
+def _recover_stale_running_locked(
+    conn: sqlite3.Connection,
+    *,
+    now: datetime,
+    dead: list[tuple[int, str]] | None = None,
+) -> None:
+    """Caller owns the transaction; only the writes happen here."""
+    rows = _stale_running_rows(conn, now) if dead is None else dead
+    finished_at = now.astimezone(timezone.utc).isoformat()
+    for research_id, reason in rows:
+        conn.execute(
+            "UPDATE bv_direction_research SET status=?, error=?, finished_at=? "
+            "WHERE id=? AND status=?",
+            (STATUS_FAILED, reason, finished_at, research_id, STATUS_RUNNING),
+        )
+
+
 def start_research(
     conn: sqlite3.Connection, direction_id: int
 ) -> tuple[dict[str, Any] | None, str | None]:
     """Create the next research version and mark older ones expired."""
-    direction = get_direction(conn, direction_id)
-    if direction is None:
-        return None, "方向不存在"
-
-    recover_stale_running(conn)
-    active = conn.execute(
-        "SELECT COUNT(*) FROM bv_direction_research "
-        "WHERE direction_id=? AND status=?",
-        (direction_id, STATUS_RUNNING),
-    ).fetchone()[0]
-    if active:
-        return None, "该方向已有研究在运行"
-
-    next_version = int(
-        conn.execute(
-            "SELECT COALESCE(MAX(research_version), 0) + 1 "
-            "FROM bv_direction_research WHERE direction_id=?",
-            (direction_id,),
-        ).fetchone()[0]
-    )
     now = _now()
     conn.execute("BEGIN IMMEDIATE")
     try:
+        direction = conn.execute(
+            "SELECT label, brief FROM bv_direction WHERE id=?", (direction_id,)
+        ).fetchone()
+        if direction is None:
+            conn.rollback()
+            return None, "方向不存在"
+
+        _recover_stale_running_locked(conn, now=datetime.fromisoformat(now))
+        active = conn.execute(
+            "SELECT COUNT(*) FROM bv_direction_research "
+            "WHERE direction_id=? AND status=?",
+            (direction_id, STATUS_RUNNING),
+        ).fetchone()[0]
+        if active:
+            conn.rollback()
+            return None, "该方向已有研究在运行"
+
+        next_version = int(
+            conn.execute(
+                "SELECT COALESCE(MAX(research_version), 0) + 1 "
+                "FROM bv_direction_research WHERE direction_id=?",
+                (direction_id,),
+            ).fetchone()[0]
+        )
         conn.execute(
             "UPDATE bv_direction_research SET status=? "
             "WHERE direction_id=? AND status=?",
@@ -275,7 +305,7 @@ def finish_research_success(
 
     conn.execute("BEGIN IMMEDIATE")
     try:
-        conn.execute(
+        cur = conn.execute(
             "UPDATE bv_direction_research SET status=?, scope=?, out_of_scope=?, "
             "rubric_json=?, model=?, finished_at=? "
             "WHERE direction_id=? AND research_version=? AND status=?",
@@ -291,6 +321,9 @@ def finish_research_success(
                 STATUS_RUNNING,
             ),
         )
+        if cur.rowcount == 0:
+            conn.rollback()
+            return False, "研究已结束或已超时"
         conn.commit()
     except sqlite3.Error:
         conn.rollback()
@@ -346,6 +379,7 @@ def research_summary(
         "scope": row["scope"],
         "out_of_scope": row["out_of_scope"],
         "error": row["error"],
+        "prompt_id": row["prompt_id"],
         "model": row["model"],
         "started_at": row["started_at"],
         "finished_at": row["finished_at"],

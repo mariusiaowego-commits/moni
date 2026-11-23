@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from dataclasses import dataclass
 from typing import Callable
 
@@ -101,18 +102,23 @@ class DirectionResearchRunner:
                 self._thread.start()
 
     def _run_queue(self) -> None:
-        while True:
-            with self._lock:
-                if not self._pending:
-                    self._active = None
-                    return
-                request = self._pending.pop(0)
-                self._active = request
-            run_research(
-                request,
-                call_model=self._model_call,
-                model_name=self._model_name,
-            )
+        from moni.db.connection import close_db
+
+        try:
+            while True:
+                with self._lock:
+                    if not self._pending:
+                        self._active = None
+                        return
+                    request = self._pending.pop(0)
+                    self._active = request
+                run_research(
+                    request,
+                    call_model=self._model_call,
+                    model_name=self._model_name,
+                )
+        finally:
+            close_db()
 
     @property
     def active(self) -> ResearchRequest | None:
@@ -123,6 +129,21 @@ class DirectionResearchRunner:
     def pending_count(self) -> int:
         with self._lock:
             return len(self._pending)
+
+    def wait_idle(self, timeout: float = 30.0) -> bool:
+        """Wait for all submitted work to finish. False on timeout."""
+        deadline = time.monotonic() + timeout
+        with self._lock:
+            thread = self._thread
+        while time.monotonic() < deadline:
+            if self.pending_count == 0 and self.active is None:
+                return True
+            with self._lock:
+                thread = self._thread
+            if thread is None or not thread.is_alive():
+                return self.pending_count == 0 and self.active is None
+            time.sleep(0.02)
+        return False
 
 
 __all__ = [

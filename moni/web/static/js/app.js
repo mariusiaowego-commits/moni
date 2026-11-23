@@ -1187,9 +1187,13 @@ function app() {
       if (!this.validateDirectionForm()) return;
       const isEdit = !!this.configModalTargetOriginal;
       const url = isEdit ? `/api/directions/${this.configModalTarget.id}` : '/api/directions';
+      const nextLabel = this.configModalTarget.label.trim();
+      const nextBrief = this.configModalTarget.brief.trim();
+      const original = this.configDirections.find(d => d.id === this.configModalTarget.id);
+      const briefChanged = isEdit && (!original || original.label !== nextLabel || original.brief !== nextBrief);
       const body = isEdit
-        ? { label: this.configModalTarget.label.trim(), brief: this.configModalTarget.brief.trim(), enabled: this.configModalTarget.enabled }
-        : { label: this.configModalTarget.label.trim(), brief: this.configModalTarget.brief.trim() };
+        ? { label: nextLabel, brief: nextBrief, enabled: this.configModalTarget.enabled }
+        : { label: nextLabel, brief: nextBrief };
       try {
         const response = await fetch(url, {
           method: isEdit ? 'PATCH' : 'POST',
@@ -1197,10 +1201,17 @@ function app() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) {
+          let serverMessage = '';
+          try {
+            const errorBody = await response.json();
+            serverMessage = errorBody.message || (Array.isArray(errorBody.detail) && errorBody.detail[0]?.msg) || errorBody.detail || '';
+          } catch (_) { /* non-JSON error */ }
+          throw new Error(serverMessage || `HTTP ${response.status}`);
+        }
         this.closeConfigModal();
         this.loadDirections();
-        this._notify('success', isEdit ? '方向已保存；研究需重新生成' : '方向已创建');
+        this._notify('success', briefChanged ? '方向已保存；研究需重新生成' : (isEdit ? '方向已保存' : '方向已创建'));
       } catch (err) {
         this._notify('error', '保存方向失败: ' + err.message);
       }
@@ -1247,6 +1258,7 @@ function app() {
       if (!research) return 'status-paused';
       if (research.status === 'passed') return 'status-ok';
       if (research.status === 'running') return 'status-running';
+      if (research.status === 'failed') return 'status-failed';
       return 'status-paused';
     },
     directionResearchStatusText(direction) {

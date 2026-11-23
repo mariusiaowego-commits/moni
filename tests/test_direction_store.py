@@ -256,3 +256,90 @@ def test_direction_usable_requires_latest_passed(db):
     research, error = direction_store.direction_usable(db, direction)
     assert error is None and research is not None
     assert research.version == second["research_version"]
+
+
+# ── S2 audit regression cases ────────────────────────────────────────
+
+
+def test_update_same_label_and_brief_keeps_passed_research(db):
+    """Toggling enabled through the edit dialog must not expire research."""
+    direction_id = _direction(db)
+    research, _ = direction_store.start_research(db, direction_id)
+    direction_store.finish_research_success(
+        db,
+        direction_id=direction_id,
+        research_version=research["research_version"],
+        raw_research=_payload(),
+        model="test",
+    )
+
+    direction = direction_store.get_direction(db, direction_id)
+    updated, error = direction_store.update_direction(
+        db,
+        direction_id,
+        label=direction["label"],
+        brief=direction["brief"],
+        enabled=False,
+    )
+    assert error is None and updated is not None
+    status = db.execute(
+        "SELECT status FROM bv_direction_research WHERE direction_id=?",
+        (direction_id,),
+    ).fetchone()[0]
+    assert status == STATUS_PASSED
+
+
+def test_concurrent_start_research_yields_conflict_not_integrity_error(db):
+    """Two racing starts must produce one run, not a UNIQUE-crash 500."""
+    import threading
+
+    direction_id = _direction(db)
+    barrier = threading.Barrier(2)
+    results: list[tuple[dict | None, str | None]] = []
+    errors: list[BaseException] = []
+
+    def start() -> None:
+        from moni.db.connection import get_db
+
+        try:
+            thread_conn = get_db()
+            barrier.wait()
+            results.append(direction_store.start_research(thread_conn, direction_id))
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=start) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors, errors
+    started = [result for result, error in results if error is None]
+    conflicts = [error for result, error in results if result is None]
+    assert len(started) == 1
+    assert len(conflicts) == 1
+    assert "运行" in conflicts[0]
+
+
+def test_late_finish_after_stale_recovery_is_rejected(db):
+    direction_id = _direction(db)
+    research, _ = direction_store.start_research(db, direction_id)
+
+    old = NOW - timedelta(seconds=direction_store.RESEARCH_STALE_AFTER_SEC + 1)
+    db.execute(
+        "UPDATE bv_direction_research SET started_at=? WHERE direction_id=?",
+        (old.isoformat(), direction_id),
+    )
+    db.commit()
+    assert direction_store.recover_stale_running(db, now=NOW) == 1
+
+    ok, error = direction_store.finish_research_success(
+        db,
+        direction_id=direction_id,
+        research_version=research["research_version"],
+        raw_research=_payload(),
+        model="late-model",
+    )
+    assert ok is False
+    assert error and "结束" in error
