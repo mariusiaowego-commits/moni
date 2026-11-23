@@ -858,6 +858,7 @@ function app() {
         this.currentView = 'config';
         this.configTab = 'cron';
         this.loadCronRuns();
+        if (!this.cronJobs.length) this.loadCronJobs();
         return;
       }
       if (view === 'llmSettings') {
@@ -895,7 +896,7 @@ function app() {
     },
 
     // ── Config panel (v1.0.2-F) ────────────────────────────────────
-    // v1.0.25: 'sources' | 'tags' | 'filters' | 'llm' | 'cron'
+    // v1.0.25: 'sources' | 'tags' | 'filters' | 'llm' | 'jobs' | 'cron'
     configTab: 'sources',
     configTags: [],
     configSources: [],
@@ -1123,8 +1124,12 @@ function app() {
         this.loadLlmSettings();
         if (this.llmTab === 'gateway') this.loadLlmGateway();
         if (this.llmTab === 'usage') this.loadLlmUsage();
+      } else if (this.configTab === 'jobs') {
+        this.loadCronStatus();
+        this.loadCronJobs();
       } else if (this.configTab === 'cron') {
         this.loadCronRuns();
+        if (!this.cronJobs.length) this.loadCronJobs();
       }
     },
 
@@ -2194,17 +2199,398 @@ function app() {
     },
 
     // ── Cron panel ────────────────────────────────────────────────
+    CRON_WEEKDAYS: [
+      { key: 'mon', label: '周一', short: '一' },
+      { key: 'tue', label: '周二', short: '二' },
+      { key: 'wed', label: '周三', short: '三' },
+      { key: 'thu', label: '周四', short: '四' },
+      { key: 'fri', label: '周五', short: '五' },
+      { key: 'sat', label: '周六', short: '六' },
+      { key: 'sun', label: '周日', short: '日' },
+    ],
     cronRuns: [],
+    cronRunsLoading: false,
+    cronRunsError: '',
+    cronRunJobFilter: '',
+    cronJobs: [],
+    cronJobsLoading: false,
+    cronJobsError: '',
+    cronStatus: null,
+    cronStatusLoading: false,
+    cronStatusError: '',
+    cronJobRunningId: {},
+    cronRefreshTimer: null,
+    cronJobModalOpen: false,
+    cronJobFormSaving: false,
+    cronJobFormError: '',
+    cronJobForm: {
+      id: '',
+      name: '',
+      func_path: '',
+      time: '09:10',
+      days: ['mon', 'tue', 'wed', 'thu', 'fri'],
+      is_active: true,
+      batch_size: 20,
+      orig_kwargs: {},
+    },
 
-    loadCronRuns() {
+    async _readCronError(resp) {
+      const fallback = resp.status === 404
+        ? '接口暂未就绪 (HTTP 404)'
+        : `请求失败 (HTTP ${resp.status})`;
+      try {
+        const text = await resp.text();
+        if (!text) return fallback;
+        try {
+          const data = JSON.parse(text);
+          if (typeof data.detail === 'string' && data.detail) return data.detail;
+          if (Array.isArray(data.detail) && data.detail.length) {
+            return data.detail.map(e => (e && e.msg) || JSON.stringify(e)).join('；');
+          }
+          if (typeof data.message === 'string' && data.message) return data.message;
+        } catch (_) {
+          // Non-JSON error body (e.g. HTML 404/502)
+        }
+        return fallback;
+      } catch (_) {
+        return fallback;
+      }
+    },
+
+    refreshCronConsole() {
+      this.loadCronStatus();
+      this.loadCronJobs();
+    },
+
+    async loadCronStatus() {
+      this.cronStatusLoading = true;
+      this.cronStatusError = '';
+      try {
+        const resp = await fetch('/api/cron/status', { credentials: 'same-origin' });
+        if (!resp.ok) {
+          this.cronStatus = null;
+          this.cronStatusError = await this._readCronError(resp);
+          return;
+        }
+        this.cronStatus = await resp.json();
+      } catch (err) {
+        this.cronStatus = null;
+        this.cronStatusError = (err && err.message) || '网络异常';
+      } finally {
+        this.cronStatusLoading = false;
+      }
+    },
+
+    async loadCronJobs() {
+      this.cronJobsLoading = true;
+      this.cronJobsError = '';
+      try {
+        const resp = await fetch('/api/cron/jobs', { credentials: 'same-origin' });
+        if (!resp.ok) {
+          this.cronJobsError = await this._readCronError(resp);
+          return;
+        }
+        const data = await resp.json();
+        this.cronJobs = Array.isArray(data) ? data : (data && Array.isArray(data.jobs) ? data.jobs : []);
+      } catch (err) {
+        this.cronJobsError = (err && err.message) || '网络异常';
+      } finally {
+        this.cronJobsLoading = false;
+      }
+    },
+
+    isSchedulerOnline() {
+      const s = this.cronStatus;
+      if (!s || this.cronStatusError) return false;
+      return s.running === true && s.heartbeat_age_sec != null && s.heartbeat_age_sec <= 60;
+    },
+
+    formatHeartbeatAge(sec) {
+      if (sec == null || isNaN(sec)) return '未知';
+      const v = Math.max(0, Number(sec));
+      if (v < 5) return '刚刚';
+      if (v < 60) return `${Math.round(v)} 秒前`;
+      if (v < 3600) return `${Math.floor(v / 60)} 分钟前`;
+      return `${Math.floor(v / 3600)} 小时前`;
+    },
+
+    cronStatusBadgeClass() {
+      if (this.cronStatusError || (!this.cronStatus && this.cronStatusLoading)) return 'status-cancelled';
+      return this.isSchedulerOnline() ? 'status-success' : 'status-failed';
+    },
+
+    cronStatusBadgeText() {
+      if (this.cronStatusError) return '状态未知';
+      if (!this.cronStatus && this.cronStatusLoading) return '检查中…';
+      return this.isSchedulerOnline() ? '调度器在线' : '调度器离线';
+    },
+
+    cronStatusSummaryText() {
+      if (this.cronStatusError) return '无法获取调度器状态，点击右侧刷新重试';
+      if (!this.cronStatus && this.cronStatusLoading) return '正在获取调度器状态…';
+      if (this.isSchedulerOnline()) {
+        const age = this.formatHeartbeatAge(this.cronStatus.heartbeat_age_sec);
+        const count = this.cronStatus.job_count ?? this.cronJobs.length;
+        const rev = this.cronStatus.revision ?? '-';
+        return `最近心跳：${age}（${count} 个任务 · 版本 v${rev}）`;
+      }
+      if (this.cronStatus && this.cronStatus.heartbeat_age_sec != null) {
+        const age = this.formatHeartbeatAge(this.cronStatus.heartbeat_age_sec);
+        return `最近心跳：${age}（已超时 >60s，计划修改与「立即运行」将暂存并在调度器恢复后执行）`;
+      }
+      return '尚未检测到调度器心跳（请检查 moni cron 进程是否启动）';
+    },
+
+    _parseCronDays(dow) {
+      const order = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+      const numToKey = { '0': 'mon', '1': 'tue', '2': 'wed', '3': 'thu', '4': 'fri', '5': 'sat', '6': 'sun' };
+      const raw = String(dow == null ? '*' : dow).trim().toLowerCase();
+      if (!raw || raw === '*' || raw === 'mon-sun') return [...order];
+      const norm = token => {
+        const t = token.trim().toLowerCase();
+        if (order.includes(t)) return t;
+        if (numToKey[t]) return numToKey[t];
+        return null;
+      };
+      const set = new Set();
+      for (const part of raw.split(',')) {
+        const p = part.trim();
+        if (!p) continue;
+        if (p.includes('-')) {
+          const [aRaw, bRaw] = p.split('-', 2);
+          const a = order.indexOf(norm(aRaw));
+          const b = order.indexOf(norm(bRaw));
+          if (a >= 0 && b >= 0) {
+            if (a <= b) {
+              for (let i = a; i <= b; i++) set.add(order[i]);
+            } else {
+              for (let i = a; i < order.length; i++) set.add(order[i]);
+              for (let i = 0; i <= b; i++) set.add(order[i]);
+            }
+          }
+        } else {
+          const k = norm(p);
+          if (k) set.add(k);
+        }
+      }
+      return order.filter(k => set.has(k));
+    },
+
+    _serializeCronDays(days) {
+      const order = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+      const set = new Set(Array.isArray(days) ? days : []);
+      const sorted = order.filter(k => set.has(k));
+      if (sorted.length === 7) return '*';
+      if (sorted.join(',') === 'mon,tue,wed,thu,fri') return 'mon-fri';
+      return sorted.join(',');
+    },
+
+    formatCronSchedule(schedule) {
+      if (!schedule) return '-';
+      if (typeof schedule === 'string') return schedule;
+      const hh = schedule.hour != null ? String(schedule.hour).padStart(2, '0') : '--';
+      const mm = schedule.minute != null ? String(schedule.minute).padStart(2, '0') : '--';
+      const timeStr = `${hh}:${mm}`;
+      const days = this._parseCronDays(schedule.day_of_week);
+      let dayLabel = '';
+      if (days.length === 7) {
+        dayLabel = '每天';
+      } else if (days.join(',') === 'mon,tue,wed,thu,fri') {
+        dayLabel = '工作日';
+      } else if (days.join(',') === 'sat,sun') {
+        dayLabel = '周末';
+      } else if (days.length > 0) {
+        const shortMap = { mon: '一', tue: '二', wed: '三', thu: '四', fri: '五', sat: '六', sun: '日' };
+        dayLabel = '每周' + days.map(d => shortMap[d] || d).join('、');
+      } else if (schedule.day_of_week) {
+        dayLabel = String(schedule.day_of_week);
+      }
+      return dayLabel ? `${dayLabel} ${timeStr}` : timeStr;
+    },
+
+    cronJobSubLabel(job) {
+      if (!job) return '';
+      const base = String(job.id ?? '');
+      const bs = job.func_kwargs && job.func_kwargs.batch_size;
+      return bs != null ? `${base} · 批大小 ${bs}` : base;
+    },
+
+    openCronJobModal(job) {
+      if (!job) return;
+      const sched = (job.schedule && typeof job.schedule === 'object') ? job.schedule : {};
+      const hh = String(sched.hour ?? 9).padStart(2, '0');
+      const mm = String(sched.minute ?? 0).padStart(2, '0');
+      const origKwargs = (job.func_kwargs && typeof job.func_kwargs === 'object') ? { ...job.func_kwargs } : {};
+      this.cronJobForm = {
+        id: String(job.id ?? ''),
+        name: job.name || String(job.id ?? ''),
+        func_path: job.func_path || '',
+        time: `${hh}:${mm}`,
+        days: this._parseCronDays(sched.day_of_week ?? 'mon-fri'),
+        is_active: job.is_active !== false,
+        batch_size: origKwargs.batch_size != null ? origKwargs.batch_size : 20,
+        orig_kwargs: origKwargs,
+      };
+      this.cronJobFormError = '';
+      this.cronJobFormSaving = false;
+      this.cronJobModalOpen = true;
+    },
+
+    closeCronJobModal() {
+      this.cronJobModalOpen = false;
+      this.cronJobFormError = '';
+    },
+
+    toggleCronJobDay(day) {
+      const order = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+      const set = new Set(this.cronJobForm.days || []);
+      if (set.has(day)) set.delete(day);
+      else set.add(day);
+      this.cronJobForm.days = order.filter(k => set.has(k));
+    },
+
+    setCronJobDaysPreset(preset) {
+      if (preset === 'workdays') {
+        this.cronJobForm.days = ['mon', 'tue', 'wed', 'thu', 'fri'];
+      } else if (preset === 'everyday') {
+        this.cronJobForm.days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+      }
+    },
+
+    async saveCronJob() {
+      this.cronJobFormError = '';
+      const timeStr = String(this.cronJobForm.time || '').trim();
+      const timeMatch = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(timeStr);
+      if (!timeMatch) {
+        this.cronJobFormError = '请输入有效的 24 小时制时间（00:00 - 23:59）';
+        return;
+      }
+      if (!Array.isArray(this.cronJobForm.days) || this.cronJobForm.days.length === 0) {
+        this.cronJobFormError = '请至少选择一天执行日期';
+        return;
+      }
+      const showBatchSize = this.cronJobForm.func_path === 'moni.cron.jobs:extract_events_pending';
+      let batchSizeInt = null;
+      if (showBatchSize) {
+        const rawBatch = String(this.cronJobForm.batch_size ?? '').trim();
+        if (!/^\d+$/.test(rawBatch)) {
+          this.cronJobFormError = '批大小须为 1 到 200 之间的整数';
+          return;
+        }
+        batchSizeInt = parseInt(rawBatch, 10);
+        if (batchSizeInt < 1 || batchSizeInt > 200) {
+          this.cronJobFormError = '批大小须为 1 到 200 之间的整数';
+          return;
+        }
+      }
+      const body = {
+        hour: parseInt(timeMatch[1], 10),
+        minute: parseInt(timeMatch[2], 10),
+        day_of_week: this._serializeCronDays(this.cronJobForm.days),
+        is_active: !!this.cronJobForm.is_active,
+      };
+      if (showBatchSize) {
+        body.func_kwargs = { ...(this.cronJobForm.orig_kwargs || {}), batch_size: batchSizeInt };
+      }
+
+      this.cronJobFormSaving = true;
+      try {
+        const resp = await fetch(`/api/cron/jobs/${encodeURIComponent(this.cronJobForm.id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(body),
+        });
+        if (!resp.ok) {
+          const errMsg = await this._readCronError(resp);
+          this.cronJobFormError = `保存失败：${errMsg}`;
+          return;
+        }
+        this.closeCronJobModal();
+        this.loadCronJobs();
+        this.loadCronStatus();
+        this._notify('success', '定时任务已更新，将在 15 秒内生效');
+      } catch (err) {
+        this.cronJobFormError = `保存失败：${(err && err.message) || '网络异常'}`;
+      } finally {
+        this.cronJobFormSaving = false;
+      }
+    },
+
+    async runCronJobNow(job) {
+      if (!job || this.cronJobRunningId[job.id]) return;
+      const label = job.name || job.id;
+      const msg = this.isSchedulerOnline()
+        ? `确定立即运行「${label}」？任务将进入调度队列并在 15 秒内开始执行。`
+        : `当前调度器离线，确定将「${label}」加入运行队列？任务将在调度器恢复后执行。`;
+      const ok = await moniModal.confirm(msg, {
+        title: '立即运行定时任务',
+        okLabel: '立即运行',
+        danger: false,
+      });
+      if (!ok) return;
+
+      this.cronJobRunningId = { ...this.cronJobRunningId, [job.id]: true };
+      try {
+        const resp = await fetch(`/api/cron/jobs/${encodeURIComponent(job.id)}/run`, {
+          method: 'POST',
+          credentials: 'same-origin',
+        });
+        if (resp.status === 409) {
+          const detail = await this._readCronError(resp);
+          const conflictMsg = detail && !detail.startsWith('请求失败')
+            ? detail
+            : `「${label}」已在队列中或正在运行，请勿重复触发`;
+          this._notify('info', conflictMsg);
+          return;
+        }
+        if (!resp.ok) {
+          const errMsg = await this._readCronError(resp);
+          this._notify('error', `触发失败：${errMsg}`);
+          return;
+        }
+        this._notify('success', `已触发「${label}」，正在刷新运行记录…`);
+        if (this.cronRefreshTimer) clearTimeout(this.cronRefreshTimer);
+        this.cronRefreshTimer = setTimeout(() => {
+          this.cronRefreshTimer = null;
+          this.loadCronJobs();
+          this.loadCronRuns();
+        }, 2500);
+      } catch (err) {
+        this._notify('error', `触发失败：${(err && err.message) || '网络异常'}`);
+      } finally {
+        const next = { ...this.cronJobRunningId };
+        delete next[job.id];
+        this.cronJobRunningId = next;
+      }
+    },
+
+    openCronJobHistory(job) {
+      this.cronRunJobFilter = job ? String(job.id) : '';
+      this.switchConfigTab('cron');
+    },
+
+    async loadCronRuns() {
       // v1.0.4: was /api/cron/jobs (returns synthetic jobs, not runs).
       // Use /api/cron/runs which returns real run history from cron_runs.
-      fetch('/api/cron/runs', { credentials: 'same-origin' })
-        .then(r => r.json())
-        .then(data => {
-          this.cronRuns = Array.isArray(data) ? data : (data.runs || []);
-        })
-        .catch(err => console.error('loadCronRuns failed:', err));
+      this.cronRunsLoading = true;
+      this.cronRunsError = '';
+      try {
+        const qs = new URLSearchParams();
+        if (this.cronRunJobFilter) qs.set('job_id', this.cronRunJobFilter);
+        const url = '/api/cron/runs' + (qs.toString() ? '?' + qs.toString() : '');
+        const resp = await fetch(url, { credentials: 'same-origin' });
+        if (!resp.ok) {
+          this.cronRunsError = await this._readCronError(resp);
+          return;
+        }
+        const data = await resp.json();
+        this.cronRuns = Array.isArray(data) ? data : (data && Array.isArray(data.runs) ? data.runs : []);
+      } catch (err) {
+        this.cronRunsError = (err && err.message) || '网络异常';
+      } finally {
+        this.cronRunsLoading = false;
+      }
     },
 
     // v1.0.115: per-run sweep counters come from cron_runs.extra.
