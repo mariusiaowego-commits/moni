@@ -8,6 +8,7 @@
 (function () {
   const SOURCES = [
     ['.tag-overflow-pill', '.popover-card'],
+    ['.direction-usable', '.popover-card'],
     ['.tag-chip-wrap', '.tip'],
     ['.title-cell', '.title-tip'],
     ['.tags-cell', '.tags-overflow'],

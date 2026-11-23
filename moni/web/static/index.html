@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261120021">
+  <link rel="stylesheet" href="css/main.css?v=20261123004">
   <!-- v1.0.110: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
        放在 main.css 之后，同名选择器以它们为准，便于单独回滚。 -->
   <link rel="stylesheet" href="css/source-ops.css?v=20261120011">
@@ -2996,7 +2996,7 @@
 
         <!-- ── Tab: 业务方向 (Sprint 67, S2) ── -->
         <div x-show="configTab === 'directions'">
-          <div class="table-container">
+          <div class="table-container config-table-scroll">
             <table style="table-layout: fixed; width: 100%;">
               <colgroup>
                 <col style="width: 110px;">
@@ -3004,7 +3004,7 @@
                 <col style="width: 110px;">
                 <col style="width: 150px;">
                 <col style="width: 180px;">
-                <col style="width: 120px;">
+                <col style="width: 210px;">
               </colgroup>
               <thead>
                 <tr>
@@ -3035,14 +3035,26 @@
                     </td>
                     <td class="nowrap">
                       <span x-show="d.usable" class="status-badge status-ok">可用</span>
-                      <span x-show="!d.usable" class="status-badge status-paused"
-                            :title="d.usable_error || '尚未有可用研究'"
-                            x-text="d.usable_error ? '不可用' : '未研究'"></span>
+                      <span x-show="!d.usable && d.research"
+                            class="status-badge status-paused direction-usable"
+                            tabindex="0" role="note"
+                            :aria-label="'不可用：' + directionUsableReason(d)">
+                        不可用
+                        <div class="popover-card">
+                          <div class="popover-card-title">方向不可用</div>
+                          <div x-text="directionUsableReason(d)"></div>
+                        </div>
+                      </span>
+                      <span x-show="!d.usable && !d.research" class="muted"
+                            title="先点“开始研究”生成研究方向">—</span>
                     </td>
                     <td style="text-align: right;">
                       <div class="row-actions" style="justify-content: flex-end;">
                         <button class="btn-link" @click="directionResearch(d)"
-                                :disabled="!d.enabled || d.research?.status === 'running'">重新研究</button>
+                                :disabled="!d.enabled || d.research?.status === 'running'"
+                                :title="directionResearchButtonTitle(d)"
+                                :aria-label="(d.research ? '重新研究' : '开始研究') + '：' + directionResearchButtonTitle(d)"
+                                x-text="d.research ? '重新研究' : '开始研究'"></button>
                         <button class="btn-link" @click="configEditDirection(d)">编辑</button>
                         <button class="btn-danger" @click="configDeleteDirection(d)">删除</button>
                       </div>
@@ -3050,7 +3062,10 @@
                   </tr>
                 </template>
                 <tr x-show="configDirections.length === 0">
-                  <td colspan="6" class="empty-row">暂无业务方向</td>
+                  <td colspan="6" class="empty-row">
+                    <span x-show="directionsLoadError">加载失败，<button class="btn-link" @click="loadDirections()">点击重试</button></span>
+                    <span x-show="!directionsLoadError">暂无业务方向</span>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -4857,7 +4872,7 @@
   <!-- v1.0.13: dialog-certainty helpers (must load before app.js) -->
   <script src="js/toast.js?v=20261119001"></script>
   <script src="js/modal.js?v=20261120001"></script>
-  <script src="js/floating.js?v=20261113009"></script>
+  <script src="js/floating.js?v=20261123004"></script>
   <!-- v1.0.47: URL 白名单护栏。必须早于 Alpine 初始化 —— 它是普通 script
        (非 defer), 在文档解析期就执行完, 而 Alpine 是 defer, 解析结束后才跑。
        所以 window.safeHref / window.isSafeUrl 在 Alpine 求值表达式时已就位。 -->
@@ -4871,7 +4886,7 @@
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
-  <script src="js/app.js?v=20261123003"></script>
+  <script src="js/app.js?v=20261123004"></script>
   <script src="js/reader.js?v=20261120161"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind

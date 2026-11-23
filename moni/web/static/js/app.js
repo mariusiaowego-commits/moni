@@ -900,6 +900,8 @@ function app() {
     configTags: [],
     configSources: [],
     configDirections: [],
+    directionsPollTimer: null,
+    directionsLoadError: '',
     configFilters: [],
     configFilterSourceFilter: '',
     configModalOpen: false,
@@ -1106,6 +1108,10 @@ function app() {
     },
 
     switchConfigTab(tab) {
+      if (this.directionsPollTimer) {
+        clearTimeout(this.directionsPollTimer);
+        this.directionsPollTimer = null;
+      }
       this.configTab = tab || 'sources';
       // Lazy-load data for each config sub-tab
       if (this.configTab === 'sources') {
@@ -1157,10 +1163,30 @@ function app() {
 
     // ── Directions CRUD (Sprint 67, S2) ─────────────────────────────
     loadDirections() {
+      if (this.directionsPollTimer) {
+        clearTimeout(this.directionsPollTimer);
+        this.directionsPollTimer = null;
+      }
+      this.directionsLoadError = '';
       fetch('/api/directions', { credentials: 'same-origin' })
         .then(r => r.ok ? r.json() : [])
-        .then(data => { this.configDirections = Array.isArray(data) ? data : []; })
-        .catch(() => { this.configDirections = []; });
+        .then(data => {
+          this.configDirections = Array.isArray(data) ? data : [];
+          this.scheduleDirectionsPoll();
+        })
+        .catch(() => {
+          this.directionsLoadError = '加载失败';
+          this.scheduleDirectionsPoll();
+        });
+    },
+    scheduleDirectionsPoll() {
+      if (this.directionsPollTimer) {
+        clearTimeout(this.directionsPollTimer);
+        this.directionsPollTimer = null;
+      }
+      if (this.configTab !== 'directions') return;
+      if (!this.configDirections.some(d => d.research?.status === 'running')) return;
+      this.directionsPollTimer = setTimeout(() => this.loadDirections(), 5000);
     },
     configCreateDirection() {
       this.openConfigModal('direction', null);
@@ -1240,7 +1266,7 @@ function app() {
         if (response.status === 409) throw new Error('该方向已有研究在运行');
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
-        this._notify('success', `已开始研究 v${data.research_version}，完成后需要手动刷新查看结果`);
+        this._notify('success', `已开始研究 v${data.research_version}，完成后状态会自动刷新`);
         this.loadDirections();
       } catch (err) {
         this._notify('error', '启动研究失败: ' + err.message);
@@ -1264,11 +1290,26 @@ function app() {
     directionResearchStatusText(direction) {
       if (!direction.research) return '尚未生成研究方向';
       const version = `v${direction.research.research_version}`;
-      if (direction.research.status === 'running') return `${version} 正在生成，请稍后刷新`;
+      if (direction.research.status === 'running') return `${version} 正在研究，完成后自动刷新`;
       if (direction.research.status === 'passed') return `${version} 已通过校验`;
-      if (direction.research.status === 'failed') return `${version} 失败：${direction.usable_error || '请重新研究'}`;
+      if (direction.research.status === 'failed') return this.directionUsableReason(direction);
       if (direction.research.status === 'expired') return `${version} 已过期，请重新研究`;
       return version;
+    },
+    directionUsableReason(direction) {
+      if (!direction.research) return '还没有研究版本';
+      const version = `v${direction.research.research_version}`;
+      if (direction.research.status === 'running') return `${version} 正在研究，完成后自动刷新`;
+      if (direction.research.status === 'failed') return `${version} 研究失败，请重新研究`;
+      if (direction.research.status === 'expired') return `${version} 研究已过期，请重新研究`;
+      return direction.usable_error || '研究尚未通过校验';
+    },
+    directionResearchButtonTitle(direction) {
+      if (!direction.enabled) return '先启用这个方向';
+      if (direction.research?.status === 'running') {
+        return `v${direction.research.research_version} 正在研究，完成后自动刷新`;
+      }
+      return direction.research ? '基于当前说明重新研究' : '基于当前说明开始研究';
     },
 
     // ── Tags CRUD ───────────────────────────────────────────────────
