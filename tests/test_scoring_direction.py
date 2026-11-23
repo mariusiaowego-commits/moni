@@ -236,17 +236,21 @@ def test_template_without_placeholder_is_rejected():
 
 def test_template_with_a_broken_placeholder_is_rejected():
     """``}{`` and ``{{}}`` are not a placeholder -- they would blow up later."""
-    payload = _payload()
-    payload["dimensions"]["rule_delta"]["template"] = "}{"
-    research, error = parse_research(payload)
-    assert research is None
-    assert error and "占位符" in error
+    for broken in ("}{", "{{}}", "{ }", "{a{b}c}", "x{{y}}z", "{}"):
+        payload = _payload()
+        payload["dimensions"]["rule_delta"]["template"] = broken
+        research, error = parse_research(payload)
+        assert research is None, broken
+        assert error and "占位符" in error, broken
 
-    payload = _payload()
-    payload["dimensions"]["rule_delta"]["template"] = "{{}}"
-    research, error = parse_research(payload)
-    assert research is None
-    assert error and "占位符" in error
+
+def test_template_with_a_real_placeholder_is_accepted():
+    for good in ("{机构}", "{机构}{动作}{日期}", "{0}", "{a}{b}"):
+        payload = _payload()
+        payload["dimensions"]["rule_delta"]["template"] = good
+        research, error = parse_research(payload)
+        assert error is None, good
+        assert research is not None, good
 
 
 def test_empty_scope_and_out_of_scope_are_rejected():
@@ -454,6 +458,14 @@ def test_usable_research_rejects_a_superscript_version_without_crashing():
 
 def test_usable_research_rejects_a_fullwidth_version():
     rows = [_row(1, "passed"), _row("１", "passed")]
+    research, error = usable_research(rows, label=LABEL, brief=BRIEF)
+    assert research is None
+    assert error and "损坏" in error
+
+
+def test_usable_research_rejects_an_absurdly_long_version():
+    """``int()`` refuses a 4301-digit string -- the version must not crash."""
+    rows = [_row(1, "passed"), _row("9" * 4301, "passed")]
     research, error = usable_research(rows, label=LABEL, brief=BRIEF)
     assert research is None
     assert error and "损坏" in error

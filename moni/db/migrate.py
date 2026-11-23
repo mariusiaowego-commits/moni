@@ -77,6 +77,13 @@ def _run_sql_file(conn: sqlite3.Connection, path: Path) -> None:
         if not stmt:
             continue
         try:
+            # PRAGMA foreign_keys is a no-op inside a transaction, and the
+            # implicit transaction a DML statement opened would swallow it.
+            if (
+                stmt.upper().startswith("PRAGMA")
+                and getattr(conn, "in_transaction", False)
+            ):
+                conn.commit()
             conn.execute(stmt)
         except sqlite3.Error as exc:
             msg = str(exc).lower()

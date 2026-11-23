@@ -38,8 +38,9 @@ ANCHOR_COUNT = 4
 ANCHOR_LEVELS = ("0", "3", "6", "10")
 SCOPE_MAX_CHARS = 80
 
-#: A reason template must carry at least one real ``{placeholder}``.
-_PLACEHOLDER = re.compile(r"\{[^{}]+\}")
+#: A reason template must carry at least one real ``{placeholder}``:
+#: non-blank, no nested braces.
+_PLACEHOLDER = re.compile(r"\{[^{}]*\S[^{}]*\}")
 
 STATUS_RUNNING = "running"
 STATUS_PASSED = "passed"
@@ -296,7 +297,7 @@ def _dimensions_from_payload(
         template = _text(item.get("template")).strip()
         if not template:
             return None, f"理由模板为空：{key}"
-        if not _PLACEHOLDER.search(template):
+        if not _has_placeholder(template):
             return None, f"理由模板缺少占位符：{key}"
 
         hit = _banned_in(key, (question, *anchors, template))
@@ -335,6 +336,18 @@ def _anchors(raw: Any, key: str) -> tuple[tuple[str, str, str, str] | None, str 
     if not all(values):
         return None, f"锚点有空档：{key}"
     return (values[0], values[1], values[2], values[3]), None
+
+
+def _has_placeholder(template: str) -> bool:
+    """True when the template carries a usable ``{placeholder}``.
+
+    ``{ }`` is blank, ``{a{b}c}`` nests, ``x{{y}}z`` doubles the braces --
+    all three would blow up at render time, so none of them counts.
+    """
+    if not _PLACEHOLDER.search(template):
+        return False
+    leftover = _PLACEHOLDER.sub("", template)
+    return "{" not in leftover and "}" not in leftover
 
 
 def _scope_reject_reason(field: str, text: str) -> str | None:
@@ -415,7 +428,9 @@ def _positive_int(value: Any) -> int | None:
         # ``str.isdigit`` accepts superscripts such as "²", which ``int``
         # then refuses -- and SQLite happily stores them in an INTEGER
         # column because the type is only an affinity.
-        if not (text.isascii() and text.isdigit()):
+        # ``int()`` refuses absurdly long digit strings; cap the length
+        # instead of relying on that to raise.
+        if not (text.isascii() and text.isdigit()) or len(text) > 18:
             return None
         number = int(text)
         return number if number > 0 else None

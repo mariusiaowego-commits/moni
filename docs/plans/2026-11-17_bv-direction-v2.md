@@ -40,7 +40,7 @@ article_bv_direction     article_id, direction_id, research_version,
                          PRIMARY KEY (article_id, direction_id, research_version)
 ```
 
-只加表，不改既有列，不回填历史分。`_CURRENT_VERSION: 52 → 53`。
+只加表，不改既有列，不回填历史分。`_CURRENT_VERSION: 52 → 54`（053 建表、054 补外键）。
 
 ## 3. 研究（纯函数，S1 交付）
 
@@ -214,4 +214,24 @@ $ /usr/local/bin/python3 -m pytest tests/ -p no:cacheprovider -q
 **P3-3（BANNED_PATTERN 换行绕过）仍不修**：属 main 的 `moni/scoring/rubric.py:30`，本分支
 未引入该文件（`git diff --stat origin/main...HEAD -- moni/scoring/rubric.py` 为空），按
 「不顺手修相邻问题」留待办。
+
+## 12. 第三轮回归审计后的加固（2026-11-23）
+
+第二轮修复后做第三轮独立回归审计，结论 **FAIL（1 条 P1 + 1 条 P2）**——问题出在
+**迁移 054 自身**上。
+
+| 编号 | 问题 | 修法 |
+| --- | --- | --- |
+| P1-1 | 054 没有事务：表重建是「DROP 旧表 → RENAME 新表」两步，中间被打断则数据只剩在 staging 表；更糟的是脚本开头的 `DROP TABLE IF EXISTS article_bv_direction_new` 会把唯一那份副本删掉，然后 `FROM article_bv_direction` 找不到表报错，`migrate()` 不记录 v54 → 下次启动再删一次、再失败一次，形成需要人工救的死循环 | 整段搬进 `BEGIN IMMEDIATE … COMMIT`（原子）；staging 表改用 `CREATE TABLE IF NOT EXISTS` + `INSERT OR IGNORE`（不再先 DROP，半成品不丢数据）；开头补 `CREATE TABLE IF NOT EXISTS article_bv_direction`（旧形状）——即使旧表已被删也能把 staging 里的数据救回来 |
+| P2-1 | `migrate.py` 的逐语句 fallback 路径里，`INSERT` 隐式开了事务，结尾的 `PRAGMA foreign_keys = ON` 在事务内是空操作 → 连接上外键约束**静默永久失效** | `migrate.py:_run_sql_file` 的 fallback 循环里，遇到 `PRAGMA` 且当前有未提交事务时先 `conn.commit()` 再执行；`test_054_survives_the_runner_fallback` 补 `PRAGMA foreign_keys == 1` 断言 |
+| P3-1 | 模板占位符仍有弱通过：`{ }`（纯空格）、`{a{b}c}`（嵌套）、`x{{y}}z`（双花括号） | 占位符改为「内容非空白 + 不嵌套 + 去掉占位符后不留残括号」三重判定 |
+| P3-2 | `_positive_int` 对 4301 位数字串会触发 Python 的整数长度限制（`int()` 抛 `ValueError`） | 加长度上限 18 位 |
+| P3-3 | plan 文档 `:43` 仍写 `_CURRENT_VERSION 52 → 53` | 改为 54 |
+| P3-4 | 变异测试存活：删掉 054 里的 staging `DROP` 后 14 个用例仍全绿（没有覆盖「staging 残留时重跑」） | 补 `test_054_recovers_when_the_old_table_is_already_gone`、`test_054_merges_a_leftover_staging_table_with_the_real_one`、`test_054_is_atomic_when_a_statement_fails` |
+| P3-5 | 054 会原样搬过历史孤儿行（设计如此），之后 `PRAGMA foreign_key_check` 会永久报 1 条 violation | 记为已知限制：仓库目前没有跑 `foreign_key_check` 的地方 |
+
+**第三轮复核确认第二轮的 6 条全部真关掉**（`_positive_int` 对 `'²'`/`'³'`/`'①'`/全角/
+阿拉伯数字/`'1e3'`/`'+1'`/`'0x10'`/`b'1'` 等全部返回 None 不抛异常；`usable_research` 与
+`parse_research` 对 scope 的口径逐项一致；scope 不再套禁词这个取舍经复核站得住——
+提示词第 4 条的写作禁令约束的是「改写后的问题/锚点/理由模板」，scope 是方向元数据）。
 

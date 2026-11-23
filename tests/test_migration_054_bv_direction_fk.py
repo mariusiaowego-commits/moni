@@ -279,3 +279,117 @@ def test_054_survives_the_runner_fallback(db):
 
     assert _fk_targets(db, "article_bv_direction") == {"articles", "bv_direction"}
     assert db.execute("SELECT COUNT(*) FROM article_bv_direction").fetchone()[0] == 1
+    # The fallback path must not leave the connection without FK enforcement.
+    assert db.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+
+
+# ── 6. the interrupted-migration states ───────────────────────────────
+
+
+def _interrupt_after_the_old_table_was_dropped(db):
+    """Leave the state an earlier, non-transactional 054 could leave behind.
+
+    The old table is gone; the staging table holds the only copy of the rows.
+    """
+    article_id = _article(db)
+    direction_id = _direction(db)
+    db.execute("PRAGMA foreign_keys = OFF")
+    db.execute("DROP TABLE article_bv_direction")
+    db.execute(
+        "CREATE TABLE article_bv_direction_new ("
+        "article_id TEXT NOT NULL, direction_id INTEGER NOT NULL, "
+        "research_version INTEGER NOT NULL, score INTEGER, note TEXT, "
+        "status TEXT NOT NULL, error TEXT, breakdown_json TEXT, "
+        "content_hash TEXT NOT NULL, rubric_id TEXT, scored_at TEXT NOT NULL, "
+        "PRIMARY KEY (article_id, direction_id, research_version), "
+        "FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE, "
+        "FOREIGN KEY (direction_id) REFERENCES bv_direction(id) ON DELETE CASCADE)"
+    )
+    db.execute(
+        "INSERT INTO article_bv_direction_new (article_id, direction_id, "
+        "research_version, score, status, content_hash, scored_at) "
+        "VALUES (?, ?, 1, 77, 'ready', 'h', ?)",
+        (article_id, direction_id, NOW),
+    )
+    db.execute("PRAGMA foreign_keys = ON")
+    db.commit()
+    return article_id, direction_id
+
+
+def test_054_recovers_when_the_old_table_is_already_gone(db):
+    """The rows live only in the staging table -- they must not be dropped."""
+    article_id, direction_id = _interrupt_after_the_old_table_was_dropped(db)
+
+    _run_sql_file(db, MIGRATION_054)
+
+    rows = db.execute(
+        "SELECT article_id, direction_id, score FROM article_bv_direction"
+    ).fetchall()
+    assert len(rows) == 1
+    assert tuple(rows[0]) == (article_id, direction_id, 77)
+    assert _fk_targets(db, "article_bv_direction") == {"articles", "bv_direction"}
+
+
+def test_054_merges_a_leftover_staging_table_with_the_real_one(db):
+    """Rows in both places must end up in the rebuilt table, none lost."""
+    article_id = _article(db)
+    direction_id = _direction(db)
+    _score(db, article_id, direction_id, 66)
+
+    db.execute("PRAGMA foreign_keys = OFF")
+    db.execute(
+        "CREATE TABLE article_bv_direction_new ("
+        "article_id TEXT NOT NULL, direction_id INTEGER NOT NULL, "
+        "research_version INTEGER NOT NULL, score INTEGER, note TEXT, "
+        "status TEXT NOT NULL, error TEXT, breakdown_json TEXT, "
+        "content_hash TEXT NOT NULL, rubric_id TEXT, scored_at TEXT NOT NULL, "
+        "PRIMARY KEY (article_id, direction_id, research_version))"
+    )
+    db.execute(
+        "INSERT INTO article_bv_direction_new (article_id, direction_id, "
+        "research_version, score, status, content_hash, scored_at) "
+        "VALUES (?, ?, 1, 11, 'ready', 'h', ?)",
+        ("staging-only-article", direction_id, NOW),
+    )
+    db.execute("PRAGMA foreign_keys = ON")
+    db.commit()
+
+    _run_sql_file(db, MIGRATION_054)
+
+    scores = sorted(
+        row[0] for row in db.execute("SELECT score FROM article_bv_direction")
+    )
+    assert scores == [11, 66]
+
+
+def test_054_is_atomic_when_a_statement_fails(db, monkeypatch):
+    """A failure inside the rebuild must roll the whole thing back."""
+    article_id = _article(db)
+    direction_id = _direction(db)
+    _score(db, article_id, direction_id, 66)
+
+    import sqlite3 as _sqlite3
+
+    class _FailingConn:
+        """Fails on the RENAME, after the old table has been dropped."""
+
+        def __init__(self, conn):
+            self._conn = conn
+
+        def executescript(self, sql):  # noqa: ANN001
+            raise _sqlite3.OperationalError("forced failure before the script")
+
+        def execute(self, sql, *args):  # noqa: ANN001
+            if "ALTER TABLE" in sql.upper():
+                raise _sqlite3.OperationalError("forced failure at the rename")
+            return self._conn.execute(sql, *args)
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+    with pytest.raises(_sqlite3.OperationalError):
+        _run_sql_file(_FailingConn(db), MIGRATION_054)
+    db.rollback()
+
+    # The old table is still there with its rows -- nothing was half-done.
+    assert db.execute("SELECT COUNT(*) FROM article_bv_direction").fetchone()[0] == 1

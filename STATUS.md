@@ -797,6 +797,16 @@ Gate 2 降级后 summary 与逐条判定不同步、brief 脚注不受 flag 控�
     不套写作禁词表——这是回归审计自己的建议。
   - **P3** 模板占位符校验太松（`'}{'`、`'{{}}'` 能过）→ 改用正则 `\{[^{}]+\}`。
   - **P3** `prompt_id` 全等会误伤带空白的行 → 比较前 `strip()`。
+- **第三轮回归审计（结论 FAIL：1 条 P1 + 1 条 P2）→ 已修**：问题出在**迁移 054 自身**：
+  - **P1** 054 没有事务，表重建的「DROP 旧表 → RENAME 新表」之间被打断，数据只剩在 staging 表；
+    而脚本开头的 `DROP TABLE IF EXISTS staging` 会把唯一那份副本删掉 → `migrate()` 永远
+    失败、形成需要人工救的死循环。整段搬进 `BEGIN IMMEDIATE … COMMIT`；staging 改用
+    `CREATE TABLE IF NOT EXISTS` + `INSERT OR IGNORE`（不再先 DROP）；开头补旧形状的
+    `CREATE TABLE IF NOT EXISTS article_bv_direction`，让「旧表已删、数据只在 staging」
+    的坏状态也能自愈。
+  - **P2** `migrate.py` 的逐语句 fallback 里 `INSERT` 隐式开事务，结尾的
+    `PRAGMA foreign_keys = ON` 在事务内是空操作 → 外键约束静默永久失效。fallback 循环
+    里遇到 `PRAGMA` 且有未提交事务时先 `commit()` 再执行。
 - **rebase**：分支原落后 main 51 个提交；2026-11-23 rebase 到当时最新 main（`4f9b5e2`），
   冲突仅 `moni/db/migrate.py` 一处（版本号），按 053 解决。main 后续仍在推进，推分支前会再 rebase 一次。
 - **测试**：`/usr/local/bin/python3 -m pytest tests/ -p no:cacheprovider -q` → **2437 passed /
