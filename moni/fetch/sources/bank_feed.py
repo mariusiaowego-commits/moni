@@ -117,6 +117,33 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+#: 银行代码 → 短名（只用于界面文案，抓取逻辑不看这张表）
+_BANK_SHORT = {
+    "icbc": "工行",
+    "abc": "农行",
+    "boc": "中行",
+    "ccb": "建行",
+    "psbc": "邮储",
+    "bocom": "交行",
+}
+
+_REASON_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("timed out", "timeout", "超时"), "访问超时"),
+    (("connect", "ssl", "dns", "network", "连接"), "网络连接失败"),
+    (("403", "404", "http", "status"), "页面无法读取"),
+    (("parse", "empty", "no item", "解析"), "未抓到内容"),
+)
+
+
+def _human_reason(raw: str) -> str:
+    """把抓取异常翻成一句人话，界面直接显示。"""
+    text = (raw or "").lower()
+    for keys, label in _REASON_RULES:
+        if any(key in text for key in keys):
+            return label
+    return "未抓到内容"
+
+
 def _kill_group(pid: int, grace: float = 5.0) -> None:
     """SIGTERM 整个进程组, 宽限期后 SIGKILL (抄 llm/runner.py 的做法)。"""
     for sig in (signal.SIGTERM, signal.SIGKILL):
@@ -210,6 +237,8 @@ class FetcherBankFeed(BaseFetcher):
         self._progress_inserted = 0
         self._progress_done = 0
         self._today_items = 0
+        self._skipped_existing = 0
+        self._target_labels: dict[str, str] = {}
 
     # ── config ────────────────────────────────────────────────────────────
     def _load_config(self) -> dict[str, Any]:
@@ -294,6 +323,27 @@ class FetcherBankFeed(BaseFetcher):
         return [t for t in targets if isinstance(t, dict)]
 
     # ── agent (bot) ───────────────────────────────────────────────────────
+    @staticmethod
+    def _describe_target(target: dict[str, Any]) -> str:
+        """目标在界面上的短名（工行官网 / 未央网 / …）。"""
+        bank = str(target.get("bank") or "").strip()
+        short = _BANK_SHORT.get(bank)
+        if short:
+            return f"{short}官网" if target.get("kind") == "official_list" else short
+        return str(
+            target.get("publisher") or target.get("name") or target.get("id") or "?"
+        )
+
+    def _target_label(self, target_id: str) -> str:
+        label = self._target_labels.get(target_id)
+        if label:
+            return label
+        bank = target_id.split("-")[0]
+        short = _BANK_SHORT.get(bank)
+        if short:
+            return f"{short}官网" if target_id.endswith("-news") else short
+        return target_id
+
     def _latest_payload(self) -> dict[str, Any] | None:
         try:
             payload = json.loads(
@@ -486,6 +536,11 @@ class FetcherBankFeed(BaseFetcher):
         self._today_errors = []
         self._bot_error = ""
         targets = self._load_targets(cfg)
+        self._target_labels = {
+            str(t.get("id")): self._describe_target(t)
+            for t in targets
+            if t.get("id")
+        }
 
         if not self._bound_tags():
             # 没有绑定 tag 就必然零 tag; 宁可不入库也不要制造无 tag 文章。
@@ -559,6 +614,7 @@ class FetcherBankFeed(BaseFetcher):
                 raws.append(item)
 
         self._pending_state = state
+        self._skipped_existing = skipped_already
         logger.info(
             "[bank-feed] %d feed file(s) → %d new raw item(s) (%d already imported)",
             len(files), len(raws), skipped_already,
@@ -730,20 +786,33 @@ class FetcherBankFeed(BaseFetcher):
         self._pending_state = None
         self._round_ids = []
         result = super().run(dry_run=dry_run)
+        result["raw_items"] = self._today_items
+        result["skipped_existing"] = self._skipped_existing
         if not dry_run and self._inserted_ok:
             # 部分失败也要落 state: 已入库的条目不该在重跑时再处理一遍。
             self._flush_state()
         if not dry_run and not result.get("error"):
             problems: list[str] = []
             if self._bot_error:
-                problems.append(f"agent 补跑失败: {self._bot_error}")
+                problems.append(f"补抓失败：{_human_reason(self._bot_error)}")
             if self._today_errors:
-                failed = ", ".join(
-                    str(e.get("target") or "?") for e in self._today_errors[:5]
+                failed = "、".join(
+                    f"{self._target_label(str(e.get('target') or '?'))}"
+                    f"（{_human_reason(str(e.get('error') or ''))}）"
+                    for e in self._today_errors[:3]
                 )
                 problems.append(
-                    f"feed 不完整: {len(self._today_errors)} 个目标失败 ({failed})"
+                    f"{len(self._today_errors)} 个来源未抓到：{failed}"
                 )
+                result["failed_targets_detail"] = [
+                    {
+                        "target": str(e.get("target") or "?"),
+                        "label": self._target_label(str(e.get("target") or "")),
+                        "reason": _human_reason(str(e.get("error") or "")),
+                        "error": str(e.get("error") or ""),
+                    }
+                    for e in self._today_errors
+                ]
             if problems:
                 text = "; ".join(problems)
                 # 「今天有数据」比「本轮新插了几条」更能说明这次抓取有效:
