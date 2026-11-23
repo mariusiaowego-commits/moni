@@ -18,7 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 55  # + 055 bestblogs_full_sweep (053/054 owned by sprint-67 bv-direction) (BestBlogs 全量抓取)
+_CURRENT_VERSION = 56  # + 056 cron_jobs (sprint-69 cron-console)
 
 # Migrations <= this version were applied by the old "max(schema_version)"
 # rule, which did not record every intermediate row.  Never re-run them.

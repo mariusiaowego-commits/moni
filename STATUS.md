@@ -3,6 +3,24 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
+## 进行中: **定时任务控制台（cron-console）** (2026-11-23 · PR #277 · Sprint 26112369)
+
+定时任务原本只存在于 `config/schedule.yaml`，启动时一次性读取；界面只有跑批日志，
+看不到任务清单、下次触发时间，不能改时间/启停/立即运行，`POST /api/cron/jobs` 还会写假记录。
+
+**方案**：migration 056 新增 `cron_jobs`（从 YAML seed 5 个任务）、`cron_meta`（revision + heartbeat）、
+`cron_run_requests`（立即运行队列）。调度器 15s tick：写心跳、revision 变化热加载、消费运行请求。
+API：`GET/PUT /api/cron/jobs`、`POST /api/cron/jobs/{id}/run`（409 防重）、`GET /api/cron/status`、
+`GET /api/cron/runs?job_id=`；旧 `POST /api/cron/jobs` 返回 410。
+前端：配置管理新增「定时任务」页（状态条 + 6 列表格 + 编辑弹窗 + 立即运行），跑批日志加任务过滤。
+
+**验证**：定向 187 passed（`test_cron_registry` / `test_cron` / `test_api` / `test_frontend_render_hygiene`）；
+后端分支全量 2528 passed / 1 failed（PIL 环境缺失，与本分支无关）/ 2 skipped；
+生产库副本跑 056（schema 56）+ 本地 8929 实例 CDP 实测：5 行任务、人话计划、编辑弹窗取值正确、
+`fetch_all_sources` 不显示 batch_size、状态条正确显示「调度器离线」。
+
+**状态**：PR #277 待合并；未部署，未改生产库。
+
 ## 已发布: **v1.0.115 — BestBlogs 全量抓取 + 链式打标** (2026-11-23 · PR #274 → `846b501` · tag `v1.0.115` · Sprint 26112368)
 
 财新在 BestBlogs 合并列表第 139 位，但 `max_articles_total=1000` 每轮只跑到第 ~106 个 feed 就截断。

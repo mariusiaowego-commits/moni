@@ -1,10 +1,9 @@
-"""routes/cron — cron job listing, creation and run-history.
+"""routes/cron — cron job registry, run history, and scheduler status.
 
-Note: the schema only defines ``cron_runs`` (logged executions); there is no
-``cron_jobs`` table — job definitions live in ``config/schedule.yaml`` and are
-managed by the apscheduler CronScheduler outside the DB.  The API therefore
-exposes run history and a best-effort job listing derived from unique ``job_id``
-values seen in ``cron_runs``.
+Job definitions live in ``cron_jobs`` (migration 056, seeded from
+``config/schedule.yaml``).  The scheduler process re-reads them when
+``cron_meta.schedule_revision`` changes, so edits here take effect within
+one 15-second tick without restarting the process.
 """
 
 from __future__ import annotations
@@ -12,94 +11,105 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
+from moni.cron import registry
 from moni.db.connection import get_db
-from moni.web.models import CronJob, CronJobCreate, CronRun
+from moni.web.models import CronJob, CronJobUpdate, CronRun
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/cron", tags=["cron"])
 
 
+def _last_runs(conn) -> dict[str, str]:
+    rows = conn.execute(
+        "SELECT job_id, MAX(triggered_at) AS last_run_at FROM cron_runs GROUP BY job_id"
+    ).fetchall()
+    return {row["job_id"]: row["last_run_at"] for row in rows if row["job_id"]}
+
+
+def _to_model(job: dict, last_runs: dict[str, str]) -> CronJob:
+    next_run = registry.next_run_at(job["hour"], job["minute"], job["day_of_week"])
+    return CronJob(
+        id=job["id"],
+        name=job["name"],
+        func_path=job["func_path"],
+        trigger_type=job["trigger_type"],
+        schedule={
+            "hour": job["hour"],
+            "minute": job["minute"],
+            "day_of_week": job["day_of_week"],
+        },
+        func_kwargs=job["func_kwargs"],
+        is_active=job["is_active"],
+        last_run_at=last_runs.get(job["id"]),
+        next_run_at=next_run.isoformat() if next_run else None,
+        created_at=job.get("created_at"),
+        updated_at=job.get("updated_at"),
+    )
+
+
 @router.get("/jobs", response_model=list[CronJob])
 def list_cron_jobs() -> list[CronJob]:
-    """List cron jobs seen in run history (deduplicated by job_id).
-
-    Since job definitions live in ``config/schedule.yaml`` (not the DB), this
-    endpoint enumerates all distinct ``job_id`` values from ``cron_runs`` and
-    returns a synthetic CronJob object for each.
-    """
+    """List task definitions from the registry with last/next run times."""
     conn = get_db()
-    rows = conn.execute(
-        """
-        SELECT DISTINCT job_id,
-               MAX(triggered_at) AS last_run_at
-        FROM cron_runs
-        GROUP BY job_id
-        ORDER BY last_run_at DESC
-        """,
-    ).fetchall()
-
-    def _parse(v: str | None) -> datetime | None:
-        if v is None:
-            return None
-        try:
-            return datetime.fromisoformat(v)
-        except Exception:
-            return None
-
-    jobs: list[CronJob] = []
-    for i, row in enumerate(rows, start=1):
-        last_run = _parse(row["last_run_at"])
-        jobs.append(
-            CronJob(
-                id=i,
-                name=row["job_id"],
-                schedule="*",  # schedule unknown — not stored in DB
-                source_id=None,
-                is_active=True,
-                last_run_at=last_run,
-                next_run_at=None,
-                created_at=last_run,
-            )
-        )
-    return jobs
+    last_runs = _last_runs(conn)
+    return [_to_model(job, last_runs) for job in registry.list_jobs(conn)]
 
 
-@router.post("/jobs", response_model=CronJob, status_code=201)
-def create_cron_job(body: CronJobCreate) -> CronJob:
-    """Create a synthetic cron job entry in run history (no-op on the scheduler).
-
-    v1.0: cron job definitions are managed in ``config/schedule.yaml``, not in
-    the DB.  This endpoint persists a dummy row to ``cron_runs`` to record that
-    a job definition was requested; a future migration would add a real
-    ``cron_jobs`` table.
-    """
+@router.put("/jobs/{job_id}", response_model=CronJob)
+def update_cron_job(job_id: str, body: CronJobUpdate) -> CronJob:
+    """Update schedule / kwargs / enabled flag and bump the schedule revision."""
     conn = get_db()
-    now = datetime.now(timezone.utc).isoformat()
+    patch = body.model_dump(exclude_none=True)
+    try:
+        registry.update_job(conn, job_id, patch)
+    except registry.CronRegistryError as exc:
+        if registry.get_job(conn, job_id) is None:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    job = registry.get_job(conn, job_id)
+    assert job is not None
+    return _to_model(job, _last_runs(conn))
 
-    cursor = conn.execute(
-        """
-        INSERT INTO cron_runs (job_id, triggered_at, finished_at, success, new_articles, sources_run)
-        VALUES (?, ?, ?, 1, 0, 0)
-        """,
-        (body.name, now, now),
-    )
-    conn.commit()
 
-    return CronJob(
-        id=int(cursor.lastrowid),
-        name=body.name,
-        schedule=body.schedule,
-        source_id=body.source_id,
-        is_active=body.is_active,
-        last_run_at=now,
-        next_run_at=None,
-        created_at=now,
+@router.post("/jobs/{job_id}/run", status_code=202)
+def run_cron_job(job_id: str) -> dict:
+    """Queue an immediate run; the scheduler executes it on its next tick."""
+    conn = get_db()
+    try:
+        request_id = registry.enqueue_run(conn, job_id)
+    except registry.AlreadyQueued as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except registry.CronRegistryError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"request_id": request_id, "job_id": job_id, "status": "queued"}
+
+
+@router.post("/jobs", status_code=410)
+def create_cron_job() -> None:
+    """Removed: job definitions are code-bound and seeded from YAML."""
+    raise HTTPException(
+        status_code=410,
+        detail="定时任务由系统预置，不支持通过接口新建；请使用 PUT /api/cron/jobs/{id} 修改。",
     )
+
+
+@router.get("/status")
+def cron_status() -> dict:
+    """Scheduler liveness derived from the heartbeat written every 15s."""
+    conn = get_db()
+    age = registry.heartbeat_age_sec(conn)
+    jobs = registry.list_jobs(conn)
+    return {
+        "running": age is not None and age <= 60,
+        "heartbeat_age_sec": age,
+        "job_count": len(jobs),
+        "active_job_count": sum(1 for job in jobs if job["is_active"]),
+        "revision": registry.get_revision(conn),
+    }
 
 
 def _duration_seconds(started: str | None, finished: str | None) -> float | None:
@@ -118,25 +128,24 @@ def _duration_seconds(started: str | None, finished: str | None) -> float | None
 def list_cron_runs(
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    job_id: str | None = Query(None, description="Filter by job id"),
 ) -> list[CronRun]:
-    """List recent cron run records, most recent first, paginated.
-
-    Returns both DB-native field names (job_id / success / new_articles)
-    and legacy aliases (status / started_at / articles_fetched) so the
-    SPA no longer maps every row to ``failed`` when ``success`` is missing.
-    """
+    """List recent cron runs (newest first), optionally filtered by job id."""
     conn = get_db()
     offset = (page - 1) * page_size
 
+    where = "WHERE job_id = ?" if job_id else ""
+    params: list = [job_id] if job_id else []
     rows = conn.execute(
-        """
+        f"""
         SELECT id, job_id, triggered_at, finished_at, success,
                new_articles, sources_run, error, extra
         FROM cron_runs
+        {where}
         ORDER BY triggered_at DESC
         LIMIT ? OFFSET ?
         """,
-        (page_size, offset),
+        (*params, page_size, offset),
     ).fetchall()
 
     out: list[CronRun] = []
@@ -157,7 +166,7 @@ def list_cron_runs(
             CronRun(
                 id=row["id"],
                 job_id=row["job_id"] or "",
-                cron_job_id=0,  # no integer cron_jobs table
+                cron_job_id=0,
                 triggered_at=triggered,
                 started_at=triggered,
                 finished_at=finished,

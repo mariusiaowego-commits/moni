@@ -51,8 +51,10 @@ class CronScheduler:
         config_path: Path | str | None = None,
     ) -> None:
         self.config_path = Path(config_path) if config_path else _CONFIG_PATH
+        self._explicit_config = config_path is not None
         self._scheduler: Optional[Any] = None
         self._jobs: list[dict[str, Any]] = []
+        self._revision = 0
 
     # ── public API ─────────────────────────────────────────────────────────────
 
@@ -81,6 +83,17 @@ class CronScheduler:
         self._load_jobs()
         self._scheduler.start()
 
+        if not self._explicit_config:
+            # Registry tick: heartbeat + hot reload + run-request consumer.
+            self._scheduler.add_job(
+                self._tick,
+                "interval",
+                seconds=15,
+                id="_cron_tick",
+                replace_existing=True,
+            )
+            self._heartbeat()
+
         # Handle SIGTERM gracefully (docker / systemd)
         def _sigterm_handler(signum, frame):
             logger.info("Received SIGTERM — shutting down scheduler")
@@ -94,6 +107,75 @@ class CronScheduler:
             len(self._jobs),
             datetime.now(CST).isoformat(),
         )
+
+    # ── registry / run-request loop ───────────────────────────────────────────
+
+    def _heartbeat(self) -> None:
+        from moni.db.connection import get_db
+
+        from . import registry
+
+        registry.write_heartbeat(get_db())
+
+    def _tick(self) -> None:
+        """15s loop: heartbeat, hot reload on revision change, consume run requests."""
+        from moni.db.connection import get_db
+
+        from . import registry
+
+        conn = get_db()
+        try:
+            registry.write_heartbeat(conn)
+            if registry.get_revision(conn) != self._revision:
+                self._reload_jobs()
+            for request in registry.claim_pending_requests(conn):
+                job = registry.get_job(conn, request["job_id"])
+                if job is None:
+                    registry.finish_request(conn, request["id"], error="任务不存在")
+                    continue
+                assert self._scheduler is not None
+                self._scheduler.add_job(
+                    self._execute_request,
+                    "date",
+                    args=[request["id"], job["func_path"], job["func_kwargs"]],
+                    id=f"_run_req_{request['id']}",
+                    replace_existing=True,
+                )
+        except Exception:  # a broken tick must not kill the scheduler thread
+            logger.exception("cron tick failed")
+
+    def _execute_request(self, request_id: int, func_path: str, func_kwargs: dict[str, Any]) -> None:
+        from moni.db.connection import get_db
+
+        from . import registry
+
+        conn = get_db()
+        try:
+            _resolve_func(func_path)(**func_kwargs)
+        except Exception as exc:
+            logger.exception("run request %s failed", request_id)
+            registry.finish_request(conn, request_id, error=str(exc)[:500])
+        else:
+            registry.finish_request(conn, request_id)
+
+    def _reload_jobs(self) -> None:
+        from moni.db.connection import get_db
+
+        from . import registry
+
+        assert self._scheduler is not None
+        for job in self._scheduler.get_jobs():
+            if job.id != "_cron_tick":
+                self._scheduler.remove_job(job.id)
+        self._jobs = []
+
+        conn = get_db()
+        jobs = registry.list_jobs(conn, active_only=True)
+        for cfg in jobs:
+            if cfg["trigger_type"] == "cron":
+                self._register_job(cfg)
+        self._revision = registry.get_revision(conn)
+        logger.info("Reloaded %d job(s) at revision %d", len(jobs), self._revision)
 
     def stop(self) -> None:
         """Gracefully shut down the scheduler."""
@@ -137,20 +219,37 @@ class CronScheduler:
     # ── job loading ───────────────────────────────────────────────────────────
 
     def _load_jobs(self) -> None:
-        """Load and register jobs from config/schedule.yaml."""
-        if not self.config_path.exists():
-            logger.warning("schedule.yaml not found at %s", self.config_path)
+        """Load job definitions.
+
+        Production (default path): read the ``cron_jobs`` registry and seed it
+        from YAML when empty.  Explicit ``config_path`` (tests, ad-hoc runs):
+        keep the legacy YAML-only behaviour so fixtures stay hermetic.
+        """
+        if self._explicit_config:
+            if not self.config_path.exists():
+                logger.warning("schedule.yaml not found at %s", self.config_path)
+                return
+            data = yaml.safe_load(self.config_path.read_text(encoding="utf-8")) or {}
+            jobs = data.get("jobs", []) if isinstance(data, dict) else []
+            for job_cfg in jobs:
+                self._register_job(job_cfg)
+            logger.debug("Loaded %d job(s) from %s", len(jobs), self.config_path)
             return
 
-        with self.config_path.open(encoding="utf-8") as fh:
-            data = yaml.safe_load(fh)
+        from moni.db.connection import get_db
 
-        jobs: list[dict[str, Any]] = data.get("jobs", []) if isinstance(data, dict) else []
+        from . import registry
 
+        conn = get_db()
+        registry.seed_from_yaml(conn, self.config_path)
+        jobs = registry.list_jobs(conn, active_only=True)
         for job_cfg in jobs:
-            self._register_job(job_cfg)
-
-        logger.debug("Loaded %d job(s) from %s", len(jobs), self.config_path)
+            if job_cfg["trigger_type"] == "cron":
+                self._register_job(job_cfg)
+        self._revision = registry.get_revision(conn)
+        logger.info(
+            "Loaded %d job(s) from cron_jobs (revision %d)", len(jobs), self._revision
+        )
 
     def _register_job(self, cfg: dict[str, Any]) -> None:
         """Register a single job with the apscheduler.
