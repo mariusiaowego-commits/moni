@@ -28,6 +28,8 @@ BRIEF_MAX_CHARS = 200
 #: A research run is a single Hermes call; five minutes is generous,
 #: and anything still running after ten minutes is treated as dead.
 RESEARCH_STALE_AFTER_SEC = 600
+#: Returned by create/update when another direction already owns the name.
+DUPLICATE_LABEL_ERROR = "方向名已存在"
 
 
 def _now() -> str:
@@ -46,6 +48,21 @@ def _reject_reason(label: str, brief: str) -> str | None:
     return None
 
 
+def _label_taken(
+    conn: sqlite3.Connection, label: str, exclude_id: int | None = None
+) -> bool:
+    if exclude_id is None:
+        row = conn.execute(
+            "SELECT 1 FROM bv_direction WHERE label=? LIMIT 1", (label,)
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT 1 FROM bv_direction WHERE label=? AND id<>? LIMIT 1",
+            (label, exclude_id),
+        ).fetchone()
+    return row is not None
+
+
 def create_direction(
     conn: sqlite3.Connection, label: str, brief: str
 ) -> tuple[int | None, str | None]:
@@ -53,12 +70,21 @@ def create_direction(
     if error:
         return None, error
     now = _now()
-    cur = conn.execute(
-        "INSERT INTO bv_direction (label, brief, enabled, created_at, updated_at) "
-        "VALUES (?, ?, 1, ?, ?)",
-        (label.strip(), brief.strip(), now, now),
-    )
-    conn.commit()
+    clean_label = label.strip()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if _label_taken(conn, clean_label):
+            conn.rollback()
+            return None, DUPLICATE_LABEL_ERROR
+        cur = conn.execute(
+            "INSERT INTO bv_direction (label, brief, enabled, created_at, updated_at) "
+            "VALUES (?, ?, 1, ?, ?)",
+            (clean_label, brief.strip(), now, now),
+        )
+        conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
+        raise
     return int(cur.lastrowid), None
 
 
@@ -90,6 +116,9 @@ def update_direction(
             if error:
                 conn.rollback()
                 return None, error
+        if _label_taken(conn, next_label, exclude_id=direction_id):
+            conn.rollback()
+            return None, DUPLICATE_LABEL_ERROR
 
         conn.execute(
             "UPDATE bv_direction SET label=?, brief=?, enabled=?, updated_at=? "
@@ -194,6 +223,10 @@ def _stale_running_rows(
         except (TypeError, ValueError):
             dead.append((int(row["id"]), "研究开始时间无法解析"))
             continue
+        # SQLite's datetime('now') writes naive UTC; treat those as UTC so
+        # a local-timezone machine does not read them as eight hours old.
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
         if started_at.timestamp() < cutoff:
             dead.append((int(row["id"]), "研究中断或超时"))
     return dead

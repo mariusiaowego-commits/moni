@@ -811,6 +811,11 @@ function app() {
       if (view !== 'share' && this._sharePollInterval) {
         this._stopSharePoll();
       }
+      // Leaving the config page stops the direction-research poll too.
+      if (view !== 'config' && this.directionsPollTimer) {
+        clearTimeout(this.directionsPollTimer);
+        this.directionsPollTimer = null;
+      }
       // v1.0.5.10: sync the URL so refresh / back / forward work and the
       // active link is shareable.  Use replaceState on first call (no
       // history entry yet) and pushState on subsequent navigations.
@@ -872,6 +877,10 @@ function app() {
       }
       // v1.0.13 (audit fix F3): same teardown on back/forward.
       if (this.currentView === 'share' && view !== 'share') this._stopSharePoll();
+      if (view !== 'config' && this.directionsPollTimer) {
+        clearTimeout(this.directionsPollTimer);
+        this.directionsPollTimer = null;
+      }
       this.currentView = view;
       if (event.state && event.state.configTab) this.configTab = event.state.configTab;
       // Re-run the loaders for the target view.
@@ -1167,11 +1176,14 @@ function app() {
         clearTimeout(this.directionsPollTimer);
         this.directionsPollTimer = null;
       }
-      this.directionsLoadError = '';
       fetch('/api/directions', { credentials: 'same-origin' })
-        .then(r => r.ok ? r.json() : [])
+        .then(r => {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
         .then(data => {
           this.configDirections = Array.isArray(data) ? data : [];
+          this.directionsLoadError = '';
           this.scheduleDirectionsPoll();
         })
         .catch(() => {
@@ -1184,6 +1196,7 @@ function app() {
         clearTimeout(this.directionsPollTimer);
         this.directionsPollTimer = null;
       }
+      if (this.currentView !== 'config') return;
       if (this.configTab !== 'directions') return;
       if (!this.configDirections.some(d => d.research?.status === 'running')) return;
       this.directionsPollTimer = setTimeout(() => this.loadDirections(), 5000);

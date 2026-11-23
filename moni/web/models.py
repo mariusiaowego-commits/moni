@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -718,11 +718,23 @@ class DirectionCreate(BaseModel):
     label: str = Field(min_length=1, max_length=6)
     brief: str = Field(min_length=1, max_length=200)
 
+    @field_validator("label", "brief", mode="before")
+    @classmethod
+    def _strip(cls, value):
+        # Strip before length checks, otherwise " 微信生态 " fails the
+        # length rule while "   " fails a different one further down.
+        return value.strip() if isinstance(value, str) else value
+
 
 class DirectionUpdate(BaseModel):
     label: str | None = Field(default=None, min_length=1, max_length=6)
     brief: str | None = Field(default=None, min_length=1, max_length=200)
     enabled: bool | None = None
+
+    @field_validator("label", "brief", mode="before")
+    @classmethod
+    def _strip(cls, value):
+        return value.strip() if isinstance(value, str) else value
 
 
 class DirectionResearchAction(BaseModel):

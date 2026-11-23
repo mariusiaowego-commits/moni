@@ -171,3 +171,65 @@ def test_direction_payload_does_not_expose_rubric(client: TestClient):
     assert "rubric_json" not in json.dumps(listed.json())
     detail = client.get(f"/api/directions/{created['id']}/research")
     assert "rubric_json" not in detail.text
+
+
+def test_duplicate_label_returns_409(client: TestClient):
+    _create(client, label="微信生态")
+
+    duplicate = client.post(
+        "/api/directions", json={"label": "微信生态", "brief": "另一份说明"}
+    )
+    assert duplicate.status_code == 409
+    assert "已存在" in duplicate.json()["message"]
+
+    # Whitespace around the name must not sneak past the check.
+    padded = client.post(
+        "/api/directions", json={"label": "  微信生态  ", "brief": "说明"}
+    )
+    assert padded.status_code == 409
+
+
+def test_rename_to_existing_label_returns_409(client: TestClient):
+    first = _create(client, label="微信生态")
+    second = _create(client, label="短视频")
+
+    renamed = client.patch(
+        f"/api/directions/{second['id']}", json={"label": "微信生态"}
+    )
+    assert renamed.status_code == 409
+    assert first["label"] != second["label"]
+
+    # Renaming to its own name is fine.
+    same = client.patch(f"/api/directions/{first['id']}", json={"label": " 微信生态 "})
+    assert same.status_code == 200
+    assert same.json()["label"] == "微信生态"
+
+
+def test_disabled_direction_cannot_start_research(client: TestClient):
+    created = _create(client)
+    client.patch(f"/api/directions/{created['id']}", json={"enabled": False})
+
+    response = client.post(f"/api/directions/{created['id']}/research")
+    assert response.status_code == 409
+    assert "停用" in response.json()["message"]
+
+
+def test_banned_label_returns_400(client: TestClient):
+    response = client.post("/api/directions", json={"label": "深度洞察", "brief": "说明"})
+    assert response.status_code == 400
+    assert "禁用词" in response.json()["message"]
+
+
+def test_missing_direction_returns_404(client: TestClient):
+    assert client.get("/api/directions/999").status_code == 404
+    assert client.patch("/api/directions/999", json={"enabled": True}).status_code == 404
+    assert client.delete("/api/directions/999").status_code == 404
+
+
+def test_cross_origin_write_is_rejected(client: TestClient):
+    response = client.post(
+        "/api/directions",
+        json={"label": "微信生态", "brief": "说明"},
+        headers={"Origin": "https://malicious-site.example"},
+    )
+    assert response.status_code == 403

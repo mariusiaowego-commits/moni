@@ -35,6 +35,9 @@ router = APIRouter(prefix="/api/directions", tags=["directions"])
 
 _runner: DirectionResearchRunner | None = None
 _runner_lock = threading.Lock()
+#: Model identity captured at call time, so a settings change during the
+#: call cannot mislabel which model produced the research.
+_call_state = threading.local()
 
 
 def _research_action(row: dict[str, Any] | None) -> DirectionResearchAction | None:
@@ -79,24 +82,30 @@ def _get_direction_or_404(direction_id: int) -> dict[str, Any]:
     return direction
 
 
-def _model_call(prompt: str) -> str:
-    from moni.llm.client import call_llm, resolve_active_model
-    from moni.llm.runner import read_model_mode
-
-    if read_model_mode() == "profile":
-        return call_llm("", "", prompt)
-    provider, model = resolve_active_model()
-    return call_llm(provider, model, prompt)
-
-
-def _model_name() -> str:
+def _resolve_model() -> tuple[str, str, str]:
+    """Return (provider, model, label) for the model that is active now."""
     from moni.llm.client import resolve_active_model
     from moni.llm.runner import read_model_mode
 
     if read_model_mode() == "profile":
-        return "profile"
+        return "", "", "profile"
     provider, model = resolve_active_model()
-    return f"{provider}/{model}"
+    return provider, model, f"{provider}/{model}"
+
+
+def _model_call(prompt: str) -> str:
+    from moni.llm.client import call_llm
+
+    provider, model, label = _resolve_model()
+    _call_state.model_label = label
+    return call_llm(provider, model, prompt)
+
+
+def _model_name() -> str:
+    captured = getattr(_call_state, "model_label", None)
+    if captured:
+        return captured
+    return _resolve_model()[2]
 
 
 def _ensure_runner() -> DirectionResearchRunner:
@@ -119,6 +128,8 @@ def create_direction(payload: DirectionCreate) -> Direction:
     conn = get_db()
     direction_id, error = direction_store.create_direction(conn, payload.label, payload.brief)
     if direction_id is None:
+        if error == direction_store.DUPLICATE_LABEL_ERROR:
+            raise ConflictError(message=error)
         raise BadRequestError(message=error or "方向参数无效")
     direction = direction_store.get_direction(conn, direction_id)
     assert direction is not None
@@ -136,7 +147,11 @@ def update_direction(direction_id: int, payload: DirectionUpdate) -> Direction:
         enabled=payload.enabled,
     )
     if direction is None:
-        raise NotFoundError(message=error or "方向不存在") if error == "方向不存在" else BadRequestError(message=error or "方向参数无效")
+        if error == "方向不存在":
+            raise NotFoundError(message=error)
+        if error == direction_store.DUPLICATE_LABEL_ERROR:
+            raise ConflictError(message=error)
+        raise BadRequestError(message=error or "方向参数无效")
     return _direction_response(direction)
 
 
@@ -167,6 +182,8 @@ def get_research(direction_id: int) -> DirectionResearchSummary:
 def start_research(direction_id: int) -> DirectionResearchAction:
     conn = get_db()
     direction = _get_direction_or_404(direction_id)
+    if not direction["enabled"]:
+        raise ConflictError(message="方向已停用，请先启用再研究")
     running, error = direction_store.start_research(conn, direction_id)
     if running is None:
         raise ConflictError(message=error or "该方向已有研究在运行")
