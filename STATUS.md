@@ -807,6 +807,11 @@ Gate 2 降级后 summary 与逐条判定不同步、brief 脚注不受 flag 控�
   - **P2** `migrate.py` 的逐语句 fallback 里 `INSERT` 隐式开事务，结尾的
     `PRAGMA foreign_keys = ON` 在事务内是空操作 → 外键约束静默永久失效。fallback 循环
     里遇到 `PRAGMA` 且有未提交事务时先 `commit()` 再执行。
+- **第四轮（PASS WITH NITS）与第五轮（PASS）**：两条建议已修——占位符正则 `[^\s{}]`
+  （`{a}}`、`{{a}` 之前能过）、迁移合并用例的 staging 表补上外键并加 FK 断言。
+  变异测试（删 `BEGIN IMMEDIATE`、`INSERT OR IGNORE` → `INSERT`、`PRAGMA ON` 挪位、
+  `COMMIT` 挪早）**全部被杀死**。第五轮无 P1/P2，只剩 5 条留给 S2 的 P3
+  （brief/锚点长度上限、staging 形状说明、`{0}` 渲染边界、`direction_id` 改必填）。
 - **rebase**：分支原落后 main 51 个提交；2026-11-23 rebase 到当时最新 main（`4f9b5e2`），
   冲突仅 `moni/db/migrate.py` 一处（版本号），按 053 解决。main 后续仍在推进，推分支前会再 rebase 一次。
 - **测试**：`/usr/local/bin/python3 -m pytest tests/ -p no:cacheprovider -q` → **2437 passed /

@@ -235,3 +235,31 @@ $ /usr/local/bin/python3 -m pytest tests/ -p no:cacheprovider -q
 `parse_research` 对 scope 的口径逐项一致；scope 不再套禁词这个取舍经复核站得住——
 提示词第 4 条的写作禁令约束的是「改写后的问题/锚点/理由模板」，scope 是方向元数据）。
 
+## 13. 第四、五轮审计收口（2026-11-23）
+
+第四轮结论 **PASS WITH NITS**（无 P1），第五轮结论 **PASS**（无 P1/P2）。
+
+第四轮的两条建议已修：
+
+| 编号 | 问题 | 修法 |
+| --- | --- | --- |
+| P2-1 | `test_054_merges_a_leftover_staging_table_with_the_real_one` 构造的 staging 表**没有外键**，跑完 054 最终表也没有外键——它构造的正是「迁移补不上外键」的形状，却只断言行数，给了虚假信心 | staging 建表补上两条 FK（与 054 自身一致），并加 `_fk_targets` 断言 |
+| P3-1 | 占位符正则 `\S` 会把多余的括号当成「非空白内容」吃掉，`{a}}` 与 `{{a}` 仍能过 | 正则改 `[^\s{}]`；审计用 `string.Formatter().parse()` 做了 19,530 条差分模糊测试，校验通过 ⇒ 格式串合法，无残留绕过 |
+
+另外补齐两条变异缺口：`INSERT OR IGNORE` 改回 `INSERT`（新增「同主键真冲突时 staging 胜出」
+用例）、删掉 `BEGIN IMMEDIATE`（新增「迁移必须在一个事务里」用例）。
+
+第五轮变异测试：删 `BEGIN IMMEDIATE`、`BEGIN IMMEDIATE` → `BEGIN`、
+`INSERT OR IGNORE` → `INSERT`、`PRAGMA ON` 挪到 `COMMIT` 前、`COMMIT` 挪早
+——**全部被杀死**。
+
+### 留给 S2 的 P3（不阻塞本 PR）
+
+| 编号 | 问题 | 建议 |
+| --- | --- | --- |
+| P3-1 | staging 表若以「无 FK」形状残留，rename 后最终表无 FK | 可达性为零（053 不建该表，本分支两版 054 的 staging 都带 FK）；在文件头注释里记一句「staging 必须与 054 同形状」 |
+| P3-2 | `brief` 没有长度上限（label ≤6 / question ≤30 / scope ≤80 都有） | S2 配置 API 层加上限（如 200 字） |
+| P3-3 | 四条锚点与理由模板没有长度上限 | 同上，入库前加 |
+| P3-4 | `{0}` 能过占位符校验，但 kwargs 渲染会 `IndexError` | S2 渲染器统一 try/except 并降级为空理由 |
+| P3-5 | `usable_research` 的 `direction_id` 仍是可选参数，不传会跨方向取最大版本 | S2 接入时改成必填 keyword |
+
