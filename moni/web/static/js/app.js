@@ -899,6 +899,7 @@ function app() {
     configTab: 'sources',
     configTags: [],
     configSources: [],
+    configDirections: [],
     configFilters: [],
     configFilterSourceFilter: '',
     configModalOpen: false,
@@ -1123,6 +1124,8 @@ function app() {
         this.loadLlmSettings();
         if (this.llmTab === 'gateway') this.loadLlmGateway();
         if (this.llmTab === 'usage') this.loadLlmUsage();
+      } else if (this.configTab === 'directions') {
+        this.loadDirections();
       } else if (this.configTab === 'cron') {
         this.loadCronRuns();
       }
@@ -1150,6 +1153,110 @@ function app() {
 
     filterFiltersBySource() {
       this.configLoadFilters();
+    },
+
+    // ── Directions CRUD (Sprint 67, S2) ─────────────────────────────
+    loadDirections() {
+      fetch('/api/directions', { credentials: 'same-origin' })
+        .then(r => r.ok ? r.json() : [])
+        .then(data => { this.configDirections = Array.isArray(data) ? data : []; })
+        .catch(() => { this.configDirections = []; });
+    },
+    configCreateDirection() {
+      this.openConfigModal('direction', null);
+    },
+    configEditDirection(direction) {
+      this.openConfigModal('direction', {
+        id: direction.id,
+        label: direction.label,
+        brief: direction.brief,
+        enabled: direction.enabled,
+      });
+    },
+    validateDirectionForm() {
+      const t = this.configModalTarget;
+      t.labelError = '';
+      t.briefError = '';
+      if (!t.label || !t.label.trim()) t.labelError = '方向名不能为空';
+      if (t.label && t.label.trim().length > 6) t.labelError = '方向名不能超过 6 字';
+      if (!t.brief || !t.brief.trim()) t.briefError = '方向说明不能为空';
+      if (t.brief && t.brief.trim().length > 200) t.briefError = '方向说明不能超过 200 字';
+      return !t.labelError && !t.briefError;
+    },
+    async configSaveDirection() {
+      if (!this.validateDirectionForm()) return;
+      const isEdit = !!this.configModalTargetOriginal;
+      const url = isEdit ? `/api/directions/${this.configModalTarget.id}` : '/api/directions';
+      const body = isEdit
+        ? { label: this.configModalTarget.label.trim(), brief: this.configModalTarget.brief.trim(), enabled: this.configModalTarget.enabled }
+        : { label: this.configModalTarget.label.trim(), brief: this.configModalTarget.brief.trim() };
+      try {
+        const response = await fetch(url, {
+          method: isEdit ? 'PATCH' : 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        this.closeConfigModal();
+        this.loadDirections();
+        this._notify('success', isEdit ? '方向已保存；研究需重新生成' : '方向已创建');
+      } catch (err) {
+        this._notify('error', '保存方向失败: ' + err.message);
+      }
+    },
+    async configDeleteDirection(direction) {
+      const ok = await moniModal.confirm(`确定删除业务方向 “${direction.label}”？相关研究和打分会一并删除。`, {
+        title: '删除业务方向', okLabel: '删除', danger: true,
+      });
+      if (!ok) return;
+      try {
+        const response = await fetch(`/api/directions/${direction.id}`, {
+          method: 'DELETE', credentials: 'same-origin',
+        });
+        if (!response.ok && response.status !== 204) throw new Error(`HTTP ${response.status}`);
+        this.loadDirections();
+        this._notify('success', '方向已删除');
+      } catch (err) {
+        this._notify('error', '删除方向失败: ' + err.message);
+      }
+    },
+    async directionResearch(direction) {
+      try {
+        const response = await fetch(`/api/directions/${direction.id}/research`, {
+          method: 'POST', credentials: 'same-origin',
+        });
+        if (response.status === 409) throw new Error('该方向已有研究在运行');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        this._notify('success', `已开始研究 v${data.research_version}，完成后需要手动刷新查看结果`);
+        this.loadDirections();
+      } catch (err) {
+        this._notify('error', '启动研究失败: ' + err.message);
+      }
+    },
+    directionResearchBadgeText(research) {
+      if (!research) return '未研究';
+      if (research.status === 'running') return `研究中 v${research.research_version}`;
+      if (research.status === 'passed') return `已通过 v${research.research_version}`;
+      if (research.status === 'failed') return `失败 v${research.research_version}`;
+      if (research.status === 'expired') return `已过期 v${research.research_version}`;
+      return research.status || '未知';
+    },
+    directionResearchBadgeClass(research) {
+      if (!research) return 'status-paused';
+      if (research.status === 'passed') return 'status-ok';
+      if (research.status === 'running') return 'status-running';
+      return 'status-paused';
+    },
+    directionResearchStatusText(direction) {
+      if (!direction.research) return '尚未生成研究方向';
+      const version = `v${direction.research.research_version}`;
+      if (direction.research.status === 'running') return `${version} 正在生成，请稍后刷新`;
+      if (direction.research.status === 'passed') return `${version} 已通过校验`;
+      if (direction.research.status === 'failed') return `${version} 失败：${direction.usable_error || '请重新研究'}`;
+      if (direction.research.status === 'expired') return `${version} 已过期，请重新研究`;
+      return version;
     },
 
     // ── Tags CRUD ───────────────────────────────────────────────────
@@ -1799,6 +1906,23 @@ function app() {
             name: '', display_name: '', description: '', color: '',
             keywords: [], is_active: true,
             nameConfirmed: false, nameError: '',
+          };
+        }
+      } else if (type === 'direction') {
+        if (target && target.id) {
+          this.configModalTargetOriginal = target.id;
+          this.configModalTarget = {
+            id: target.id,
+            label: target.label || '',
+            brief: target.brief || '',
+            enabled: !!target.enabled,
+            labelError: '',
+            briefError: '',
+          };
+        } else {
+          this.configModalTargetOriginal = null;
+          this.configModalTarget = {
+            label: '', brief: '', enabled: true, labelError: '', briefError: '',
           };
         }
       } else if (type === 'source' && target && target.id) {

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,14 +14,28 @@ from tests.test_scoring_direction import _payload
 
 
 @pytest.fixture
-def client(tmp_path):
+def client(tmp_path, monkeypatch):
     close_db()
     set_db_path(tmp_path / "news.db")
     migrate()
     from moni.web.server import create_app
 
+    from moni.web.routes import directions as directions_route
+
+    def fake_model_call(_prompt: str) -> str:
+        return json.dumps(_payload(), ensure_ascii=False)
+
+    monkeypatch.setattr(
+        directions_route,
+        "_model_call",
+        fake_model_call,
+    )
     with TestClient(create_app()) as test_client:
+        # The route caches a runner; reset it so each test gets the
+        # monkeypatched model call above.
+        directions_route._runner = None
         yield test_client
+        directions_route._runner = None
     close_db()
 
 
@@ -101,9 +116,20 @@ def test_research_action_returns_202_and_conflicts_on_duplicate(client: TestClie
     duplicate = client.post(f"/api/directions/{created['id']}/research")
     assert duplicate.status_code == 409
 
+    from moni.web.routes.directions import _runner
+
+    assert _runner is not None
+    for _ in range(100):
+        if _runner.active is None and _runner.pending_count == 0:
+            break
+        time.sleep(0.02)
+    assert _runner.pending_count == 0
+
     research = client.get(f"/api/directions/{created['id']}/research")
     assert research.status_code == 200
-    assert research.json()["status"] == "running"
+    # The fake model returns a valid payload, so the run may already have
+    # finished; both "running" and "passed" are legal post-submit states.
+    assert research.json()["status"] in {"running", "passed"}
     assert research.json()["prompt_id"] == "bv_direction_research_v1"
 
 

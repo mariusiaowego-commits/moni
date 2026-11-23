@@ -2827,6 +2827,7 @@
           <div class="panel-actions" style="display: flex; align-items: center; gap: 8px;">
             <button class="btn-primary" x-show="configTab === 'sources'" @click="configCreateSource()">+ 新建 source</button>
             <button class="btn-primary" x-show="configTab === 'tags'" @click="configCreateTag()">+ 新建 tag</button>
+            <button class="btn-primary" x-show="configTab === 'directions'" @click="configCreateDirection()">+ 新建方向</button>
             <div x-show="configTab === 'filters'" style="display: flex; align-items: center; gap: 8px;">
               <select x-model="configFilterSourceFilter" @change="filterFiltersBySource()"
                       style="padding: 4px 8px; font-size: var(--font-12);">
@@ -2844,6 +2845,7 @@
           <button class="tab-btn" :class="{ active: configTab === 'sources' }" @click="switchConfigTab('sources')">信源</button>
           <button class="tab-btn" :class="{ active: configTab === 'tags' }"    @click="switchConfigTab('tags')">业务 tag</button>
           <button class="tab-btn" :class="{ active: configTab === 'filters' }" @click="switchConfigTab('filters')">关键词过滤</button>
+          <button class="tab-btn" :class="{ active: configTab === 'directions' }" @click="switchConfigTab('directions')">业务方向</button>
           <button class="tab-btn" :class="{ active: configTab === 'llm' }"     @click="switchConfigTab('llm')">大模型设置</button>
           <button class="tab-btn" :class="{ active: configTab === 'cron' }"    @click="switchConfigTab('cron')">跑批日志</button>
         </div>
@@ -2986,6 +2988,69 @@
                 </template>
                 <tr x-show="configTags.length === 0">
                   <td colspan="6" class="empty-row">暂无 tag</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ── Tab: 业务方向 (Sprint 67, S2) ── -->
+        <div x-show="configTab === 'directions'">
+          <div class="table-container">
+            <table style="table-layout: fixed; width: 100%;">
+              <colgroup>
+                <col style="width: 110px;">
+                <col style="width: 220px;">
+                <col style="width: 110px;">
+                <col style="width: 150px;">
+                <col style="width: 180px;">
+                <col style="width: 120px;">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>方向名</th>
+                  <th>说明</th>
+                  <th>启用</th>
+                  <th>研究状态</th>
+                  <th>可用性</th>
+                  <th style="text-align: right;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="d in configDirections" :key="d.id">
+                  <tr>
+                    <td><strong x-text="d.label"></strong></td>
+                    <td class="nowrap" :title="d.brief" x-text="d.brief"></td>
+                    <td>
+                      <span class="status-badge" :class="d.enabled ? 'status-ok' : 'status-paused'"
+                            x-text="d.enabled ? '启用' : '停用'"></span>
+                    </td>
+                    <td class="nowrap">
+                      <span x-show="d.research"
+                            class="status-badge"
+                            :class="directionResearchBadgeClass(d.research)"
+                            :title="directionResearchStatusText(d)"
+                            x-text="directionResearchBadgeText(d.research)"></span>
+                      <span x-show="!d.research" class="muted">未研究</span>
+                    </td>
+                    <td class="nowrap">
+                      <span x-show="d.usable" class="status-badge status-ok">可用</span>
+                      <span x-show="!d.usable" class="status-badge status-paused"
+                            :title="d.usable_error || '尚未有可用研究'"
+                            x-text="d.usable_error ? '不可用' : '未研究'"></span>
+                    </td>
+                    <td style="text-align: right;">
+                      <div class="row-actions" style="justify-content: flex-end;">
+                        <button class="btn-link" @click="directionResearch(d)"
+                                :disabled="!d.enabled || d.research?.status === 'running'">重新研究</button>
+                        <button class="btn-link" @click="configEditDirection(d)">编辑</button>
+                        <button class="btn-danger" @click="configDeleteDirection(d)">删除</button>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="configDirections.length === 0">
+                  <td colspan="6" class="empty-row">暂无业务方向</td>
                 </tr>
               </tbody>
             </table>
@@ -4085,6 +4150,41 @@
     <!-- ══ Config Edit Modal (v1.0.2-F) ═════════════════════════════ -->
     <div class="modal-backdrop" x-show="configModalOpen" x-cloak @click.self="closeConfigModal()" @keydown.escape.window="closeConfigModal()">
       <div class="modal-content">
+
+        <!-- Direction modal (Sprint 67, S2) -->
+        <template x-if="configModalType === 'direction'">
+          <div>
+            <div class="modal-header">
+              <h3 x-text="configModalTarget ? '编辑业务方向' : '新建业务方向'"></h3>
+            </div>
+            <div class="modal-body">
+              <div class="form-row">
+                <label>方向名 <span class="required">*</span>
+                  <small class="muted">≤6 字；只作为展示与快照，不参与文章抓取</small>
+                </label>
+                <input type="text" x-model="configModalTarget.label" maxlength="6" placeholder="微信生态">
+                <small class="text-danger" x-show="configModalTarget.labelError" x-text="configModalTarget.labelError"></small>
+              </div>
+              <div class="form-row">
+                <label>方向说明 <span class="required">*</span>
+                  <small class="muted">≤200 字；描述这个方向关心什么，改了以后需要重新研究</small>
+                </label>
+                <textarea x-model="configModalTarget.brief" rows="3" maxlength="200" placeholder="微信支付、公众号、小程序里的银行动作"></textarea>
+                <small class="text-danger" x-show="configModalTarget.briefError" x-text="configModalTarget.briefError"></small>
+              </div>
+              <div class="form-row" x-show="!!configModalTargetOriginal">
+                <label class="checkbox-row">
+                  <input type="checkbox" x-model="configModalTarget.enabled">
+                  <span>启用这个方向</span>
+                </label>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn-secondary" @click="closeConfigModal()">取消</button>
+              <button class="btn-primary" @click="configSaveDirection()">保存</button>
+            </div>
+          </div>
+        </template>
 
         <!-- Tag modal -->
         <template x-if="configModalType === 'tag'">
