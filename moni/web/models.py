@@ -210,6 +210,9 @@ class CronRun(BaseModel):
     log_url: str | None = None
     error_message: str | None = None
     error: str | None = None
+    # Per-run counters (feeds_scanned / candidates_new / budget_capped /
+    # tag_chain ...).  Populated from ``cron_runs.extra``.
+    extra: dict[str, Any] | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

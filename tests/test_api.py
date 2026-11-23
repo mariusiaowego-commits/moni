@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -789,6 +790,34 @@ class TestCron:
     def test_get_runs_pagination(self, client: TestClient):
         r = client.get("/api/cron/runs?page=1&page_size=5")
         assert r.status_code == 200
+
+    def test_get_runs_parses_extra(self, client: TestClient):
+        conn = get_db()
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            """
+            INSERT INTO cron_runs
+                (job_id, triggered_at, finished_at, success,
+                 new_articles, sources_run, extra)
+            VALUES (?, ?, ?, 1, 7, 1, ?)
+            """,
+            (
+                "extra-test",
+                now,
+                now,
+                json.dumps({
+                    "duration_sec": 1496.2,
+                    "sources": {"bestblogs": {"feeds_scanned": 478,
+                                              "feeds_total": 478}},
+                }),
+            ),
+        )
+        conn.commit()
+
+        r = client.get("/api/cron/runs")
+        assert r.status_code == 200
+        row = next(x for x in r.json() if x["job_id"] == "extra-test")
+        assert row["extra"]["sources"]["bestblogs"]["feeds_scanned"] == 478
 
 
 # ---------------------------------------------------------------------------

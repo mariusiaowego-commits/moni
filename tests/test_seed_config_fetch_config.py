@@ -28,7 +28,7 @@ def test_seed_persists_cn_indie_timeout_budget():
 @pytest.mark.parametrize(
     ("source_name", "expected"),
     [
-        ("bestblogs", 1800),
+        ("bestblogs", 2700),
         ("bestblog-podcast", 1800),
         ("bestblog-x", 1800),
         ("bestblog-yt", 1800),

@@ -62,7 +62,7 @@ def test_reads_timeout_sec_from_config():
 def test_fallback_uses_source_default_when_key_absent():
     conn = get_db()
     _seed_source(conn, "bestblogs", json.dumps({"max_articles_total": 1900}))
-    assert _job_timeout("bestblogs") == 1800
+    assert _job_timeout("bestblogs") == 2700
     assert JOB_TIMEOUT_SECONDS == 600
 
 
@@ -75,7 +75,7 @@ def test_fallback_to_global_default_when_no_config():
 def test_fallback_uses_ui_default_for_bestblogs_without_config():
     conn = get_db()
     _seed_source(conn, "bestblogs", None)
-    assert _job_timeout("bestblogs") == 1800
+    assert _job_timeout("bestblogs") == 2700
 
 
 def test_fallback_uses_ui_default_for_cn_indie_without_config():

@@ -927,17 +927,22 @@ function app() {
       },
       max_articles_per_feed: {
         label: '每个 Feed 最多文章',
-        hint: '单个 RSS/OPML feed 最多取最新几篇。',
+        hint: '单个 RSS/OPML feed 最多取最新几篇；0 = 不限（feed 返回多少取多少）。',
         type: 'number',
       },
       max_articles_total: {
         label: '本轮文章上限',
-        hint: '整次同步合计最多入库/处理多少篇（硬顶）。',
+        hint: '安全阀：整轮最多处理多少篇。正常 478 个 feed 约 5300 条，设大值即可；只在 OPML 异常膨胀时截断。',
         type: 'number',
       },
       request_delay: {
         label: '请求间隔（秒）',
         hint: '两次 HTTP 请求之间的等待，减轻对方限流。',
+        type: 'number',
+      },
+      timeout_sec: {
+        label: '任务超时（秒）',
+        hint: 'Web 手动抓取的任务看门狗；cron 批跑不受这个值影响。',
         type: 'number',
       },
       http_timeout: {
@@ -2200,6 +2205,44 @@ function app() {
           this.cronRuns = Array.isArray(data) ? data : (data.runs || []);
         })
         .catch(err => console.error('loadCronRuns failed:', err));
+    },
+
+    // v1.0.115: per-run sweep counters come from cron_runs.extra.
+    _cronSourceStats(run) {
+      const sources = run && run.extra && run.extra.sources;
+      return (sources && (sources.bestblogs || sources['bestblog-yt'])) || null;
+    },
+
+    cronRunProgress(run) {
+      const s = this._cronSourceStats(run);
+      if (!s || s.feeds_total == null) return '-';
+      const failed = s.feeds_failed ? `（失败 ${s.feeds_failed}）` : '';
+      return `${s.feeds_scanned ?? 0}/${s.feeds_total}${failed}`;
+    },
+
+    hasCronRunDetail(run) {
+      const extra = run && run.extra;
+      return !!(extra && (extra.sources || extra.tag_chain));
+    },
+
+    cronRunDetail(run) {
+      const parts = [];
+      const s = this._cronSourceStats(run);
+      if (s) {
+        parts.push(`候选 ${s.candidates_new ?? 0}`);
+        parts.push(`选中 ${s.selected ?? 0}`);
+        parts.push(`tag 丢弃 ${s.dropped_tag_filter ?? 0}`);
+        parts.push(`上限截断 ${s.budget_capped ? '是' : '否'}`);
+      }
+      const t = run && run.extra && run.extra.tag_chain;
+      if (t) {
+        if (t.error) {
+          parts.push(`链式打标失败：${t.error}`);
+        } else {
+          parts.push(`链式打标 待处理 ${t.pending_before ?? 0} → 剩余 ${t.pending_after ?? 0}`);
+        }
+      }
+      return parts.join(' · ') || '-';
     },
 
     // ── Fetch panel ───────────────────────────────────────────────

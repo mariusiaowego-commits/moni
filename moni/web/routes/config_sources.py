@@ -53,11 +53,11 @@ router = APIRouter(prefix="/api/config/sources", tags=["config"])
 # v1.0.12: include xwatch so empty/partial rows still show documented keys.
 _FETCH_CONFIG_DEFAULTS: dict[str, dict] = {
     "bestblogs": {
-        "max_feeds": 375,
-        "max_articles_per_feed": 5,
-        "max_articles_total": 500,
+        "max_feeds": 500,
+        "max_articles_per_feed": 0,
+        "max_articles_total": 200000,
         "request_delay": 0.5,
-        "timeout_sec": 1800,
+        "timeout_sec": 2700,
     },
     "bestblog-podcast": {
         "max_feeds": 60,

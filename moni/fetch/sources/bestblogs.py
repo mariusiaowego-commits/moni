@@ -82,15 +82,40 @@ def _in_date_range(
 
 # Defaults when fetch_config is missing or incomplete
 _DEFAULTS = {
-    "max_feeds": 375,
-    "max_articles_per_feed": 5,
-    "max_articles_total": 500,
+    "max_feeds": 500,
+    "max_articles_per_feed": 0,   # <= 0 means "every item the feed returns"
+    "max_articles_total": 200000,  # safety valve, not a working limit
     "request_delay": 0.5,
     "flush_every_feeds": 10,
 }
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _OVERRIDES_PATH = _PROJECT_ROOT / "config" / "feed_overrides.json"
+
+
+def _load_known_urls(source_name: str) -> set[str]:
+    """URLs already stored under ``source_name``.
+
+    Used to skip the tag gate for articles we already have.  Keyed by
+    ``(source, url)`` — the articles table's unique constraint — so the
+    same URL published by another source is still evaluated here.
+    Basket rows are deliberately *not* included: a keyword added later
+    must be able to pull a previously dropped article in.
+    """
+    try:
+        from ...db.connection import get_db
+
+        conn = get_db()
+        return {
+            row[0]
+            for row in conn.execute(
+                "SELECT url FROM articles WHERE source = ? AND url IS NOT NULL",
+                (source_name,),
+            )
+        }
+    except Exception as exc:  # noqa: BLE001 - dedup is best-effort
+        logger.debug("[bestblogs] known-url preload failed: %s", exc)
+        return set()
 
 
 def _load_feed_overrides(source_name: str, path: Path | None = None) -> dict[str, list[dict]]:
@@ -159,6 +184,8 @@ def _apply_feed_overrides(
 @register_fetcher
 class FetcherBestBlogs(BaseFetcher):
     source_name: str = "bestblogs"
+    run_stats: dict[str, Any] = {}
+    _last_feed_failed: bool = False
 
     def fetch(self) -> list[dict[str, Any]]:
         config = self._load_config()
@@ -220,24 +247,52 @@ class FetcherBestBlogs(BaseFetcher):
         max_per_feed = config["max_articles_per_feed"]
         max_total = config["max_articles_total"]
         flush_every = config["flush_every_feeds"]
+        known_urls = _load_known_urls(self.source_name)
+        seen_this_run: set[str] = set()
+        stats = {
+            "feeds_total": len(feeds),
+            "feeds_scanned": 0,
+            "feeds_failed": 0,
+            "candidates_new": 0,
+            "selected": 0,
+            "budget_capped": False,
+        }
 
         for i, (feed_title, feed_url) in enumerate(feeds):
-            if collected >= max_total:
+            if max_total > 0 and collected >= max_total:
+                stats["budget_capped"] = True
                 logger.info(
                     "[bestblogs] reached total cap %d, stopping at feed %d/%d",
                     max_total, i, len(feeds),
                 )
                 break
 
-            remaining = max_total - collected
+            remaining = max_total - collected if max_total > 0 else None
             if i > 0 and delay > 0:
                 time.sleep(delay)
 
             items = self._fetch_feed(feed_url, feed_title)
-            # Take latest N items per feed
-            items = items[: min(max_per_feed, remaining)]
-            buffer.extend(items)
-            collected += len(items)
+            stats["feeds_scanned"] = i + 1
+            if getattr(self, "_last_feed_failed", False):
+                stats["feeds_failed"] += 1
+            # 0 (or negative) = take every item the feed returned.
+            if max_per_feed > 0:
+                items = items[:max_per_feed]
+
+            fresh: list[dict[str, Any]] = []
+            for article in items:
+                url = article.get("url")
+                if not url or url in known_urls or url in seen_this_run:
+                    continue
+                seen_this_run.add(url)
+                fresh.append(article)
+            stats["candidates_new"] += len(fresh)
+
+            if remaining is not None:
+                fresh = fresh[:remaining]
+            buffer.extend(fresh)
+            collected += len(fresh)
+            stats["selected"] = collected
 
             # v1.0.7.6: per-feed progress callback (current_feed + counters).
             if self.progress_callback is not None:
@@ -261,10 +316,11 @@ class FetcherBestBlogs(BaseFetcher):
                 )
 
         self._flush(buffer)
+        self.run_stats = stats
 
         logger.info(
-            "[bestblogs] done — %d feeds, %d articles fetched",
-            len(feeds), collected,
+            "[bestblogs] done — %d/%d feeds, %d new candidates, %d selected",
+            stats["feeds_scanned"], len(feeds), stats["candidates_new"], collected,
         )
         # Everything was persisted in chunks already.
         return []
@@ -392,12 +448,14 @@ class FetcherBestBlogs(BaseFetcher):
                 "Chrome/126.0.0.0 Safari/537.36"
             )
         }
+        self._last_feed_failed = False
         resp: httpx.Response | None = None
         for attempt in (1, 2, 3):
             try:
                 resp = httpx.get(feed_url, timeout=20.0, headers=headers)
                 if resp.status_code == 404:
                     logger.debug("[bestblogs] 404: %s", feed_title)
+                    self._last_feed_failed = True
                     return []
                 resp.raise_for_status()
                 break
@@ -411,10 +469,12 @@ class FetcherBestBlogs(BaseFetcher):
                     logger.warning(
                         "[bestblogs] giving up on %s after 3 attempts", feed_title
                     )
+                    self._last_feed_failed = True
                     return []
                 time.sleep(1.5 * attempt)
             except Exception as exc:
                 logger.warning("[bestblogs] error fetching %s: %s", feed_title, exc)
+                self._last_feed_failed = True
                 return []
         # resp is guaranteed bound here: the loop either broke on success
         # or returned early on all failure paths.
@@ -423,6 +483,7 @@ class FetcherBestBlogs(BaseFetcher):
         try:
             root = ET.fromstring(resp.text.encode("utf-8"))
         except Exception:
+            self._last_feed_failed = True
             return []
 
         # Atom detection: root tag == {http://www.w3.org/2005/Atom}feed

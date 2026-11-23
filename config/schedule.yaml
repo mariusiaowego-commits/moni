@@ -3,7 +3,7 @@
 # Jobs:
 #   - fetch_all_sources: 每工作日 9:10 AM 抓取所有源
 #     周一自动补抓周末 (周六+周日) 数据
-#   - predict_tags_pending: 每工作日 9:25 AM LLM 自动打标签
+#     抓取成功且本轮有新增时，链式触发 predict_tags_pending（不再单独定时）
 
 jobs:
   # ── 全量抓取 ──
@@ -14,17 +14,6 @@ jobs:
     minute: 10
     day_of_week: "mon-fri"
     func_path: moni.cron.jobs:fetch_all_sources
-
-  # ── LLM 自动打标签 (抓取后 15min) ──
-  - id: predict_tags_pending
-    name: "LLM 自动打标签"
-    trigger_type: cron
-    hour: 9
-    minute: 25
-    day_of_week: "mon-fri"
-    func_path: moni.cron.jobs:predict_tags_pending
-    func_kwargs:
-      batch_size: 10
 
   # ── 行业事件日历抽取 (每天 4 个时段) ──
   - id: extract_events_morning

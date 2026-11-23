@@ -103,9 +103,9 @@ class TestGetFetchConfig:
         assert data["fetch_config"]["max_feeds"] == 50
         assert data["fetch_config"]["max_articles_per_feed"] == 3
         # Defaults filled in
-        assert data["fetch_config"]["max_articles_total"] == 500
+        assert data["fetch_config"]["max_articles_total"] == 200000
         assert data["fetch_config"]["request_delay"] == 0.5
-        assert data["defaults"]["max_feeds"] == 375
+        assert data["defaults"]["max_feeds"] == 500
 
     def test_get_without_custom_config(self, client):
         conn = get_db()
@@ -340,7 +340,7 @@ class TestUpdateFetchConfig:
         assert data["fetch_config"]["max_feeds"] == 200
         assert data["fetch_config"]["request_delay"] == 1.0
         # Defaults still present for unspecified keys
-        assert data["fetch_config"]["max_articles_total"] == 500
+        assert data["fetch_config"]["max_articles_total"] == 200000
 
     def test_update_empty_clears_config(self, client):
         conn = get_db()

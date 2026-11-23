@@ -410,46 +410,6 @@
         </div>
       </section>
 
-      <!-- ══ Cron standalone view kept for deep-link /cron → redirects into config ══ -->
-      <section x-show="currentView === 'cron'" x-cloak>
-        <div class="panel-header">
-          <div class="panel-title-row">
-            <h3>跑批日志</h3>
-            <p class="panel-title-hint">定时任务执行历史</p>
-          </div>
-          <button class="icon-btn" @click="loadCronRuns()" title="重新加载跑批日志" aria-label="刷新"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path><path d="M16 21h5v-5"></path></svg></button>
-        </div>
-        <div class="table-container">
-          <table>
-            <thead>
-              <tr><th>任务名</th><th>触发时间</th><th>状态</th><th>新增文章</th><th>耗时</th><th>日志链接</th></tr>
-            </thead>
-            <tbody>
-              <template x-for="run in cronRuns" :key="run.id">
-                <tr>
-                  <td x-text="run.job_id || ('#' + (run.cron_job_id || run.id))"></td>
-                  <td x-text="formatTime(run.triggered_at || run.started_at)"></td>
-                  <td>
-                    <span class="status-badge"
-                          :class="(run.success === true || run.status === 'success') ? 'status-success' : 'status-failed'"
-                          x-text="(run.success === true || run.status === 'success') ? 'success' : (run.status || 'failed')"></span>
-                  </td>
-                  <td x-text="run.new_articles ?? run.articles_fetched ?? 0"></td>
-                  <td x-text="run.duration != null ? run.duration + 's' : '-'"></td>
-                  <td>
-                    <a x-show="run.log_url" :class="{'link-btn-blocked': isBlockedUrl(run.log_url)}" :href="safeHref(run.log_url)" target="_blank" rel="noopener noreferrer" class="link-btn">查看日志</a>
-                    <span x-show="!run.log_url">-</span>
-                  </td>
-                </tr>
-              </template>
-              <tr x-show="cronRuns.length === 0">
-                <td colspan="6" class="empty-row">暂无数据</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
       <!-- ══ Fetch ═══════════════════════════════════════════════ -->
       <!-- v1.0.28: 顶部「一键操作区」卡片 = 标题 + 按钮 + 状态/结果；信源表在下 -->
       <section x-show="currentView === 'fetch'" x-cloak>
@@ -3408,10 +3368,10 @@
           <div class="table-container">
             <table>
               <thead>
-                <tr><th>任务名</th><th>触发时间</th><th>状态</th><th>新增文章</th><th>耗时</th><th>日志链接</th></tr>
+                <tr><th>任务名</th><th>触发时间</th><th>状态</th><th>本轮抓取</th><th>入库</th><th>耗时</th><th>详情</th></tr>
               </thead>
-              <tbody>
-                <template x-for="run in cronRuns" :key="'cfg-cron-' + run.id">
+              <template x-for="run in cronRuns" :key="'cfg-cron-' + run.id">
+                <tbody>
                   <tr>
                     <td x-text="run.job_id || ('#' + (run.cron_job_id || run.id))"></td>
                     <td x-text="formatTime(run.triggered_at || run.started_at)"></td>
@@ -3420,16 +3380,26 @@
                             :class="(run.success === true || run.status === 'success') ? 'status-success' : 'status-failed'"
                             x-text="(run.success === true || run.status === 'success') ? 'success' : (run.status || 'failed')"></span>
                     </td>
+                    <td x-text="cronRunProgress(run)"></td>
                     <td x-text="run.new_articles ?? run.articles_fetched ?? 0"></td>
                     <td x-text="run.duration != null ? run.duration + 's' : '-'"></td>
                     <td>
-                      <a x-show="run.log_url" :class="{'link-btn-blocked': isBlockedUrl(run.log_url)}" :href="safeHref(run.log_url)" target="_blank" rel="noopener noreferrer" class="link-btn">查看日志</a>
-                      <span x-show="!run.log_url">-</span>
+                      <button type="button" class="link-btn" x-show="hasCronRunDetail(run)"
+                              @click="run._expanded = !run._expanded"
+                              x-text="run._expanded ? '收起' : '展开'"></button>
+                      <a x-show="run.log_url" :class="{'link-btn-blocked': isBlockedUrl(run.log_url)}" :href="safeHref(run.log_url)" target="_blank" rel="noopener noreferrer" class="link-btn">日志</a>
+                      <span x-show="!hasCronRunDetail(run) && !run.log_url">-</span>
                     </td>
                   </tr>
-                </template>
-                <tr x-show="cronRuns.length === 0">
-                  <td colspan="6" class="empty-row">暂无数据</td>
+                  <tr x-show="run._expanded" x-cloak>
+                    <td colspan="7" class="muted" style="font-size:var(--font-13); line-height:1.7; padding-left:18px;"
+                        x-text="cronRunDetail(run)"></td>
+                  </tr>
+                </tbody>
+              </template>
+              <tbody x-show="cronRuns.length === 0">
+                <tr>
+                  <td colspan="7" class="empty-row">暂无数据</td>
                 </tr>
               </tbody>
             </table>
@@ -4801,7 +4771,7 @@
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
-  <script src="js/app.js?v=20261123001"></script>
+  <script src="js/app.js?v=20261123002"></script>
   <script src="js/reader.js?v=20261120161"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
