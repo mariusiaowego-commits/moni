@@ -1,0 +1,370 @@
+"""Persistence and the research state machine for business directions.
+
+This is the only module that writes ``bv_direction*`` rows.  The state
+machine is deliberately unforgiving: a failed or running latest version
+makes the direction unusable, and the only way forward is a new
+research run.  Older rows stay as an audit trail.
+"""
+from __future__ import annotations
+
+import json
+import sqlite3
+from datetime import datetime, timezone
+from typing import Any, Mapping
+
+from .direction import (
+    DIRECTION_PROMPT_ID,
+    STATUS_EXPIRED,
+    STATUS_FAILED,
+    STATUS_PASSED,
+    STATUS_RUNNING,
+    brief_reject_reason,
+    label_reject_reason,
+    parse_research,
+    usable_research,
+)
+
+BRIEF_MAX_CHARS = 200
+#: A research run is a single Hermes call; five minutes is generous,
+#: and anything still running after ten minutes is treated as dead.
+RESEARCH_STALE_AFTER_SEC = 600
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _reject_reason(label: str, brief: str) -> str | None:
+    label_error = label_reject_reason(label)
+    if label_error:
+        return label_error
+    brief_error = brief_reject_reason(brief)
+    if brief_error:
+        return brief_error
+    if len((brief or "").strip()) > BRIEF_MAX_CHARS:
+        return f"方向说明超过 {BRIEF_MAX_CHARS} 字"
+    return None
+
+
+def create_direction(
+    conn: sqlite3.Connection, label: str, brief: str
+) -> tuple[int | None, str | None]:
+    error = _reject_reason(label, brief)
+    if error:
+        return None, error
+    now = _now()
+    cur = conn.execute(
+        "INSERT INTO bv_direction (label, brief, enabled, created_at, updated_at) "
+        "VALUES (?, ?, 1, ?, ?)",
+        (label.strip(), brief.strip(), now, now),
+    )
+    conn.commit()
+    return int(cur.lastrowid), None
+
+
+def update_direction(
+    conn: sqlite3.Connection,
+    direction_id: int,
+    *,
+    label: str | None = None,
+    brief: str | None = None,
+    enabled: bool | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    row = get_direction(conn, direction_id)
+    if row is None:
+        return None, "方向不存在"
+
+    next_label = row["label"] if label is None else label
+    next_brief = row["brief"] if brief is None else brief
+    if label is not None or brief is not None:
+        error = _reject_reason(next_label, next_brief)
+        if error:
+            return None, error
+
+    now = _now()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(
+            "UPDATE bv_direction SET label=?, brief=?, enabled=?, updated_at=? "
+            "WHERE id=?",
+            (
+                next_label.strip(),
+                next_brief.strip(),
+                1 if enabled is None else (1 if enabled else 0),
+                now,
+                direction_id,
+            ),
+        )
+        # A research snapshot carries the label and brief it was built
+        # from.  Changing either invalidates the old result; leaving the
+        # row as ``passed`` would make the config page claim it is
+        # usable while the gate refuses it.
+        if label is not None or brief is not None:
+            conn.execute(
+                "UPDATE bv_direction_research SET status=? "
+                "WHERE direction_id=? AND status=?",
+                (STATUS_EXPIRED, direction_id, STATUS_PASSED),
+            )
+        conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
+        raise
+    return get_direction(conn, direction_id), None
+
+
+def get_direction(conn: sqlite3.Connection, direction_id: int) -> dict[str, Any] | None:
+    row = conn.execute(
+        "SELECT id, label, brief, enabled, created_at, updated_at "
+        "FROM bv_direction WHERE id=?",
+        (direction_id,),
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def list_directions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT id, label, brief, enabled, created_at, updated_at "
+        "FROM bv_direction ORDER BY id"
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def delete_direction(conn: sqlite3.Connection, direction_id: int) -> bool:
+    row = get_direction(conn, direction_id)
+    if row is None:
+        return False
+    conn.execute("DELETE FROM bv_direction WHERE id=?", (direction_id,))
+    conn.commit()
+    return True
+
+
+def latest_research_rows(
+    conn: sqlite3.Connection, direction_id: int
+) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT id, direction_id, research_version, status, label_snapshot, "
+        "brief_snapshot, prompt_id, scope, out_of_scope, rubric_json, error, "
+        "model, started_at, finished_at "
+        "FROM bv_direction_research WHERE direction_id=? "
+        "ORDER BY research_version DESC",
+        (direction_id,),
+    ).fetchall()
+
+
+def recover_stale_running(
+    conn: sqlite3.Connection, *, now: datetime | None = None
+) -> int:
+    """Fail research rows left running by a crashed process.
+
+    Called before starting a new run and by the route that reads
+    status, so the UI never waits forever on a dead worker.
+    """
+    cutoff = (now or datetime.now(timezone.utc)).timestamp() - RESEARCH_STALE_AFTER_SEC
+    started = conn.execute(
+        "SELECT id, started_at FROM bv_direction_research WHERE status=?",
+        (STATUS_RUNNING,),
+    ).fetchall()
+    dead: list[tuple[int, str]] = []
+    for row in started:
+        try:
+            started_at = datetime.fromisoformat(row["started_at"])
+        except (TypeError, ValueError):
+            dead.append((int(row["id"]), "研究开始时间无法解析"))
+            continue
+        if started_at.timestamp() < cutoff:
+            dead.append((int(row["id"]), "研究中断或超时"))
+    if not dead:
+        return 0
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        for research_id, reason in dead:
+            conn.execute(
+                "UPDATE bv_direction_research SET status=?, error=?, finished_at=? "
+                "WHERE id=? AND status=?",
+                (STATUS_FAILED, reason, _now(), research_id, STATUS_RUNNING),
+            )
+        conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
+        raise
+    return len(dead)
+
+
+def start_research(
+    conn: sqlite3.Connection, direction_id: int
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Create the next research version and mark older ones expired."""
+    direction = get_direction(conn, direction_id)
+    if direction is None:
+        return None, "方向不存在"
+
+    recover_stale_running(conn)
+    active = conn.execute(
+        "SELECT COUNT(*) FROM bv_direction_research "
+        "WHERE direction_id=? AND status=?",
+        (direction_id, STATUS_RUNNING),
+    ).fetchone()[0]
+    if active:
+        return None, "该方向已有研究在运行"
+
+    next_version = int(
+        conn.execute(
+            "SELECT COALESCE(MAX(research_version), 0) + 1 "
+            "FROM bv_direction_research WHERE direction_id=?",
+            (direction_id,),
+        ).fetchone()[0]
+    )
+    now = _now()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(
+            "UPDATE bv_direction_research SET status=? "
+            "WHERE direction_id=? AND status=?",
+            (STATUS_EXPIRED, direction_id, STATUS_PASSED),
+        )
+        cur = conn.execute(
+            "INSERT INTO bv_direction_research "
+            "(direction_id, research_version, status, label_snapshot, "
+            "brief_snapshot, prompt_id, started_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                direction_id,
+                next_version,
+                STATUS_RUNNING,
+                direction["label"],
+                direction["brief"],
+                DIRECTION_PROMPT_ID,
+                now,
+            ),
+        )
+        conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
+        raise
+    research_id = int(cur.lastrowid)
+    return {
+        "direction_id": direction_id,
+        "research_id": research_id,
+        "research_version": next_version,
+        "status": STATUS_RUNNING,
+        "label_snapshot": direction["label"],
+        "brief_snapshot": direction["brief"],
+        "prompt_id": DIRECTION_PROMPT_ID,
+        "started_at": now,
+    }, None
+
+
+def finish_research_success(
+    conn: sqlite3.Connection,
+    *,
+    direction_id: int,
+    research_version: int,
+    raw_research: str | Mapping[str, Any],
+    model: str,
+) -> tuple[bool, str | None]:
+    research = parse_research(raw_research)
+    parsed, parse_error = research
+    if parsed is None:
+        finish_research_failure(
+            conn,
+            direction_id=direction_id,
+            research_version=research_version,
+            error=parse_error or "研究方向校验未通过",
+        )
+        return False, parse_error
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(
+            "UPDATE bv_direction_research SET status=?, scope=?, out_of_scope=?, "
+            "rubric_json=?, model=?, finished_at=? "
+            "WHERE direction_id=? AND research_version=? AND status=?",
+            (
+                STATUS_PASSED,
+                parsed.scope,
+                parsed.out_of_scope,
+                json.dumps(parsed.to_payload(), ensure_ascii=False),
+                model,
+                _now(),
+                direction_id,
+                research_version,
+                STATUS_RUNNING,
+            ),
+        )
+        conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
+        raise
+    return True, None
+
+
+def finish_research_failure(
+    conn: sqlite3.Connection,
+    *,
+    direction_id: int,
+    research_version: int,
+    error: str,
+) -> None:
+    conn.execute(
+        "UPDATE bv_direction_research SET status=?, error=?, finished_at=? "
+        "WHERE direction_id=? AND research_version=? AND status=?",
+        (
+            STATUS_FAILED,
+            str(error)[:500],
+            _now(),
+            direction_id,
+            research_version,
+            STATUS_RUNNING,
+        ),
+    )
+    conn.commit()
+
+
+def direction_usable(
+    conn: sqlite3.Connection, direction: Mapping[str, Any]
+) -> tuple[Any | None, str | None]:
+    rows = latest_research_rows(conn, int(direction["id"]))
+    return usable_research(
+        rows,
+        label=str(direction["label"]),
+        brief=str(direction["brief"]),
+        direction_id=int(direction["id"]),
+    )
+
+
+def research_summary(
+    conn: sqlite3.Connection, direction: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    rows = latest_research_rows(conn, int(direction["id"]))
+    if not rows:
+        return None
+    row = rows[0]
+    return {
+        "research_id": int(row["id"]),
+        "research_version": int(row["research_version"]),
+        "status": str(row["status"]),
+        "scope": row["scope"],
+        "out_of_scope": row["out_of_scope"],
+        "error": row["error"],
+        "model": row["model"],
+        "started_at": row["started_at"],
+        "finished_at": row["finished_at"],
+    }
+
+
+__all__ = [
+    "BRIEF_MAX_CHARS",
+    "RESEARCH_STALE_AFTER_SEC",
+    "create_direction",
+    "delete_direction",
+    "direction_usable",
+    "finish_research_failure",
+    "finish_research_success",
+    "get_direction",
+    "latest_research_rows",
+    "list_directions",
+    "recover_stale_running",
+    "research_summary",
+    "start_research",
+    "update_direction",
+]

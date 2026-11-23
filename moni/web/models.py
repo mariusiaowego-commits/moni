@@ -673,6 +673,10 @@ class BasketRescueRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 __all__ = [
+    "Direction",
+    "DirectionCreate",
+    "DirectionResearchAction",
+    "DirectionUpdate",
     "Article",
     "ArticleCreate",
     "ArticleUpdate",
@@ -698,3 +702,68 @@ __all__ = [
     "KeywordFilter", "KeywordFilterCreate", "KeywordFilterUpdate",
     "GlobalKeywordFilter", "GlobalKeywordFilterCreate", "GlobalKeywordFilterUpdate",
 ]
+
+
+
+__all__ = [
+    "Article",
+    "ArticleCreate",
+    "ArticleUpdate",
+    "ArticleSummaryRequest",
+    "FactCheckRequest",
+    "DeletePreviewResponse",
+    "CronJob",
+    "CronJobCreate",
+    "CronRun",
+    "FetchSource",
+    "HealthResponse",
+    "ShareTask",
+    "ShareTaskCreate",
+    "ShareTaskCreateV1",
+    "ShareTaskResponseV1",
+    "BriefCreateRequest",
+    "BriefCreateResponse",
+    "ShareTaskListResponse",
+    "ErrorResponse",
+    # v1.0.2 config
+    "Tag", "TagCreate", "TagUpdate",
+    "Source", "SourceCreate", "SourceUpdate", "SourceWithTags",
+    "KeywordFilter", "KeywordFilterCreate", "KeywordFilterUpdate",
+    "GlobalKeywordFilter", "GlobalKeywordFilterCreate", "GlobalKeywordFilterUpdate",
+]
+
+
+# ---------------------------------------------------------------------------
+# Business-direction schemas (S2)
+# ---------------------------------------------------------------------------
+
+
+class DirectionCreate(BaseModel):
+    label: str = Field(min_length=1, max_length=6)
+    brief: str = Field(min_length=1, max_length=200)
+
+
+class DirectionUpdate(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=6)
+    brief: str | None = Field(default=None, min_length=1, max_length=200)
+    enabled: bool | None = None
+
+
+class DirectionResearchAction(BaseModel):
+    """Response of POST /api/directions/{id}/research."""
+
+    direction_id: int
+    research_version: int
+    status: str
+
+
+class Direction(BaseModel):
+    id: int
+    label: str
+    brief: str
+    enabled: bool
+    created_at: str
+    updated_at: str
+    research: DirectionResearchAction | None = None
+    usable: bool = False
+    usable_error: str | None = None

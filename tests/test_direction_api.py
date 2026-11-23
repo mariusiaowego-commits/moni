@@ -1,0 +1,131 @@
+"""API tests for business directions (Sprint 67, S2)."""
+from __future__ import annotations
+
+import json
+
+import pytest
+from fastapi.testclient import TestClient
+
+from moni.db.connection import close_db, get_db, set_db_path
+from moni.db.migrate import migrate
+from moni.scoring import direction_store
+from tests.test_scoring_direction import _payload
+
+
+@pytest.fixture
+def client(tmp_path):
+    close_db()
+    set_db_path(tmp_path / "news.db")
+    migrate()
+    from moni.web.server import create_app
+
+    with TestClient(create_app()) as test_client:
+        yield test_client
+    close_db()
+
+
+def _create(client: TestClient, label="微信生态", brief="微信里的银行动作") -> dict:
+    response = client.post("/api/directions", json={"label": label, "brief": brief})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_direction_crud(client: TestClient):
+    created = _create(client)
+    assert created["label"] == "微信生态"
+    assert created["enabled"] is True
+    assert created["usable"] is False
+
+    listed = client.get("/api/directions")
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()] == [created["id"]]
+
+    patched = client.patch(
+        f"/api/directions/{created['id']}",
+        json={"enabled": False},
+    )
+    assert patched.status_code == 200
+    assert patched.json()["enabled"] is False
+
+    deleted = client.delete(f"/api/directions/{created['id']}")
+    assert deleted.status_code == 204
+    assert client.get("/api/directions").json() == []
+
+
+def test_direction_validation(client: TestClient):
+    response = client.post(
+        "/api/directions", json={"label": "超过六个字的方向", "brief": "说明"}
+    )
+    assert response.status_code == 422
+
+    response = client.post(
+        "/api/directions", json={"label": "微信生态", "brief": "长" * 201}
+    )
+    assert response.status_code == 422
+
+
+def test_update_expires_research_snapshot(client: TestClient):
+    created = _create(client)
+    conn = get_db()
+    research, error = direction_store.start_research(conn, created["id"])
+    assert error is None
+    direction_store.finish_research_success(
+        conn,
+        direction_id=created["id"],
+        research_version=research["research_version"],
+        raw_research=_payload(),
+        model="test",
+    )
+
+    response = client.patch(
+        f"/api/directions/{created['id']}", json={"brief": "公众号里的银行动作"}
+    )
+    assert response.status_code == 200
+    assert response.json()["usable"] is False
+
+    rows = conn.execute(
+        "SELECT status FROM bv_direction_research WHERE direction_id=?",
+        (created["id"],),
+    ).fetchall()
+    assert [row[0] for row in rows] == ["expired"]
+
+
+def test_research_action_returns_202_and_conflicts_on_duplicate(client: TestClient):
+    created = _create(client)
+    response = client.post(f"/api/directions/{created['id']}/research")
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "running"
+    assert body["research_version"] == 1
+
+    duplicate = client.post(f"/api/directions/{created['id']}/research")
+    assert duplicate.status_code == 409
+
+    research = client.get(f"/api/directions/{created['id']}/research")
+    assert research.status_code == 200
+    assert research.json()["status"] == "running"
+    assert research.json()["prompt_id"] == "bv_direction_research_v1"
+
+
+def test_research_not_found(client: TestClient):
+    assert client.get("/api/directions/999/research").status_code == 404
+    response = client.post("/api/directions/999/research")
+    assert response.status_code == 404
+
+
+def test_direction_payload_does_not_expose_rubric(client: TestClient):
+    created = _create(client)
+    conn = get_db()
+    research, _ = direction_store.start_research(conn, created["id"])
+    direction_store.finish_research_success(
+        conn,
+        direction_id=created["id"],
+        research_version=research["research_version"],
+        raw_research=_payload(),
+        model="test",
+    )
+
+    listed = client.get("/api/directions")
+    assert "rubric_json" not in json.dumps(listed.json())
+    detail = client.get(f"/api/directions/{created['id']}/research")
+    assert "rubric_json" not in detail.text
