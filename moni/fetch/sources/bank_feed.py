@@ -535,6 +535,8 @@ class FetcherBankFeed(BaseFetcher):
         self._cfg = cfg
         self._today_errors = []
         self._bot_error = ""
+        self._skipped_existing = 0
+        self._today_items = 0
         targets = self._load_targets(cfg)
         self._target_labels = {
             str(t.get("id")): self._describe_target(t)
