@@ -761,10 +761,13 @@ Gate 2 降级后 summary 与逐条判定不同步、brief 脚注不受 flag 控�
 设计 §10（`docs/specs/2026-11-16-pin-quality-bv-harness.md`）落地第一阶段，实现记录
 `docs/plans/2026-11-17_bv-direction-v2.md`。
 
-- **migration 053**（原 046 与 main 的 `046_fact_check_summary.sql` 撞号，已改名为 053）：
+- **migration 053 + 054**（原 046 与 main 的 `046_fact_check_summary.sql` 撞号，已改名为 053）：
   新增 `bv_direction`（配置）、`bv_direction_research`（版本，唯一键
   `(direction_id, research_version)`）、`article_bv_direction`（方向分，主键含
-  `research_version`）；`_CURRENT_VERSION 52 → 53`；不改既有列、不回填。
+  `research_version`）；`_CURRENT_VERSION 52 → 54`；不改既有列、不回填。
+  054 重建 `article_bv_direction`，补上 `articles(id)` / `bv_direction(id)` 两个
+  `ON DELETE CASCADE` 外键——`CREATE TABLE IF NOT EXISTS` 给已存在的表补不了约束，
+  跑过 053 初版的库会永远缺这两个外键。
 - **`moni/scoring/direction.py`**：研究提示词 `bv_direction_research_v1`（五条硬句写死）、
   `parse_research` 全量校验（10 key / 四档锚点 / 问题 ≤30 字 / 禁词 / 写作禁词 / 模板占位符）、
   `research_to_rubric` 只换 question/anchors/template、权重与 label 从 `RUBRIC_V1` 继承、
@@ -780,6 +783,20 @@ Gate 2 降级后 summary 与逐条判定不同步、brief 脚注不受 flag 控�
   - `usable_research` 校验 `prompt_id`，旧提示词产出的研究判为不可用。
   - 严格类型：非字符串的 question/scope/anchors/template 一律拒；锚点只收 dict（拒绝位置
     列表与多余档位）；`research_to_rubric` 校验维度 key/label/权重仍等于 `RUBRIC_V1`。
+- **第二轮回归审计（结论 FAIL：1 条 P1）→ 已修**：审计 agent 复检后出 P1×1 / P2×2 / P3×5：
+  - **P1** `_positive_int()` 对 `'²'` 这类 `str.isdigit()` 为真但 `int()` 会炸的字符抛
+    未捕获 `ValueError`（SQLite 的 INTEGER 只是亲和类型，`'²'` 能存进去）。改为
+    `text.isascii() and text.isdigit()` 双判。
+  - **P2** 旧库升级缺口：`CREATE TABLE IF NOT EXISTS` 跳过已存在的表 → 跑过 053 初版的库
+    永远补不上外键。新增 `054_bv_direction_fk.sql` 重建表并搬数据（复制期间
+    `foreign_keys=OFF`，避免历史孤儿行卡住升级）。
+  - **P2** 写读校验不对称：`usable_research` 不复查 `scope`/`out_of_scope`。补上非空 +
+    长度校验。
+  - **P3** 禁词套到 scope 上会反复打回合法研究描述（模型写「深度报道」是很自然的表述，
+    会被一直拒绝、研究永远跑不出来）。改为 scope 只校验非空 + 长度（≤80 字），
+    不套写作禁词表——这是回归审计自己的建议。
+  - **P3** 模板占位符校验太松（`'}{'`、`'{{}}'` 能过）→ 改用正则 `\{[^{}]+\}`。
+  - **P3** `prompt_id` 全等会误伤带空白的行 → 比较前 `strip()`。
 - **rebase**：分支原落后 main 51 个提交；2026-11-23 rebase 到当时最新 main（`4f9b5e2`），
   冲突仅 `moni/db/migrate.py` 一处（版本号），按 053 解决。main 后续仍在推进，推分支前会再 rebase 一次。
 - **测试**：`/usr/local/bin/python3 -m pytest tests/ -p no:cacheprovider -q` → **2437 passed /

@@ -25,7 +25,7 @@ V1 的通用业务价值分不动。新增一条独立链路：用户配置一�
 - S2：研究 runner（`running → passed/failed` 落库、旧 `passed → expired`）、配置读写 API。
 - S3：方向打分的缓存与写入、简报/卡片 UI、Pin 侧不受影响。
 
-## 2. 表（migration 053）
+## 2. 表（migration 053 + 054）
 
 ```
 bv_direction             id, label, brief, enabled, created_at, updated_at
@@ -113,44 +113,6 @@ S2/S3 另行补充。
 - 研究结果保存完整 `rubric_json`，不另建维度表；版本号从 1 递增。
 - 方向分与通用分都只在简报链路产生，不在 Pin 页面触发模型调用。
 
-## 10. 独立审计后的加固（2026-11-23）
-
-只读审计结论 **PASS WITH NITS**（无 P0）。本轮修掉 P1×2 / P2×3 / P3×5（除 P3-3）：
-
-| 编号 | 问题 | 修法 |
-| --- | --- | --- |
-| P1-1 | `_int()` 把无法解析的版本号吞成 0，损坏行被当作 v0 排在 v1 之后，最新行根本没被检查 → 静默回退旧版（违反「不回退旧版」） | `_positive_int()` 严格解析；任何一行版本号不可解析 / ≤0 / 非整数 → 整批判「研究版本号损坏」并拒绝，不降级 |
-| P1-2 | `usable_research` 不按 `direction_id` 过滤，多方向时可能取到别的方向的版本 | 加可选 `direction_id` 形参；给了就只在该方向的行里取最大版本 |
-| P2-1 | `parse_research` 的 label/brief 取自模型输出，而提示词从不要求模型输出这两项 → 恒为空；`to_payload()` 也不含这两字段 | `parse_research(raw, *, label="", brief="")` 改用调用方入参，忽略模型输出 |
-| P2-2 | `article_bv_direction` 无外键 → 删文章/删方向留孤儿行（仓库其余 7 处子表都有 CASCADE） | 迁移 053 补 `articles(id)` 与 `bv_direction(id)` 两个 `ON DELETE CASCADE` |
-| P2-3 | `prompt_id` 存了不校验 → 旧提示词产出的研究被判为可用 | `usable_research` 比对 `prompt_id != DIRECTION_PROMPT_ID` 即拒 |
-| P3-1 | `_text()` 对任何值 `str()`，int/True 被静默接受 | 改为只收真字符串，否则返回空串 → 由「问题为空」「锚点有空档」拦下 |
-| P3-2 | 理由模板不校验 `{…}` 占位符 | 模板必须同时含 `{` 与 `}` |
-| P3-4 | scope / out_of_scope 不做禁词检查 | 一并过 `banned_hits` / `writing_hits` / `BANNED_PATTERN` |
-| P3-5 | 锚点接受 list 按位置映射，反序会整体错位；dict 多余档位被静默丢弃 | 只接受 dict，档位必须正好是 0/3/6/10 |
-| P3-6 | `research_to_rubric` 不校验入参，可造出 999 权重 rubric | 校验维度 key/label/权重仍等于 `RUBRIC_V1`；版本号必须为正整数，否则 `ValueError` |
-| P3-7 | 缺 `tests/test_migration_053_bv_direction.py` | 补 14 个用例：表/索引/唯一键/两个外键的 CASCADE/幂等 |
-| P3-8 | Sprint 号 4 处不一致 | 迁移文件注释与测试 docstring 统一为 Sprint 67 |
-
-**P3-3 未修**：`BANNED_PATTERN` 允许换行或超长间隔绕过（`moni/scoring/rubric.py:30`，main 已有），
-属 main 的问题、不是本分支引入，按「不顺手修相邻问题」留在待办。
-
-`parse_research` 的签名变了（多了 keyword-only 的 label/brief），`usable_research` 多了一个
-keyword-only 的 `direction_id`。两者都是本分支新引入的 API，尚未进入 main，没有兼容负担。
-
-### 修完后的测试证据
-
-```
-$ /usr/local/bin/python3 -m pytest tests/test_scoring_direction.py -p no:cacheprovider -q
-41 passed in 0.39s
-
-$ /usr/local/bin/python3 -m pytest tests/test_migration_053_bv_direction.py -p no:cacheprovider -q
-14 passed in 1.29s
-
-$ /usr/local/bin/python3 -m pytest tests/ -p no:cacheprovider -q
-2469 passed, 2 skipped, 2 warnings in 369.09s (0:06:09)
-```
-
 ## 9. S2 / S3 落地计划（待用户裁决后才开工）
 
 S1 只交付纯函数与建表，**没有入口、没有 runner、没有 UI**——合进去是一套跑不到的功能。
@@ -194,3 +156,62 @@ S2/S3 的具体落点如下（均为现有代码里的真实位置）：
 | d | S2/S3 排期 | 拆两个 PR（S2 内核+API、S3 打分+UI），各自带审计与 tag |
 
 工作量估计：S2 约 350 行 + 40 用例；S3 约 600 行 + 30 用例 + 浏览器实测。
+
+## 10. 独立审计后的加固（2026-11-23）
+
+只读审计结论 **PASS WITH NITS**（无 P0）。本轮修掉 P1×2 / P2×3 / P3×5（除 P3-3）：
+
+| 编号 | 问题 | 修法 |
+| --- | --- | --- |
+| P1-1 | `_int()` 把无法解析的版本号吞成 0，损坏行被当作 v0 排在 v1 之后，最新行根本没被检查 → 静默回退旧版（违反「不回退旧版」） | `_positive_int()` 严格解析；任何一行版本号不可解析 / ≤0 / 非整数 → 整批判「研究版本号损坏」并拒绝，不降级 |
+| P1-2 | `usable_research` 不按 `direction_id` 过滤，多方向时可能取到别的方向的版本 | 加可选 `direction_id` 形参；给了就只在该方向的行里取最大版本 |
+| P2-1 | `parse_research` 的 label/brief 取自模型输出，而提示词从不要求模型输出这两项 → 恒为空；`to_payload()` 也不含这两字段 | `parse_research(raw, *, label="", brief="")` 改用调用方入参，忽略模型输出 |
+| P2-2 | `article_bv_direction` 无外键 → 删文章/删方向留孤儿行（仓库其余 7 处子表都有 CASCADE） | 迁移 053 补 `articles(id)` 与 `bv_direction(id)` 两个 `ON DELETE CASCADE` |
+| P2-3 | `prompt_id` 存了不校验 → 旧提示词产出的研究被判为可用 | `usable_research` 比对 `prompt_id != DIRECTION_PROMPT_ID` 即拒 |
+| P3-1 | `_text()` 对任何值 `str()`，int/True 被静默接受 | 改为只收真字符串，否则返回空串 → 由「问题为空」「锚点有空档」拦下 |
+| P3-2 | 理由模板不校验 `{…}` 占位符 | 模板必须同时含 `{` 与 `}` |
+| P3-4 | scope / out_of_scope 不做禁词检查 | 一并过 `banned_hits` / `writing_hits` / `BANNED_PATTERN` |
+| P3-5 | 锚点接受 list 按位置映射，反序会整体错位；dict 多余档位被静默丢弃 | 只接受 dict，档位必须正好是 0/3/6/10 |
+| P3-6 | `research_to_rubric` 不校验入参，可造出 999 权重 rubric | 校验维度 key/label/权重仍等于 `RUBRIC_V1`；版本号必须为正整数，否则 `ValueError` |
+| P3-7 | 缺 `tests/test_migration_053_bv_direction.py` | 补 14 个用例：表/索引/唯一键/两个外键的 CASCADE/幂等 |
+| P3-8 | Sprint 号 4 处不一致 | 迁移文件注释与测试 docstring 统一为 Sprint 67 |
+
+**P3-3 未修**：`BANNED_PATTERN` 允许换行或超长间隔绕过（`moni/scoring/rubric.py:30`，main 已有），
+属 main 的问题、不是本分支引入，按「不顺手修相邻问题」留在待办。
+
+`parse_research` 的签名变了（多了 keyword-only 的 label/brief），`usable_research` 多了一个
+keyword-only 的 `direction_id`。两者都是本分支新引入的 API，尚未进入 main，没有兼容负担。
+
+### 修完后的测试证据
+
+```
+$ /usr/local/bin/python3 -m pytest tests/test_scoring_direction.py -p no:cacheprovider -q
+41 passed in 0.39s
+
+$ /usr/local/bin/python3 -m pytest tests/test_migration_053_bv_direction.py -p no:cacheprovider -q
+14 passed in 1.29s
+
+$ /usr/local/bin/python3 -m pytest tests/ -p no:cacheprovider -q
+2469 passed, 2 skipped, 2 warnings in 369.09s (0:06:09)
+```
+
+## 11. 第二轮回归审计后的加固（2026-11-23）
+
+第一轮审计的 12 条 finding 全部修完后，再做一轮独立回归审计，结论 **FAIL（1 条 P1）**。
+本节是第二轮的修复记录。
+
+| 编号 | 问题 | 修法 |
+| --- | --- | --- |
+| P1-1 | `_positive_int()` 用 `str.isdigit()` 判定，但 `'²'`/`'³'`/`'①'` 等 `isdigit()` 为真而 `int()` 抛 `ValueError`；SQLite 的 `INTEGER` 只是亲和类型，`'²'` 真的能存进 `research_version` → `usable_research` 直接炸栈 | 改为 `text.isascii() and text.isdigit()` 双判，全角/阿拉伯数字一并拒 |
+| P2-1 | 迁移 053 补外键对**已跑过初版 053 的库无效**：`CREATE TABLE IF NOT EXISTS` 跳过已存在的表，且 v53 已记进 `schema_version`，永不再跑 → 该库永远缺两个外键 | 新增 `054_bv_direction_fk.sql`：重建表 + 搬数据；复制期间 `foreign_keys=OFF`（旧表可能已有孤儿行，否则升级会中断）；`_CURRENT_VERSION 53 → 54` |
+| P2-2 | 写读校验不对称：`parse_research` 查 `scope`/`out_of_scope`，`usable_research` 不查 | `usable_research` 补同样的非空 + 长度校验 |
+| P3-1 | 禁词套到 scope/out_of_scope 上会反复打回合法描述（「深度报道」「有观点的评论」都是模型很自然的写法），S2 runner 会永远跑不出研究 | scope/out_of_scope 改为**只校验非空 + 长度（≤80 字）**，不套写作禁词表——回归审计自己的建议 |
+| P3-2 | 模板占位符校验太松：`'}{'`、`'{{}}'` 能过 | 改用正则 `\{[^{}]+\}` |
+| P3-3 | `prompt_id` 全等会误伤带空白的行 | 比较前 `strip()` |
+| P3-4 | `direction_id` 过滤依赖 rows 带该列；缺列时静默返回「该方向还没有研究版本」 | 保留行为，docstring 写明调用方必须带 `direction_id` 列（字符串 `'1'` 也可，`_positive_int` 归一） |
+| P3-5 | `to_payload()` 不落 label/brief；`rubric_id` 在 version=0 时产出 `bv_direction_v0` 哨兵 | 按设计保留：label/brief 存 `label_snapshot`/`brief_snapshot` 两列；v0 哨兵已无实际可达路径（`research_to_rubric` 拒 0） |
+
+**P3-3（BANNED_PATTERN 换行绕过）仍不修**：属 main 的 `moni/scoring/rubric.py:30`，本分支
+未引入该文件（`git diff --stat origin/main...HEAD -- moni/scoring/rubric.py` 为空），按
+「不顺手修相邻问题」留待办。
+

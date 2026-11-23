@@ -173,20 +173,32 @@ def test_writing_word_in_anchor_is_rejected():
     assert error and "洞察" in error
 
 
-def test_banned_word_in_scope_is_rejected():
+def test_scope_allows_plain_research_wording():
+    """Scope lines are not screened with the writing-word banlist.
+
+    A direction is free to say "只看深度报道里的可落地事实" -- rejecting that
+    wording would make the research runner retry forever over a phrasing
+    detail instead of over a real defect.
+    """
     payload = _payload()
-    payload["scope"] = "只考微信生态里的底层逻辑"
+    payload["scope"] = "只考深度报道里的可落地事实"
+    payload["out_of_scope"] = "与微信生态无关的观点一律记 0"
     research, error = parse_research(payload)
-    assert research is None
-    assert error and "禁词命中" in error
+    assert error is None and research is not None
 
 
-def test_banned_word_in_out_of_scope_is_rejected():
+def test_scope_must_not_be_empty():
     payload = _payload()
-    payload["out_of_scope"] = "与微信生态无关的深度分析一律记 0"
+    payload["scope"] = "  "
     research, error = parse_research(payload)
-    assert research is None
-    assert error and "禁词命中" in error and "深度" in error
+    assert research is None and error and "scope" in error
+
+
+def test_scope_over_the_length_limit_is_rejected():
+    payload = _payload()
+    payload["scope"] = "考" * (direction.SCOPE_MAX_CHARS + 1)
+    research, error = parse_research(payload)
+    assert research is None and error and "超过" in error
 
 
 def test_question_over_thirty_chars_is_rejected():
@@ -217,6 +229,21 @@ def test_non_string_anchor_is_rejected():
 def test_template_without_placeholder_is_rejected():
     payload = _payload()
     payload["dimensions"]["rule_delta"]["template"] = "机构动作日期"
+    research, error = parse_research(payload)
+    assert research is None
+    assert error and "占位符" in error
+
+
+def test_template_with_a_broken_placeholder_is_rejected():
+    """``}{`` and ``{{}}`` are not a placeholder -- they would blow up later."""
+    payload = _payload()
+    payload["dimensions"]["rule_delta"]["template"] = "}{"
+    research, error = parse_research(payload)
+    assert research is None
+    assert error and "占位符" in error
+
+    payload = _payload()
+    payload["dimensions"]["rule_delta"]["template"] = "{{}}"
     research, error = parse_research(payload)
     assert research is None
     assert error and "占位符" in error
@@ -415,6 +442,45 @@ def test_usable_research_rejects_a_float_version():
     research, error = usable_research(rows, label=LABEL, brief=BRIEF)
     assert research is None
     assert error and "损坏" in error
+
+
+def test_usable_research_rejects_a_superscript_version_without_crashing():
+    """``"²".isdigit()`` is True but ``int("²")`` raises -- it must not crash."""
+    rows = [_row(1, "passed"), _row("²", "passed")]
+    research, error = usable_research(rows, label=LABEL, brief=BRIEF)
+    assert research is None
+    assert error and "损坏" in error
+
+
+def test_usable_research_rejects_a_fullwidth_version():
+    rows = [_row(1, "passed"), _row("１", "passed")]
+    research, error = usable_research(rows, label=LABEL, brief=BRIEF)
+    assert research is None
+    assert error and "损坏" in error
+
+
+def test_usable_research_tolerates_whitespace_around_the_prompt_id():
+    rows = [_row(1, "passed", prompt_id=f"  {DIRECTION_PROMPT_ID}  ")]
+    research, error = usable_research(rows, label=LABEL, brief=BRIEF)
+    assert error is None and research is not None
+
+
+def test_usable_research_rejects_an_empty_scope_in_the_stored_row():
+    """Reading side must check what the writing side checks."""
+    payload = _payload()
+    payload["scope"] = ""
+    payload["out_of_scope"] = ""
+    rows = [_row(1, "passed", payload, scope="", out_of_scope="")]
+    research, error = usable_research(rows, label=LABEL, brief=BRIEF)
+    assert research is None
+    assert error and "scope" in error
+
+
+def test_usable_research_rejects_an_over_long_scope():
+    rows = [_row(1, "passed", scope="考" * (direction.SCOPE_MAX_CHARS + 1))]
+    research, error = usable_research(rows, label=LABEL, brief=BRIEF)
+    assert research is None
+    assert error and "超过" in error
 
 
 def test_usable_research_filters_by_direction_id():

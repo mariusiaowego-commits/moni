@@ -17,6 +17,7 @@ is then unexplainable.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
@@ -35,6 +36,10 @@ LABEL_MAX_CHARS = 6
 QUESTION_MAX_CHARS = 30
 ANCHOR_COUNT = 4
 ANCHOR_LEVELS = ("0", "3", "6", "10")
+SCOPE_MAX_CHARS = 80
+
+#: A reason template must carry at least one real ``{placeholder}``.
+_PLACEHOLDER = re.compile(r"\{[^{}]+\}")
 
 STATUS_RUNNING = "running"
 STATUS_PASSED = "passed"
@@ -155,14 +160,10 @@ def parse_research(
 
     scope = _text(data.get("scope")).strip()
     out_of_scope = _text(data.get("out_of_scope")).strip()
-    if not scope:
-        return None, "scope 为空"
-    if not out_of_scope:
-        return None, "out_of_scope 为空"
-    for field, text in (("scope", scope), ("out_of_scope", out_of_scope)):
-        hit = _banned_in(field, (text,))
-        if hit:
-            return None, hit
+    for field, value in (("scope", scope), ("out_of_scope", out_of_scope)):
+        reason = _scope_reject_reason(field, value)
+        if reason:
+            return None, reason
 
     dimensions, error = _dimensions_from_payload(data)
     if dimensions is None:
@@ -225,7 +226,7 @@ def usable_research(
         return None, "研究版本号损坏"
     if status != STATUS_PASSED:
         return None, f"最新版本 v{version} 状态为 {status or '未知'}"
-    prompt_id = _text(_get(latest, "prompt_id"))
+    prompt_id = _text(_get(latest, "prompt_id")).strip()
     if prompt_id != DIRECTION_PROMPT_ID:
         return None, f"研究提示词版本不匹配：{prompt_id or '空'}"
     if _text(_get(latest, "label_snapshot")).strip() != (label or "").strip():
@@ -239,13 +240,18 @@ def usable_research(
     dimensions, error = _dimensions_from_payload(payload)
     if dimensions is None:
         return None, error
+    scope = _text(_get(latest, "scope")) or _text(payload.get("scope"))
+    out_of_scope = _text(_get(latest, "out_of_scope")) or _text(payload.get("out_of_scope"))
+    for field, value in (("scope", scope), ("out_of_scope", out_of_scope)):
+        reason = _scope_reject_reason(field, value)
+        if reason:
+            return None, reason
     return (
         DirectionResearch(
             label=(label or "").strip(),
             brief=(brief or "").strip(),
-            scope=_text(_get(latest, "scope")) or _text(payload.get("scope")),
-            out_of_scope=_text(_get(latest, "out_of_scope"))
-            or _text(payload.get("out_of_scope")),
+            scope=scope,
+            out_of_scope=out_of_scope,
             dimensions=dimensions,
             version=version,
             prompt_id=prompt_id,
@@ -290,7 +296,7 @@ def _dimensions_from_payload(
         template = _text(item.get("template")).strip()
         if not template:
             return None, f"理由模板为空：{key}"
-        if "{" not in template or "}" not in template:
+        if not _PLACEHOLDER.search(template):
             return None, f"理由模板缺少占位符：{key}"
 
         hit = _banned_in(key, (question, *anchors, template))
@@ -329,6 +335,22 @@ def _anchors(raw: Any, key: str) -> tuple[tuple[str, str, str, str] | None, str 
     if not all(values):
         return None, f"锚点有空档：{key}"
     return (values[0], values[1], values[2], values[3]), None
+
+
+def _scope_reject_reason(field: str, text: str) -> str | None:
+    """Scope lines describe *what the direction covers*.
+
+    They are deliberately not screened with the writing-word banlist: a
+    direction is free to say "只看深度报道里的事实", and rejecting that would
+    make the research runner retry forever over a wording detail.  So only
+    emptiness and length are checked here.
+    """
+    value = (text or "").strip()
+    if not value:
+        return f"{field} 为空"
+    if len(value) > SCOPE_MAX_CHARS:
+        return f"{field} 超过 {SCOPE_MAX_CHARS} 字"
+    return None
 
 
 def _assert_matches_base_rubric(research: DirectionResearch) -> None:
@@ -390,7 +412,10 @@ def _positive_int(value: Any) -> int | None:
         return value if value > 0 else None
     if isinstance(value, str):
         text = value.strip()
-        if not text.isdigit():
+        # ``str.isdigit`` accepts superscripts such as "²", which ``int``
+        # then refuses -- and SQLite happily stores them in an INTEGER
+        # column because the type is only an affinity.
+        if not (text.isascii() and text.isdigit()):
             return None
         number = int(text)
         return number if number > 0 else None
