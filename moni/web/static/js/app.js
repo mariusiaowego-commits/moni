@@ -782,6 +782,7 @@ function app() {
       if (view === 'cron') {
         this.currentView = 'config';
         this.configTab = 'cron';
+        this._stopDirectionsPoll();
         this.loadCronRuns();
         const path = '/config';
         if (window.location.pathname !== path) {
@@ -794,6 +795,7 @@ function app() {
         this.currentView = 'config';
         this.configTab = 'llm';
         this.llmTab = 'gateway';
+        this._stopDirectionsPoll();
         this.loadLlmProviders();
         this.loadLlmModels();
         this.loadLlmSettings();
@@ -810,6 +812,10 @@ function app() {
       // v1.0.13 (audit fix F3): tear down the share-queue poll if leaving /share.
       if (view !== 'share' && this._sharePollInterval) {
         this._stopSharePoll();
+      }
+      // Leaving the config page stops the direction-research poll too.
+      if (view !== 'config' && this.directionsPollTimer) {
+        this._stopDirectionsPoll();
       }
       // v1.0.5.10: sync the URL so refresh / back / forward work and the
       // active link is shareable.  Use replaceState on first call (no
@@ -873,6 +879,9 @@ function app() {
       }
       // v1.0.13 (audit fix F3): same teardown on back/forward.
       if (this.currentView === 'share' && view !== 'share') this._stopSharePoll();
+      if (view !== 'config' && this.directionsPollTimer) {
+        this._stopDirectionsPoll();
+      }
       this.currentView = view;
       if (event.state && event.state.configTab) this.configTab = event.state.configTab;
       // Re-run the loaders for the target view.
@@ -900,6 +909,9 @@ function app() {
     configTab: 'sources',
     configTags: [],
     configSources: [],
+    configDirections: [],
+    directionsPollTimer: null,
+    directionsLoadError: '',
     configFilters: [],
     configFilterSourceFilter: '',
     configModalOpen: false,
@@ -1106,6 +1118,7 @@ function app() {
     },
 
     switchConfigTab(tab) {
+      this._stopDirectionsPoll();
       this.configTab = tab || 'sources';
       // Lazy-load data for each config sub-tab
       if (this.configTab === 'sources') {
@@ -1124,6 +1137,8 @@ function app() {
         this.loadLlmSettings();
         if (this.llmTab === 'gateway') this.loadLlmGateway();
         if (this.llmTab === 'usage') this.loadLlmUsage();
+      } else if (this.configTab === 'directions') {
+        this.loadDirections();
       } else if (this.configTab === 'jobs') {
         this.loadCronStatus();
         this.loadCronJobs();
@@ -1155,6 +1170,160 @@ function app() {
 
     filterFiltersBySource() {
       this.configLoadFilters();
+    },
+
+    // ── Directions CRUD (Sprint 67, S2) ─────────────────────────────
+    loadDirections() {
+      this._stopDirectionsPoll();
+      fetch('/api/directions', { credentials: 'same-origin' })
+        .then(r => {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(data => {
+          this.configDirections = Array.isArray(data) ? data : [];
+          this.directionsLoadError = '';
+          this.scheduleDirectionsPoll();
+        })
+        .catch(() => {
+          this.directionsLoadError = '加载失败';
+          this.scheduleDirectionsPoll();
+        });
+    },
+    scheduleDirectionsPoll() {
+      this._stopDirectionsPoll();
+      if (this.currentView !== 'config') return;
+      if (this.configTab !== 'directions') return;
+      if (!this.configDirections.some(d => d.research?.status === 'running')) return;
+      this.directionsPollTimer = setTimeout(() => this.loadDirections(), 5000);
+    },
+    _stopDirectionsPoll() {
+      if (!this.directionsPollTimer) return;
+      clearTimeout(this.directionsPollTimer);
+      this.directionsPollTimer = null;
+    },
+    configCreateDirection() {
+      this.openConfigModal('direction', null);
+    },
+    configEditDirection(direction) {
+      this.openConfigModal('direction', {
+        id: direction.id,
+        label: direction.label,
+        brief: direction.brief,
+        enabled: direction.enabled,
+      });
+    },
+    validateDirectionForm() {
+      const t = this.configModalTarget;
+      t.labelError = '';
+      t.briefError = '';
+      if (!t.label || !t.label.trim()) t.labelError = '方向名不能为空';
+      if (t.label && t.label.trim().length > 6) t.labelError = '方向名不能超过 6 字';
+      if (!t.brief || !t.brief.trim()) t.briefError = '方向说明不能为空';
+      if (t.brief && t.brief.trim().length > 200) t.briefError = '方向说明不能超过 200 字';
+      return !t.labelError && !t.briefError;
+    },
+    async configSaveDirection() {
+      if (!this.validateDirectionForm()) return;
+      const isEdit = !!this.configModalTargetOriginal;
+      const url = isEdit ? `/api/directions/${this.configModalTarget.id}` : '/api/directions';
+      const nextLabel = this.configModalTarget.label.trim();
+      const nextBrief = this.configModalTarget.brief.trim();
+      const original = this.configDirections.find(d => d.id === this.configModalTarget.id);
+      const briefChanged = isEdit && original && (original.label !== nextLabel || original.brief !== nextBrief);
+      const body = isEdit
+        ? { label: nextLabel, brief: nextBrief, enabled: this.configModalTarget.enabled }
+        : { label: nextLabel, brief: nextBrief };
+      try {
+        const response = await fetch(url, {
+          method: isEdit ? 'PATCH' : 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!response.ok) {
+          let serverMessage = '';
+          try {
+            const errorBody = await response.json();
+            serverMessage = errorBody.message || (Array.isArray(errorBody.detail) && errorBody.detail[0]?.msg) || errorBody.detail || '';
+          } catch (_) { /* non-JSON error */ }
+          throw new Error(serverMessage || `HTTP ${response.status}`);
+        }
+        this.closeConfigModal();
+        this.loadDirections();
+        this._notify('success', briefChanged ? '方向已保存；研究需重新生成' : (isEdit ? '方向已保存' : '方向已创建'));
+      } catch (err) {
+        this._notify('error', '保存方向失败: ' + err.message);
+      }
+    },
+    async configDeleteDirection(direction) {
+      const ok = await moniModal.confirm(`确定删除业务方向 “${direction.label}”？相关研究和打分会一并删除。`, {
+        title: '删除业务方向', okLabel: '删除', danger: true,
+      });
+      if (!ok) return;
+      try {
+        const response = await fetch(`/api/directions/${direction.id}`, {
+          method: 'DELETE', credentials: 'same-origin',
+        });
+        if (!response.ok && response.status !== 204) throw new Error(`HTTP ${response.status}`);
+        this.loadDirections();
+        this._notify('success', '方向已删除');
+      } catch (err) {
+        this._notify('error', '删除方向失败: ' + err.message);
+      }
+    },
+    async directionResearch(direction) {
+      try {
+        const response = await fetch(`/api/directions/${direction.id}/research`, {
+          method: 'POST', credentials: 'same-origin',
+        });
+        if (response.status === 409) throw new Error('该方向已有研究在运行');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        this._notify('success', `已开始研究 v${data.research_version}，完成后状态会自动刷新`);
+        this.loadDirections();
+      } catch (err) {
+        this._notify('error', '启动研究失败: ' + err.message);
+      }
+    },
+    directionResearchBadgeText(research) {
+      if (!research) return '未研究';
+      if (research.status === 'running') return `研究中 v${research.research_version}`;
+      if (research.status === 'passed') return `已通过 v${research.research_version}`;
+      if (research.status === 'failed') return `失败 v${research.research_version}`;
+      if (research.status === 'expired') return `已过期 v${research.research_version}`;
+      return research.status || '未知';
+    },
+    directionResearchBadgeClass(research) {
+      if (!research) return 'status-paused';
+      if (research.status === 'passed') return 'status-ok';
+      if (research.status === 'running') return 'status-running';
+      if (research.status === 'failed') return 'status-failed';
+      return 'status-paused';
+    },
+    directionResearchStatusText(direction) {
+      if (!direction.research) return '尚未生成研究方向';
+      const version = `v${direction.research.research_version}`;
+      if (direction.research.status === 'running') return `${version} 正在研究，完成后自动刷新`;
+      if (direction.research.status === 'passed') return `${version} 已通过校验`;
+      if (direction.research.status === 'failed') return this.directionUsableReason(direction);
+      if (direction.research.status === 'expired') return `${version} 已过期，请重新研究`;
+      return version;
+    },
+    directionUsableReason(direction) {
+      if (!direction.research) return '还没有研究版本';
+      const version = `v${direction.research.research_version}`;
+      if (direction.research.status === 'running') return `${version} 正在研究，完成后自动刷新`;
+      if (direction.research.status === 'failed') return `${version} 研究失败，请重新研究`;
+      if (direction.research.status === 'expired') return `${version} 研究已过期，请重新研究`;
+      return direction.usable_error || '研究尚未通过校验';
+    },
+    directionResearchButtonTitle(direction) {
+      if (!direction.enabled) return '先启用这个方向';
+      if (direction.research?.status === 'running') {
+        return `v${direction.research.research_version} 正在研究，完成后自动刷新`;
+      }
+      return direction.research ? '基于当前说明重新研究' : '基于当前说明开始研究';
     },
 
     // ── Tags CRUD ───────────────────────────────────────────────────
@@ -1804,6 +1973,23 @@ function app() {
             name: '', display_name: '', description: '', color: '',
             keywords: [], is_active: true,
             nameConfirmed: false, nameError: '',
+          };
+        }
+      } else if (type === 'direction') {
+        if (target && target.id) {
+          this.configModalTargetOriginal = target.id;
+          this.configModalTarget = {
+            id: target.id,
+            label: target.label || '',
+            brief: target.brief || '',
+            enabled: !!target.enabled,
+            labelError: '',
+            briefError: '',
+          };
+        } else {
+          this.configModalTargetOriginal = null;
+          this.configModalTarget = {
+            label: '', brief: '', enabled: true, labelError: '', briefError: '',
           };
         }
       } else if (type === 'source' && target && target.id) {

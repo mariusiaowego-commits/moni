@@ -209,6 +209,22 @@ def test_question_over_thirty_chars_is_rejected():
     assert error and "30" in error
 
 
+def test_anchor_over_sixty_chars_is_rejected():
+    payload = _payload()
+    payload["dimensions"]["rule_delta"]["anchors"]["6"] = "锚" * (direction.ANCHOR_MAX_CHARS + 1)
+    research, error = parse_research(payload)
+    assert research is None
+    assert error and "锚点超过" in error
+
+
+def test_template_over_one_hundred_twenty_chars_is_rejected():
+    payload = _payload()
+    payload["dimensions"]["rule_delta"]["template"] = "{" + "理" * direction.TEMPLATE_MAX_CHARS + "}"
+    research, error = parse_research(payload)
+    assert research is None
+    assert error and "理由模板超过" in error
+
+
 def test_non_string_question_is_rejected():
     """``str(True)`` would sneak a non-question through as "True"."""
     payload = _payload()

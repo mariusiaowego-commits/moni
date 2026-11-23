@@ -646,7 +646,27 @@ h5, h6 { font-size: var(--font-14); }
   transition: background 0.12s, color 0.12s;
   min-width: max-content;
 }
-.link-btn:hover, .btn-link:hover { background: var(--muted); color: var(--foreground); }
+.link-btn:hover:not(:disabled), .btn-link:hover:not(:disabled) { background: var(--muted); color: var(--foreground); }
+.link-btn:disabled, .btn-link:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: none;
+  color: var(--muted-fg);
+}
+
+/* 方向可用性徽章：可聚焦，浮层同时服务鼠标与键盘 */
+.direction-usable {
+  position: relative;
+  cursor: help;
+}
+.direction-usable:focus-visible {
+  outline: 2px solid var(--ring, var(--foreground));
+  outline-offset: 2px;
+}
+.direction-usable:hover .popover-card,
+.direction-usable:focus .popover-card {
+  display: block;
+}
 
 /* v1.0.35.1: 行内操作列 wrapper (ghost btn-danger 用)
    用 flex + gap 替代全局 .btn + .btn 的兄弟 margin-left (row-actions 内部更紧凑) */

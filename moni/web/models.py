@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -674,7 +674,16 @@ class BasketRescueRequest(BaseModel):
 # Re-export for convenience
 # ---------------------------------------------------------------------------
 
+
+
+
+
 __all__ = [
+    "Direction",
+    "DirectionCreate",
+    "DirectionResearchAction",
+    "DirectionResearchSummary",
+    "DirectionUpdate",
     "Article",
     "ArticleCreate",
     "ArticleUpdate",
@@ -700,3 +709,67 @@ __all__ = [
     "KeywordFilter", "KeywordFilterCreate", "KeywordFilterUpdate",
     "GlobalKeywordFilter", "GlobalKeywordFilterCreate", "GlobalKeywordFilterUpdate",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Business-direction schemas (S2)
+# ---------------------------------------------------------------------------
+
+
+class DirectionCreate(BaseModel):
+    label: str = Field(min_length=1, max_length=6)
+    brief: str = Field(min_length=1, max_length=200)
+
+    @field_validator("label", "brief", mode="before")
+    @classmethod
+    def _strip(cls, value):
+        # Strip before length checks, otherwise " 微信生态 " fails the
+        # length rule while "   " fails a different one further down.
+        return value.strip() if isinstance(value, str) else value
+
+
+class DirectionUpdate(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=6)
+    brief: str | None = Field(default=None, min_length=1, max_length=200)
+    enabled: bool | None = None
+
+    @field_validator("label", "brief", mode="before")
+    @classmethod
+    def _strip(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
+class DirectionResearchAction(BaseModel):
+    """Response of POST /api/directions/{id}/research."""
+
+    direction_id: int
+    research_version: int
+    status: str
+
+
+class DirectionResearchSummary(BaseModel):
+    """Latest research row as shown in the config panel."""
+
+    research_id: int
+    direction_id: int
+    research_version: int
+    status: str
+    scope: str | None = None
+    out_of_scope: str | None = None
+    error: str | None = None
+    prompt_id: str | None = None
+    model: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+
+
+class Direction(BaseModel):
+    id: int
+    label: str
+    brief: str
+    enabled: bool
+    created_at: str
+    updated_at: str
+    research: DirectionResearchAction | None = None
+    usable: bool = False
+    usable_error: str | None = None
