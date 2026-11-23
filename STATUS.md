@@ -3,6 +3,32 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
+## 已发布: **v1.0.117 — 业务方向分 V2 · S2 业务方向配置与研究 runner** (2026-11-23 · PR #278 → `9fbc0ff` · tag `v1.0.117` · Sprint 26112367)
+
+S1（#225）只落了研究内核与建表，没有 route、没有入口、没有 UI。S2 把它变成可用功能：
+「配置管理 → 业务方向」可以新建/编辑/删除方向，并让模型按固定提示词把通用十维业务价值问题
+改写成该方向的专用版本（研究结果落 `bv_direction_research`，带版本号与状态）。
+
+**方案**：`direction_store.py` 管配置与研究状态机（`running → passed/failed`、旧 `passed → expired`、
+僵尸 running 600s 回收为 failed）；`direction_runner.py` 单 worker 内存队列（不进 `llm_jobs`，
+因为该表 `article_id` 有 articles 外键）；`routes/directions.py` 提供 `/api/directions` CRUD 与
+`POST /{id}/research`，**永不暴露或接收 `rubric_json`**，停用方向拒绝研究（409），重名在
+`BEGIN IMMEDIATE` 内按 `TRIM(label)` 判重（409，不加 DB UNIQUE 约束以免历史库迁移失败）。
+前端研究中每 5s 自动轮询、离开配置页即停；加载失败独立成错误行、保留旧数据、可点击重试。
+
+**验证**：定向 151 passed（含 `test_cron_registry`）；全量 **2570 passed / 2 skipped / 0 failed**；
+CI `pytest · py3.12` SUCCESS；UI 实测 39 项全过（主交互 25 + 错误路径 8 + 轮询生命周期 6，
+8901 隔离实例 + 临时库，未碰生产库）。独立评审：agy 终审 FAIL（P1 重名未拦截）→ 修复 → 复审
+**PASS，findings 为空**；pixel UIUX 两轮均 PASS WITH NITS（p1/p2 清零）。
+
+**部署**：`main` = `9fbc0ff`，tag `v1.0.117` → `9fbc0ff`。**本阶段未部署**：生产 8900 仍跑 v1.0.116
+（PID 6397），schema 仍为 **56**（S2 零新增迁移），部署只需拉取 `9fbc0ff` 并重启 8900。
+
+**分支清理**：删除远端 `feat/bv-direction-s2`（S1 合并前的旧历史、无 PR 引用）与
+`feat/bv-direction-v2-s2-config`（已合并，`git diff origin/main` 仅 STATUS.md 不同）。
+
+**遗留**：S3 未开工——方向分写入 `article_bv_direction`、简报/卡片方向分 UI、方向不可用时整列隐藏。
+
 ## 已发布: **v1.0.116 — 定时任务控制台 + launchd 前台监督 + BV Direction V2 S1 内核** (2026-11-23 · PR #277 → `f773058`、PR #279 → `b804ded`、PR #225 → `e8fd419` · tag `v1.0.116` · Sprint 26112369 / 26112367)
 
 定时任务原本只存在于 `config/schedule.yaml`，启动时一次性读取；界面只有跑批日志，
@@ -20,8 +46,8 @@ API：`GET/PUT /api/cron/jobs`、`POST /api/cron/jobs/{id}/run`（409 防重）�
 
 **BV Direction V2 S1（#225，另一会话开发）**：migration 053/054 建 `bv_direction` /
 `bv_direction_research` / `article_bv_direction`，新增 `moni/scoring/direction.py` 研究提示词与校验。
-本阶段只落内核，**无 route、无入口、无 UI**，不改变现有抓取/打标行为；S2/S3 在
-`feat/bv-direction-v2-s2-config`（worktree `moni-worktrees/bv-direction-v2`，ahead 8 / behind 7），本次未部署。
+本阶段只落内核，**无 route、无入口、无 UI**，不改变现有抓取/打标行为；S2 已在 **v1.0.117**（#278）合并，
+S3 仍未开工。
 
 **验证**：定向 187 passed（`test_cron_registry` / `test_cron` / `test_api` / `test_frontend_render_hygiene`），
 新增 `test_cli_cron_foreground` 2 passed；后端全量 2528 passed / 1 failed（PIL 环境缺失，与本分支无关）/ 2 skipped；
