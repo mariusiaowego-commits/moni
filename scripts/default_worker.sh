@@ -1171,6 +1171,12 @@ print(p.get('generation_approach',''))
     if [[ $hermes_exit -eq 124 ]]; then
         if recover_artifact "$task_id" "$format" \
             "$llm_started_epoch" "$artifacts_dir"; then
+            if [[ "$format" == "html_landing" && "$include_ctx_val" == "true" ]]; then
+                "$PYTHON_BIN" -m moni.share.context_pack \
+                    --db "$DB_PATH" --article-ids "$article_ids_str" \
+                    --inject-html "$artifacts_dir/${task_id}-${format}.html" \
+                    2>>"$LOG_FILE" || true
+            fi
             return 0
         fi
         error_msg="timeout after ${task_timeout}s"

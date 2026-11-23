@@ -14,6 +14,7 @@ Endpoints
 from __future__ import annotations
 
 import logging
+import sqlite3
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -159,25 +160,39 @@ def create_context(
     now = _now()
     context_id = uuid.uuid4().hex
     title = (body.title or "").strip() or _default_title(content)
-    conn.execute(
-        "INSERT INTO article_contexts "
-        "(id, article_id, kind, title, body, source_message_id, source_question, "
-        " quoted_text, sort_order, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            context_id,
-            article_id,
-            kind,
-            title,
-            content,
-            body.message_id,
-            (question["content"] if question else None),
-            (question["quote_text"] if question else None),
-            next_order,
-            now,
-            now,
-        ),
-    )
+    try:
+        conn.execute(
+            "INSERT INTO article_contexts "
+            "(id, article_id, kind, title, body, source_message_id, source_question, "
+            " quoted_text, sort_order, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                context_id,
+                article_id,
+                kind,
+                title,
+                content,
+                body.message_id,
+                (question["content"] if question else None),
+                (question["quote_text"] if question else None),
+                next_order,
+                now,
+                now,
+            ),
+        )
+    except sqlite3.IntegrityError:
+        # Concurrent double-click: the unique index wins the race.  Re-read
+        # the winner so the endpoint stays idempotent instead of returning 500.
+        conn.rollback()
+        existing = conn.execute(
+            "SELECT * FROM article_contexts "
+            "WHERE article_id = ? AND source_message_id = ?",
+            (article_id, body.message_id),
+        ).fetchone()
+        if existing is None:
+            raise
+        response.status_code = 200
+        return {"created": False, "context": _context_row(existing)}
     conn.commit()
     row = conn.execute(
         "SELECT * FROM article_contexts WHERE id = ?", (context_id,)

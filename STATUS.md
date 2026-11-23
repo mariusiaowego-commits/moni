@@ -23,8 +23,9 @@
 reader/share/brief 41 passed；复跑 57 passed。真实 DB 副本产物：Markdown 4930 bytes、
 HTML 块位于事实核查后、自定义 HTML 注入成功。Playwright 1280×633 与 760×900：
 `transform none`、面板 3 条、`含上下文 3 条`、PNG `disabled=true`。
+独立 audit（agy 只读）：P0/P1 无，4 条 P2 已修（并发幂等、切篇竞态、分享计数刷新、超时回收注入）。
 
-**待办**：开 PR → 独立 audit（base == latest main）→ 当轮授权后 squash merge → 部署/tag。
+**待办**：PR #282 已开（base == latest main）→ 当轮授权后 squash merge → 部署/tag。
 
 ---
 ## 已发布: **v1.0.116 — 定时任务控制台 + launchd 前台监督 + BV Direction V2 S1 内核** (2026-11-23 · PR #277 → `f773058`、PR #279 → `b804ded`、PR #225 → `e8fd419` · tag `v1.0.116` · Sprint 26112369 / 26112367)

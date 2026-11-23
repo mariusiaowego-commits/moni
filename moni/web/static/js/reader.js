@@ -1067,11 +1067,16 @@
 
     readerLoadContexts() {
       if (!this.articleDetail?.id) return;
-      fetch(`/api/articles/${encodeURIComponent(this.articleDetail.id)}/contexts`, {
+      const aid = this.articleDetail.id;
+      fetch(`/api/articles/${encodeURIComponent(aid)}/contexts`, {
         credentials: 'same-origin',
       })
         .then((r) => (r.ok ? r.json() : null))
-        .then((data) => { this.readerContexts = (data && data.contexts) || []; })
+        .then((data) => {
+          // 快速切篇时，旧文章的响应不能覆盖新文章的面板。
+          if (this.articleDetail?.id !== aid) return;
+          this.readerContexts = (data && data.contexts) || [];
+        })
         .catch((err) => console.error('readerLoadContexts failed:', err));
     },
 
@@ -1084,12 +1089,13 @@
 
     readerSaveMessageContext(m) {
       if (!m?.id || !this.articleDetail?.id) return;
+      const aid = this.articleDetail.id;
       if (this.readerIsSavedContext(m)) {
         this.readerContextsOpen = true;
         return;
       }
       this.readerSavingMsgId = m.id;
-      fetch(`/api/articles/${encodeURIComponent(this.articleDetail.id)}/contexts`, {
+      fetch(`/api/articles/${encodeURIComponent(aid)}/contexts`, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
@@ -1104,11 +1110,13 @@
           return data;
         })
         .then((data) => {
+          if (this.articleDetail?.id !== aid) return;
           const ctx = data && data.context;
           if (ctx && !this.readerContexts.some((c) => c.id === ctx.id)) {
             this.readerContexts = [...this.readerContexts, ctx];
           }
           this._notify('success', '已存为上下文；分享前可选择带上');
+          this.loadShareContextCounts?.();
         })
         .catch((err) => this._notify('error', '保存失败: ' + (err.message || err)))
         .finally(() => { this.readerSavingMsgId = null; });
@@ -1116,6 +1124,7 @@
 
     async readerDeleteContext(ctx) {
       if (!ctx?.id || !this.articleDetail?.id) return;
+      const aid = this.articleDetail.id;
       const ok = window.moniModal
         ? await window.moniModal.confirm('删除后这篇分享里也不会再带上它。', {
             title: '删除用户上下文', okLabel: '删除', danger: true,
@@ -1123,13 +1132,15 @@
         : window.confirm('删除这条用户上下文？');
       if (!ok) return;
       fetch(
-        `/api/articles/${encodeURIComponent(this.articleDetail.id)}/contexts/${encodeURIComponent(ctx.id)}`,
+        `/api/articles/${encodeURIComponent(aid)}/contexts/${encodeURIComponent(ctx.id)}`,
         { method: 'DELETE', credentials: 'same-origin' },
       )
         .then((r) => {
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          if (this.articleDetail?.id !== aid) return;
           this.readerContexts = this.readerContexts.filter((c) => c.id !== ctx.id);
           this._notify('info', '已删除上下文');
+          this.loadShareContextCounts?.();
         })
         .catch((err) => this._notify('error', '删除失败: ' + (err.message || err)));
     },
