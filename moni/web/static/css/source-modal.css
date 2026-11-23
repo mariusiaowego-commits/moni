@@ -194,6 +194,10 @@
 .fetch-modal .fetch-result-pipeline {
   font-variant-numeric: tabular-nums;
 }
+.fetch-modal .fetch-result-headline {
+  margin-bottom: 6px;
+  font-weight: var(--weight-medium, 500);
+}
 .fetch-modal .fetch-result-note {
   display: flex;
   flex-wrap: wrap;

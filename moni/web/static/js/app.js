@@ -2971,6 +2971,10 @@ function app() {
     taskPillLabel(t) {
       if (!t) return '';
       if (t.status === 'running') return '';
+      const r = t.result && typeof t.result === 'object' ? t.result : null;
+      if (t.status === 'done' && r && (r.inserted || 0) === 0 && (r.raw_items || 0) > 0) {
+        return '无新增';
+      }
       const map = {
         done: '完成',
         partial: '部分完成',
@@ -3019,6 +3023,8 @@ function app() {
         { label: '耗时', meta: this.formatTaskElapsed(t) },
       ];
       if (t.result && typeof t.result === 'object') {
+        if (t.result.raw_items != null) rows.push({ label: '检查', meta: String(t.result.raw_items) });
+        if (t.result.skipped_existing != null) rows.push({ label: '已在库', meta: String(t.result.skipped_existing) });
         if (t.result.inserted != null) rows.push({ label: '入库', meta: String(t.result.inserted) });
         if (t.result.fetched != null) rows.push({ label: '拉取', meta: String(t.result.fetched) });
       }

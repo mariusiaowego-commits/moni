@@ -488,8 +488,14 @@ def test_repeated_run_is_idempotent(fresh_db):
     first = _fetcher().run()
     second = _fetcher().run()
     assert first["inserted"] == 1
+    assert first["raw_items"] == 1
+    assert first["skipped_existing"] == 0
     assert second["fetched"] == 0
     assert second["inserted"] == 0
+    # 同一天再抓一次: feed 里还是那 1 条, 全部按已入库跳过 —— UI 用这两个
+    # 数字区分「没抓」（raw=0）和「抓了但都重复」（raw=1, skipped=1）。
+    assert second["raw_items"] == 1
+    assert second["skipped_existing"] == 1
 
 
 def test_item_without_bank_name_is_not_ingested(fresh_db):
@@ -580,9 +586,13 @@ def test_partial_feed_imports_items_and_reports_warning(fresh_db):
     # v1.0.88: 有入库 → 降级为 warning, 由 web 端记 partial;
     # 记 error 会让前端显示「失败 · 0 篇」, 与库里事实相反。
     assert not result.get("error")
-    assert "feed 不完整" in result["warning"]
-    assert "icbc" in result["warning"]
+    assert "2 个来源未抓到" in result["warning"]
+    assert "工行（访问超时）" in result["warning"]
+    assert "中行（页面无法读取）" in result["warning"]
     assert result["failed_targets"] == ["boc", "icbc"]
+    detail = {d["target"]: d for d in result["failed_targets_detail"]}
+    assert detail["icbc"]["reason"] == "访问超时"
+    assert detail["boc"]["reason"] == "页面无法读取"
 
 
 def test_partial_feed_without_articles_still_fails(fresh_db):
@@ -599,7 +609,8 @@ def test_partial_feed_without_articles_still_fails(fresh_db):
     result = _fetcher().run()
     assert result["inserted"] == 0
     assert not result.get("warning")
-    assert "feed 不完整" in result["error"]
+    assert "1 个来源未抓到" in result["error"]
+    assert "工行（访问超时）" in result["error"]
 
 
 def test_feed_with_items_but_all_filtered_is_partial(fresh_db):
@@ -713,8 +724,8 @@ def test_bot_retry_failure_still_imports_existing_partial_feed(fresh_db, monkeyp
     monkeypatch.setattr(subprocess, "Popen", _fake_popen(1, "", "agent exploded"))
     result = _fetcher().run()
     assert result["inserted"] == 1
-    assert "agent 补跑失败" in result["warning"]
-    assert "feed 不完整" in result["warning"]
+    assert "补抓失败" in result["warning"]
+    assert "1 个来源未抓到" in result["warning"]
     assert not result.get("error")
 
 
