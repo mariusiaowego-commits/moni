@@ -782,6 +782,7 @@ function app() {
       if (view === 'cron') {
         this.currentView = 'config';
         this.configTab = 'cron';
+        this._stopDirectionsPoll();
         this.loadCronRuns();
         const path = '/config';
         if (window.location.pathname !== path) {
@@ -794,6 +795,7 @@ function app() {
         this.currentView = 'config';
         this.configTab = 'llm';
         this.llmTab = 'gateway';
+        this._stopDirectionsPoll();
         this.loadLlmProviders();
         this.loadLlmModels();
         this.loadLlmSettings();
@@ -813,8 +815,7 @@ function app() {
       }
       // Leaving the config page stops the direction-research poll too.
       if (view !== 'config' && this.directionsPollTimer) {
-        clearTimeout(this.directionsPollTimer);
-        this.directionsPollTimer = null;
+        this._stopDirectionsPoll();
       }
       // v1.0.5.10: sync the URL so refresh / back / forward work and the
       // active link is shareable.  Use replaceState on first call (no
@@ -878,8 +879,7 @@ function app() {
       // v1.0.13 (audit fix F3): same teardown on back/forward.
       if (this.currentView === 'share' && view !== 'share') this._stopSharePoll();
       if (view !== 'config' && this.directionsPollTimer) {
-        clearTimeout(this.directionsPollTimer);
-        this.directionsPollTimer = null;
+        this._stopDirectionsPoll();
       }
       this.currentView = view;
       if (event.state && event.state.configTab) this.configTab = event.state.configTab;
@@ -1117,10 +1117,7 @@ function app() {
     },
 
     switchConfigTab(tab) {
-      if (this.directionsPollTimer) {
-        clearTimeout(this.directionsPollTimer);
-        this.directionsPollTimer = null;
-      }
+      this._stopDirectionsPoll();
       this.configTab = tab || 'sources';
       // Lazy-load data for each config sub-tab
       if (this.configTab === 'sources') {
@@ -1172,10 +1169,7 @@ function app() {
 
     // ── Directions CRUD (Sprint 67, S2) ─────────────────────────────
     loadDirections() {
-      if (this.directionsPollTimer) {
-        clearTimeout(this.directionsPollTimer);
-        this.directionsPollTimer = null;
-      }
+      this._stopDirectionsPoll();
       fetch('/api/directions', { credentials: 'same-origin' })
         .then(r => {
           if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -1192,14 +1186,16 @@ function app() {
         });
     },
     scheduleDirectionsPoll() {
-      if (this.directionsPollTimer) {
-        clearTimeout(this.directionsPollTimer);
-        this.directionsPollTimer = null;
-      }
+      this._stopDirectionsPoll();
       if (this.currentView !== 'config') return;
       if (this.configTab !== 'directions') return;
       if (!this.configDirections.some(d => d.research?.status === 'running')) return;
       this.directionsPollTimer = setTimeout(() => this.loadDirections(), 5000);
+    },
+    _stopDirectionsPoll() {
+      if (!this.directionsPollTimer) return;
+      clearTimeout(this.directionsPollTimer);
+      this.directionsPollTimer = null;
     },
     configCreateDirection() {
       this.openConfigModal('direction', null);
