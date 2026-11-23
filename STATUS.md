@@ -763,6 +763,71 @@ Gate 2 降级后 summary 与逐条判定不同步、brief 脚注不受 flag 控�
   分值 **1.60–5.00**、全部两位小数、12 篇满分；`page=1` 20 条、`page=2` 16 条；
   refresh 返回 `updated=36 / unchanged=0 / skipped=0`。
 
+## 进行中: **Sprint 67 — 业务方向分 V2（S1 内核已交付，S2/S3 未做）** (2026-11-23 · 分支 `feat/bv-direction-v2` · sprint id `26112367` · PR #225)
+
+设计 §10（`docs/specs/2026-11-16-pin-quality-bv-harness.md`）落地第一阶段，实现记录
+`docs/plans/2026-11-17_bv-direction-v2.md`。
+
+- **migration 053 + 054**（原 046 与 main 的 `046_fact_check_summary.sql` 撞号，已改名为 053）：
+  新增 `bv_direction`（配置）、`bv_direction_research`（版本，唯一键
+  `(direction_id, research_version)`）、`article_bv_direction`（方向分，主键含
+  `research_version`）；`_CURRENT_VERSION 52 → 54`；不改既有列、不回填。
+  054 重建 `article_bv_direction`，补上 `articles(id)` / `bv_direction(id)` 两个
+  `ON DELETE CASCADE` 外键——`CREATE TABLE IF NOT EXISTS` 给已存在的表补不了约束，
+  跑过 053 初版的库会永远缺这两个外键。
+- **`moni/scoring/direction.py`**：研究提示词 `bv_direction_research_v1`（五条硬句写死）、
+  `parse_research` 全量校验（10 key / 四档锚点 / 问题 ≤30 字 / 禁词 / 写作禁词 / 模板占位符）、
+  `research_to_rubric` 只换 question/anchors/template、权重与 label 从 `RUBRIC_V1` 继承、
+  `usable_research` 只看最大 `research_version` 且不回退旧版。
+- **只读审计后加固**（独立审计 PASS WITH NITS，P1×2 / P2×3 / P3×5 已修，P3-3 属 main 的
+  `rubric.py` 不在本分支范围）：
+  - 版本号不可解析 / ≤0 / 非整数 → 直接判「损坏」并拒绝，不降级为 0（原来会被当作 v0 排在
+    v1 之后、导致最新行根本没被检查、静默回退旧版）。
+  - `usable_research` 支持按 `direction_id` 过滤，多方向时不会取到别的方向的版本。
+  - `label` / `brief` 一律取调用方入参，忽略模型输出（提示词从不要求模型输出这两项）。
+  - `article_bv_direction` 补 `articles(id)` 与 `bv_direction(id)` 两个 `ON DELETE CASCADE`
+    外键（迁移未上过生产，改表零成本），对齐仓库其余 7 处子表的惯例。
+  - `usable_research` 校验 `prompt_id`，旧提示词产出的研究判为不可用。
+  - 严格类型：非字符串的 question/scope/anchors/template 一律拒；锚点只收 dict（拒绝位置
+    列表与多余档位）；`research_to_rubric` 校验维度 key/label/权重仍等于 `RUBRIC_V1`。
+- **第二轮回归审计（结论 FAIL：1 条 P1）→ 已修**：审计 agent 复检后出 P1×1 / P2×2 / P3×5：
+  - **P1** `_positive_int()` 对 `'²'` 这类 `str.isdigit()` 为真但 `int()` 会炸的字符抛
+    未捕获 `ValueError`（SQLite 的 INTEGER 只是亲和类型，`'²'` 能存进去）。改为
+    `text.isascii() and text.isdigit()` 双判。
+  - **P2** 旧库升级缺口：`CREATE TABLE IF NOT EXISTS` 跳过已存在的表 → 跑过 053 初版的库
+    永远补不上外键。新增 `054_bv_direction_fk.sql` 重建表并搬数据（复制期间
+    `foreign_keys=OFF`，避免历史孤儿行卡住升级）。
+  - **P2** 写读校验不对称：`usable_research` 不复查 `scope`/`out_of_scope`。补上非空 +
+    长度校验。
+  - **P3** 禁词套到 scope 上会反复打回合法研究描述（模型写「深度报道」是很自然的表述，
+    会被一直拒绝、研究永远跑不出来）。改为 scope 只校验非空 + 长度（≤80 字），
+    不套写作禁词表——这是回归审计自己的建议。
+  - **P3** 模板占位符校验太松（`'}{'`、`'{{}}'` 能过）→ 改用正则 `\{[^{}]+\}`。
+  - **P3** `prompt_id` 全等会误伤带空白的行 → 比较前 `strip()`。
+- **第三轮回归审计（结论 FAIL：1 条 P1 + 1 条 P2）→ 已修**：问题出在**迁移 054 自身**：
+  - **P1** 054 没有事务，表重建的「DROP 旧表 → RENAME 新表」之间被打断，数据只剩在 staging 表；
+    而脚本开头的 `DROP TABLE IF EXISTS staging` 会把唯一那份副本删掉 → `migrate()` 永远
+    失败、形成需要人工救的死循环。整段搬进 `BEGIN IMMEDIATE … COMMIT`；staging 改用
+    `CREATE TABLE IF NOT EXISTS` + `INSERT OR IGNORE`（不再先 DROP）；开头补旧形状的
+    `CREATE TABLE IF NOT EXISTS article_bv_direction`，让「旧表已删、数据只在 staging」
+    的坏状态也能自愈。
+  - **P2** `migrate.py` 的逐语句 fallback 里 `INSERT` 隐式开事务，结尾的
+    `PRAGMA foreign_keys = ON` 在事务内是空操作 → 外键约束静默永久失效。fallback 循环
+    里遇到 `PRAGMA` 且有未提交事务时先 `commit()` 再执行。
+- **第四轮（PASS WITH NITS）与第五轮（PASS）**：两条建议已修——占位符正则 `[^\s{}]`
+  （`{a}}`、`{{a}` 之前能过）、迁移合并用例的 staging 表补上外键并加 FK 断言。
+  变异测试（删 `BEGIN IMMEDIATE`、`INSERT OR IGNORE` → `INSERT`、`PRAGMA ON` 挪位、
+  `COMMIT` 挪早）**全部被杀死**。第五轮无 P1/P2，只剩 5 条留给 S2 的 P3
+  （brief/锚点长度上限、staging 形状说明、`{0}` 渲染边界、`direction_id` 改必填）。
+- **rebase**：分支原落后 main 51 个提交；2026-11-23 rebase 到当时最新 main（`4f9b5e2`），
+  冲突仅 `moni/db/migrate.py` 一处（版本号），按 053 解决。main 后续仍在推进，推分支前会再 rebase 一次。
+- **测试**：`/usr/local/bin/python3 -m pytest tests/ -p no:cacheprovider -q` → **2437 passed /
+  2 skipped / 1 failed（363s）**。唯一失败是
+  `tests/test_migration_039_xbot_feed.py::test_039_upgrades_a_db_built_by_old_code`：沙箱禁止写
+  `.git/worktrees`，放开权限单跑 **1 passed**，属环境限制、非代码问题。
+- **待做（S2/S3）**：研究 runner（running→passed/failed 落库、旧 passed→expired）、方向配置
+  读写 API、方向分缓存写入与重算、简报/卡片方向分 UI、方向不可用时整列隐藏。
+
 ## 已发布: **v1.0.96 — Pin 质量列 + 业务价值 harness** (2026-11-17 · PR #223 · tag `v1.0.96` · commit `5316f05`)
 
 设计稿 `docs/specs/2026-11-16-pin-quality-bv-harness.md`（v4 已拍板 B/C/C/B），实现记录
@@ -802,7 +867,7 @@ CRUD/CLI 写路径补重算、长文 4 窗取证、5 次调用硬上限、引文
 （`按通用业务价值排序`、`通用`/`阅读` chip、页脚免责句）；首页 200，`app.js` 含 Pin 质量函数、
 `main.css` 含 `quality-col-head`。
 
-**遗留**：方向分/方向研究按 B 方案留到 Sprint 53（复用 `score_general_bv(rubric=...)`）。
+**遗留**：方向分/方向研究按 B 方案另开 sprint 做（复用 `score_general_bv(rubric=...)`）→ 见 Sprint 67。
 
 ---
 
