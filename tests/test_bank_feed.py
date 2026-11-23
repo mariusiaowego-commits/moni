@@ -498,6 +498,31 @@ def test_repeated_run_is_idempotent(fresh_db):
     assert second["skipped_existing"] == 1
 
 
+def test_skipped_existing_counts_only_today(fresh_db):
+    """历史文件里的重复不能算进当天的「已在库」（否则界面会出现「检查 1 / 已在库 2」）。"""
+    _write_feed(fresh_db, [_item(2)])
+    feed_dir = _feed_dir(fresh_db)
+    old_day = (date.today() - timedelta(days=1)).isoformat()
+    old_payload = {
+        "date": old_day,
+        "generated_at": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(),
+        "counts_by_bank": {},
+        "errors": [],
+        "items": [_item(1)],
+    }
+    (feed_dir / f"{old_day}.json").write_text(
+        json.dumps(old_payload, ensure_ascii=False), encoding="utf-8"
+    )
+
+    first = _fetcher().run()
+    assert first["inserted"] == 2
+
+    second = _fetcher().run()
+    assert second["inserted"] == 0
+    assert second["raw_items"] == 1
+    assert second["skipped_existing"] == 1
+
+
 def test_item_without_bank_name_is_not_ingested(fresh_db):
     _write_feed(fresh_db, [_item(1, title="今日 A 股三大指数集体收跌",
                                  text="市场全天成交 1.9 万亿。")])

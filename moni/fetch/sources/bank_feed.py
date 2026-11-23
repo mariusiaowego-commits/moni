@@ -586,6 +586,7 @@ class FetcherBankFeed(BaseFetcher):
         raws: list[dict[str, Any]] = []
         seen_in_round: set[str] = set()
         skipped_already = 0
+        skipped_today = 0
         today = date.today().isoformat()
         for path in files:
             loaded = self._read_feed_file(path)
@@ -609,6 +610,8 @@ class FetcherBankFeed(BaseFetcher):
                     continue
                 if key in imported:
                     skipped_already += 1
+                    if path.stem == today:
+                        skipped_today += 1
                     continue
                 if key in seen_in_round:
                     continue
@@ -616,7 +619,9 @@ class FetcherBankFeed(BaseFetcher):
                 raws.append(item)
 
         self._pending_state = state
-        self._skipped_existing = skipped_already
+        # 界面上的「已在库」只报当天这批; skipped_already 含 max_days 内
+        # 的历史文件, 直接给出去会得到「检查 25 / 已在库 167」这种错觉。
+        self._skipped_existing = skipped_today
         logger.info(
             "[bank-feed] %d feed file(s) → %d new raw item(s) (%d already imported)",
             len(files), len(raws), skipped_already,
