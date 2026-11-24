@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 
 from moni.scoring import bv_pipeline, rubric
-from moni.scoring.bv_pipeline import score_general_bv
+from moni.scoring.bv_pipeline import score_general_bv, short_llm_error
 from moni.scoring.snapshot import ArticleSnapshot
 
 BODY = (
@@ -306,3 +306,39 @@ def test_windows_keep_head_when_a_paragraph_exactly_fills_a_window():
     sampled = bv_pipeline._windows(body)
     assert not sampled.startswith("\n\n")
     assert head[:50] in sampled
+
+
+def test_short_llm_error_drops_the_prompt_payload():
+    """The provider exception embeds the whole prompt; it must not reach the DB."""
+    raw = (
+        "hermes failed (failover exhausted): __profile__: TimeoutExpired: "
+        "Command '['hermes', '-z', '这里是整篇文章正文，很长很长']' timed out after 90 seconds"
+    )
+    short = short_llm_error(raw)
+    assert "这里是整篇文章正文" not in short
+    assert "超时" in short and "90" in short
+
+
+def test_short_llm_error_keeps_a_short_reason():
+    assert "配额" in short_llm_error("provider 配额不足")
+    assert short_llm_error("") == ""
+
+
+def test_failure_reason_reaches_the_result():
+    """A timeout must say "超时", not a bare "打分失败"."""
+    def llm(prompt: str, timeout: float):
+        return "", 1, "所有候选模型都失败：模型调用超时（90 秒）"
+
+    result = score_general_bv(_snap(), llm=llm)
+    assert result.status == "failed"
+    assert "超时" in (result.error or "")
+
+
+def test_two_tuple_llm_still_works():
+    """Older callers return ``(text, code)``; the reason is optional."""
+    def llm(prompt: str, timeout: float):
+        return "", 1
+
+    result = score_general_bv(_snap(), llm=llm)
+    assert result.status == "failed"
+    assert result.error == "取证失败"

@@ -50,8 +50,11 @@ def _llm_call(prompt: str, timeout: float) -> tuple[str, int]:
 
     ``call_llm`` raises on provider errors; the harness expects a return
     value instead, so every failure becomes ``("", 1)`` and the article
-    ends up as ``failed`` with a real reason.
+    ends up as ``failed`` with a real reason.  The third element carries
+    the provider's own words so the user sees "模型调用超时" instead of a
+    bare "打分失败".
     """
+    from moni.scoring.bv_pipeline import short_llm_error
     from moni.llm.client import call_llm, resolve_active_model
     from moni.llm.runner import read_model_mode
 
@@ -68,9 +71,9 @@ def _llm_call(prompt: str, timeout: float) -> tuple[str, int]:
         )
     except Exception as exc:  # noqa: BLE001 - provider failures are data here
         log.warning("direction score llm failed: %s", exc)
-        return "", 1
+        return "", 1, short_llm_error(str(exc))
     if not isinstance(out, str):
-        return "", 1
+        return "", 1, "模型返回了非文本内容"
     return out, 0
 
 

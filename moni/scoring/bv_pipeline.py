@@ -26,6 +26,10 @@ from .rubric import (
 )
 from .snapshot import ArticleSnapshot
 
+#: The harness calls ``llm(prompt, timeout)``.  A caller may return
+#: ``(text, code)`` or ``(text, code, error_text)``; the third element is
+#: the reason the call failed, which is what the user sees instead of a
+#: bare "打分失败".
 LLM = Callable[[str, float], tuple[str, int]]
 
 STATUS_INSUFFICIENT = "insufficient"
@@ -115,6 +119,32 @@ def parse_json_object(raw: str) -> dict | None:
     return None
 
 
+def short_llm_error(text: str) -> str:
+    """Turn a provider error into one short line the UI can show.
+
+    The raw exception embeds the whole prompt (``Command '[...]'``); that
+    would put the entire article into the error column, so the payload is
+    dropped and only the reason survives.  A timeout is the common case
+    (long article + ten-dimension rubric) and gets its own wording.
+    """
+    if not text:
+        return ""
+    cleaned = re.sub(r"Command '\[.*?\]'", "Command […]", text, flags=re.S)
+    prefix = "所有候选模型都失败：" if "failover exhausted" in cleaned else ""
+    timeouts = re.findall(r"timed out after (\d+(?:\.\d+)?) seconds", cleaned)
+    if timeouts:
+        return f"{prefix}模型调用超时（{timeouts[-1]} 秒）"
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if len(cleaned) > 160:
+        cleaned = cleaned[-160:]
+    return f"{prefix}{cleaned}"
+
+
+def _failure(reason: str, detail: str) -> str:
+    """``打分失败`` plus whatever the model actually said."""
+    return f"{reason}：{detail}" if detail else reason
+
+
 class _Caller:
     def __init__(
         self,
@@ -128,6 +158,9 @@ class _Caller:
         self.step = step_timeout
         self.calls = 0
         self.max_calls = max_calls
+        #: Why the last call failed, in the caller's words.  Empty when the
+        #: call succeeded or the caller gave no reason.
+        self.last_error = ""
 
     def can_call(self) -> bool:
         return (
@@ -141,10 +174,13 @@ class _Caller:
             return None
         timeout = max(_MIN_CALL_BUDGET, min(self.step, self.budget))
         started = time.monotonic()
-        out, code = self._llm(prompt, timeout)
+        result = self._llm(prompt, timeout)
+        out, code = result[0], result[1]
+        reason = result[2] if len(result) > 2 else ""
         self.calls += 1
         self.budget -= max(time.monotonic() - started, 0.0)
         if code != 0:
+            self.last_error = short_llm_error(reason)
             return None
         return parse_json_object(out)
 
@@ -392,8 +428,8 @@ def score_general_bv(
     snap: ArticleSnapshot,
     rubric: Rubric = RUBRIC_V1,
     llm: LLM | None = None,
-    budget_s: float = 90.0,
-    step_timeout: float = 90.0,
+    budget_s: float = 300.0,
+    step_timeout: float = 180.0,
 ) -> BvResult:
     body = snap.body
     digest = content_hash(body)
@@ -418,7 +454,7 @@ def score_general_bv(
     if raw_evidence is None:
         return BvResult(
             status=STATUS_SKIPPED if caller.calls == 0 else STATUS_FAILED,
-            error="取证失败",
+            error=_failure("取证失败", caller.last_error),
             content_hash=digest,
             calls_used=caller.calls,
         )
@@ -449,7 +485,7 @@ def score_general_bv(
     if raw_scores is None:
         return BvResult(
             status=STATUS_FAILED,
-            error="打分失败",
+            error=_failure("打分失败", caller.last_error),
             content_hash=digest,
             calls_used=caller.calls,
         )
