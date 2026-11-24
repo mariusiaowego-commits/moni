@@ -58,6 +58,10 @@ sources:
   feed_url: /Users/mt16/dev/moni/config/bestblogs_x.opml
   fetch_interval_min: 120
   enabled: true
+  # 上游 api.xgo.ing 长期 502，且本源的入库产出已跌到每月 4 篇、
+  # 近 60 天仅 12 篇，还把整轮定时抓取拖成 1 小时以上。
+  # 退出定时/批量抓取，保留手动触发（moni fetch --source bestblog-x）。
+  batch_enabled: false
   crawler_type: rss
 - source_name: xwatch
   type: x
