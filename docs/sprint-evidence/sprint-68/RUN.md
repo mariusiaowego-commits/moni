@@ -104,6 +104,23 @@ PASS 审计 items_json 不含明文机构名
 OVERALL: PASS
 ```
 
+### 2.2b 通道②（联网核查 `fact_check_plus`）真实 hermes 端到端
+
+`e2e_real_stream.py`，`task_type="fact_check_plus"`（策略 `web_search_safe`）：
+
+```
+回包: '这行里的号码是：13812345678\n\n要我核对的话，得看到实际号码才行——招商银行官方客服是 95555…'
+PASS 真实模型有回复
+PASS 回包含已还原号码
+PASS 回包无残留占位符
+审计行: [{'call_site': 'stream', 'task_type': 'fact_check_plus', 'masked_total': 1,
+          'restored_total': 1, 'leak_scan_hits': 0, 'residual_placeholders': 0}]
+OVERALL: PASS
+```
+
+**这条同时验证了任务感知策略**：公开机构名「招商银行」**按 `web_search_safe` 保留**（否则公网搜不到），
+只有号码被遮蔽（`masked_total=1`），回包已还原。
+
 ### 2.3 流式通道一致性（`probe_reader_stream.py`）
 
 ```
@@ -114,6 +131,23 @@ final 保留字面量 5d41402abc4b2a76: True
 ```
 
 `reader` 中断时走 `StreamRestorer.flush(aborted=True)`，库里不留半截 `{{ORG_r4`。
+
+### 2.3b 通道覆盖审计（没有漏网的裸 hermes 调用）
+
+全仓 `rg '"hermes"' moni/ scripts/` 的 **argv 构造点恰好 5 处**，全部落在上面 5 条通道内：
+
+| argv 构造位置 | 通道 | 是否已接脱敏 |
+|---|---|---|
+| `moni/llm/runner.py:593` | ① runner（含 `explicit` 直连路径 `:573`） | 是 |
+| `moni/llm/stream.py:149` | ② stream | 是 |
+| `moni/llm/reader.py:391` | ③ reader | 是 |
+| `moni/share/worker_llm.py:153` | ④ share worker | 是 |
+| `moni/share/summary_gen.py:141` | ⑤ summary_gen | 是 |
+
+`moni/llm/client.py` 的 `call_llm()` 是 runner 的薄封装（`moni/llm/client.py:166` → `runner.call`），
+`moni/cases/pipeline.py:182` 与 `moni/cron/jobs.py:632` 都经它出站 → 落在通道①。
+`scripts/bank_bot/run_bot.py:654` 只吃 `config/bank_targets.json` 的公开栏目、不读私有新闻库正文，
+按规格 §1.1 **不纳入**。
 
 ### 2.4 顺手修掉的**真实生产故障**（与本 feature 无关，但属红线范围）
 
@@ -158,10 +192,17 @@ wall-clock p95 **7/8 轮**越过 2.5 ms（最高 **15.18 ms**），而 **CPU-tim
 
 ### 4.1 全量（沙箱外，与基线同条件）
 
-| 树 | 结果 |
-|---|---|
-| 基线（干净树 `origin/main` @ `9c6adcb`） | `2715 passed, 2 skipped`（0 failed） |
-| 本分支（`a9867d6`） | `2721 passed, 2 skipped, 0 failed` |
+| 树 | 命令 | 结果 |
+|---|---|---|
+| 基线（`origin/main` @ `9c6adcb`，独立 worktree `/private/tmp/moni-main-wt`） | `/usr/local/bin/python3 -m pytest tests/ -p no:cacheprovider -q` | `2644 passed, 2 skipped, 0 failed`（392.45s） |
+| 本分支（`e41bdfe`） | 同上 | `2740 passed, 2 skipped, 0 failed`（453.30s） |
+
+**差值 +96**，与脱敏专项用例数完全一致（`2742` 收集 − `2646` 收集 = 96；
+`2740 + 2 skipped = 2742`、`2644 + 2 skipped = 2646`）。
+
+> 复算注意：基线必须用**带 `.git` 的 worktree**。用 `git archive` 导出的副本会因缺 `.git`
+> 导致 `tests/test_xbot_feed_git_retry_guards.py` 等 6 个「用 `git diff origin/main` 做护栏」的
+> 元测试假失败（实测 `6 failed, 2636 passed`）—— 那是副本缺仓库的产物，不是基线回归。
 
 新增 5 个测试文件：`tests/test_desensitize_core.py`（1149 行）、
 `tests/test_llm_desens_wiring.py`、`tests/test_llm_desens_wiring_share.py`、
