@@ -60,6 +60,8 @@ recover_artifact() {
     local not_before="$3"
     local artifacts_dir="$4"
     local reason="${5:-timeout}"
+    local include_ctx="${6:-false}"
+    local article_ids="${7:-}"
     local recovered recovered_out
     local output_dir="${MONI_OUTPUT_DIR:-$HOME/.moni/output}"
     output_dir="${output_dir/#\~/$HOME}"
@@ -83,6 +85,12 @@ recover_artifact() {
         log "FAIL $task_id — copy artifact failed: $recovered"
         return 1
     }
+    # 状态置 done 之前完成注入，避免前端轮询到 done 时读到未注入的旧文件。
+    if [[ "$format" == "html_landing" && "$include_ctx" == "true" ]]; then
+        "$PYTHON_BIN" -m moni.share.context_pack \
+            --db "$DB_PATH" --article-ids "$article_ids" \
+            --inject-html "$recovered_out" 2>>"$LOG_FILE" || true
+    fi
     update_progress "$task_id" "writing_artifact" 95 "回收已产出产物: $recovered"
     task_status_update "$task_id" "done" "$recovered_out"
     sqlite3 "$DB_PATH" \
@@ -1170,13 +1178,8 @@ print(p.get('generation_approach',''))
 
     if [[ $hermes_exit -eq 124 ]]; then
         if recover_artifact "$task_id" "$format" \
-            "$llm_started_epoch" "$artifacts_dir"; then
-            if [[ "$format" == "html_landing" && "$include_ctx_val" == "true" ]]; then
-                "$PYTHON_BIN" -m moni.share.context_pack \
-                    --db "$DB_PATH" --article-ids "$article_ids_str" \
-                    --inject-html "$artifacts_dir/${task_id}-${format}.html" \
-                    2>>"$LOG_FILE" || true
-            fi
+            "$llm_started_epoch" "$artifacts_dir" "timeout" \
+            "$include_ctx_val" "$article_ids_str"; then
             return 0
         fi
         error_msg="timeout after ${task_timeout}s"
