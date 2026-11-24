@@ -207,17 +207,38 @@ def test_get_scores_recovers_dead_running_rows(client: TestClient):
     assert "超时" in item["error"]
 
 
-def test_concurrent_posts_do_not_kill_a_queued_article(client: TestClient):
-    """Two requests at once must not let the recovery pass kill live work.
+def test_concurrent_posts_do_not_kill_a_queued_article(client: TestClient, monkeypatch):
+    """A recovery pass must not kill an article that is being queued.
 
     Regression: ``mark_queued`` writes the row before the runner knows
     about it, so a recovery pass in between used to mark the article
     failed while the API still answered ``202``.
+
+    The barrier below makes the race deterministic: the POST is held
+    between ``mark_queued`` and ``submit`` while a second request runs
+    the recovery pass.  Without the queue lock the article ends up
+    ``failed``; with it the second request waits and the article is
+    scored normally.
     """
     import threading
+    import time
 
     direction_id = _usable_direction()
     ids = _add_articles(1)
+    queued = threading.Event()
+    proceed = threading.Event()
+    original = scores_route.direction_score.mark_queued
+
+    def blocking_mark_queued(conn, **kwargs):
+        result = original(conn, **kwargs)
+        queued.set()
+        proceed.wait(timeout=10)
+        return result
+
+    monkeypatch.setattr(
+        scores_route.direction_score, "mark_queued", blocking_mark_queued
+    )
+
     status_codes: list[int] = []
     lock = threading.Lock()
 
@@ -228,13 +249,22 @@ def test_concurrent_posts_do_not_kill_a_queued_article(client: TestClient):
         with lock:
             status_codes.append(response.status_code)
 
-    threads = [threading.Thread(target=post) for _ in range(2)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(timeout=30)
+    poster = threading.Thread(target=post)
+    poster.start()
+    assert queued.wait(timeout=10), "POST never reached mark_queued"
 
-    assert status_codes == [202, 202]
+    reader = threading.Thread(
+        target=lambda: client.get(
+            f"/api/directions/{direction_id}/scores?article_ids={ids[0]}"
+        )
+    )
+    reader.start()
+    time.sleep(0.3)
+    proceed.set()
+    poster.join(timeout=30)
+    reader.join(timeout=30)
+
+    assert status_codes == [202]
     if scores_route._runner is not None:
         scores_route._runner.wait_idle(timeout=30)
     conn = get_db()
@@ -242,4 +272,4 @@ def test_concurrent_posts_do_not_kill_a_queued_article(client: TestClient):
         "SELECT status, error FROM article_bv_direction WHERE article_id=?",
         (ids[0],),
     ).fetchone()
-    assert row["status"] != "failed", row["error"]
+    assert row["status"] == "scored", row["error"]

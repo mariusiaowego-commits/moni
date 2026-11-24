@@ -5911,22 +5911,26 @@ function app() {
         `/api/directions/${id}/scores?article_ids=${encodeURIComponent(chunk.join(','))}`,
         { credentials: 'same-origin' }
       )
-        .then(r => r.json().then(d => r.ok ? d : Promise.reject(d)))
+        .then(r => r.json().then(d => {
+          if (r.ok) return d;
+          // 带上状态码：404/409 = 方向没了，别的 = 临时故障。
+          return Promise.reject(Object.assign({ status: r.status }, d));
+        }))
       ))
         .then(parts => {
           const merged = {};
           parts.forEach(part => Object.assign(merged, part.scores || {}));
           this.bvDirScores = merged;
           this.bvScoreError = '';
-          return true;
+          return { ok: true, gone: false };
         })
         .catch(err => {
-          // 409/404 = 方向已不可用（被停用或研究被换掉），此时旧分数要清掉，
-          // 否则界面会一直显示「打分中」。
+          const status = err && err.status;
+          const gone = status === 404 || status === 409;
           console.warn('loadBvScores failed:', err);
           this.bvScoreError = (err && err.message) || '方向分读取失败';
-          this.bvDirScores = {};
-          return false;
+          if (gone) this.bvDirScores = {};
+          return { ok: false, gone: gone };
         });
     },
 
@@ -5947,7 +5951,7 @@ function app() {
         return;
       }
       const batch = pending.slice(0, 12);
-      const left = targets.length - batch.length;
+      const left = pending.length - batch.length;
       this.bvScoring = true;
       this.bvMessage = '';
       fetch(`/api/directions/${id}/scores`, {
@@ -5977,12 +5981,18 @@ function app() {
     pollBvScores(ids) {
       this.stopBvPolling();
       const tick = () => {
-        this.loadBvScores(ids).then(ok => {
-          if (!ok) {
-            // 方向不可用了：停轮询、收起方向按钮，别把按钮永久卡在禁用态。
+        this.loadBvScores(ids).then(result => {
+          if (!result.ok) {
             this.bvScoring = false;
-            this.bvDirectionId = '';
-            this.loadBvDirections();
+            if (result.gone) {
+              // 方向不可用了：停轮询、收起方向按钮，别把按钮永久卡在禁用态。
+              this.bvDirectionId = '';
+              this.loadBvDirections();
+            } else {
+              // 临时故障（断网/5xx）：方向还在，只是这次没读到，停轮询并把
+              // 原因写进提示，不要把用户选的方向也清掉。
+              this.bvMessage = this.bvScoreError || '方向分读取失败';
+            }
             return;
           }
           const pending = ids.filter(id => {
