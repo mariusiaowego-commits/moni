@@ -1,48 +1,36 @@
-# STATUS — moni
+## 已发布: **v1.0.123 — 信源开关对定时抓取生效 + bestblog-x 退出批量抓取** (2026-11-24 · PR #293 → `4323a92` · tag `v1.0.123` · Sprint 26112471)
 
-> 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
+信源管理页的「停用 / 隐藏」此前对定时抓取完全无效：抓取链路只读 `config/sources.yaml`
+的 `enabled` / `batch_enabled`（`moni/fetch/scheduler.py:132,165,181`），从不看 `sources`
+表的 `is_active` / `is_hidden`。生产实证：`wechat_rss_a` / `wechat_rss_b` 在 DB 里
+`is_active=0`，却出现在当天跑批 `fetch_log`（id 945/946）；被隐藏的 `xwatch` 同样照跑。
+这与迁移 052 写明的「is_active = 0 → 不参与定时/批量同步」直接矛盾。
 
----
-## 进行中: **信源开关对定时抓取生效 + bestblog-x 退出批量抓取** (2026-11-24 · 分支 `fetch` · Sprint 26112401)
-
-**问题 1 — UI 开关对 cron 无效**：信源管理页的「停用 / 隐藏」此前对定时抓取完全无效。
-抓取链路只读 `config/sources.yaml` 的 `enabled` / `batch_enabled`
-（`moni/fetch/scheduler.py:132,165,181`），从不看 `sources` 表的 `is_active` / `is_hidden`。
-生产实证：`wechat_rss_a` / `wechat_rss_b` 在 DB 里 `is_active=0`，却出现在当天跑批
-`fetch_log`（id 945/946）；被隐藏的 `kepano` / `mp_a883be18` / `xwatch` 同样照跑。
-这与 `moni/db/migrations/052_source_hidden.sql:3-6` 写明的语义
-（「is_active = 0 → 不参与定时/批量同步」）直接矛盾。
-
-**契约变更（v1.0.123）**：迁移 052 当初把 `is_hidden` 定义成「只隐藏展示、数据面照跑」，
-本次按产品决定改为 **隐藏即不再抓取**（不改写已应用的迁移，新契约写在
-`moni/fetch/source_gate.py` 的模块 docstring 里）。生产库里 `xwatch`
-（`is_active=1, is_hidden=1`）会因此停止定时抓取 —— **要保留它，把 `is_hidden` 改回 0**
-（管理页点「恢复显示」，或 `UPDATE sources SET is_hidden=0 WHERE name='xwatch'`）；
-手动单源触发（`/api/fetch/sources/xwatch/run`、`moni fetch --source xwatch`）始终放行。
-
-**问题 2 — bestblog-x 拖垮整轮**：上游 `api.xgo.ing` 长期 502，本源入库从
-2026-06 的 48 篇/月跌到 2026-11 的 4 篇（近 60 天 12 篇），却让 run 165 从
-10:05 跑到 11:40 未结束（160 个 X 账号 × 3 次重试 × 20s 超时）。
+**契约变更**：迁移 052 把 `is_hidden` 定义成「只隐藏展示、数据面照跑」，本次按产品决定改为
+**隐藏即不再抓取**（不改写已应用的迁移，新契约写在 `moni/fetch/source_gate.py` 的模块
+docstring）。`xwatch`（`is_active=1, is_hidden=1`）因此停止定时抓取 —— 已与用户确认接受；
+要恢复只需 `UPDATE sources SET is_hidden=0 WHERE name='xwatch'`。手动单源触发始终放行。
 
 **改了什么**
 - 新增 `moni/fetch/source_gate.py`：`is_active=0` → 跳过；`is_hidden=1` → 跳过；
-  `sources` 表无该行 → 放行；DB 异常 → fail open（绝不因读库失败停掉整轮抓取）。
-- 接入三条批量路径：cron 批跑（`moni/cron/jobs.py`）、Web 一键抓取
-  （`moni/web/routes/fetch.py`）、CLI 批量抓取（`moni/fetch/run.py`）。
-- 跳过原因写入 `cron_runs.extra.skipped_sources` 与批量接口 `skipped` 字段 ——
-  跑批记录里能分清「被开关挡下」和「抓取失败」。
-- `config/sources.yaml`：`bestblog-x` 改 `batch_enabled: false`（退出定时/批量，
-  保留手动触发 `moni fetch --source bestblog-x`）。
+  无 DB 行 → 放行；DB 异常 → fail open + `logger.warning`。
+- 接入四条批量路径：cron 批跑、Web 一键抓取、CLI 批量抓取、公共 `fetch_all()`。
+- 跳过原因写入 `cron_runs.extra.skipped_sources` 与批量接口 `skipped` 字段。
+- `config/sources.yaml`：`bestblog-x` 改 `batch_enabled: false`（上游 `api.xgo.ing`
+  长期 502，近 60 天仅 12 篇，却把 run 165 拖成 95 分钟）。
+- UI 文案与同步链对齐新语义（徽章 / 眼睛按钮 / toast；节点过滤加 `!s.is_hidden`）；
+  `app.js?v=20261124007`。
 
-**验证**：`tests/test_source_gate.py` 7 用例全绿（停用 / 隐藏 / 双开关 / 无 DB 行 /
-DB 异常 fail open / YAML→批次端到端）。全量 `2630 passed, 2 skipped`；两条失败与本次
-改动无关且在干净 origin/main 上复现：`test_frontend_safe_href_and_vendor`
-（环境缺 Pillow）、`test_migration_039_xbot_feed`（沙箱无法写 `.git`，提权重跑通过）。
+**验证**：`tests/test_source_gate.py` 12 用例全绿，其中 5 条是真跑路径的接线测试
+（审计员在副本里拆掉接线后三条全红，复原后转绿）。全量 `2634 passed, 2 skipped`；
+唯一 failed `test_frontend_safe_href_and_vendor` 在干净 origin/main 上复现（本地缺 Pillow），
+CI 不受影响。CI run `45325327560` = success。独立审计两轮：REQUEST CHANGES → APPROVE WITH NITS。
 
-**上线前提醒**：cron 守护进程读的是 `/Users/mt16/dev/moni/config/sources.yaml`，
-合并后需拉取主 checkout 并重启 `com.moni.cron` 才生效。
+**生产**：cron PID 266、web PID 489（重启后），8900 `http=200`。run 167（13:21–14:08）
+`fetch_log` 里被闸的 5 个源出现次数 = 0；bestblogs 本轮扫 8414 篇、入库 16 篇
+（证明 bestblogs.dev 的 DIRECT 直连后恢复供料）。
 
----
+
 ## 已发布: **v1.0.122 — 业务方向分列表 UI 修复（P0 操作列被裁等 9 条）** (2026-11-24 · PR #291 → `88a98c2` · tag `v1.0.122` · Sprint 26112367)
 
 S3 上线后 agy 与 pixel(hermes) 两轮**只读 UI 审计**（真浏览器，1280×720 与 390×844，
