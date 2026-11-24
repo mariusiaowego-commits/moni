@@ -9,13 +9,74 @@ Both tables live in the same news.db as the rest of the moni schema.
 
 from __future__ import annotations
 
+import json
 import logging
+import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from ..db.connection import get_db
 
 logger = logging.getLogger(__name__)
+
+
+def mark_interrupted_runs(
+    conn: sqlite3.Connection, *, older_than_sec: float | None = None
+) -> list[int]:
+    """Close placeholder rows whose process died before finishing.
+
+    ``jobs.fetch_all_sources`` inserts its cron_runs row up front with
+    ``extra.in_progress = true`` and clears it in the final UPDATE. A row
+    still carrying the flag at scheduler startup means the run was killed,
+    so it must not keep reading as a successful 0-source run.
+
+    ``older_than_sec`` limits the sweep to rows started long ago; the periodic
+    tick uses it to self-heal a row whose final UPDATE failed, without
+    touching a sweep that is legitimately still running.
+    """
+    rows = conn.execute(
+        "SELECT id, extra, triggered_at FROM cron_runs "
+        # json_valid() guards json_extract(): one malformed legacy value
+        # would otherwise raise OperationalError and abort scheduler startup.
+        "WHERE json_valid(extra) AND json_extract(extra, '$.in_progress') = 1"
+    ).fetchall()
+    if not rows:
+        return []
+
+    now = datetime.now(timezone.utc)
+    stale_ids: list[int] = []
+    for row in rows:
+        if older_than_sec is not None:
+            try:
+                started = datetime.fromisoformat(row["triggered_at"])
+            except (TypeError, ValueError):
+                # Unparseable start time → cannot prove it is stale; leave it
+                # for the unconditional startup sweep.
+                continue
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+            if (now - started).total_seconds() < older_than_sec:
+                continue
+        try:
+            extra = json.loads(row["extra"]) if row["extra"] else {}
+        except (TypeError, ValueError):
+            extra = {}
+        extra["in_progress"] = False
+        extra["interrupted"] = True
+        conn.execute(
+            "UPDATE cron_runs SET success = 0, error = ?, finished_at = ?, extra = ? "
+            "WHERE id = ?",
+            (
+                "进程中断，运行未完成（自动回收）",
+                now.isoformat(),
+                _json_dumps(extra),
+                row["id"],
+            ),
+        )
+        stale_ids.append(int(row["id"]))
+    conn.commit()
+    return stale_ids
 
 class CronRunHistory:
     """Persist apscheduler job run outcomes to SQLite.

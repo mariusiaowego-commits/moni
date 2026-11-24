@@ -146,6 +146,21 @@ class TestRunQueue:
         row = db.execute("SELECT status, error FROM cron_run_requests WHERE id = ?", (rid,)).fetchone()
         assert (row["status"], row["error"]) == ("failed", "boom")
 
+    def test_stale_claim_released_at_startup(self, db):
+        rid = registry.enqueue_run(db, "fetch_all_sources")
+        registry.claim_pending_requests(db)
+        with pytest.raises(registry.AlreadyQueued):
+            registry.enqueue_run(db, "fetch_all_sources")
+
+        assert registry.release_stale_claims(db, reason="scheduler restart") == [rid]
+
+        row = db.execute(
+            "SELECT status, error FROM cron_run_requests WHERE id = ?", (rid,)
+        ).fetchone()
+        assert (row["status"], row["error"]) == ("failed", "scheduler restart")
+        assert registry.release_stale_claims(db, reason="scheduler restart") == []
+        assert registry.enqueue_run(db, "fetch_all_sources") > rid
+
 
 class TestCronApi:
     def test_get_jobs_shape(self, client):
@@ -195,6 +210,19 @@ class TestCronApi:
         db.commit()
         data = client.get("/api/cron/runs", params={"job_id": "fetch_all_sources"}).json()
         assert [row["job_id"] for row in data] == ["fetch_all_sources"]
+
+    def test_in_progress_run_reports_running(self, client, db):
+        now = datetime.now(CST).isoformat()
+        db.execute(
+            "INSERT INTO cron_runs (job_id, triggered_at, finished_at, success, extra) "
+            "VALUES (?,?,?,0,?)",
+            ("fetch_all_sources", now, now, '{"in_progress": true}'),
+        )
+        db.commit()
+        row = client.get("/api/cron/runs").json()[0]
+        assert row["status"] == "running"
+        assert row["success"] is False
+        assert row["duration"] is None
 
     def test_legacy_post_is_gone(self, client):
         assert client.post("/api/cron/jobs", json={"name": "x", "schedule": "*"}).status_code == 410

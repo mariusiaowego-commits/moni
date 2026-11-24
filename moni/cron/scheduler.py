@@ -32,6 +32,10 @@ _CONFIG_PATH = Path(__file__).parent.parent.parent / "config" / "schedule.yaml"
 # Singleton state — lives in the scheduler PROCESS, not shared with web process
 _scheduler: Optional[Any] = None  # apscheduler BackgroundScheduler
 
+# A live job never runs this long (bestblogs full sweep ≈ 20 min); rows still
+# marked in_progress past this are leftovers of a failed final UPDATE.
+_STALE_RUN_SEC = 3 * 3600
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -84,6 +88,7 @@ class CronScheduler:
         self._scheduler.start()
 
         if not self._explicit_config:
+            self._recover_interrupted_state()
             # Registry tick: heartbeat + hot reload + run-request consumer.
             self._scheduler.add_job(
                 self._tick,
@@ -110,6 +115,28 @@ class CronScheduler:
 
     # ── registry / run-request loop ───────────────────────────────────────────
 
+    def _recover_interrupted_state(self) -> None:
+        """Close state left behind by a scheduler process that died mid-run."""
+        from moni.db.connection import get_db
+
+        from . import registry
+        from .run_history import mark_interrupted_runs
+
+        try:
+            conn = get_db()
+            orphaned = registry.release_stale_claims(
+                conn, reason="调度器重启：上一次手动触发未完成"
+            )
+            if orphaned:
+                logger.warning("Recovered orphaned run request(s): %s", orphaned)
+            interrupted = mark_interrupted_runs(conn)
+            if interrupted:
+                logger.warning("Marked interrupted cron run(s) as failed: %s", interrupted)
+        except Exception:
+            # Recovery is best-effort: never let it stop the scheduler, or
+            # launchd KeepAlive would restart us into a crash loop.
+            logger.exception("cron startup recovery failed — continuing")
+
     def _heartbeat(self) -> None:
         from moni.db.connection import get_db
 
@@ -122,10 +149,14 @@ class CronScheduler:
         from moni.db.connection import get_db
 
         from . import registry
+        from .run_history import mark_interrupted_runs
 
         conn = get_db()
         try:
             registry.write_heartbeat(conn)
+            stale = mark_interrupted_runs(conn, older_than_sec=_STALE_RUN_SEC)
+            if stale:
+                logger.warning("Closed stale in_progress cron run(s): %s", stale)
             if registry.get_revision(conn) != self._revision:
                 self._reload_jobs()
             for request in registry.claim_pending_requests(conn):
