@@ -134,6 +134,15 @@ function keywordChipEditor() {
   };
 }
 
+// One rubric dimension as a tooltip line: label, weight, score, reason.
+// The weight matters because the total is weighted, not a plain average.
+function dimensionLine(d) {
+  const score = d.score == null ? '—' : d.score;
+  const weight = d.weight == null ? '' : `（权重 ${d.weight}）`;
+  const reason = d.reason ? ` — ${d.reason}` : '';
+  return `${d.label}${weight}：${score}${reason}`;
+}
+
 function app() {
   const api = {
     // ── Theme engine (from theme.js) ──
@@ -5919,6 +5928,17 @@ function app() {
       return (this.pinnedArticles || []).map(a => a.id);
     },
 
+    // 按钮上显示的是「这一批真会打几篇」：已经算过的、正在跑的都跳过，
+    // 再按单批 12 篇截断。之前显示的是勾选总数，点下去才发现少一半。
+    bvPendingTargetCount() {
+      const settled = ['scored', 'needs_review', 'insufficient', 'queued', 'running'];
+      const pending = this.bvTargetIds().filter(articleId => {
+        const row = this.bvDirScores[articleId];
+        return !(row && !row.stale && settled.includes(row.status));
+      });
+      return Math.min(pending.length, 12);
+    },
+
     onBvDirectionChange() {
       this.bvMessage = '';
       this.bvDirScores = {};
@@ -6032,6 +6052,7 @@ function app() {
             this.bvPollTimer = setTimeout(tick, 2000);
           } else {
             this.bvScoring = false;
+            this.bvMessage = '本批方向打分已完成';
             this.loadPinnedArticles();
           }
         });
@@ -6064,7 +6085,7 @@ function app() {
       const dims = (bv.breakdown && bv.breakdown.dimensions) || [];
       dims.forEach(d => {
         if (d.label == null) return;
-        rows.push(`${d.label}：${d.score == null ? '—' : d.score}`);
+        rows.push(dimensionLine(d));
       });
       return rows.join('\n');
     },
@@ -6091,6 +6112,24 @@ function app() {
       return !!row && row.status === 'failed';
     },
 
+    bvDirInsufficient(a) {
+      const row = this.bvDirScores[a.id];
+      return !!row && row.status === 'insufficient';
+    },
+
+    // 单元格里只有一个「-」时，用户看不出是通用分没算、还是这个方向
+    // 没打分，hover 说清楚。
+    bvEmptyTip(a) {
+      const bv = a.business_value || {};
+      const lines = [bv.status === 'failed'
+        ? (bv.error || '通用业务价值分计算失败')
+        : '通用业务价值分尚未计算'];
+      if (this.bvDirectionId) {
+        lines.push(`「${this.bvDirectionLabel()}」方向分尚未计算`);
+      }
+      return lines.join('\n');
+    },
+
     dirBvTip(a) {
       const row = this.bvDirScores[a.id];
       if (!row) return '';
@@ -6113,7 +6152,7 @@ function app() {
       const dims = (row.breakdown && row.breakdown.dimensions) || [];
       dims.forEach(d => {
         if (d.label == null) return;
-        rows.push(`${d.label}：${d.score == null ? '—' : d.score}`);
+        rows.push(dimensionLine(d));
       });
       return rows.join('\n');
     },

@@ -746,6 +746,9 @@ h5, h6 { font-size: var(--font-14); }
 .table-container:hover {
   box-shadow: 0 4px 16px oklch(0 0 0 / 0.1);
 }
+/* 文章表比容器宽时不能靠 overflow:hidden 裁掉「操作」列，
+   窄屏（手机）也要能横向滑动看后面的列。 */
+.articles-table-wrap { overflow-x: auto; overflow-y: hidden; }
 table { width: 100%; border-collapse: collapse; }
 thead th {
   text-align: left; padding: 12px 16px;
@@ -4592,6 +4595,8 @@ body.has-float-layer .tags-overflow { display: none !important; }
   box-shadow: none !important; padding: 0 !important; margin: 0 !important;
   transform: none !important; z-index: auto !important;
 }
+/* 十维明细靠换行分行，浮层里不能压成一段；分值列也要放得下权重与理由。 */
+#moni-float .tip { white-space: pre-wrap; max-width: 420px !important; }
 
 /* 分享队列表头中文曾被拆成竖排（文章数 / 进度），强制一行 */
 .share-queue-table thead th { white-space: nowrap; }
@@ -5736,7 +5741,7 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
 }
 .bv-dir-label { font-size: var(--font-13); color: var(--muted-fg); }
 .bv-dir-hint { font-size: var(--font-12); color: var(--muted-fg); }
-.bv-dir-msg { font-size: var(--font-12); color: var(--accent); }
+.bv-dir-msg { font-size: var(--font-12); color: var(--foreground); }
 
 /* 两个 chip 并排时允许换行，否则会压到「原文时间」列。 */
 .bv-cell { white-space: normal; }
@@ -5753,14 +5758,19 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
 .bv-chip-dir { border-color: var(--warning); color: var(--warning-fg); background: var(--warning-muted); }
 .bv-chip-pending { border-style: dashed; background: transparent; color: var(--muted-fg); }
 .bv-chip-failed { border-color: var(--destructive); color: var(--destructive); background: transparent; }
+/* 正文过短没打分：用中性灰虚线，别跟有分的琥珀色混成「已评分」。 */
+.bv-chip-insufficient { border-style: dashed; border-color: var(--border); color: var(--muted-fg); background: transparent; }
 .bv-chip-wrap:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 999px; }
+/* 质量分那一格只有一个 4.3 这样的数字，hover 热区只有 18×17px，
+   指针很难命中；把热区撑开但不改变视觉占位。 */
+.quality-cell .tag-chip-wrap { padding: 4px 6px; margin: -4px -6px; display: inline-flex; }
 
 .bv-chip-wrap .tip {
   display: none; position: absolute; bottom: calc(100% + 6px); left: 50%;
   transform: translateX(-50%);
   background: var(--card); border: 1px solid var(--border);
   border-radius: 8px; padding: 10px 14px;
-  min-width: 200px; max-width: 320px;
+  min-width: 280px; max-width: 420px;
   box-shadow: var(--shadow-lg);
   font-size: var(--font-13); white-space: pre-wrap; line-height: 1.5;
   color: var(--card-fg); z-index: 20;
