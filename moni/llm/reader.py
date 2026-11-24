@@ -34,6 +34,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 from moni.db.connection import get_db
+from moni.llm.desensitize import StreamRestorer
+from moni.llm.desensitize.audit import (
+    current_desensitize_scope,
+    finalize_inbound,
+    prepare_outbound,
+    record_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -359,11 +366,32 @@ def run_reader_stream(
     Cancellation is handled by the caller killing the registered Popen
     process group; this function then returns a partial result.
     """
+    scope = current_desensitize_scope()
+    eff_task = scope.task_type or "reader"
+    ctx = prepare_outbound(
+        prompt,
+        call_site="reader",
+        task_type=eff_task,
+        article_id=scope.article_id,
+        job_id=scope.job_id,
+        share_task_id=scope.share_task_id,
+        json_output=False,
+        db_path=scope.db_path,
+    )
+    if ctx is not None:
+        if ctx.mask_result.blocked:
+            record_event(ctx, blocked=True)
+            raise ReaderStreamError(f"desensitize blocked: {ctx.mask_result.blocked_reason}")
+        record_event(ctx, blocked=False)
+        send_prompt = ctx.masked_text
+    else:
+        send_prompt = prompt
+
     cmd = [
         "hermes",
         "chat",
         "-q",
-        prompt,
+        send_prompt,
         "--oneshot",
         "-Q",
         "--format",
@@ -405,6 +433,9 @@ def run_reader_stream(
     text_parts: list[str] = []
     usage: dict[str, Any] = {}
     result_text = ""
+    stream_restorer = StreamRestorer(ctx.vault) if ctx is not None else None
+    stream_aborted = False
+    flushed = False
     try:
         assert proc.stdout is not None
         for raw_line in proc.stdout:
@@ -419,9 +450,16 @@ def run_reader_stream(
             if event_type == "text":
                 delta = event.get("text") or ""
                 if delta:
-                    text_parts.append(delta)
-                    if on_delta:
-                        on_delta(delta)
+                    if stream_restorer is not None:
+                        safe_delta = stream_restorer.feed(delta)
+                        if safe_delta:
+                            text_parts.append(safe_delta)
+                            if on_delta:
+                                on_delta(safe_delta)
+                    else:
+                        text_parts.append(delta)
+                        if on_delta:
+                            on_delta(delta)
             elif event_type == "result":
                 result_text = event.get("text") or ""
                 tokens = event.get("tokens") or {}
@@ -431,15 +469,30 @@ def run_reader_stream(
                     "cache_read_tokens": int(tokens.get("cache_read") or 0),
                 }
             elif event_type in {"error", "failure"}:
+                stream_aborted = True
                 raise ReaderStreamError(event.get("message") or event.get("error") or "hermes error")
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
+            stream_aborted = True
             _kill_group(proc)
+    except Exception:
+        stream_aborted = True
+        if ctx is not None:
+            ctx.fallback_override = ctx.fallback_override or "stream_aborted"
+        raise
     finally:
         watchdog.cancel()
         if proc.poll() is None:
             _kill_group(proc)
+        if stream_restorer is not None and not flushed:
+            aborted = stream_aborted or timed_out.is_set() or (proc.returncode not in (0, None))
+            tail_delta = stream_restorer.flush(aborted=aborted)
+            flushed = True
+            if tail_delta:
+                text_parts.append(tail_delta)
+                if on_delta:
+                    on_delta(tail_delta)
         if proc.stderr is not None:
             try:
                 err = proc.stderr.read().strip()
@@ -447,14 +500,22 @@ def run_reader_stream(
                 err = ""
         else:
             err = ""
+        if ctx is not None and stream_aborted:
+            record_event(ctx, blocked=False)
 
     text = "".join(text_parts).strip()
     if not text and result_text:
         text = strip_status_footer(result_text)
     if proc.returncode not in (0, None) and not text:
+        if ctx is not None:
+            ctx.fallback_override = ctx.fallback_override or "stream_aborted"
+            record_event(ctx, blocked=False)
         if timed_out.is_set():
             raise ReaderStreamError(f"模型响应超时（{timeout}s），可重试或换更短的 prompt")
         raise ReaderStreamError(f"hermes exited rc={proc.returncode}: {(err or '')[:300]}")
+    if ctx is not None:
+        text = finalize_inbound(ctx, text)
+        record_event(ctx, blocked=False)
     return {
         "text": text,
         "usage": usage,
