@@ -1,3 +1,55 @@
+## 待办: **cron 运行历史过滤失效 + `validate_func_path` 白名单无调用点** (2026-11-24 · Issue #296)
+
+清理开发残留分支时，在被取代的旧 worktree（`moni-worktrees/cron-console`，分支
+`feat/cron-foreground`，PR #279 已 merged）中发现两份从未提交的实现。它们修的缺陷在
+当前 `main`（`4edc32e`）**仍然存在**，已开 Issue #296 记录，后续与其他 cron 改动
+打包一起修。（`4edc32e` 是 v1.0.123 的发布记录回填 commit；最近发布 tag `v1.0.123`
+本身指向 `4323a92`，即 PR #293 的 squash。）
+
+**问题 1：按调度项过滤 cron 运行历史查不到记录**
+
+- 现象：`GET /api/cron/runs?job_id=<id>` 按调度项 id 过滤返回空，但该调度项确实跑过。
+- 根因：两处 id 语义不一致，非 1:1 ——
+  `cron_jobs.id` 是**调度项名**（`extract_events_morning` / `_am` / `_noon` / `_evening`），
+  `cron_runs.job_id` 写入的却是**函数名**（`moni/cron/jobs.py` 里 `history.log_run(job_id, …)`
+  传的是函数侧标识）。生产库实测四个调度项共用 `extract_events_pending` 一个函数。
+- `moni/web/routes/cron.py:156` 是精确匹配 `WHERE job_id = ?`，按 `extract_events_morning`
+  过滤必然落空；只有按函数名查才命中，且四个调度项的记录混在一起无法区分归属。
+- 期望：按 `cron_jobs.id` 过滤能查到该调度项全部记录（即同时接受调度项名与函数名两种拼写）。
+- 注意：旧实现只解决「查得到」；四个调度项共用同一函数时仍无法区分单次调度归属，
+  可能需要另加 `schedule_job_id` 列把调度项名一并落库，才能真正精确归属。
+
+**问题 2：`validate_func_path` 白名单已定义但无调用点**
+
+- `moni/cron/registry.py:323` 定义了 `validate_func_path()`，把 `func_path` 限制在
+  `moni.cron.jobs` 前缀下，是防「`cron_jobs` 表里塞任意可调用路径 → 任意代码执行」的唯一闸门。
+- 全仓 grep 只命中定义处，**无任何调用点**。
+- 当前**无远程外部注入路径**，但这是「靠上游恰好没开这个口子」而非「有闸门」：
+  - 外部 API 侧不可注入 ——
+  `moni/web/models.py:182` 的 `CronJobUpdate` 不含 `func_path` 字段；
+  `moni/web/routes/cron.py:110` 的 `POST /api/cron/jobs` 直接 `410`；
+  `moni/cron/registry.py:175` 的 `update_job()` 也不接受 `func_path`。
+  - 本地受信来源可写 ——
+    `moni/cron/registry.py:130` 的 `seed_from_yaml()` 把 YAML 的 `func_path` 原样写入，
+    调用点在 `moni/cron/scheduler.py:275`（生产路径会执行）；
+    `moni/db/migrations/056_cron_jobs.sql` 也在 seed 时硬编码 `func_path`。
+    这两条不是远程注入，但意味着白名单缺位时「DB 里存什么就执行什么」。
+  - 调度执行侧同样无闸门 ——
+    `moni/cron/scheduler.py:295` 从 DB 读出 `job["func_path"]`，
+    `_resolve_func()`（`moni/cron/scheduler.py:319`）用 importlib 解析任意模块与属性。
+    当前 DB 数据可信，但这份可信同样来自上游约束，不是闸门。
+- 一旦放开任务新建接口、给 `CronJobUpdate` 加上 `func_path`，或让 YAML/migration 路径
+  可被非受信方写入，白名单都不会自动生效。
+- 期望：在所有会从 DB 读出 `func_path` 的路径上调用它（建任务 / 改任务 / 执行调度），
+  并补一条单测证明非法 `func_path` 被拒。
+- 附带：旧实现把错误细分为 `InvalidFuncPath` → HTTP **400**（契约错误）、其他
+  `CronRegistryError` → **422**；`main` 当前注册表错误统一走 422。这条 400/422 区分属
+  API 契约变更，合入前需确认前端是否依赖当前状态码。
+
+**参考实现备份**（未合入，仅供修复时参考）：
+`~/.codex/branch-backups/moni/cron-console-uncommitted-20261124.patch`（803 行）
+及 `~/.codex/branch-backups/moni/feat-cron-console-be-e4c1d15.bundle`。
+
 ## 已发布: **v1.0.123 — 信源开关对定时抓取生效 + bestblog-x 退出批量抓取** (2026-11-24 · PR #293 → `4323a92` · tag `v1.0.123` · Sprint 26112471)
 
 信源管理页的「停用 / 隐藏」此前对定时抓取完全无效：抓取链路只读 `config/sources.yaml`
