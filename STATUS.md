@@ -3,7 +3,7 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
-## 进行中: **v1.0.118 — 文章上下文包** (2026-11-23 · 分支 `feat/article-context-pack` · Sprint 26112370)
+## 已发布: **v1.0.118 — 文章上下文包** (2026-11-24 · PR #282 → `2f2f227` · tag `v1.0.118` · Sprint 26112370)
 
 阅读器 AI 回答可一键存为该文章的上下文快照；分享默认不带，分享前可勾选，产物里作为独立小节。
 不依赖原会话：删会话不删快照，删文章 CASCADE。
@@ -25,7 +25,8 @@ HTML 块位于事实核查后、自定义 HTML 注入成功。Playwright 1280×6
 `transform none`、面板 3 条、`含上下文 3 条`、PNG `disabled=true`。
 独立 audit（agy 只读）：P0/P1 无，4 条 P2 已修（并发幂等、切篇竞态、分享计数刷新、超时回收注入）。
 
-**待办**：PR #282 已开（base == latest main）→ 当轮授权后 squash merge → 部署/tag。
+**发布**：2026-11-24 squash merge `2f2f227`；生产 8900 PID 85274，schema_version 57；`/api/article-contexts/summary` 200、`/api/articles/{id}/contexts` 200、未知文章 404；`index.html` 已引用 `reader.js?v=20261123103`。
+Delta audit（agy 只读 `4d3670e..HEAD`）：无 P0/P1；新 P2（回收路径先置 done 再注入）已在同 PR 修复（`64e4db0`）。
 
 ---
 ## 已发布: **v1.0.117 — 业务方向分 V2 · S2 业务方向配置与研究 runner** (2026-11-23 · PR #278 → `9fbc0ff` · tag `v1.0.117` · Sprint 26112367)
