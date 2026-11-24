@@ -5983,13 +5983,13 @@ function app() {
         });
     },
 
-    startBvDirectionScoring() {
+    async startBvDirectionScoring() {
       const id = this.bvDirectionId;
       if (!id || this.bvScoring) return;
       const targets = this.bvTargetIds();
       if (!targets.length) { this.bvMessage = '没有可打分的文章'; return; }
       // 已经有分（或已经在跑）的文章不再重复提交，否则未勾选时永远
-      // 只能打到当前页的前 12 篇。
+      // 只能打到当前页的前 12 篇。失败的不算已完成，点一次会重打。
       const settled = ['scored', 'needs_review', 'insufficient', 'queued', 'running'];
       const pending = targets.filter(articleId => {
         const row = this.bvDirScores[articleId];
@@ -6001,6 +6001,13 @@ function app() {
       }
       const batch = pending.slice(0, 12);
       const left = pending.length - batch.length;
+      // 没勾选就打当前页。先说清篇数和时间，避免一点就连打十几分钟。
+      if (!(this.pinnedSelectedIds || []).length) {
+        let msg = `没有勾选文章，将按当前页连续打 ${batch.length} 篇方向分。单篇大约 1–2 分钟，这一批可能要 ${batch.length * 2} 分钟，并消耗模型额度。`;
+        if (left > 0) msg += `单批上限 12 篇，剩下 ${left} 篇这次不会打。`;
+        const ok = await moniModal.confirm(msg, { title: '批量方向打分', okLabel: '开始打分' });
+        if (!ok || this.bvScoring || this.bvDirectionId !== id) return;
+      }
       this.bvScoring = true;
       this.bvMessage = '';
       fetch(`/api/directions/${id}/scores`, {
