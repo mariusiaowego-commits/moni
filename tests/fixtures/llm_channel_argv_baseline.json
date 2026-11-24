@@ -1,0 +1,24 @@
+{
+  "runner": {
+    "must_contain": ["hermes", "-z"],
+    "prompt_position": "after_-z"
+  },
+  "stream": {
+    "must_contain": ["chat", "-q", "--format", "stream-json", "-t", "web"],
+    "prompt_position": "after_-q"
+  },
+  "reader": {
+    "must_contain": ["chat", "-q", "--oneshot", "-Q", "--format", "stream-json", "--ignore-rules", "--max-turns", "1"],
+    "prompt_position": "after_-q"
+  },
+  "worker_llm": {
+    "must_contain": ["-z"],
+    "profile_flag": "--profile",
+    "prompt_position": "after_-z"
+  },
+  "summary_gen": {
+    "must_contain": ["hermes", "-z"],
+    "profile_flag": "--profile",
+    "prompt_position": "after_-z"
+  }
+}

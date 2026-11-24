@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""Offline fake hermes binary for deterministic LLM channel smoke tests."""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+
+def main() -> int:
+    argv = sys.argv[1:]
+    log_path = os.environ.get("FAKE_HERMES_LOG", "").strip()
+    if log_path:
+        path = Path(log_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "cmd": sys.argv[0],
+            "bin": Path(sys.argv[0]).name,
+            "argv": argv,
+        }
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    reply = os.environ.get("FAKE_HERMES_REPLY", "FAKE-REPLY")
+    is_stream_json = False
+    for idx, tok in enumerate(argv):
+        if tok == "--format" and idx + 1 < len(argv) and argv[idx + 1] == "stream-json":
+            is_stream_json = True
+            break
+
+    if is_stream_json:
+        print(json.dumps({"type": "text", "text": reply}, ensure_ascii=False), flush=True)
+        print(
+            json.dumps(
+                {
+                    "type": "result",
+                    "text": reply,
+                    "exit_code": 0,
+                    "tokens": {"input": 7, "output": 3},
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
+    else:
+        sys.stdout.write(reply)
+        sys.stdout.flush()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
