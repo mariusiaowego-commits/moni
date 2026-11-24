@@ -194,11 +194,18 @@ wall-clock p95 **7/8 轮**越过 2.5 ms（最高 **15.18 ms**），而 **CPU-tim
 
 | 树 | 命令 | 结果 |
 |---|---|---|
-| 基线（`origin/main` @ `9c6adcb`，独立 worktree `/private/tmp/moni-main-wt`） | `/usr/local/bin/python3 -m pytest tests/ -p no:cacheprovider -q` | `2644 passed, 2 skipped, 0 failed`（392.45s） |
-| 本分支（`e41bdfe`） | 同上 | `2740 passed, 2 skipped, 0 failed`（453.30s） |
+| 基线（`origin/main` @ `f7765c3`，独立 worktree） | `/usr/local/bin/python3 -m pytest tests/ -p no:cacheprovider -q` | `2676 passed, 2 skipped, 0 failed`（466.22s） |
+| 本分支（rebase 到 `f7765c3` 之后） | 同上 | `2772 passed, 2 skipped, 0 failed`（479.22s） |
 
-**差值 +96**，与脱敏专项用例数完全一致（`2742` 收集 − `2646` 收集 = 96；
-`2740 + 2 skipped = 2742`、`2644 + 2 skipped = 2646`）。
+**差值 +96**，与脱敏专项用例数完全一致（`2774` 收集 − `2678` 收集 = 96；
+`2772 + 2 skipped = 2774`、`2676 + 2 skipped = 2678`）。
+
+> **rebase 记录**：合并前 main 连续进了 3 个 PR（#300 / #301 / #302），本分支先后 rebase 两次。
+> 唯一冲突是 `moni/db/migrate.py` 的 `_CURRENT_VERSION`（我方 58 vs main 59），
+> 解决为 **59**（`+ 058 llm_desensitize, + 059 bv_direction_guidance`）。
+> **migration 编号不冲突**：main 刻意跳过 058（留给本 feature），自己用 059，
+> 迁移按文件名排序执行 → `057 → 058 → 059`。
+> 另修正：测试注释里写死的本机 `/private/tmp` 绝对路径（`tests/test_desensitize_core.py`）已改指本文件。
 
 > 复算注意：基线必须用**带 `.git` 的 worktree**。用 `git archive` 导出的副本会因缺 `.git`
 > 导致 `tests/test_xbot_feed_git_retry_guards.py` 等 6 个「用 `git diff origin/main` 做护栏」的
