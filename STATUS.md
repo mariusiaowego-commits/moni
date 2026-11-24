@@ -2,8 +2,9 @@
 
 清理开发残留分支时，在被取代的旧 worktree（`moni-worktrees/cron-console`，分支
 `feat/cron-foreground`，PR #279 已 merged）中发现两份从未提交的实现。它们修的缺陷在
-当前 `main`（`4edc32e`，tag `v1.0.123`）**仍然存在**，已开 Issue #296 记录，后续与其他
-cron 改动打包一起修。
+当前 `main`（`4edc32e`）**仍然存在**，已开 Issue #296 记录，后续与其他 cron 改动
+打包一起修。（`4edc32e` 是 v1.0.123 的发布记录回填 commit；最近发布 tag `v1.0.123`
+本身指向 `4323a92`，即 PR #293 的 squash。）
 
 **问题 1：按调度项过滤 cron 运行历史查不到记录**
 
@@ -23,12 +24,22 @@ cron 改动打包一起修。
 - `moni/cron/registry.py:323` 定义了 `validate_func_path()`，把 `func_path` 限制在
   `moni.cron.jobs` 前缀下，是防「`cron_jobs` 表里塞任意可调用路径 → 任意代码执行」的唯一闸门。
 - 全仓 grep 只命中定义处，**无任何调用点**。
-- 当前**暂无安全风险**：写入路径均不可外部注入 ——
+- 当前**无远程外部注入路径**，但这是「靠上游恰好没开这个口子」而非「有闸门」：
+  - 外部 API 侧不可注入 ——
   `moni/web/models.py:182` 的 `CronJobUpdate` 不含 `func_path` 字段；
   `moni/web/routes/cron.py:110` 的 `POST /api/cron/jobs` 直接 `410`；
   `moni/cron/registry.py:175` 的 `update_job()` 也不接受 `func_path`。
-- 但这是「靠上游恰好没开这个口子」而非「有闸门」：一旦放开任务新建接口、或给
-  `CronJobUpdate` 加上 `func_path`，白名单不会自动生效。
+  - 本地受信来源可写 ——
+    `moni/cron/registry.py:130` 的 `seed_from_yaml()` 把 YAML 的 `func_path` 原样写入，
+    调用点在 `moni/cron/scheduler.py:275`（生产路径会执行）；
+    `moni/db/migrations/056_cron_jobs.sql` 也在 seed 时硬编码 `func_path`。
+    这两条不是远程注入，但意味着白名单缺位时「DB 里存什么就执行什么」。
+  - 调度执行侧同样无闸门 ——
+    `moni/cron/scheduler.py:295` 从 DB 读出 `job["func_path"]`，
+    `_resolve_func()`（`moni/cron/scheduler.py:319`）用 importlib 解析任意模块与属性。
+    当前 DB 数据可信，但这份可信同样来自上游约束，不是闸门。
+- 一旦放开任务新建接口、给 `CronJobUpdate` 加上 `func_path`，或让 YAML/migration 路径
+  可被非受信方写入，白名单都不会自动生效。
 - 期望：在所有会从 DB 读出 `func_path` 的路径上调用它（建任务 / 改任务 / 执行调度），
   并补一条单测证明非法 `func_path` 被拒。
 - 附带：旧实现把错误细分为 `InvalidFuncPath` → HTTP **400**（契约错误）、其他
