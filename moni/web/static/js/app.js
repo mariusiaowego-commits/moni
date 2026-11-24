@@ -1132,6 +1132,7 @@ function app() {
 
     switchConfigTab(tab) {
       this._stopDirectionsPoll();
+      this._stopCronPoll();
       this.configTab = tab || 'sources';
       // Lazy-load data for each config sub-tab
       if (this.configTab === 'sources') {
@@ -1155,9 +1156,36 @@ function app() {
       } else if (this.configTab === 'jobs') {
         this.loadCronStatus();
         this.loadCronJobs();
+        this._startCronPoll();
       } else if (this.configTab === 'cron') {
         this.loadCronRuns();
         if (!this.cronJobs.length) this.loadCronJobs();
+        this._startCronPoll();
+      }
+    },
+
+    // v1.0.121: 定时任务 / 跑批日志面板每 15 秒自动刷新，
+    // 这样「运行中」状态不用手点刷新就能看到；离开配置页自动停。
+    _startCronPoll() {
+      this._stopCronPoll();
+      this.cronPollTimer = setInterval(() => {
+        if (this.currentView !== 'config') {
+          this._stopCronPoll();
+          return;
+        }
+        if (this.configTab === 'jobs') {
+          this.loadCronStatus();
+          this.loadCronJobs();
+        } else if (this.configTab === 'cron') {
+          this.loadCronRuns();
+        }
+      }, 15000);
+    },
+
+    _stopCronPoll() {
+      if (this.cronPollTimer) {
+        clearInterval(this.cronPollTimer);
+        this.cronPollTimer = null;
       }
     },
 
@@ -2429,6 +2457,7 @@ function app() {
     cronStatusError: '',
     cronJobRunningId: {},
     cronRefreshTimer: null,
+    cronPollTimer: null,
     cronJobModalOpen: false,
     cronJobFormSaving: false,
     cronJobFormError: '',

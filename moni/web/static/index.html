@@ -3557,8 +3557,8 @@
                     </td>
                     <td class="nowrap">
                       <span class="status-badge"
-                            :class="job.is_active ? 'status-success' : 'status-cancelled'"
-                            x-text="job.is_active ? '启用' : '停用'"></span>
+                            :class="job.is_running ? 'status-running' : (job.is_active ? 'status-success' : 'status-cancelled')"
+                            x-text="job.is_running ? '运行中' : (job.is_active ? '启用' : '停用')"></span>
                     </td>
                     <td style="text-align: right;">
                       <div class="row-actions" style="justify-content: flex-end;">

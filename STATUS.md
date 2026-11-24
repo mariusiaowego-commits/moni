@@ -3,6 +3,42 @@
 > 项目状态与功能清单。每个 Phase 完成时更新日期 + 阶段描述。
 
 ---
+## 已发布: **v1.0.121 — 定时任务运行态可见 + 跑批状态修复** (2026-11-24 · PR #287 → `51d8636`、PR #290 · tag `v1.0.121` · Sprint 26112369)
+
+定时任务面板此前「看不出这个任务此刻正在跑」，根因是跑批记录的状态机缺了「未完成」这一档：
+
+**PR #287（跑批状态修复）**
+- `fetch_all_sources` 建 `cron_runs` 占位行时写 `success=True` → 跑批一开始日志就显示
+  `success / 0 源 / 0.07s`；进程被杀就永久留着假成功（生产 id=162/163/164 即此状态）。
+  现改为 `success=0` + `extra={"in_progress": true}`，结束时用 `duration_sec`/`sources` 覆盖。
+- 调度器重启后 `cron_run_requests` 里遗留的 `claimed` 无人回收 → 「立即运行」永远 409。
+  现启动时 `release_stale_claims()` 置 failed、`mark_interrupted_runs()` 关闭带标志的行；
+  `json_valid()` 守卫 + 启动回收 try/except，坏 JSON 不会把调度器打进 launchd crash loop。
+- 结束 UPDATE 失败重试一次；15s tick 额外关闭超过 3 小时仍 `in_progress` 的行（自愈，不等重启）。
+- API：`GET /api/cron/runs` 读到 `in_progress` 返回 `status="running"`、`success=false`、`duration=null`。
+
+**PR #290（运行中标记 + 自动刷新）**
+- `GET /api/cron/jobs` 新增 `is_running`（该任务最近一轮是否还在跑）；
+  「配置管理 → 定时任务」状态列显示蓝色 `运行中` 徽章。
+- 定时任务 / 跑批日志面板每 15s 自动刷新，离开配置页自动停；不用手点刷新就能看到状态变化。
+
+**部署**：`main` 快进后用 `launchctl kickstart -k` 重启 `com.moni.web`（8900）与
+`com.moni.cron`；schema 不变（仍 57），零新增迁移。启动日志
+`Recovered orphaned run request(s): [2]` → 409 卡死解除；手动触发后
+`/api/cron/runs` 显示 `status=running`，UI 徽章实测蓝色 running。
+
+**数据清理**：id=162/163/164 三条假成功行改为 `success=0` + `error=进程中断…` +
+`extra={"interrupted": true}`（写库前已 `.backup` 到
+`/private/tmp/news.db.backup-20261124-0955`）。6–8 月约 25 条同形态历史行不自动改写
+——无法区分「当时无启用源」与「中途被杀」，保留原样。
+
+**遗留（SSL）**：bestblogs 系源站大量 `UNEXPECTED_EOF_WHILE_READING`。根因不是代码：
+本机开着 TUN 模式代理（路由 `1 198.18.0.1 → utun1024`，这些域名全部解析到 fake-ip
+`198.18.0.0/16`），代理节点与源站 TLS 握手被重置；同时第三方免费镜像本身在退化
+（同一 feed 连打 8 次全 500，`www.ginonotes.com/feed.xml` 返回 402）。缓解方案：
+代理里给 `*.bestblogs.dev`、`*.xgo.ing` 加 DIRECT 直连 + 抓取端降重试/失败 feed 短期跳过。
+
+---
 ## 已发布: **v1.0.120 — 业务方向分 V2 · S3 方向打分与双分展示** (2026-11-24 · PR #285 → `88f466b` · PR #288 → `e8f05b8` · tag `v1.0.119`/`v1.0.120` · Sprint 26112367)
 
 Pin 列表新增「业务价值分」列与业务方向控件：选中某个方向后，对这批文章**另跑一套方向分**，

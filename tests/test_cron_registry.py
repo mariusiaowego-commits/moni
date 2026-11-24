@@ -224,5 +224,34 @@ class TestCronApi:
         assert row["success"] is False
         assert row["duration"] is None
 
+    def test_jobs_report_running_state(self, client, db):
+        """The job list must say which job is running right now."""
+        now = datetime.now(CST).isoformat()
+        db.execute(
+            "INSERT INTO cron_runs (job_id, triggered_at, finished_at, success, extra) "
+            "VALUES (?,?,?,0,?)",
+            ("fetch_all_sources", now, now, '{"in_progress": true}'),
+        )
+        db.commit()
+        jobs = {j["id"]: j for j in client.get("/api/cron/jobs").json()}
+        assert jobs["fetch_all_sources"]["is_running"] is True
+        assert jobs["fetch_all_sources"]["last_run_at"] is not None
+        assert all(
+            job["is_running"] is False
+            for job_id, job in jobs.items()
+            if job_id != "fetch_all_sources"
+        )
+
+    def test_jobs_running_state_ignores_malformed_extra(self, client, db):
+        now = datetime.now(CST).isoformat()
+        db.execute(
+            "INSERT INTO cron_runs (job_id, triggered_at, finished_at, success, extra) "
+            "VALUES (?,?,?,1,?)",
+            ("fetch_all_sources", now, now, "not-json"),
+        )
+        db.commit()
+        jobs = {j["id"]: j for j in client.get("/api/cron/jobs").json()}
+        assert jobs["fetch_all_sources"]["is_running"] is False
+
     def test_legacy_post_is_gone(self, client):
         assert client.post("/api/cron/jobs", json={"name": "x", "schedule": "*"}).status_code == 410
