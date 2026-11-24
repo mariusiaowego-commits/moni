@@ -5724,3 +5724,46 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
   background: rgba(107, 124, 147, 0.14);
   color: var(--foreground);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   Sprint 67 S3: 业务价值分（通用分 + 方向分并列）
+   ═══════════════════════════════════════════════════════════════ */
+.bv-dir-panel {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: 8px 0 12px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--card);
+}
+.bv-dir-label { font-size: var(--font-13); color: var(--muted-fg); }
+.bv-dir-hint { font-size: var(--font-12); color: var(--muted-fg); }
+.bv-dir-msg { font-size: var(--font-12); color: var(--accent); }
+
+/* 两个 chip 并排时允许换行，否则会压到「原文时间」列。 */
+.bv-cell { white-space: normal; }
+.bv-chip-wrap { position: relative; display: inline-flex; margin: 2px 6px 2px 0; }
+.bv-chip {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--muted); color: var(--card-fg);
+  font-size: var(--font-12); font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* 方向分用琥珀色描边，和通用分一眼能分开。 */
+.bv-chip-dir { border-color: var(--warning); color: var(--warning-fg); background: var(--warning-muted); }
+.bv-chip-pending { border-style: dashed; background: transparent; color: var(--muted-fg); }
+.bv-chip-failed { border-color: var(--destructive); color: var(--destructive); background: transparent; }
+.bv-chip-wrap:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 999px; }
+
+.bv-chip-wrap .tip {
+  display: none; position: absolute; bottom: calc(100% + 6px); left: 50%;
+  transform: translateX(-50%);
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 14px;
+  min-width: 200px; max-width: 320px;
+  box-shadow: var(--shadow-lg);
+  font-size: var(--font-13); white-space: pre-wrap; line-height: 1.5;
+  color: var(--card-fg); z-index: 20;
+}
+.bv-chip-wrap:hover .tip,
+.bv-chip-wrap:focus-visible .tip { display: block; }

@@ -755,6 +755,7 @@ function app() {
     },
 
     navigate(view) {
+      if (view !== 'articles') this.stopBvPolling();
       // v1.0.45 (sprint-25 B10): native View Transitions API for the 11
       // x-show sections. Zero dependency, zero bytes, and browsers without it
       // degrade silently to the current instant switch — so this is a pure
@@ -839,6 +840,7 @@ function app() {
         // re-entrant: when the user actually switches tabs, the
         // existing handler re-fetches with the current page state.
         this.loadPinnedArticles();
+        this.loadBvDirections();
       }
       else if (view === 'crud') this.loadCrudArticles();
       else if (view === 'fetch') { this.loadSources(); this.resumeRunningFetchJobs(); }
@@ -879,6 +881,7 @@ function app() {
       }
       // v1.0.13 (audit fix F3): same teardown on back/forward.
       if (this.currentView === 'share' && view !== 'share') this._stopSharePoll();
+      if (view !== 'articles') this.stopBvPolling();
       if (view !== 'config' && this.directionsPollTimer) {
         this._stopDirectionsPoll();
       }
@@ -889,6 +892,7 @@ function app() {
         this._loadArticlesWithPaging();
         this.loadArticlesFilters();
         this.loadPinnedArticles();  // v1.0.8.4: see note above
+        this.loadBvDirections();
       }
       else if (view === 'crud') this.loadCrudArticles();
       else if (view === 'fetch') { this.loadSources(); this.resumeRunningFetchJobs(); }
@@ -2104,6 +2108,16 @@ function app() {
     pinnedHasMore: false,
     pinnedSelectedIds: [],  // bulk action selection (in-memory only)
     pinnedSort: 'pinned_at_desc',
+    // ── Sprint 67 S3: 业务方向分 ──────────────────────────────
+    // 方向分是"按某个业务方向再评一次"的第二个分数，和通用分并列显示、
+    // 互不覆盖。真正的计算在后端队列里，这里只负责选方向、触发、轮询。
+    bvDirectionId: '',
+    bvDirections: [],
+    bvDirScores: {},
+    bvScoring: false,
+    bvMessage: '',
+    bvScoreError: '',
+    bvPollTimer: null,
     get activeArticles() {
       return this.articlesSubTab === 'pinned' ? this.pinnedArticles : this.articles;
     },
@@ -5752,7 +5766,8 @@ function app() {
       if (tab === this.articlesSubTab) return;
       this.articlesSubTab = tab;
       this.pinnedSelectedIds = [];  // reset selection on tab switch
-      if (tab === 'pinned') this.loadPinnedArticles();
+      if (tab !== 'pinned') this.stopBvPolling();
+      if (tab === 'pinned') { this.loadPinnedArticles(); this.loadBvDirections(); }
     },
 
     pinnedPrevPage() {
@@ -5782,6 +5797,7 @@ function app() {
           this.pinnedTotal = data.total || 0;
           this.pinnedHasMore = (this.pinnedPage * this.pinnedPageSize) < this.pinnedTotal;
           this.refreshPinnedQuality();
+          this.loadBvScores();
         })
         .catch(err => console.error('loadPinnedArticles failed:', err));
     },
@@ -5841,6 +5857,236 @@ function app() {
         })
         .catch(err => console.warn('quality-refresh failed:', err))
         .finally(() => { this._qualityRefreshing = false; });
+    },
+
+    // ── Sprint 67 S3: 业务方向分 ───────────────────────────────
+    // 只有"已启用且研究已通过"的方向能打分；停用方向没有可用的问题集。
+    loadBvDirections() {
+      return fetch('/api/directions', { credentials: 'same-origin' })
+        .then(r => r.json().then(d => r.ok ? d : Promise.reject(d)))
+        .then(data => {
+          this.bvDirections = (Array.isArray(data) ? data : []).filter(
+            d => d.enabled && d.usable && d.research && d.research.status === 'passed'
+          );
+          const current = String(this.bvDirectionId || '');
+          if (current && !this.bvDirections.some(d => String(d.id) === current)) {
+            this.bvDirectionId = '';
+            this.bvDirScores = {};
+          }
+        })
+        .catch(err => console.warn('loadBvDirections failed:', err));
+    },
+
+    bvDirectionLabel() {
+      const current = String(this.bvDirectionId || '');
+      const found = this.bvDirections.find(d => String(d.id) === current);
+      return found ? found.label : '';
+    },
+
+    // 打分目标：勾选优先，没勾选就用当前页。
+    bvTargetIds() {
+      const selected = this.pinnedSelectedIds || [];
+      if (selected.length) return selected.slice();
+      return (this.pinnedArticles || []).map(a => a.id);
+    },
+
+    onBvDirectionChange() {
+      this.bvMessage = '';
+      this.bvDirScores = {};
+      this.loadBvScores();
+    },
+
+    // 后端一次最多接受 50 个 id（协议上限），每页可以选到 200 篇，
+    // 所以按 50 一组并发拉，再把结果合并。
+    loadBvScores(extraIds = []) {
+      const id = this.bvDirectionId;
+      const ids = Array.from(new Set([
+        ...(this.pinnedArticles || []).map(a => a.id),
+        ...extraIds,
+      ]));
+      if (!id || !ids.length) { this.bvDirScores = {}; return Promise.resolve(true); }
+      const chunks = [];
+      for (let i = 0; i < ids.length; i += 50) chunks.push(ids.slice(i, i + 50));
+      return Promise.all(chunks.map(chunk => fetch(
+        `/api/directions/${id}/scores?article_ids=${encodeURIComponent(chunk.join(','))}`,
+        { credentials: 'same-origin' }
+      )
+        .then(r => r.json().then(d => {
+          if (r.ok) return d;
+          // 带上状态码：404/409 = 方向没了，别的 = 临时故障。
+          return Promise.reject(Object.assign({ status: r.status }, d));
+        }))
+      ))
+        .then(parts => {
+          const merged = {};
+          parts.forEach(part => Object.assign(merged, part.scores || {}));
+          this.bvDirScores = merged;
+          this.bvScoreError = '';
+          return { ok: true, gone: false };
+        })
+        .catch(err => {
+          const status = err && err.status;
+          const gone = status === 404 || status === 409;
+          console.warn('loadBvScores failed:', err);
+          this.bvScoreError = (err && err.message) || '方向分读取失败';
+          if (gone) this.bvDirScores = {};
+          return { ok: false, gone: gone };
+        });
+    },
+
+    startBvDirectionScoring() {
+      const id = this.bvDirectionId;
+      if (!id || this.bvScoring) return;
+      const targets = this.bvTargetIds();
+      if (!targets.length) { this.bvMessage = '没有可打分的文章'; return; }
+      // 已经有分（或已经在跑）的文章不再重复提交，否则未勾选时永远
+      // 只能打到当前页的前 12 篇。
+      const settled = ['scored', 'needs_review', 'insufficient', 'queued', 'running'];
+      const pending = targets.filter(articleId => {
+        const row = this.bvDirScores[articleId];
+        return !(row && !row.stale && settled.includes(row.status));
+      });
+      if (!pending.length) {
+        this.bvMessage = '这些文章都已有方向分';
+        return;
+      }
+      const batch = pending.slice(0, 12);
+      const left = pending.length - batch.length;
+      this.bvScoring = true;
+      this.bvMessage = '';
+      fetch(`/api/directions/${id}/scores`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ article_ids: batch }),
+      })
+        .then(r => r.json().then(d => r.ok ? d : Promise.reject(d)))
+        .then(data => {
+          const queued = (data.queued || []).length;
+          const cached = (data.cached || []).length;
+          const rejected = (data.rejected || []).length;
+          let msg = `已排队 ${queued} 篇`;
+          if (cached) msg += `，${cached} 篇已有缓存`;
+          if (rejected) msg += `，${rejected} 篇被拒绝`;
+          if (left > 0) msg += `；单批上限 12 篇，剩余 ${left} 篇请再点一次`;
+          this.bvMessage = msg;
+          this.pollBvScores(batch);
+        })
+        .catch(err => {
+          this.bvMessage = (err && err.message) || '打分请求失败';
+          this.bvScoring = false;
+        });
+    },
+
+    pollBvScores(ids) {
+      this.stopBvPolling();
+      const tick = () => {
+        this.loadBvScores(ids).then(result => {
+          if (!result.ok) {
+            this.bvScoring = false;
+            if (result.gone) {
+              // 方向不可用了：停轮询、收起方向按钮，别把按钮永久卡在禁用态。
+              this.bvDirectionId = '';
+              this.loadBvDirections();
+            } else {
+              // 临时故障（断网/5xx）：方向还在，只是这次没读到，停轮询并把
+              // 原因写进提示，不要把用户选的方向也清掉。
+              this.bvMessage = this.bvScoreError || '方向分读取失败';
+            }
+            return;
+          }
+          const pending = ids.filter(id => {
+            const row = this.bvDirScores[id];
+            return row && (row.status === 'queued' || row.status === 'running');
+          });
+          if (pending.length) {
+            this.bvPollTimer = setTimeout(tick, 2000);
+          } else {
+            this.bvScoring = false;
+            this.loadPinnedArticles();
+          }
+        });
+      };
+      this.bvPollTimer = setTimeout(tick, 800);
+    },
+
+    stopBvPolling() {
+      if (this.bvPollTimer) {
+        clearTimeout(this.bvPollTimer);
+        this.bvPollTimer = null;
+      }
+    },
+
+    generalBvChip(a) {
+      const bv = a.business_value || {};
+      if (bv.status !== 'ready' && bv.status !== 'needs_review') return '';
+      if (bv.score == null) return '';
+      return '通用 ' + bv.score;
+    },
+
+    generalBvTip(a) {
+      const bv = a.business_value || {};
+      if (!bv.status) return '尚未计算通用业务价值分';
+      if (bv.status === 'failed') return bv.error || '通用业务价值分计算失败';
+      if (bv.status === 'insufficient') return '正文过短，未打业务价值分';
+      const rows = ['通用业务价值分（0–100）：10 个维度逐项打分，程序按权重加总，模型不直接给总分'];
+      if (bv.stale) rows.push('正文已变更，这个分数已过期，需要重新打分');
+      if (bv.note) rows.push(bv.note);
+      const dims = (bv.breakdown && bv.breakdown.dimensions) || [];
+      dims.forEach(d => {
+        if (d.label == null) return;
+        rows.push(`${d.label}：${d.score == null ? '—' : d.score}`);
+      });
+      return rows.join('\n');
+    },
+
+    dirBvChip(a) {
+      const row = this.bvDirScores[a.id];
+      if (!row) return '';
+      const label = this.bvDirectionLabel();
+      if (row.status === 'scored') return `方向 · ${label} ${row.score}`;
+      if (row.status === 'needs_review') return `方向 · ${label} ${row.score} · 待复核`;
+      if (row.status === 'queued' || row.status === 'running') return `方向 · ${label} 打分中`;
+      if (row.status === 'failed') return `方向 · ${label} 失败`;
+      if (row.status === 'insufficient') return `方向 · ${label} 正文过短`;
+      return '';
+    },
+
+    bvDirPending(a) {
+      const row = this.bvDirScores[a.id];
+      return !!row && (row.status === 'queued' || row.status === 'running');
+    },
+
+    bvDirFailed(a) {
+      const row = this.bvDirScores[a.id];
+      return !!row && row.status === 'failed';
+    },
+
+    dirBvTip(a) {
+      const row = this.bvDirScores[a.id];
+      if (!row) return '';
+      const label = this.bvDirectionLabel();
+      const rows = [`方向分 · ${label}：按该方向的研究问题集重打一次，与通用分同一算法、互不覆盖`];
+      if (row.stale) rows.push('正文已变更，这个分数已过期，需要重新打分');
+      if (row.status === 'queued' || row.status === 'running') {
+        rows.push('打分中，请稍候');
+        return rows.join('\n');
+      }
+      if (row.status === 'failed') {
+        rows.push(row.error || '打分失败');
+        return rows.join('\n');
+      }
+      if (row.status === 'insufficient') {
+        rows.push('正文过短，未打分');
+        return rows.join('\n');
+      }
+      if (row.note) rows.push(row.note);
+      const dims = (row.breakdown && row.breakdown.dimensions) || [];
+      dims.forEach(d => {
+        if (d.label == null) return;
+        rows.push(`${d.label}：${d.score == null ? '—' : d.score}`);
+      });
+      return rows.join('\n');
     },
 
     // v1.0.8: share page chip handler.  selectedArticleIds is NOT
