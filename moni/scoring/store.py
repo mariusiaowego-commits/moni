@@ -122,6 +122,33 @@ def recompute_quality_if_pinned(conn: sqlite3.Connection, article_id: str) -> No
     ensure_quality(conn, article_id)
 
 
+#: Fields a client may see.  The stored breakdown also carries evidence
+#: quotes and audit rounds, which do not belong in an API answer.
+PUBLIC_BREAKDOWN_FIELDS = ("key", "label", "weight", "score", "reason")
+
+
+def public_breakdown(data: Any) -> dict[str, Any] | None:
+    """Trim a stored business-value breakdown to the public fields.
+
+    Both the general score and the direction score use this, so the two
+    never expose different shapes.
+    """
+    if not isinstance(data, dict):
+        return None
+    out: dict[str, Any] = {}
+    for field in ("rubric", "total"):
+        if field in data:
+            out[field] = data[field]
+    dims = data.get("dimensions")
+    if isinstance(dims, list):
+        out["dimensions"] = [
+            {k: dim[k] for k in PUBLIC_BREAKDOWN_FIELDS if k in dim}
+            for dim in dims
+            if isinstance(dim, dict)
+        ]
+    return out
+
+
 def write_bv(conn: sqlite3.Connection, snap: ArticleSnapshot, result: BvResult) -> None:
     note = result.note or None
     conn.execute(

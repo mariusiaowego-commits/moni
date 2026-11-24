@@ -185,3 +185,61 @@ def test_response_never_exposes_rubric(client: TestClient):
     )
     assert "rubric_json" not in response.text
     assert "rubric_json" not in json.dumps(response.json())
+
+
+def test_get_scores_recovers_dead_running_rows(client: TestClient):
+    """A crashed worker's row must not keep the UI in 「打分中」 forever."""
+    direction_id = _usable_direction()
+    ids = _add_articles(1)
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO article_bv_direction (article_id, direction_id, research_version, "
+        "status, content_hash, rubric_id, scored_at) VALUES (?,?,?,?,?,?,?)",
+        (ids[0], direction_id, 1, "running", "deadbeef", "bv_direction_v1",
+         "2020-01-01T00:00:00+00:00"),
+    )
+    conn.commit()
+
+    response = client.get(f"/api/directions/{direction_id}/scores?article_ids={ids[0]}")
+    assert response.status_code == 200
+    item = response.json()["scores"][ids[0]]
+    assert item["status"] == "failed"
+    assert "超时" in item["error"]
+
+
+def test_concurrent_posts_do_not_kill_a_queued_article(client: TestClient):
+    """Two requests at once must not let the recovery pass kill live work.
+
+    Regression: ``mark_queued`` writes the row before the runner knows
+    about it, so a recovery pass in between used to mark the article
+    failed while the API still answered ``202``.
+    """
+    import threading
+
+    direction_id = _usable_direction()
+    ids = _add_articles(1)
+    status_codes: list[int] = []
+    lock = threading.Lock()
+
+    def post() -> None:
+        response = client.post(
+            f"/api/directions/{direction_id}/scores", json={"article_ids": ids}
+        )
+        with lock:
+            status_codes.append(response.status_code)
+
+    threads = [threading.Thread(target=post) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert status_codes == [202, 202]
+    if scores_route._runner is not None:
+        scores_route._runner.wait_idle(timeout=30)
+    conn = get_db()
+    row = conn.execute(
+        "SELECT status, error FROM article_bv_direction WHERE article_id=?",
+        (ids[0],),
+    ).fetchone()
+    assert row["status"] != "failed", row["error"]

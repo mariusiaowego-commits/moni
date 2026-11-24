@@ -26,6 +26,7 @@ from typing import Any, Iterable, Mapping
 from . import direction_store
 from .bv_pipeline import BvResult, content_hash, score_general_bv
 from .direction import research_to_rubric
+from .store import public_breakdown
 from .snapshot import from_row
 
 STATUS_QUEUED = "queued"
@@ -108,7 +109,7 @@ def _row_payload(row: sqlite3.Row | Mapping[str, Any]) -> dict[str, Any]:
     if raw:
         try:
             parsed = json.loads(raw)
-            breakdown = _trim_breakdown(parsed) if isinstance(parsed, dict) else None
+            breakdown = public_breakdown(parsed)
         except (TypeError, ValueError):
             breakdown = None
     return {
@@ -119,26 +120,6 @@ def _row_payload(row: sqlite3.Row | Mapping[str, Any]) -> dict[str, Any]:
         "breakdown": breakdown,
         "scored_at": get("scored_at"),
     }
-
-
-#: Fields a client may see.  The stored breakdown also carries evidence
-#: quotes and audit rounds, which do not belong in an API answer.
-_BREAKDOWN_FIELDS = ("key", "label", "weight", "score", "reason")
-
-
-def _trim_breakdown(data: dict[str, Any]) -> dict[str, Any]:
-    out: dict[str, Any] = {}
-    for field in ("rubric", "total"):
-        if field in data:
-            out[field] = data[field]
-    dims = data.get("dimensions")
-    if isinstance(dims, list):
-        out["dimensions"] = [
-            {k: dim[k] for k in _BREAKDOWN_FIELDS if k in dim}
-            for dim in dims
-            if isinstance(dim, dict)
-        ]
-    return out
 
 
 def article_hashes(

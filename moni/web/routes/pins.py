@@ -36,6 +36,8 @@ from pydantic import BaseModel
 
 from moni.db.connection import get_db
 from moni.scoring import ensure_quality, needs_quality_refresh
+from moni.scoring.bv_pipeline import content_hash
+from moni.scoring.store import public_breakdown
 from moni.web.exceptions import NotFoundError
 
 router = APIRouter(prefix="/api/articles", tags=["pins"])
@@ -236,6 +238,7 @@ def list_pinned_articles(
                a.quality_input_hash, a.quality_score_at,
                a.business_value_score, a.business_value_note,
                a.business_value_status, a.business_value_breakdown_json,
+               a.business_value_error, a.business_value_hash,
                p.pinned_at AS pinned_at,
                EXISTS (SELECT 1 FROM reader_conversations rc
                        WHERE rc.article_id = a.id AND rc.unread = 1) AS reader_unread,
@@ -296,20 +299,25 @@ def business_value_payload(row: Any) -> dict[str, Any]:
 
     Both live on the same row so the Pin list can show them side by
     side; they are separate numbers because they answer different
-    questions.
+    questions.  ``stale`` says the body changed after the score was
+    computed, the same way the direction score reports it.
     """
     raw = row["business_value_breakdown_json"]
     breakdown = None
     if raw:
         try:
-            parsed = json.loads(raw)
-            breakdown = parsed if isinstance(parsed, dict) else None
+            breakdown = public_breakdown(json.loads(raw))
         except (TypeError, ValueError):
             breakdown = None
+    score = row["business_value_score"]
+    stored_hash = row["business_value_hash"]
+    current_hash = content_hash(str(row["raw_content"] or ""))
     return {
-        "score": row["business_value_score"],
+        "score": score,
         "note": row["business_value_note"] or "",
         "status": row["business_value_status"],
+        "error": row["business_value_error"],
+        "stale": bool(stored_hash) and stored_hash != current_hash,
         "breakdown": breakdown,
     }
 

@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from moni.share import artifacts as share_artifacts
 from moni.web.routes import directions as directions_route
+from moni.web.routes import direction_scores as direction_scores_route
 from moni.web.exceptions import register_exception_handlers
 from moni.web.security import LocalOriginGuard
 
@@ -80,6 +81,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Shutdown: e.g. close DB pool, flush queues
     if directions_route._runner is not None:
         directions_route._runner.wait_idle(timeout=2.0)
+    if direction_scores_route._runner is not None:
+        direction_scores_route._runner.wait_idle(timeout=2.0)
 
 
 def create_app() -> FastAPI:

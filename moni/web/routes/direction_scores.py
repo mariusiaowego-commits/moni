@@ -34,6 +34,15 @@ router = APIRouter(prefix="/api/directions", tags=["directions"])
 
 _runner: DirectionScoreRunner | None = None
 _runner_lock = threading.Lock()
+#: Serialises the queue-critical section.
+#:
+#: ``mark_queued`` writes a ``queued`` row before the runner knows about
+#: it, and ``recover_stale`` treats a queued row the runner does not know
+#: as an orphan left over from a restart.  Without this lock the two can
+#: interleave: one request queues an article, another request's recovery
+#: pass marks it failed, and the article is never scored even though the
+#: API answered ``202``.
+_enqueue_lock = threading.Lock()
 
 
 def _llm_call(prompt: str, timeout: float) -> tuple[str, int]:
@@ -109,6 +118,9 @@ def get_direction_scores(
             message=f"一次最多查询 {direction_score.MAX_REQUEST} 篇"
         )
     conn = get_db()
+    runner = _ensure_runner()
+    with _enqueue_lock:
+        direction_score.recover_stale(conn, live_keys=runner.live_keys)
     scores = direction_score.load_scores(
         conn,
         direction_id=direction_id,
@@ -146,71 +158,73 @@ def start_direction_scores(
         )
 
     conn = get_db()
-    direction_score.recover_stale(
-        conn, live_keys=_ensure_runner().live_keys
-    )
-    hashes = direction_score.article_hashes(conn, ids)
-    existing = direction_score.load_scores(
-        conn,
-        direction_id=direction_id,
-        research_version=research.version,
-        article_ids=ids,
-    )
-
+    runner = _ensure_runner()
     cached: list[str] = []
     inflight: list[str] = []
     rejected: list[dict[str, str]] = []
-    todo: list[str] = []
-    for article_id in ids:
-        if article_id not in hashes:
-            rejected.append({"id": article_id, "reason": "文章不存在"})
-            continue
-        row = existing.get(article_id)
-        if row and not row["stale"]:
-            status = row["status"]
-            if status in direction_score.SETTLED_STATUSES:
-                cached.append(article_id)
-                continue
-            if status in direction_score.INFLIGHT_STATUSES:
-                inflight.append(article_id)
-                continue
-        todo.append(article_id)
-
-    if len(todo) > direction_score.MAX_BATCH:
-        raise BadRequestError(
-            message=(
-                f"待打分文章 {len(todo)} 篇，超过单批上限 "
-                f"{direction_score.MAX_BATCH} 篇，请分次触发"
-            )
-        )
-
-    requests: list[ScoreRequest] = []
-    for article_id in todo:
-        claimed = direction_score.mark_queued(
+    queued: list[str] = []
+    with _enqueue_lock:
+        direction_score.recover_stale(conn, live_keys=runner.live_keys)
+        hashes = direction_score.article_hashes(conn, ids)
+        existing = direction_score.load_scores(
             conn,
-            article_id=article_id,
             direction_id=direction_id,
             research_version=research.version,
-            body_hash=hashes[article_id],
-            rubric_id=rubric.id,
+            article_ids=ids,
         )
-        if not claimed:
-            rejected.append({"id": article_id, "reason": "该文章正在打分中"})
-            continue
-        requests.append(
-            ScoreRequest(
+
+        todo: list[str] = []
+        for article_id in ids:
+            if article_id not in hashes:
+                rejected.append({"id": article_id, "reason": "文章不存在"})
+                continue
+            row = existing.get(article_id)
+            if row and not row["stale"]:
+                status = row["status"]
+                if status in direction_score.SETTLED_STATUSES:
+                    cached.append(article_id)
+                    continue
+                if status in direction_score.INFLIGHT_STATUSES:
+                    inflight.append(article_id)
+                    continue
+            todo.append(article_id)
+
+        if len(todo) > direction_score.MAX_BATCH:
+            raise BadRequestError(
+                message=(
+                    f"待打分文章 {len(todo)} 篇，超过单批上限 "
+                    f"{direction_score.MAX_BATCH} 篇，请分次触发"
+                )
+            )
+
+        requests: list[ScoreRequest] = []
+        for article_id in todo:
+            claimed = direction_score.mark_queued(
+                conn,
+                article_id=article_id,
                 direction_id=direction_id,
                 research_version=research.version,
-                rubric=rubric,
-                article_id=article_id,
+                body_hash=hashes[article_id],
+                rubric_id=rubric.id,
             )
-        )
-    accepted = _ensure_runner().submit(requests)
+            if not claimed:
+                rejected.append({"id": article_id, "reason": "该文章正在打分中"})
+                continue
+            requests.append(
+                ScoreRequest(
+                    direction_id=direction_id,
+                    research_version=research.version,
+                    rubric=rubric,
+                    article_id=article_id,
+                )
+            )
+        accepted = runner.submit(requests)
+        queued = [request.article_id for request in accepted]
     return DirectionScoreQueued(
         direction_id=direction_id,
         research_version=research.version,
         rubric_id=rubric.id,
-        queued=[request.article_id for request in accepted],
+        queued=queued,
         cached=cached + inflight,
         rejected=rejected,
     )
