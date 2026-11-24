@@ -111,7 +111,34 @@ def _invoke_hermes(
     extra_args: list[str] | None = None,
 ) -> tuple[str, int]:
     """Invoke hermes CLI and return (stdout, exit_code)."""
-    argv = ["hermes", "-z", prompt, "--profile", os.environ.get("MONI_HERMES_PROFILE", "moni")]
+    from moni.llm.desensitize.audit import (
+        current_desensitize_scope,
+        finalize_inbound,
+        prepare_outbound,
+        record_event,
+    )
+
+    scope = current_desensitize_scope()
+    eff_task = scope.task_type or "share_summary"
+    eff_json = True if scope.json_output is None else bool(scope.json_output)
+    ctx = prepare_outbound(
+        prompt,
+        call_site="summary_gen",
+        task_type=eff_task,
+        article_id=scope.article_id,
+        job_id=scope.job_id,
+        share_task_id=scope.share_task_id,
+        json_output=eff_json,
+        db_path=scope.db_path,
+    )
+    if ctx is not None and ctx.mask_result.blocked:
+        record_event(ctx, blocked=True)
+        return f"desensitize blocked: {ctx.mask_result.blocked_reason}", 1
+    if ctx is not None:
+        record_event(ctx, blocked=False)
+    send_prompt = ctx.masked_text if ctx is not None else prompt
+
+    argv = ["hermes", "-z", send_prompt, "--profile", os.environ.get("MONI_HERMES_PROFILE", "moni")]
     if extra_args:
         argv.extend(extra_args)
     proc: subprocess.Popen | None = None
@@ -123,13 +150,25 @@ def _invoke_hermes(
             text=True,
         )
         stdout, _ = proc.communicate(timeout=timeout_sec)
+        if ctx is not None:
+            if proc.returncode == 0 and stdout:
+                stdout = finalize_inbound(ctx, stdout)
+            elif proc.returncode != 0:
+                ctx.fallback_override = ctx.fallback_override or "exit_nonzero"
+            record_event(ctx, blocked=False)
         return stdout, proc.returncode
     except subprocess.TimeoutExpired:
         if proc:
             proc.kill()
             proc.wait()
+        if ctx is not None:
+            ctx.fallback_override = ctx.fallback_override or "timeout"
+            record_event(ctx, blocked=False)
         return "", 124
     except Exception as exc:
+        if ctx is not None:
+            ctx.fallback_override = ctx.fallback_override or "invoke_error"
+            record_event(ctx, blocked=False)
         return str(exc), 1
 
 
@@ -241,10 +280,18 @@ def generate_and_writeback(
     # The LLM sometimes skips articles when batched — single-article
     # calls are more reliable and the cost is acceptable (1-2 articles
     # is the common case).
+    from moni.llm.desensitize.audit import desensitize_scope
+
     all_summaries: dict[str, str] = {}
     for aid, title, content in need:
         prompt = _build_prompt([(aid, title, content)])
-        output, exit_code = _invoke_hermes(prompt, timeout_sec=120, extra_args=extra_args)
+        with desensitize_scope(
+            task_type="share_summary",
+            article_id=aid,
+            json_output=True,
+            db_path=db_path,
+        ):
+            output, exit_code = _invoke_hermes(prompt, timeout_sec=120, extra_args=extra_args)
 
         if exit_code != 0:
             log.warning(

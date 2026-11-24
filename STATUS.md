@@ -1,3 +1,33 @@
+## 进行中: **对大模型的信息脱敏（LLM Desens Shield）** (2026-11-24 · PR #294 OPEN · Sprint 26112472)
+
+在 moni 进程内、hermes 子进程启动前的最后一跳收口全部 **5 条出站通道**，做
+「出站遮蔽 → 本机本本 → 入站还原」双向管道：外部大模型只做盲态推理，moni 的凭据、
+同业投研意图与内部判断不出本机。参考 magpie `fc4406fb` 的脱敏能力，规格见
+`docs/plans/2026-11-24_llm-desens-shield-plan.md`（合并版 v1.0），实施证据见
+`docs/sprint-evidence/sprint-68/RUN.md`。
+
+**当前状态**：代码完成（6 commits，`a9867d6`），PR #294 MERGEABLE、0 behind
+`origin/main` @ `9c6adcb`。**尚未合并、未迁移生产库、未上线** —— 需用户当轮授权后
+squash merge → 生产库 `.backup` + 迁移 058 → 线上验证 → 再打 tag。
+
+**用户红线（验收已过）**：开发上线后 5 条大模型通道必须全部畅通。已独立复检：
+
+- 开关关闭时 argv / prompt **逐字节不变**：`['hermes', '-z', '{prompt}']`，无注入说明
+  （`probe_argv.py`、`probe_share.py` 三路径）
+- 真实 hermes 端到端：出站无明文 → 回包已还原明文号码与机构名，
+  `leak_scan_hits = 0`、`residual_placeholders = 0`
+- 流式通道 delta 与 final 一致，无 `{{ORG_` 残留
+- 默认 `desensitize.enabled = '0'` → 合并后生产行为零变化
+
+**顺手修掉的真实生产故障**：所有走 `--profile moni` 的调用 400 报错
+（`DeepSeek V4.1 reasoning_effort must be low, high, xhigh, max…`）——
+根因 `~/.hermes/profiles/moni/config.yaml:38` 是 `medium` 而 DeepSeek V4.1 拒绝，
+全局 `~/.hermes/config.yaml` 的 `high` 不覆盖 profile。已改为 `high`，
+备份 `/private/tmp/moni-profile-config.yaml.bak`；其他 profile 未动。
+
+**未做（需决策）**：UI 开关面板、用户自助规则入口、上线时是否默认开启、
+决赛汇报物料（magpie 视频解读截图 + 四栏演练台）。
+
 ## 待办: **cron 运行历史过滤失效 + `validate_func_path` 白名单无调用点** (2026-11-24 · Issue #296)
 
 清理开发残留分支时，在被取代的旧 worktree（`moni-worktrees/cron-console`，分支

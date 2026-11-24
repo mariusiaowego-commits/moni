@@ -12,6 +12,7 @@ artifacts, not source files; nothing here is imported or served by the app.
 | `sprint-27/` | sprint-27（中文独立博客源） | v1.0.60 / v1.0.62 中文独立博客源：独立审计报告 |
 | `sprint-27-hotfix/` | sprint-27 hotfix（失败率熔断 + 配置链修复） | v1.0.62 hotfix：审计 + 实施记录 |
 | `sprint-30/` | sprint-30（xbot_feed 回填与迁移 039） | v1.0.66 xbot_feed 真实运行：203 导出 / 71 入库 / rerun 0（三天数据）+ 真实库副本上的 migration 039 实测 |
+| `sprint-68/` | sprint-68（对大模型的信息脱敏） | 5 条 hermes 出站通道接线验收：开关关闭时 argv/prompt 逐字节不变 + 真实 hermes 端到端还原 + 审计账本零泄漏 + CPU-time 性能口径 |
 | `reference-reports/` | `moni-ref-fact-check/*REPORT.md` | Read-only research for sprint-16 ($name placeholder fix) and sprint-16.5/16.6 fact-check hardening |
 
 > **文件命名约定（2026-11-05 起）**：`sprint-27/` 只有 `AUDIT.md`；
