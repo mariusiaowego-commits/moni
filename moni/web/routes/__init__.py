@@ -21,6 +21,7 @@ from moni.web.routes.config_sources import router as config_sources_router
 from moni.web.routes.config_tags import router as config_tags_router
 from moni.web.routes.cleaning import router as cleaning_router
 from moni.web.routes.directions import router as directions_router
+from moni.web.routes.direction_scores import router as direction_scores_router
 from moni.web.routes.cases import router as cases_router
 from moni.web.routes.cron import router as cron_router
 from moni.web.routes.crud import router as crud_router
@@ -63,6 +64,7 @@ _routers: list[APIRouter] = [
     moderation_router,  # v1.0.100 (sprint-54): 只读候选预演
     moderation_labels_router,  # sprint-58: 内容分级标注（只写两张新表）
     directions_router,  # Sprint 67 (S2): 业务方向配置 + 研究
+    direction_scores_router,  # Sprint 67 (S3): 业务方向打分
     llm_router,
     reader_router,
     service_router,

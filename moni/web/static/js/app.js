@@ -839,6 +839,7 @@ function app() {
         // re-entrant: when the user actually switches tabs, the
         // existing handler re-fetches with the current page state.
         this.loadPinnedArticles();
+        this.loadBvDirections();
       }
       else if (view === 'crud') this.loadCrudArticles();
       else if (view === 'fetch') { this.loadSources(); this.resumeRunningFetchJobs(); }
@@ -2104,6 +2105,15 @@ function app() {
     pinnedHasMore: false,
     pinnedSelectedIds: [],  // bulk action selection (in-memory only)
     pinnedSort: 'pinned_at_desc',
+    // ── Sprint 67 S3: 业务方向分 ──────────────────────────────
+    // 方向分是"按某个业务方向再评一次"的第二个分数，和通用分并列显示、
+    // 互不覆盖。真正的计算在后端队列里，这里只负责选方向、触发、轮询。
+    bvDirectionId: '',
+    bvDirections: [],
+    bvDirScores: {},
+    bvScoring: false,
+    bvMessage: '',
+    bvPollTimer: null,
     get activeArticles() {
       return this.articlesSubTab === 'pinned' ? this.pinnedArticles : this.articles;
     },
@@ -5752,7 +5762,7 @@ function app() {
       if (tab === this.articlesSubTab) return;
       this.articlesSubTab = tab;
       this.pinnedSelectedIds = [];  // reset selection on tab switch
-      if (tab === 'pinned') this.loadPinnedArticles();
+      if (tab === 'pinned') { this.loadPinnedArticles(); this.loadBvDirections(); }
     },
 
     pinnedPrevPage() {
@@ -5782,6 +5792,7 @@ function app() {
           this.pinnedTotal = data.total || 0;
           this.pinnedHasMore = (this.pinnedPage * this.pinnedPageSize) < this.pinnedTotal;
           this.refreshPinnedQuality();
+          this.loadBvScores();
         })
         .catch(err => console.error('loadPinnedArticles failed:', err));
     },
@@ -5841,6 +5852,182 @@ function app() {
         })
         .catch(err => console.warn('quality-refresh failed:', err))
         .finally(() => { this._qualityRefreshing = false; });
+    },
+
+    // ── Sprint 67 S3: 业务方向分 ───────────────────────────────
+    // 只有"已启用且研究已通过"的方向能打分；停用方向没有可用的问题集。
+    loadBvDirections() {
+      return fetch('/api/directions', { credentials: 'same-origin' })
+        .then(r => r.json().then(d => r.ok ? d : Promise.reject(d)))
+        .then(data => {
+          this.bvDirections = (Array.isArray(data) ? data : []).filter(
+            d => d.enabled && d.usable && d.research && d.research.status === 'passed'
+          );
+          const current = String(this.bvDirectionId || '');
+          if (current && !this.bvDirections.some(d => String(d.id) === current)) {
+            this.bvDirectionId = '';
+            this.bvDirScores = {};
+          }
+        })
+        .catch(err => console.warn('loadBvDirections failed:', err));
+    },
+
+    bvDirectionLabel() {
+      const current = String(this.bvDirectionId || '');
+      const found = this.bvDirections.find(d => String(d.id) === current);
+      return found ? found.label : '';
+    },
+
+    // 打分目标：勾选优先，没勾选就用当前页。
+    bvTargetIds() {
+      const selected = this.pinnedSelectedIds || [];
+      if (selected.length) return selected.slice();
+      return (this.pinnedArticles || []).map(a => a.id);
+    },
+
+    onBvDirectionChange() {
+      this.bvMessage = '';
+      this.bvDirScores = {};
+      this.loadBvScores();
+    },
+
+    loadBvScores(extraIds = []) {
+      const id = this.bvDirectionId;
+      const ids = Array.from(new Set([
+        ...(this.pinnedArticles || []).map(a => a.id),
+        ...extraIds,
+      ]));
+      if (!id || !ids.length) { this.bvDirScores = {}; return Promise.resolve(); }
+      return fetch(
+        `/api/directions/${id}/scores?article_ids=${encodeURIComponent(ids.join(','))}`,
+        { credentials: 'same-origin' }
+      )
+        .then(r => r.json().then(d => r.ok ? d : Promise.reject(d)))
+        .then(data => { this.bvDirScores = data.scores || {}; })
+        .catch(err => console.warn('loadBvScores failed:', err));
+    },
+
+    startBvDirectionScoring() {
+      const id = this.bvDirectionId;
+      if (!id || this.bvScoring) return;
+      const targets = this.bvTargetIds();
+      if (!targets.length) { this.bvMessage = '没有可打分的文章'; return; }
+      const batch = targets.slice(0, 12);
+      const left = targets.length - batch.length;
+      this.bvScoring = true;
+      this.bvMessage = '';
+      fetch(`/api/directions/${id}/scores`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ article_ids: batch }),
+      })
+        .then(r => r.json().then(d => r.ok ? d : Promise.reject(d)))
+        .then(data => {
+          const queued = (data.queued || []).length;
+          const cached = (data.cached || []).length;
+          const rejected = (data.rejected || []).length;
+          let msg = `已排队 ${queued} 篇`;
+          if (cached) msg += `，${cached} 篇已有缓存`;
+          if (rejected) msg += `，${rejected} 篇被拒绝`;
+          if (left > 0) msg += `；单批上限 12 篇，剩余 ${left} 篇请再点一次`;
+          this.bvMessage = msg;
+          this.pollBvScores(batch);
+        })
+        .catch(err => {
+          this.bvMessage = (err && err.message) || '打分请求失败';
+          this.bvScoring = false;
+        });
+    },
+
+    pollBvScores(ids) {
+      if (this.bvPollTimer) clearTimeout(this.bvPollTimer);
+      const tick = () => {
+        this.loadBvScores(ids).then(() => {
+          const pending = ids.filter(id => {
+            const row = this.bvDirScores[id];
+            return row && (row.status === 'queued' || row.status === 'running');
+          });
+          if (pending.length) {
+            this.bvPollTimer = setTimeout(tick, 2000);
+          } else {
+            this.bvScoring = false;
+            this.loadPinnedArticles();
+          }
+        });
+      };
+      this.bvPollTimer = setTimeout(tick, 800);
+    },
+
+    generalBvChip(a) {
+      const bv = a.business_value || {};
+      if (bv.status !== 'ready' && bv.status !== 'needs_review') return '';
+      if (bv.score == null) return '';
+      return '通用 ' + bv.score;
+    },
+
+    generalBvTip(a) {
+      const bv = a.business_value || {};
+      if (!bv.status) return '尚未计算通用业务价值分';
+      if (bv.status === 'failed') return bv.error || '通用业务价值分计算失败';
+      if (bv.status === 'insufficient') return '正文过短，未打业务价值分';
+      const rows = ['通用业务价值分（0–100）：10 个维度逐项打分，程序按权重加总，模型不直接给总分'];
+      if (bv.note) rows.push(bv.note);
+      const dims = (bv.breakdown && bv.breakdown.dimensions) || [];
+      dims.forEach(d => {
+        if (d.label == null) return;
+        rows.push(`${d.label}：${d.score == null ? '—' : d.score}`);
+      });
+      return rows.join('\n');
+    },
+
+    dirBvChip(a) {
+      const row = this.bvDirScores[a.id];
+      if (!row) return '';
+      const label = this.bvDirectionLabel();
+      if (row.status === 'scored') return `方向 · ${label} ${row.score}`;
+      if (row.status === 'needs_review') return `方向 · ${label} ${row.score} · 待复核`;
+      if (row.status === 'queued' || row.status === 'running') return `方向 · ${label} 打分中`;
+      if (row.status === 'failed') return `方向 · ${label} 失败`;
+      if (row.status === 'insufficient') return `方向 · ${label} 正文过短`;
+      return '';
+    },
+
+    bvDirPending(a) {
+      const row = this.bvDirScores[a.id];
+      return !!row && (row.status === 'queued' || row.status === 'running');
+    },
+
+    bvDirFailed(a) {
+      const row = this.bvDirScores[a.id];
+      return !!row && row.status === 'failed';
+    },
+
+    dirBvTip(a) {
+      const row = this.bvDirScores[a.id];
+      if (!row) return '';
+      const label = this.bvDirectionLabel();
+      const rows = [`方向分 · ${label}：按该方向的研究问题集重打一次，与通用分同一算法、互不覆盖`];
+      if (row.stale) rows.push('正文已变更，这个分数已过期，需要重新打分');
+      if (row.status === 'queued' || row.status === 'running') {
+        rows.push('打分中，请稍候');
+        return rows.join('\n');
+      }
+      if (row.status === 'failed') {
+        rows.push(row.error || '打分失败');
+        return rows.join('\n');
+      }
+      if (row.status === 'insufficient') {
+        rows.push('正文过短，未打分');
+        return rows.join('\n');
+      }
+      if (row.note) rows.push(row.note);
+      const dims = (row.breakdown && row.breakdown.dimensions) || [];
+      dims.forEach(d => {
+        if (d.label == null) return;
+        rows.push(`${d.label}：${d.score == null ? '—' : d.score}`);
+      });
+      return rows.join('\n');
     },
 
     // v1.0.8: share page chip handler.  selectedArticleIds is NOT
