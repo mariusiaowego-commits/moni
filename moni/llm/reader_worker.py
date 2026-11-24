@@ -18,6 +18,7 @@ from typing import Any
 
 from moni.db import leases
 from moni.db.connection import get_db
+from moni.llm.desensitize.audit import desensitize_scope
 from moni.llm.reader import (
     build_chunk_prompt,
     build_merge_prompt,
@@ -247,84 +248,86 @@ def _run_claimed(handle: leases.LeaseHandle) -> None:
         )
         conn.commit()
 
+    delta = None
     try:
         delta = make_delta(assistant["id"])
-        if mode == "map_reduce":
-            ensure_chunks(article_id, text)
-            rows = load_chunk_rows(article_id)
-            groups = group_chunk_texts([row["content"] for row in rows])
-            partials: list[str] = []
-            for idx, chunk in enumerate(groups, start=1):
-                if _cancelled():
-                    break
-                _note(assistant["id"], f"正在分段阅读全文（{idx}/{len(groups)}）…")
-                part = run_reader_stream(
-                    build_chunk_prompt(
-                        article=article,
-                        prompt_body=prompt_body or question,
-                        chunk=chunk,
-                        index=idx,
-                        total=len(groups),
-                    ),
-                    reasoning=reasoning,
-                    on_start=on_start,
-                )
-                partials.append(part.get("text") or "")
-                usage["input_tokens"] += int((part.get("usage") or {}).get("input_tokens") or 0)
-                usage["output_tokens"] += int((part.get("usage") or {}).get("output_tokens") or 0)
-                duration_ms += int(part.get("duration_ms") or 0)
-            if not _cancelled():
-                _note(assistant["id"], "")
+        with desensitize_scope(task_type="reader", article_id=article_id, job_id=job_id):
+            if mode == "map_reduce":
+                ensure_chunks(article_id, text)
+                rows = load_chunk_rows(article_id)
+                groups = group_chunk_texts([row["content"] for row in rows])
+                partials: list[str] = []
+                for idx, chunk in enumerate(groups, start=1):
+                    if _cancelled():
+                        break
+                    _note(assistant["id"], f"正在分段阅读全文（{idx}/{len(groups)}）…")
+                    part = run_reader_stream(
+                        build_chunk_prompt(
+                            article=article,
+                            prompt_body=prompt_body or question,
+                            chunk=chunk,
+                            index=idx,
+                            total=len(groups),
+                        ),
+                        reasoning=reasoning,
+                        on_start=on_start,
+                    )
+                    partials.append(part.get("text") or "")
+                    usage["input_tokens"] += int((part.get("usage") or {}).get("input_tokens") or 0)
+                    usage["output_tokens"] += int((part.get("usage") or {}).get("output_tokens") or 0)
+                    duration_ms += int(part.get("duration_ms") or 0)
+                if not _cancelled():
+                    _note(assistant["id"], "")
+                    result = run_reader_stream(
+                        build_merge_prompt(
+                            article=article,
+                            prompt_body=prompt_body or question,
+                            partials=partials,
+                            quote_text=quote,
+                        ),
+                        reasoning=reasoning,
+                        on_start=on_start,
+                        on_delta=delta,
+                    )
+                    delta.flush()
+                    usage["input_tokens"] += int((result.get("usage") or {}).get("input_tokens") or 0)
+                    usage["output_tokens"] += int((result.get("usage") or {}).get("output_tokens") or 0)
+                    duration_ms += int(result.get("duration_ms") or 0)
+                else:
+                    result = {"text": ""}
+            else:
+                if mode == "full":
+                    context = text
+                    chunk_note = ""
+                else:
+                    ensure_chunks(article_id, text)
+                    focus = quote if mode == "selection" else question
+                    picked = chunks_for_question(article_id, focus, limit=6)
+                    context = "\n\n".join(item["content"] for item in picked)
+                    outline = outline_chunks(article_id)
+                    if mode == "selection":
+                        chunk_note = "长文：这次只附上选中文本所在的相关段落，不是逐字全文。"
+                    else:
+                        chunk_note = "长文追问：附上大纲、开头、结尾和相关段落，不是逐字全文。"
+                    if outline:
+                        chunk_note += "\n全文大纲：\n" + outline
                 result = run_reader_stream(
-                    build_merge_prompt(
+                    build_reader_prompt(
                         article=article,
-                        prompt_body=prompt_body or question,
-                        partials=partials,
+                        question=question,
+                        prompt_body=prompt_body,
                         quote_text=quote,
+                        history=history,
+                        article_text=context,
+                        chunk_note=chunk_note,
                     ),
                     reasoning=reasoning,
                     on_start=on_start,
                     on_delta=delta,
                 )
                 delta.flush()
-                usage["input_tokens"] += int((result.get("usage") or {}).get("input_tokens") or 0)
-                usage["output_tokens"] += int((result.get("usage") or {}).get("output_tokens") or 0)
-                duration_ms += int(result.get("duration_ms") or 0)
-            else:
-                result = {"text": ""}
-        else:
-            if mode == "full":
-                context = text
-                chunk_note = ""
-            else:
-                ensure_chunks(article_id, text)
-                focus = quote if mode == "selection" else question
-                picked = chunks_for_question(article_id, focus, limit=6)
-                context = "\n\n".join(item["content"] for item in picked)
-                outline = outline_chunks(article_id)
-                if mode == "selection":
-                    chunk_note = "长文：这次只附上选中文本所在的相关段落，不是逐字全文。"
-                else:
-                    chunk_note = "长文追问：附上大纲、开头、结尾和相关段落，不是逐字全文。"
-                if outline:
-                    chunk_note += "\n全文大纲：\n" + outline
-            result = run_reader_stream(
-                build_reader_prompt(
-                    article=article,
-                    question=question,
-                    prompt_body=prompt_body,
-                    quote_text=quote,
-                    history=history,
-                    article_text=context,
-                    chunk_note=chunk_note,
-                ),
-                reasoning=reasoning,
-                on_start=on_start,
-                on_delta=delta,
-            )
-            delta.flush()
-            usage = result.get("usage") or usage
-            duration_ms = result.get("duration_ms") or 0
+                usage = result.get("usage") or usage
+                duration_ms = result.get("duration_ms") or 0
 
         if _cancelled():
             leases.finish(
@@ -369,6 +372,11 @@ def _run_claimed(handle: leases.LeaseHandle) -> None:
         )
         conn.commit()
     except Exception as exc:  # noqa: BLE001
+        if delta is not None:
+            try:
+                delta.flush()
+            except Exception:
+                pass
         if _cancelled():
             leases.finish(
                 handle,

@@ -503,36 +503,44 @@ def _run_job(row: dict[str, Any], handle: leases.LeaseHandle | None = None) -> N
     usage_file = f"/tmp/moni-llm-usage-{job_id}-{int(time.time())}.json"
     use_stream = task_type == "fact_check_plus"
     progress.start_job(job_id)
+    from moni.llm.desensitize.audit import desensitize_scope
+
     try:
-        if use_stream:
-            stream_result = _run_with_heartbeat(
-                lambda: _run_streaming_call(
-                    job_id, provider, model, prompt, timeout=600
-                ),
-                handle,
-            )
-            result_text = stream_result.text
-            usage = {
-                "input_tokens": stream_result.input_tokens,
-                "output_tokens": stream_result.output_tokens,
-                "cost_usd": 0.0,
-            }
-        else:
-            call_result = _run_with_heartbeat(
-                lambda: call_llm(
-                    provider, model, prompt,
-                    extra_args=extra_args,
-                    usage_file=usage_file,
-                    usage=True,
-                ),
-                handle,
-            )
-            if isinstance(call_result, tuple):
-                result_text, usage = call_result
+        with desensitize_scope(
+            task_type=task_type,
+            article_id=article_id,
+            job_id=job_id,
+            json_output=(task_type in {"fact_check", "fact_check_plus", "predict_tags"}),
+        ):
+            if use_stream:
+                stream_result = _run_with_heartbeat(
+                    lambda: _run_streaming_call(
+                        job_id, provider, model, prompt, timeout=600
+                    ),
+                    handle,
+                )
+                result_text = stream_result.text
+                usage = {
+                    "input_tokens": stream_result.input_tokens,
+                    "output_tokens": stream_result.output_tokens,
+                    "cost_usd": 0.0,
+                }
             else:
-                # 兼容: 外部 mock / 旧实现可能仍返回纯 str (usage 记 0)。
-                result_text = call_result
-                usage = {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
+                call_result = _run_with_heartbeat(
+                    lambda: call_llm(
+                        provider, model, prompt,
+                        extra_args=extra_args,
+                        usage_file=usage_file,
+                        usage=True,
+                    ),
+                    handle,
+                )
+                if isinstance(call_result, tuple):
+                    result_text, usage = call_result
+                else:
+                    # 兼容: 外部 mock / 旧实现可能仍返回纯 str (usage 记 0)。
+                    result_text = call_result
+                    usage = {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
     except Exception as exc:
         duration_ms = int((time.monotonic() - t0) * 1000)
         err_msg = f"{type(exc).__name__}: {exc}"

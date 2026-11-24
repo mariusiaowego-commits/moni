@@ -836,7 +836,10 @@ def _ensure_fact_check(
         content=content,
     )
     timeout = min(STEP_TIMEOUT_SEC, max(15, int(budget_left[0])))
-    out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
+    from moni.llm.desensitize.audit import desensitize_scope
+
+    with desensitize_scope(task_type="fact_check", article_id=row["id"], json_output=True):
+        out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
     budget_left[0] -= timeout  # approximate
     if code != 0:
         log.warning("enrichment: fact_check hermes exit %s for %s", code, row["id"])
@@ -896,8 +899,11 @@ def _ensure_business_value(
         return False
 
     def llm(prompt: str, timeout: float) -> tuple[str, int]:
+        from moni.llm.desensitize.audit import desensitize_scope
+
         started = time.monotonic()
-        out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
+        with desensitize_scope(task_type="business_value", article_id=row["id"], json_output=True):
+            out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
         # Charge actual wall time, not the requested timeout: a fast hermes
         # must not spend the whole run budget (§4.6).
         budget_left[0] -= max(time.monotonic() - started, 0.0)
@@ -1109,7 +1115,10 @@ def _ensure_brief_body(
         content=content,
     )
     timeout = min(150, max(40, int(min(STEP_TIMEOUT_SEC + 30, budget_left[0]))))
-    out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
+    from moni.llm.desensitize.audit import desensitize_scope
+
+    with desensitize_scope(task_type="brief_body", article_id=row["id"], json_output=False):
+        out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
     budget_left[0] -= timeout
     if code != 0:
         log.warning(
@@ -1269,7 +1278,10 @@ def _ensure_brief_summary(
         summary=full[:2000],
     )
     timeout = min(STEP_TIMEOUT_SEC, max(15, int(budget_left[0])))
-    out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
+    from moni.llm.desensitize.audit import desensitize_scope
+
+    with desensitize_scope(task_type="brief_summary", article_id=row["id"], json_output=True):
+        out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
     budget_left[0] -= timeout
     if code != 0:
         log.warning("enrichment: compact summary hermes exit %s for %s", code, row["id"])
@@ -1359,136 +1371,138 @@ def run_enrichment(
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
+    from moni.llm.desensitize.audit import desensitize_scope
 
     try:
-        # 1) summaries
-        if flags.get("include_abstract"):
-            _update_progress(conn, task_id, "enrich_summary", 25, "正在生成/复用 AI 摘要 ...")
-            try:
-                generated = generate_and_writeback(db_path, article_ids, manifest_path)
-                stats["summary"] = len(generated)
-            except Exception as exc:
-                log.exception("enrichment: summary failed: %s", exc)
-                stats["failed"].append(f"summary:{exc}")
+        with desensitize_scope(share_task_id=task_id, db_path=db_path):
+          # 1) summaries
+          if flags.get("include_abstract"):
+              _update_progress(conn, task_id, "enrich_summary", 25, "正在生成/复用 AI 摘要 ...")
+              try:
+                  generated = generate_and_writeback(db_path, article_ids, manifest_path)
+                  stats["summary"] = len(generated)
+              except Exception as exc:
+                  log.exception("enrichment: summary failed: %s", exc)
+                  stats["failed"].append(f"summary:{exc}")
 
-        # reload rows after summary write
-        rows = _article_rows(conn, article_ids)
-        n = max(len(rows), 1)
+          # reload rows after summary write
+          rows = _article_rows(conn, article_ids)
+          n = max(len(rows), 1)
 
-        # 2) fact check
-        if flags.get("include_fact_check"):
-            for i, row in enumerate(rows):
-                _update_progress(
-                    conn,
-                    task_id,
-                    "enrich_fact_check",
-                    40,
-                    f"事实核查 ({i + 1}/{n}) ...",
-                )
-                ok = _ensure_fact_check(conn, row, extra_args, budget_left)
-                if ok:
-                    stats["fact_check"] += 1
-                else:
-                    stats["failed"].append(f"fact_check:{row['id']}")
+          # 2) fact check
+          if flags.get("include_fact_check"):
+              for i, row in enumerate(rows):
+                  _update_progress(
+                      conn,
+                      task_id,
+                      "enrich_fact_check",
+                      40,
+                      f"事实核查 ({i + 1}/{n}) ...",
+                  )
+                  ok = _ensure_fact_check(conn, row, extra_args, budget_left)
+                  if ok:
+                      stats["fact_check"] += 1
+                  else:
+                      stats["failed"].append(f"fact_check:{row['id']}")
 
-        rows = _article_rows(conn, article_ids)
+          rows = _article_rows(conn, article_ids)
 
-        # 3) business value
-        if flags.get("include_business_value"):
-            for i, row in enumerate(rows):
-                _update_progress(
-                    conn,
-                    task_id,
-                    "enrich_business_value",
-                    55,
-                    f"业务价值评估 ({i + 1}/{n}) ...",
-                )
-                share = budget_left[0] / max(len(rows) - i, 1)
-                ok = _ensure_business_value(
-                    conn,
-                    row,
-                    extra_args,
-                    budget_left,
-                    article_budget=min(BV_ARTICLE_BUDGET_SEC, share),
-                )
-                if ok:
-                    stats["business_value"] += 1
-                else:
-                    stats["failed"].append(f"business_value:{row['id']}")
+          # 3) business value
+          if flags.get("include_business_value"):
+              for i, row in enumerate(rows):
+                  _update_progress(
+                      conn,
+                      task_id,
+                      "enrich_business_value",
+                      55,
+                      f"业务价值评估 ({i + 1}/{n}) ...",
+                  )
+                  share = budget_left[0] / max(len(rows) - i, 1)
+                  ok = _ensure_business_value(
+                      conn,
+                      row,
+                      extra_args,
+                      budget_left,
+                      article_budget=min(BV_ARTICLE_BUDGET_SEC, share),
+                  )
+                  if ok:
+                      stats["business_value"] += 1
+                  else:
+                      stats["failed"].append(f"business_value:{row['id']}")
 
-        rows = _article_rows(conn, article_ids)
+          rows = _article_rows(conn, article_ids)
 
-        # 4) quality score — brief always on; heuristic by default (no LLM cost)
-        if flags.get("include_quality_score") or flags.get("brief"):
-            _update_progress(conn, task_id, "enrich_summary", 58, "计算质量/注意力分 ...")
-            for row in rows:
-                if _ensure_quality(conn, row, extra_args, budget_left, use_llm=False):
-                    stats["quality"] += 1
+          # 4) quality score — brief always on; heuristic by default (no LLM cost)
+          if flags.get("include_quality_score") or flags.get("brief"):
+              _update_progress(conn, task_id, "enrich_summary", 58, "计算质量/注意力分 ...")
+              for row in rows:
+                  if _ensure_quality(conn, row, extra_args, budget_left, use_llm=False):
+                      stats["quality"] += 1
 
-        # 5) brief summary compact — only long ones AI-rewrite (option 2)
-        if flags.get("brief") or flags.get("include_abstract"):
-            rows = _article_rows(conn, article_ids)
-            n = max(len(rows), 1)
-            for i, row in enumerate(rows):
-                _update_progress(
-                    conn,
-                    task_id,
-                    "enrich_summary",
-                    62,
-                    f"压缩超长摘要 ({i + 1}/{n}) ...",
-                )
-                if _ensure_brief_summary(conn, row, extra_args, budget_left):
-                    stats["brief_summary"] += 1
-                else:
-                    stats["failed"].append(f"brief_summary:{row['id']}")
+          # 5) brief summary compact — only long ones AI-rewrite (option 2)
+          if flags.get("brief") or flags.get("include_abstract"):
+              rows = _article_rows(conn, article_ids)
+              n = max(len(rows), 1)
+              for i, row in enumerate(rows):
+                  _update_progress(
+                      conn,
+                      task_id,
+                      "enrich_summary",
+                      62,
+                      f"压缩超长摘要 ({i + 1}/{n}) ...",
+                  )
+                  if _ensure_brief_summary(conn, row, extra_args, budget_left):
+                      stats["brief_summary"] += 1
+                  else:
+                      stats["failed"].append(f"brief_summary:{row['id']}")
 
-        # 6) agent body layout for offline HTML (structure only)
-        if flags.get("brief"):
-            rows = _article_rows(conn, article_ids)
-            n = max(len(rows), 1)
-            for i, row in enumerate(rows):
-                _update_progress(
-                    conn,
-                    task_id,
-                    "enrich_summary",
-                    64,
-                    f"正文排版 ({i + 1}/{n}) ...",
-                )
-                if _ensure_brief_body(conn, row, extra_args, budget_left):
-                    stats["brief_body"] += 1
-                else:
-                    stats["failed"].append(f"brief_body:{row['id']}")
+          # 6) agent body layout for offline HTML (structure only)
+          if flags.get("brief"):
+              rows = _article_rows(conn, article_ids)
+              n = max(len(rows), 1)
+              for i, row in enumerate(rows):
+                  _update_progress(
+                      conn,
+                      task_id,
+                      "enrich_summary",
+                      64,
+                      f"正文排版 ({i + 1}/{n}) ...",
+                  )
+                  if _ensure_brief_body(conn, row, extra_args, budget_left):
+                      stats["brief_body"] += 1
+                  else:
+                      stats["failed"].append(f"brief_body:{row['id']}")
 
-        # 7) v1.0.24 brief web mode / v1.0.101 深度事实核查:
-        #    补齐缺的 fact_check_plus，再盖 evidence_rendered_at。
-        #    用户勾了「深度事实核查」就说明要联网档，不能只给离线推断。
-        if flags.get("brief") or flags.get("include_fact_check"):
-            _update_progress(
-                conn, task_id, "enrich_fact_check", 66, "检查联网核查覆盖 ..."
-            )
-            provider, model = _resolve_fact_check_provider_model(
-                conn, extra_args=extra_args, manifest_path=manifest_path
-            )
-            try:
-                enq = _enqueue_missing_web_fact_checks(
-                    conn,
-                    article_ids,
-                    db_path=db_path,
-                    provider=provider,
-                    model=model,
-                    wait=True,
-                    timeout=180.0,
-                )
-                stats["fact_check_plus_enqueued"] = enq
-            except Exception as exc:
-                log.warning("enrichment: web fact_check enqueue step failed: %s", exc)
-                stats["failed"].append(f"fact_check_plus_enqueue:{exc}")
-            try:
-                _write_evidence_rendered_at(conn, article_ids)
-            except Exception as exc:
-                log.warning("enrichment: evidence_rendered_at stamp failed: %s", exc)
+          # 7) v1.0.24 brief web mode / v1.0.101 深度事实核查:
+          #    补齐缺的 fact_check_plus，再盖 evidence_rendered_at。
+          #    用户勾了「深度事实核查」就说明要联网档，不能只给离线推断。
+          if flags.get("brief") or flags.get("include_fact_check"):
+              _update_progress(
+                  conn, task_id, "enrich_fact_check", 66, "检查联网核查覆盖 ..."
+              )
+              provider, model = _resolve_fact_check_provider_model(
+                  conn, extra_args=extra_args, manifest_path=manifest_path
+              )
+              try:
+                  enq = _enqueue_missing_web_fact_checks(
+                      conn,
+                      article_ids,
+                      db_path=db_path,
+                      provider=provider,
+                      model=model,
+                      wait=True,
+                      timeout=180.0,
+                  )
+                  stats["fact_check_plus_enqueued"] = enq
+              except Exception as exc:
+                  log.warning("enrichment: web fact_check enqueue step failed: %s", exc)
+                  stats["failed"].append(f"fact_check_plus_enqueue:{exc}")
+              try:
+                  _write_evidence_rendered_at(conn, article_ids)
+              except Exception as exc:
+                  log.warning("enrichment: evidence_rendered_at stamp failed: %s", exc)
 
-        _update_progress(conn, task_id, "building_prompt", 65, "富化完成，准备拼装简报 ...")
+          _update_progress(conn, task_id, "building_prompt", 65, "富化完成，准备拼装简报 ...")
     finally:
         conn.close()
         if invoke_hermes is not None and sg is not None and self_mod is not None:

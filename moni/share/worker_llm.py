@@ -219,6 +219,8 @@ def run_hermes(
     provider_override: str | None = None,
     model_override: str | None = None,
     usage_file: str | os.PathLike[str] | None = None,
+    task_id: str | None = None,
+    share_format: str | None = None,
 ) -> dict[str, Any]:
     """Invoke hermes and return a dict with output + usage counters.
 
@@ -237,7 +239,19 @@ def run_hermes(
       124 — subprocess 超时
       1   — hermes 非零退出 / stdout 命中失败关键字 / 运行期错误
     """
+    from moni.llm.desensitize.audit import (
+        current_desensitize_scope,
+        finalize_inbound,
+        prepare_outbound,
+        record_event,
+    )
     from moni.llm.runner import read_model_mode
+
+    scope = current_desensitize_scope()
+    eff_task_id = task_id if task_id is not None else scope.share_task_id
+    eff_task_type = share_format or scope.task_type or "share_worker"
+    eff_db = db_path if db_path is not None else scope.db_path
+    eff_inject = eff_task_type not in {"info_graphic_png", "report_png"}
 
     if read_model_mode(db_path) == "profile" and not (provider_override or model_override):
         provider: str | None = None
@@ -260,31 +274,63 @@ def run_hermes(
             "usage": usage,
         }
 
+    ctx = prepare_outbound(
+        prompt,
+        call_site="worker_llm",
+        task_type=eff_task_type,
+        share_task_id=eff_task_id,
+        json_output=bool(scope.json_output),
+        inject_note=eff_inject,
+        db_path=eff_db,
+    )
+    if ctx is not None and ctx.mask_result.blocked:
+        record_event(ctx, provider=provider or "", model=model or "", blocked=True)
+        return _result(f"desensitize blocked: {ctx.mask_result.blocked_reason}\n", 1)
+    if ctx is not None:
+        record_event(ctx, provider=provider or "", model=model or "", blocked=False)
+    send_prompt = ctx.masked_text if ctx is not None else prompt
+
     try:
         # v1.0.42: route through moni.llm.runner so subprocess killpg +
         # argv pre-check + stdin transport handling come for free.
         from moni.llm.runner import HardenedSubprocess
-        argv = _build_argv(prompt, provider, model, profile=DEFAULT_PROFILE,
+        argv = _build_argv(send_prompt, provider, model, profile=DEFAULT_PROFILE,
                            skill=skill, usage_file=usage_file)
-        runner = HardenedSubprocess(cmd=argv, prompt_text=prompt, timeout=timeout_sec)
+        runner = HardenedSubprocess(cmd=argv, prompt_text=send_prompt, timeout=timeout_sec)
         sub = runner.run()
         stdout = sub.stdout
         code = sub.returncode
     except subprocess.TimeoutExpired:
         # HardenedSubprocess already killed the process group; just report.
+        if ctx is not None:
+            ctx.fallback_override = ctx.fallback_override or "timeout"
+            record_event(ctx, provider=provider or "", model=model or "", blocked=False)
         return _result("", 124)
     except FileNotFoundError:
+        if ctx is not None:
+            ctx.fallback_override = ctx.fallback_override or "binary_not_found"
+            record_event(ctx, provider=provider or "", model=model or "", blocked=False)
         return _result(
             "hermes CLI not found on PATH — install Hermes Agent or fix $PATH.\n", 1
         )
     except Exception as exc:  # noqa: BLE001 — worker 不能因运行期异常挂掉
+        if ctx is not None:
+            ctx.fallback_override = ctx.fallback_override or "invoke_error"
+            record_event(ctx, provider=provider or "", model=model or "", blocked=False)
         return _result(f"worker_llm run_hermes error: {exc!r}\n", 1)
 
     if code != 0:
         # hermes 的 argparse 错误只写 stderr, 只回 stdout 会得到空 error,
         # 任务在 DB 里看起来「无原因失败」。
         detail = stdout.strip() or sub.stderr.strip()
+        if ctx is not None:
+            ctx.fallback_override = ctx.fallback_override or "exit_nonzero"
+            record_event(ctx, provider=provider or "", model=model or "", blocked=False)
         return _result(f"{detail}\n" if detail else stdout, code)
+
+    if ctx is not None and stdout:
+        stdout = finalize_inbound(ctx, stdout)
+        record_event(ctx, provider=provider or "", model=model or "", blocked=False)
 
     hit = detect_llm_failure(stdout or "")
     if hit:
@@ -366,6 +412,8 @@ def cli(argv: Iterable[str] | None = None) -> int:
         default=None,
         help="hermes --usage-file path (JSON usage report)",
     )
+    parser.add_argument("--task-id", default=None, help="share task ID for desensitization audit")
+    parser.add_argument("--format", dest="share_format", default=None, help="share format / task type")
     parser.add_argument("prompt", help="the prompt text")
     args = parser.parse_args(list(argv) if argv is not None else None)
 
@@ -378,6 +426,8 @@ def cli(argv: Iterable[str] | None = None) -> int:
             provider_override=args.provider,
             model_override=args.model,
             usage_file=args.usage_file,
+            task_id=args.task_id,
+            share_format=args.share_format,
         )
     except KeyboardInterrupt:
         return 130
