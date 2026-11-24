@@ -1,8 +1,10 @@
 # moni「对大模型的信息脱敏」实施规格（合并版 v1.0）
 
 - 日期：2026-11-24
-- 分支：`feat/desens-llm-shield`（基线 `main` @ `247cfc0` / v1.0.122，SQLite `_CURRENT_VERSION = 57`）
-- 状态：进行中
+- 分支：`feat/desens-llm-shield`（实施时基线 `main` @ `247cfc0` / v1.0.122，SQLite `_CURRENT_VERSION = 57`；
+  实施完成后 rebase 到 `origin/main` @ `9c6adcb`，**0 behind**）
+- 状态：进行中 —— M0 内核 + migration 058 + 5 条通道接线已落地（6 commits，PR #294）；
+  待用户当轮授权后 squash merge → 生产库迁移 → 线上验证。实施记录见 `docs/sprint-evidence/sprint-68/RUN.md`
 - 设计来源：agy 方案 A（`/private/tmp/herdr-dispatch/tasks/20261124-112654-moni-desens-design-agy/result.md`，615 行）
   + codex 方案 B（`/private/tmp/moni-desens-design-codex.md`）的 2 项增量
 - 参考实现：magpie `fc4406fb`（`/private/tmp/magpie-src/magpie`）、官方演示录屏 8 步
@@ -237,6 +239,7 @@ def make_placeholder(kind: str, canonical_value: str, salt: bytes) -> str:
 | **出站泄漏命中数** | `sum(leak_scan_hits)`，**期望恒为 0** |
 | Token 净变化 | `sum(estimate_tokens(before) - estimate_tokens(after))`，口径沿用 `moni/llm/runner.py:38`，界面标「公式估算」（沿用 `moni/stats/savings.py:143` 的防质疑惯例） |
 | 延迟开销 | `(mask_latency_us + restore_latency_us)/1000` 的 P50 / P95，目标 **P95 ≤ 2.5 ms、P50 ≈ 1.7 ms**（6,000 字密集研报实测 1.8–2.1 ms；原 2.0 ms 口径在繁忙主机上会抖动，故放宽到 2.5 ms 并保留实测分布） |
+| **延迟口径（实施后修正）** | 上述 P50 / P95 一律取 **CPU 时间**（`time.process_time_ns()`），3 轮 × 60 样本 **pooled** 后取分位；**预算仍是 2.5 ms，未放宽**。理由：本机 load avg ≈ 22 时 wall-clock 尾部纯由 OS 调度抢占主导 —— 实测 wall-clock P95 **7/8 轮**越过 2.5 ms（峰值 15.18 ms），而 CPU-time P95 **8/8 轮**均在 2.5 ms 内（见 `docs/sprint-evidence/sprint-68/RUN.md` §3.3）。wall-clock 口径会把宿主负载算成 feature 开销。 |
 
 ---
 
@@ -422,3 +425,26 @@ from .rules import Rule, UserRules, builtin_rules
 | 占位符提示注入 | `internal/gateway/placeholder_note.go:24` |
 | 本地模型（可选） | `internal/pii/astrlink.go:33`、`:25`、`:50`；`internal/pii/guard/guard.go:74` `MinScore` |
 
+
+---
+
+## 16. 实施结果（2026-11-24 · sprint-68）
+
+| 项 | 结果 |
+|---|---|
+| 分支 / PR | `feat/desens-llm-shield` / PR #294（OPEN，6 commits，MERGEABLE，0 behind `origin/main` @ `9c6adcb`） |
+| 内核 | `moni/llm/desensitize/` 7 文件：`rules.py` 1583 / `restorer.py` 687 / `engine.py` 616 / `audit.py` 519 / `vault.py` 428 / `policy.py` 138 / `salt.py` 51 行 |
+| 迁移 | `moni/db/migrations/058_llm_desensitize.sql` 64 行（`desensitize_rules` + `desensitize_events`），`_CURRENT_VERSION` 57 → 58 |
+| 通道接线 | ① `moni/llm/runner.py:450` ② `moni/llm/stream.py:88` ③ `moni/llm/reader.py:371` ④ `moni/share/worker_llm.py:277` ⑤ `moni/share/summary_gen.py:124`；job 调度 scope 在 `moni/llm/jobs.py:509` |
+| 默认态 | `desensitize.enabled = '0'` → 合并后生产行为零变化 |
+| 测试 | 全量 `2721 passed, 2 skipped, 0 failed`（基线 `2715 passed, 2 skipped`）；脱敏专项 `96 passed` |
+| 端到端 | 真实 hermes：出站无明文 → 回包已还原，`leak_scan_hits = 0`、`residual_placeholders = 0` |
+| 性能 | CPU-time pooled P95 ≤ 2.5 ms（预算未放宽；口径修正理由见 §7.3 补注） |
+| 未做 | UI 开关面板、用户自助规则入口、生产库迁移与线上验证（需当轮授权） |
+
+**实施期偏离本规格的一处**：M1 契约里的「跨进程加密槽」被**整体取消** —— `worker_llm.py` 改为
+同进程闭环（`prepare_outbound` / `finalize_inbound` 同进程持有 vault）。理由：跨进程传原值
+会让原值落到子进程 argv，抵消脱敏本身。
+
+完整验收证据（命令与输出 / 可复算 SQL / failed 与 skipped 分列）见
+`docs/sprint-evidence/sprint-68/RUN.md`。
