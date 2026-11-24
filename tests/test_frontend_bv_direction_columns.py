@@ -144,3 +144,42 @@ def test_score_column_headers_explain_themselves():
         cell = re.search(rf"<th\b[^>]*>{label}</th>", head)
         assert cell, f"表头 {label} 没找到"
         assert "title=" in cell.group(0), f"{label} 列头没有 title 说明"
+
+
+def test_ops_column_stays_visible_when_the_table_scrolls():
+    """操作列要够宽，并且钉在右侧：窄窗口横向滚动时按钮不能被裁掉。"""
+    ops = _cols()[-1]
+    assert ops[0] >= 148, f"操作列只有 {ops[0]}px，装不下查看/删除"
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    assert 'class="ops-col"' in html
+    assert "articles-table-pinned" in html
+    css = MAIN_CSS.read_text(encoding="utf-8")
+    sticky = re.search(r"\.articles-table \.ops-col\s*\{([^}]*)\}", css)
+    assert sticky, "操作列没有固定样式"
+    body = sticky.group(1)
+    assert "position: sticky" in body and "right: 0" in body
+    assert re.search(r"\.articles-table-pinned\s*\{[^}]*min-width:\s*1196px", css)
+
+
+def test_unselected_direction_scoring_asks_before_the_batch():
+    """没勾选就打当前页，必须先确认篇数和耗时。"""
+    app = APP_JS.read_text(encoding="utf-8")
+    fn = re.search(r"async startBvDirectionScoring\(\) \{(.*?)\n    pollBvScores", app, re.S)
+    assert fn, "startBvDirectionScoring 不是 async 或找不到函数体"
+    body = fn.group(1)
+    assert "pinnedSelectedIds" in body
+    assert "批量方向打分" in body
+    assert "moniModal.confirm" in body
+    assert "连续打" in body
+
+
+def test_direction_brief_editor_is_large_enough_to_write():
+    """方向说明不是一行备注，输入框要能写下 200 字并显示计数。"""
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    area = re.search(r'<textarea class="direction-brief"[^>]*>', html)
+    assert area, "方向说明输入框没有加高"
+    assert 'rows="8"' in area.group(0)
+    assert " / 200" in html
+    css = MAIN_CSS.read_text(encoding="utf-8")
+    assert re.search(r"\.direction-brief\s*\{[^}]*min-height:\s*168px", css)
+    assert "modal-content-direction" in html

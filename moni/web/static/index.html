@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261124002">
+  <link rel="stylesheet" href="css/main.css?v=20261124003">
   <!-- v1.0.110: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
        放在 main.css 之后，同名选择器以它们为准，便于单独回滚。 -->
   <link rel="stylesheet" href="css/source-ops.css?v=20261120011">
@@ -244,7 +244,7 @@
         </div>
 
         <div class="table-container articles-table-wrap">
-          <table class="articles-table" style="table-layout: fixed; width: 100%;">
+          <table class="articles-table" :class="{ 'articles-table-pinned': articlesSubTab === 'pinned' }" style="table-layout: fixed; width: 100%;">
             <colgroup>
               <col style="width: 40px;">
               <col style="width: 44px;" x-show="articlesSubTab === 'all'">
@@ -255,13 +255,13 @@
               <col style="width: 210px;" x-show="articlesSubTab === 'pinned'">
               <col style="width: 110px;">
               <col style="width: 110px;">
-              <col style="width: 96px;">
+              <col class="ops-col" style="width: 156px;">
             </colgroup>
             <thead>
               <tr>
                 <th><input type="checkbox" :checked="articlesSubTab === 'all' ? articleAllSelectedOnPage() : pinnedAllSelectedOnPage()" @change="articlesSubTab === 'all' ? articleToggleAllOnPage($event) : pinnedToggleAllOnPage($event)"></th>
                 <th class="pin-col-head" x-show="articlesSubTab === 'all'">Pin</th>
-                <th>标题</th><th>来源</th><th>命中标签</th><th class="quality-col-head" x-show="articlesSubTab === 'pinned'" style="text-align: right;" title="质量分：0-5 分制，一位小数。悬停单元格看这条分是怎么算出来的。">质量分</th><th class="bv-col-head" x-show="articlesSubTab === 'pinned'" title="业务价值分：十维加权，0-100 分。选中业务方向后会再给一个该方向下的专业分。">业务价值分</th><th>原文时间</th><th>同步时间</th><th style="text-align: right;">操作</th>
+                <th>标题</th><th>来源</th><th>命中标签</th><th class="quality-col-head" x-show="articlesSubTab === 'pinned'" style="text-align: right;" title="质量分：0-5 分制，一位小数。悬停单元格看这条分是怎么算出来的。">质量分</th><th class="bv-col-head" x-show="articlesSubTab === 'pinned'" title="业务价值分：十维加权，0-100 分。选中业务方向后会再给一个该方向下的专业分。">业务价值分</th><th>原文时间</th><th>同步时间</th><th class="ops-col">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -336,7 +336,7 @@
                   </td>
                   <td class="tabular-nums nowrap" x-text="formatTime(a.published_at || a.fetched_at || a.created_at)"></td>
                   <td class="tabular-nums nowrap" x-text="formatTime(a.created_at)"></td>
-                  <td style="text-align: right;"><div class="row-actions" style="justify-content: flex-end;">
+                  <td class="ops-col"><div class="row-actions">
                     <a href="#" @click.prevent="showArticleDetail(a)" class="link-btn">查看</a>
                     <span class="reader-chat-mark" x-show="a.has_reader_chat" title="有 AI 对话记录">
                       <svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
@@ -4445,7 +4445,7 @@
 
     <!-- ══ Config Edit Modal (v1.0.2-F) ═════════════════════════════ -->
     <div class="modal-backdrop" x-show="configModalOpen" x-cloak @click.self="closeConfigModal()" @keydown.escape.window="closeConfigModal()">
-      <div class="modal-content">
+      <div class="modal-content" :class="{ 'modal-content-direction': configModalType === 'direction' }">
 
         <!-- Direction modal (Sprint 67, S2) -->
         <template x-if="configModalType === 'direction'">
@@ -4465,7 +4465,8 @@
                 <label>方向说明 <span class="required">*</span>
                   <small class="muted">≤200 字；描述这个方向关心什么，改了以后需要重新研究</small>
                 </label>
-                <textarea x-model="configModalTarget.brief" rows="3" maxlength="200" placeholder="微信支付、公众号、小程序里的银行动作"></textarea>
+                <textarea class="direction-brief" x-model="configModalTarget.brief" rows="8" maxlength="200" placeholder="这个方向关心什么。例如：微信公众号与视频号里，能转成银行获客或合规落地的选题"></textarea>
+                <small class="field-count" x-text="((configModalTarget.brief || '').length) + ' / 200'"></small>
                 <small class="text-danger" x-show="configModalTarget.briefError" x-text="configModalTarget.briefError"></small>
               </div>
               <div class="form-row" x-show="!!configModalTargetOriginal">
@@ -5167,7 +5168,7 @@
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
-  <script src="js/app.js?v=20261124007"></script>
+  <script src="js/app.js?v=20261124008"></script>
   <script src="js/reader.js?v=20261123103"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
