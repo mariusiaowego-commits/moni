@@ -3556,8 +3556,8 @@
                     </td>
                     <td class="nowrap">
                       <span class="status-badge"
-                            :class="job.is_active ? 'status-success' : 'status-cancelled'"
-                            x-text="job.is_active ? '启用' : '停用'"></span>
+                            :class="job.is_running ? 'status-running' : (job.is_active ? 'status-success' : 'status-cancelled')"
+                            x-text="job.is_running ? '运行中' : (job.is_active ? '启用' : '停用')"></span>
                     </td>
                     <td style="text-align: right;">
                       <div class="row-actions" style="justify-content: flex-end;">
@@ -5166,7 +5166,7 @@
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
-  <script src="js/app.js?v=20261124003"></script>
+  <script src="js/app.js?v=20261124004"></script>
   <script src="js/reader.js?v=20261123103"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind

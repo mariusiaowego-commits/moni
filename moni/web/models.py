@@ -170,6 +170,9 @@ class CronJob(BaseModel):
     schedule: dict[str, Any] = Field(default_factory=dict)
     func_kwargs: dict[str, Any] = Field(default_factory=dict)
     is_active: bool = True
+    # True while the job's latest run is still in flight (cron_runs.extra
+    # carries {"in_progress": true} until the run finalises its row).
+    is_running: bool = False
     last_run_at: datetime | str | None = None
     next_run_at: datetime | str | None = None
     created_at: datetime | str | None = None
