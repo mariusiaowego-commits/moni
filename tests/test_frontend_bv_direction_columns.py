@@ -24,8 +24,10 @@ MAIN_CSS = STATIC / "css" / "main.css"
 APP_JS = STATIC / "js" / "app.js"
 FLOATING_JS = STATIC / "js" / "floating.js"
 
-#: 内容区宽度（main.css 的 .config-table-scroll > table 也用这个数）。
-CONTENT_WIDTH = 1198
+#: 内容区宽度。1280 宽窗口下的实测值：1280 − 垂直滚动条 17 − .content 的
+#: 左右内边距 40×2 = 1183。这是最窄的常见笔记本宽度，也是列宽预算的真正上限；
+#: 再宽的窗口里 .content 被 max-width 1280px 卡住，内容区只会更宽。
+CONTENT_WIDTH = 1183
 
 
 def _articles_table() -> str:
@@ -149,6 +151,7 @@ def test_score_column_headers_explain_themselves():
 def test_ops_column_stays_visible_when_the_table_scrolls():
     """操作列要够宽，并且钉在右侧：窄窗口横向滚动时按钮不能被裁掉。"""
     ops = _cols()[-1]
+    # 148px 是实测内容宽 140px 加 8px 余量。
     assert ops[0] >= 148, f"操作列只有 {ops[0]}px，装不下查看/删除"
     html = INDEX_HTML.read_text(encoding="utf-8")
     assert 'class="ops-col"' in html
@@ -158,7 +161,7 @@ def test_ops_column_stays_visible_when_the_table_scrolls():
     assert sticky, "操作列没有固定样式"
     body = sticky.group(1)
     assert "position: sticky" in body and "right: 0" in body
-    assert re.search(r"\.articles-table-pinned\s*\{[^}]*min-width:\s*1196px", css)
+    assert re.search(r"\.articles-table-pinned\s*\{[^}]*min-width:\s*1176px", css)
 
 
 def test_unselected_direction_scoring_asks_before_the_batch():

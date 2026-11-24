@@ -753,11 +753,16 @@ h5, h6 { font-size: var(--font-14); }
   /* flex 子项默认 min-width:auto，表格一宽就把操作列顶出视口再被裁掉。 */
   min-width: 0; max-width: 100%;
 }
-/* Pin 视图列宽按 1196px 排，窄于内容区时横向滚动，不把「操作」挤扁。 */
-.articles-table-pinned { min-width: 1196px; }
+/* Pin 视图列宽按 1176px 排。
+   1280 宽窗口下内容区实测 1183px（1280 − 垂直滚动条 17 − .content 左右内边距 80），
+   比原来的 1196px 少 13px，于是桌面常态就挂出一条横向滚动条。
+   收窄标题列 12px、操作列 8px 后正好落在内容区内；再窄就横向滚动，
+   不把「操作」挤扁。 */
+.articles-table-pinned { min-width: 1176px; }
 .articles-table .ops-col {
   position: sticky; right: 0; z-index: 2;
-  width: 156px; min-width: 156px;
+  /* 操作列内容实测 140px（查看 44 + AI 标记 12 + 删除 44 + 间距 16 + 内边距 24） */
+  width: 148px; min-width: 148px;
   text-align: right;
   background: var(--card);
   box-shadow: -8px 0 8px -8px oklch(0 0 0 / 0.28);
