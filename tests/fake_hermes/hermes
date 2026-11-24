@@ -5,8 +5,20 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
+
+_PLACEHOLDER_RE = re.compile(r"\{\{[A-Za-z][A-Za-z0-9_]{0,23}_[A-Za-z0-9]{8}\}\}")
+
+
+def _extract_prompt_from_argv(argv: list[str]) -> str:
+    for flag in ("-z", "-q"):
+        if flag in argv:
+            idx = argv.index(flag)
+            if idx + 1 < len(argv):
+                return argv[idx + 1]
+    return " ".join(argv)
 
 
 def main() -> int:
@@ -24,6 +36,11 @@ def main() -> int:
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     reply = os.environ.get("FAKE_HERMES_REPLY", "FAKE-REPLY")
+    if os.environ.get("FAKE_HERMES_ECHO_PLACEHOLDERS", "").strip() == "1":
+        prompt_text = _extract_prompt_from_argv(argv)
+        hits = _PLACEHOLDER_RE.findall(prompt_text)
+        if hits:
+            reply = "ECHO:" + " ".join(hits)
     is_stream_json = False
     for idx, tok in enumerate(argv):
         if tok == "--format" and idx + 1 < len(argv) and argv[idx + 1] == "stream-json":

@@ -25,8 +25,15 @@ import signal
 import sqlite3
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable
+
+from moni.llm.desensitize.audit import (
+    current_desensitize_scope,
+    finalize_inbound,
+    prepare_outbound,
+    record_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -338,6 +345,11 @@ class CallRequest:
     timeout: int = 300
     extra_args: list[str] | None = None
     usage_file: str | None = None
+    task_type: str = ""
+    article_id: str | None = None
+    job_id: str | None = None
+    json_output: bool = False
+    _desens_ctx: Any = field(default=None, repr=False, compare=False)
 
 
 @dataclass
@@ -426,6 +438,35 @@ class FailoverRunner:
                     CircuitBreaker(model_id=req.model_id),
                 )
 
+        scope = current_desensitize_scope()
+        eff_task = req.task_type or scope.task_type or (
+            "connectivity_test" if req.prompt.strip().lower() == "hi" else "standard"
+        )
+        eff_article = req.article_id if req.article_id is not None else scope.article_id
+        eff_job = req.job_id if req.job_id is not None else scope.job_id
+        eff_json = bool(req.json_output or scope.json_output)
+        eff_inject = eff_task != "connectivity_test"
+
+        ctx = prepare_outbound(
+            req.prompt,
+            call_site="runner",
+            task_type=eff_task,
+            article_id=eff_article,
+            job_id=eff_job,
+            share_task_id=scope.share_task_id,
+            json_output=eff_json,
+            inject_note=eff_inject,
+            db_path=scope.db_path,
+        )
+        if ctx is not None:
+            if ctx.mask_result.blocked:
+                record_event(ctx, provider=req.provider, model=req.model_id, blocked=True)
+                raise LLMRunnerError(f"desensitize blocked: {ctx.mask_result.blocked_reason}")
+            record_event(ctx, provider=req.provider, model=req.model_id, blocked=False)
+            eff_req = replace(req, prompt=ctx.masked_text, _desens_ctx=ctx)
+        else:
+            eff_req = req
+
         errors: list[tuple[str, str]] = []
         for m_id in chain:
             breaker = self.breakers[m_id]
@@ -433,7 +474,7 @@ class FailoverRunner:
                 errors.append((m_id, f"breaker OPEN, reset in {breaker.reset_in_sec():.1f}s"))
                 continue
             try:
-                result = self._invoke(req, m_id)
+                result = self._invoke(eff_req, m_id)
             except PromptTooLargeError as exc:
                 # Truncate by chunked summarization is out of scope. Just
                 # bubble up — caller decides what to do.
@@ -445,10 +486,15 @@ class FailoverRunner:
                 logger.warning("[failover] %s failed: %s", m_id, err_msg)
                 continue
             breaker.record_success()
+            reply_text = result.stdout
+            used_model = "" if m_id == PROFILE_MODEL_KEY else m_id
+            if ctx is not None:
+                reply_text = finalize_inbound(ctx, reply_text)
+                record_event(ctx, provider=req.provider, model=used_model, blocked=False)
             return CallResult(
-                reply_text=result.stdout,
+                reply_text=reply_text,
                 provider=req.provider,
-                model_id="" if m_id == PROFILE_MODEL_KEY else m_id,
+                model_id=used_model,
                 duration_ms=result.duration_ms,
                 input_tokens=getattr(result, "input_tokens", 0),
                 output_tokens=getattr(result, "output_tokens", 0),
@@ -517,6 +563,33 @@ class FailoverRunner:
 
     def _invoke(self, req: CallRequest, model_id: str) -> SubprocessResult:
         """Build argv for the given model and run it via HardenedSubprocess."""
+        direct_ctx = None
+        prompt_text = req.prompt
+        if req._desens_ctx is None:
+            scope = current_desensitize_scope()
+            eff_task = req.task_type or scope.task_type or (
+                "connectivity_test" if req.prompt.strip().lower() == "hi" else "standard"
+            )
+            direct_ctx = prepare_outbound(
+                req.prompt,
+                call_site="runner",
+                task_type=eff_task,
+                article_id=req.article_id if req.article_id is not None else scope.article_id,
+                job_id=req.job_id if req.job_id is not None else scope.job_id,
+                share_task_id=scope.share_task_id,
+                json_output=bool(req.json_output or scope.json_output),
+                inject_note=eff_task != "connectivity_test",
+                db_path=scope.db_path,
+            )
+            if direct_ctx is not None:
+                if direct_ctx.mask_result.blocked:
+                    record_event(direct_ctx, provider=req.provider, model=model_id, blocked=True)
+                    raise LLMRunnerError(
+                        f"desensitize blocked: {direct_ctx.mask_result.blocked_reason}"
+                    )
+                record_event(direct_ctx, provider=req.provider, model=model_id, blocked=False)
+                prompt_text = direct_ctx.masked_text
+
         cmd = ["hermes", "-z", "{prompt}"]
         if req.provider:
             cmd.extend(["--provider", req.provider])
@@ -529,7 +602,7 @@ class FailoverRunner:
 
         subprocess_runner = HardenedSubprocess(
             cmd=cmd,
-            prompt_text=req.prompt,
+            prompt_text=prompt_text,
             timeout=req.timeout,
         )
         result = subprocess_runner.run()
@@ -556,6 +629,14 @@ class FailoverRunner:
             err = (result.stderr or "").strip()[:300]
             raise LLMRunnerError(
                 f"hermes failed rc={result.returncode}: {err}"
+            )
+        if direct_ctx is not None:
+            result.stdout = finalize_inbound(direct_ctx, result.stdout)
+            record_event(
+                direct_ctx,
+                provider=req.provider,
+                model="" if model_id == PROFILE_MODEL_KEY else model_id,
+                blocked=False,
             )
         return result
 

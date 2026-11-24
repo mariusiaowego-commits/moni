@@ -14,8 +14,15 @@ import signal
 import subprocess
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable
+
+from moni.llm.desensitize.audit import (
+    current_desensitize_scope,
+    finalize_inbound,
+    prepare_outbound,
+    record_event,
+)
 
 ARGV_PROMPT_LIMIT_BYTES = 200_000
 KILL_GRACE_SEC = 5.0
@@ -56,6 +63,10 @@ def run_hermes_stream(
     tools: str = "web",
     timeout: int = 600,
     on_event: EventCallback | None = None,
+    task_type: str = "standard",
+    article_id: str | None = None,
+    job_id: str | None = None,
+    json_output: bool | None = None,
 ) -> StreamResult:
     """Run Hermes and return the final response.
 
@@ -63,11 +74,79 @@ def run_hermes_stream(
     A watchdog kills the process group at ``timeout`` so a silent Hermes hang
     cannot block the sole jobs worker.
     """
-    prompt_bytes = len(prompt.encode("utf-8"))
+    scope = current_desensitize_scope()
+    eff_task = task_type if task_type != "standard" else (scope.task_type or "standard")
+    eff_article = article_id if article_id is not None else scope.article_id
+    eff_job = job_id if job_id is not None else scope.job_id
+    eff_json = (
+        json_output
+        if json_output is not None
+        else (scope.json_output if scope.json_output is not None else eff_task == "fact_check_plus")
+    )
+
+    raw_bytes = len(prompt.encode("utf-8"))
+    ctx = prepare_outbound(
+        prompt,
+        call_site="stream",
+        task_type=eff_task,
+        article_id=eff_article,
+        job_id=eff_job,
+        share_task_id=scope.share_task_id,
+        json_output=eff_json,
+        db_path=scope.db_path,
+    )
+    if ctx is not None and ctx.mask_result.blocked:
+        record_event(ctx, provider=provider, model=model, blocked=True)
+        raise RuntimeError(f"desensitize blocked: {ctx.mask_result.blocked_reason}")
+
+    if ctx is not None:
+        send_prompt = ctx.masked_text
+        prompt_bytes = len(send_prompt.encode("utf-8"))
+        if prompt_bytes > ARGV_PROMPT_LIMIT_BYTES and raw_bytes <= ARGV_PROMPT_LIMIT_BYTES:
+            # Downgrade once to L1-only masking when L2+ placeholders cross argv limit.
+            l1_ctx = prepare_outbound(
+                prompt,
+                call_site="stream",
+                task_type=eff_task,
+                article_id=eff_article,
+                job_id=eff_job,
+                share_task_id=scope.share_task_id,
+                json_output=eff_json,
+                db_path=scope.db_path,
+                force_level_l2=False,
+                force_level_l3=False,
+            )
+            if l1_ctx is not None:
+                if l1_ctx.mask_result.blocked:
+                    record_event(l1_ctx, provider=provider, model=model, blocked=True)
+                    raise RuntimeError(f"desensitize blocked: {l1_ctx.mask_result.blocked_reason}")
+                l1_bytes = len(l1_ctx.masked_text.encode("utf-8"))
+                if l1_bytes <= ARGV_PROMPT_LIMIT_BYTES:
+                    ctx = l1_ctx
+                    send_prompt = l1_ctx.masked_text
+                    prompt_bytes = l1_bytes
+                else:
+                    send_prompt = prompt
+                    prompt_bytes = raw_bytes
+                    ctx.fallback_override = "argv_limit"
+            else:
+                send_prompt = prompt
+                prompt_bytes = raw_bytes
+                ctx.fallback_override = "argv_limit"
+    else:
+        send_prompt = prompt
+        prompt_bytes = raw_bytes
+
     if prompt_bytes > ARGV_PROMPT_LIMIT_BYTES:
+        if ctx is not None:
+            ctx.fallback_override = "argv_limit"
+            record_event(ctx, provider=provider, model=model, blocked=False)
         raise PromptTooLargeError(prompt_bytes, ARGV_PROMPT_LIMIT_BYTES)
 
-    argv = ["hermes", "chat", "-q", prompt, "--format", "stream-json"]
+    if ctx is not None:
+        record_event(ctx, provider=provider, model=model, blocked=False)
+
+    argv = ["hermes", "chat", "-q", send_prompt, "--format", "stream-json"]
     if provider:
         argv.extend(["--provider", provider])
     if model:
@@ -97,17 +176,28 @@ def run_hermes_stream(
     watchdog.daemon = True
     watchdog.start()
     try:
-        return read_stream(
+        res = read_stream(
             proc,
             on_event=on_event,
             timeout=timeout,
             started=started,
             timed_out=timed_out,
         )
+    except StreamMidwayError:
+        if ctx is not None:
+            ctx.fallback_override = "stream_aborted"
+            record_event(ctx, provider=provider, model=model, blocked=False)
+        raise
     finally:
         watchdog.cancel()
         if proc.poll() is None:
             _kill_process_group(proc)
+
+    if ctx is not None:
+        restored = finalize_inbound(ctx, res.text)
+        res = replace(res, text=restored)
+        record_event(ctx, provider=provider, model=model, blocked=False)
+    return res
 
 
 def read_stream(
