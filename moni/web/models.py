@@ -773,3 +773,40 @@ class Direction(BaseModel):
     research: DirectionResearchAction | None = None
     usable: bool = False
     usable_error: str | None = None
+
+
+class DirectionScoreBatch(BaseModel):
+    """POST body for one direction-scoring round.
+
+    The length is checked by the route, not by the model: a too-large
+    batch must answer 400 with a readable reason, not a 422 validation
+    dump.
+    """
+
+    article_ids: list[str]
+
+
+class DirectionScoreItem(BaseModel):
+    score: int | None = None
+    note: str = ""
+    status: str
+    error: str | None = None
+    stale: bool = False
+    scored_at: str | None = None
+    breakdown: dict | None = None
+
+
+class DirectionScoresResponse(BaseModel):
+    direction_id: int
+    research_version: int
+    rubric_id: str
+    scores: dict[str, DirectionScoreItem]
+
+
+class DirectionScoreQueued(BaseModel):
+    direction_id: int
+    research_version: int
+    rubric_id: str
+    queued: list[str]
+    cached: list[str]
+    rejected: list[dict]

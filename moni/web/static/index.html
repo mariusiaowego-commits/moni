@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261123101">
+  <link rel="stylesheet" href="css/main.css?v=20261124001">
   <!-- v1.0.110: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
        放在 main.css 之后，同名选择器以它们为准，便于单独回滚。 -->
   <link rel="stylesheet" href="css/source-ops.css?v=20261120011">
@@ -227,6 +227,22 @@
           <button class="btn-danger" x-show="articlesSubTab === 'pinned'" @click="bulkUnpin()">批量 unpin</button>
         </div>
 
+        <div class="bv-dir-panel" x-show="articlesSubTab === 'pinned' && bvDirections.length > 0" x-cloak>
+          <span class="bv-dir-label">业务方向</span>
+          <select class="filter-select" x-model="bvDirectionId" @change="onBvDirectionChange()" aria-label="业务方向">
+            <option value="">不按方向（只看通用分）</option>
+            <template x-for="d in bvDirections" :key="d.id">
+              <option :value="d.id" x-text="d.label + '（研究 v' + ((d.research && d.research.research_version) || '?') + '）'"></option>
+            </template>
+          </select>
+          <button class="btn btn-primary btn-sm" x-show="bvDirectionId"
+                  :disabled="bvScoring || bvTargetIds().length === 0"
+                  @click="startBvDirectionScoring()"
+                  x-text="bvScoring ? '打分中…' : ('按该方向打分（' + bvTargetIds().length + ' 篇）')"></button>
+          <span class="bv-dir-hint" x-show="bvDirectionId">勾选了文章就只打分勾选的那些；单批最多 12 篇</span>
+          <span class="bv-dir-msg" x-show="bvMessage" x-text="bvMessage"></span>
+        </div>
+
         <div class="table-container">
           <table class="articles-table" style="table-layout: fixed; width: 100%;">
             <colgroup>
@@ -235,7 +251,8 @@
               <col style="width: 328px;">
               <col style="width: 110px;">
               <col style="width: 150px;">
-              <col style="width: 140px;">
+              <col style="width: 140px;" x-show="articlesSubTab === 'pinned'">
+              <col style="width: 200px;" x-show="articlesSubTab === 'pinned'">
               <col style="width: 140px;">
               <col style="width: 132px;">
             </colgroup>
@@ -243,7 +260,7 @@
               <tr>
                 <th><input type="checkbox" :checked="articlesSubTab === 'all' ? articleAllSelectedOnPage() : pinnedAllSelectedOnPage()" @change="articlesSubTab === 'all' ? articleToggleAllOnPage($event) : pinnedToggleAllOnPage($event)"></th>
                 <th class="pin-col-head" x-show="articlesSubTab === 'all'">Pin</th>
-                <th>标题</th><th>来源</th><th>命中标签</th><th class="quality-col-head" x-show="articlesSubTab === 'pinned'" style="text-align: right;">质量分</th><th>原文时间</th><th>同步时间</th><th style="text-align: right;">操作</th>
+                <th>标题</th><th>来源</th><th>命中标签</th><th class="quality-col-head" x-show="articlesSubTab === 'pinned'" style="text-align: right;">质量分</th><th class="bv-col-head" x-show="articlesSubTab === 'pinned'">业务价值分</th><th>原文时间</th><th>同步时间</th><th style="text-align: right;">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -305,6 +322,17 @@
                       <span class="tip" x-text="pinQualityTip(a)"></span>
                     </span>
                   </td>
+                  <td class="bv-cell" x-show="articlesSubTab === 'pinned'">
+                    <span class="bv-chip-wrap" x-show="generalBvChip(a)" tabindex="0">
+                      <span class="bv-chip" x-text="generalBvChip(a)"></span>
+                      <span class="tip" x-text="generalBvTip(a)"></span>
+                    </span>
+                    <span class="bv-chip-wrap" x-show="dirBvChip(a)" tabindex="0">
+                      <span class="bv-chip bv-chip-dir" :class="{ 'bv-chip-pending': bvDirPending(a), 'bv-chip-failed': bvDirFailed(a) }" x-text="dirBvChip(a)"></span>
+                      <span class="tip" x-text="dirBvTip(a)"></span>
+                    </span>
+                    <span class="muted" x-show="!generalBvChip(a) && !dirBvChip(a)">-</span>
+                  </td>
                   <td class="tabular-nums nowrap" x-text="formatTime(a.published_at || a.fetched_at || a.created_at)"></td>
                   <td class="tabular-nums nowrap" x-text="formatTime(a.created_at)"></td>
                   <td style="text-align: right;"><div class="row-actions" style="justify-content: flex-end;">
@@ -317,7 +345,7 @@
                 </tr>
               </template>
               <tr x-show="activeArticles.length === 0">
-                <td colspan="8" class="empty-row">
+                <td colspan="9" class="empty-row">
                   <span x-show="articlesSubTab === 'pinned'">还没有 pin 任何文章。点击列表最左的 Pin 按钮开始收集。</span>
                   <span x-show="articlesSubTab === 'all'">没有匹配的文章，试试清除筛选。</span>
                 </td>
@@ -5138,7 +5166,7 @@
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
-  <script src="js/app.js?v=20261123102"></script>
+  <script src="js/app.js?v=20261124003"></script>
   <script src="js/reader.js?v=20261123103"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
