@@ -291,6 +291,27 @@ def claim_pending_requests(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return claimed
 
 
+def release_stale_claims(conn: sqlite3.Connection, *, reason: str) -> list[int]:
+    """Fail every run request still marked ``claimed``.
+
+    Called once when a scheduler process starts. Only one scheduler may run
+    (launchd KeepAlive), so a ``claimed`` row at startup belongs to a process
+    that died mid-run; without this, ``enqueue_run`` answers 409 forever.
+    """
+    rows = conn.execute(
+        "SELECT id FROM cron_run_requests WHERE status = 'claimed' ORDER BY id"
+    ).fetchall()
+    if not rows:
+        return []
+    conn.execute(
+        "UPDATE cron_run_requests SET status = 'failed', finished_at = ?, error = ? "
+        "WHERE status = 'claimed'",
+        (datetime.now(CST).isoformat(), reason),
+    )
+    conn.commit()
+    return [int(row["id"]) for row in rows]
+
+
 def finish_request(conn: sqlite3.Connection, request_id: int, *, error: str | None = None) -> None:
     conn.execute(
         "UPDATE cron_run_requests SET status = ?, finished_at = ?, error = ? WHERE id = ?",

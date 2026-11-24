@@ -31,6 +31,7 @@ import json
 import logging
 import re
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -170,10 +171,13 @@ def fetch_all_sources() -> dict[str, Any] | None:
             job_id,
             triggered_at=triggered_at,
             finished_at=_cst_now().isoformat(),
-            success=True,  # will be updated below
+            success=False,  # provisional; finalised below
             error=None,
             new_articles=0,
             sources_run=0,
+            # Marks the row as still running so the API reports "running"
+            # instead of a fake success if this process dies mid-sweep.
+            extra={"in_progress": True},
         )
     except Exception as exc:
         logger.error("[%s] Failed to create cron_runs row: %s", job_id, exc)
@@ -299,36 +303,43 @@ def fetch_all_sources() -> dict[str, Any] | None:
 
     # Update the cron_runs row with final totals
     if cron_run_rowid:
-        try:
-            from ..db.connection import get_db
-            conn = get_db()
-            extra: dict[str, Any] = {
-                "duration_sec": round(
-                    (_cst_now() - started_at_dt).total_seconds(), 1
-                ),
-            }
-            if sources_extra:
-                extra["sources"] = sources_extra
-            conn.execute(
-                """
-                UPDATE cron_runs
-                SET finished_at=?, success=?, error=?,
-                    new_articles=?, sources_run=?, extra=?
-                WHERE id=?
-                """,
-                (
-                    finished_at,
-                    1 if overall_success else 0,
-                    None if overall_success else f"{sources_failed} source(s) failed",
-                    total_inserted,
-                    sources_run,
-                    json.dumps(extra, ensure_ascii=False),
-                    cron_run_rowid,
-                ),
-            )
-            conn.commit()
-        except Exception as exc:
-            logger.error("[%s] Failed to update cron_runs row: %s", job_id, exc)
+        extra: dict[str, Any] = {
+            "duration_sec": round((_cst_now() - started_at_dt).total_seconds(), 1),
+        }
+        if sources_extra:
+            extra["sources"] = sources_extra
+        # One retry: if this UPDATE never lands, the row keeps in_progress and
+        # does not read as success — but it would look "running" until the
+        # next scheduler start. A transient lock is worth one more attempt.
+        for attempt in (1, 2):
+            try:
+                conn = get_db()
+                conn.execute(
+                    """
+                    UPDATE cron_runs
+                    SET finished_at=?, success=?, error=?,
+                        new_articles=?, sources_run=?, extra=?
+                    WHERE id=?
+                    """,
+                    (
+                        finished_at,
+                        1 if overall_success else 0,
+                        None if overall_success else f"{sources_failed} source(s) failed",
+                        total_inserted,
+                        sources_run,
+                        json.dumps(extra, ensure_ascii=False),
+                        cron_run_rowid,
+                    ),
+                )
+                conn.commit()
+                break
+            except Exception as exc:
+                logger.error(
+                    "[%s] cron_runs update failed (attempt %d/2): %s",
+                    job_id, attempt, exc,
+                )
+                if attempt == 1:
+                    time.sleep(1)
 
     # ── Chain: tag the articles this run just inserted ───────────────────
     # Replaces the old 9:25 standalone cron entry.  Runs after the fetch row

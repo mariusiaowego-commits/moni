@@ -351,6 +351,179 @@ class TestCronRunsAccumulates:
         assert rows[1]["inserted"] == 0
 
 
+class TestRunPlaceholder:
+    """The cron_runs row must not read as a successful run while it is running."""
+
+    def test_placeholder_is_in_progress_then_finalised(
+        self, isolated_db, monkeypatch
+    ):
+        from moni.cron import jobs as cron_jobs
+
+        captured: dict = {}
+
+        class _ProbeFetcher(BaseFetcher):
+            source_name = "probe_src"
+
+            def fetch(self):
+                return []
+
+            def parse(self, raw):
+                return None
+
+            def run(self, dry_run: bool = False) -> dict:
+                row = get_db().execute(
+                    "SELECT success, sources_run, extra FROM cron_runs "
+                    "ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                captured.update(
+                    success=row["success"],
+                    sources_run=row["sources_run"],
+                    extra=json.loads(row["extra"]),
+                )
+                return {"fetched": 0, "parsed": 0, "inserted": 0, "parse_errors": 0}
+
+        class _StubFetchScheduler:
+            def batch_sources(self):
+                return [{"source_name": "probe_src", "feed_url": "http://x",
+                         "enabled": True}]
+
+            def mark_fetched(self, name):
+                pass
+
+        _FETCHER_REGISTRY["probe_src"] = _ProbeFetcher
+        monkeypatch.setattr(cron_jobs, "FetchScheduler", _StubFetchScheduler)
+        try:
+            cron_jobs.fetch_all_sources()
+        finally:
+            _FETCHER_REGISTRY.pop("probe_src", None)
+
+        assert captured == {
+            "success": 0,
+            "sources_run": 0,
+            "extra": {"in_progress": True},
+        }
+
+        final = get_db().execute(
+            "SELECT success, sources_run, extra FROM cron_runs ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert final["success"] == 1
+        assert final["sources_run"] == 1
+        assert "in_progress" not in json.loads(final["extra"])
+
+
+class TestInterruptedRunRecovery:
+    """Rows left mid-run by a killed process must be closed, not kept as success."""
+
+    def test_mark_interrupted_runs(self, isolated_db):
+        from moni.cron.run_history import mark_interrupted_runs
+
+        conn = get_db()
+        now = datetime.now(CST).isoformat()
+        cur = conn.execute(
+            "INSERT INTO cron_runs (job_id, triggered_at, finished_at, success, extra) "
+            "VALUES (?,?,?,0,?)",
+            ("fetch_all_sources", now, now, '{"in_progress": true}'),
+        )
+        conn.execute(
+            "INSERT INTO cron_runs (job_id, triggered_at, finished_at, success, extra) "
+            "VALUES (?,?,?,1,?)",
+            ("extract_events_pending", now, now, '{"duration_sec": 12.5}'),
+        )
+        conn.commit()
+
+        assert mark_interrupted_runs(conn) == [cur.lastrowid]
+
+        row = conn.execute(
+            "SELECT success, error, extra FROM cron_runs WHERE id = ?",
+            (cur.lastrowid,),
+        ).fetchone()
+        assert row["success"] == 0
+        assert "中断" in row["error"]
+        extra = json.loads(row["extra"])
+        assert extra["in_progress"] is False and extra["interrupted"] is True
+
+        done = conn.execute(
+            "SELECT success, error FROM cron_runs WHERE job_id = 'extract_events_pending'"
+        ).fetchone()
+        assert (done["success"], done["error"]) == (1, None)
+
+    def test_malformed_extra_does_not_break_recovery(self, isolated_db):
+        """Legacy junk in extra must not abort startup recovery (json_extract)."""
+        from moni.cron.run_history import mark_interrupted_runs
+
+        conn = get_db()
+        now = datetime.now(CST).isoformat()
+        for extra in ("", "not-json", "[]", "null"):
+            conn.execute(
+                "INSERT INTO cron_runs (job_id, triggered_at, finished_at, success, extra) "
+                "VALUES (?,?,?,1,?)",
+                ("legacy", now, now, extra),
+            )
+        cur = conn.execute(
+            "INSERT INTO cron_runs (job_id, triggered_at, finished_at, success, extra) "
+            "VALUES (?,?,?,0,?)",
+            ("fetch_all_sources", now, now, '{"in_progress": true}'),
+        )
+        conn.commit()
+
+        assert mark_interrupted_runs(conn) == [cur.lastrowid]
+        assert conn.execute(
+            "SELECT COUNT(*) FROM cron_runs WHERE job_id = 'legacy' AND success = 1"
+        ).fetchone()[0] == 4
+
+    def test_stale_sweep_respects_age_cutoff(self, isolated_db):
+        """The periodic tick must not close a sweep that is still running."""
+        from moni.cron.run_history import mark_interrupted_runs
+
+        conn = get_db()
+        old = (datetime.now(CST) - timedelta(hours=4)).isoformat()
+        fresh = datetime.now(CST).isoformat()
+        cur_old = conn.execute(
+            "INSERT INTO cron_runs (job_id, triggered_at, finished_at, success, extra) "
+            "VALUES (?,?,?,0,?)",
+            ("fetch_all_sources", old, old, '{"in_progress": true}'),
+        )
+        cur_new = conn.execute(
+            "INSERT INTO cron_runs (job_id, triggered_at, finished_at, success, extra) "
+            "VALUES (?,?,?,0,?)",
+            ("fetch_all_sources", fresh, fresh, '{"in_progress": true}'),
+        )
+        conn.commit()
+
+        assert mark_interrupted_runs(conn, older_than_sec=3 * 3600) == [cur_old.lastrowid]
+        fresh_row = conn.execute(
+            "SELECT success, extra FROM cron_runs WHERE id = ?", (cur_new.lastrowid,)
+        ).fetchone()
+        assert fresh_row["success"] == 0
+        assert json.loads(fresh_row["extra"]) == {"in_progress": True}
+
+        assert mark_interrupted_runs(conn) == [cur_new.lastrowid]
+
+    def test_scheduler_startup_closes_orphans(self, isolated_db):
+        from moni.cron import registry
+
+        conn = get_db()
+        rid = registry.enqueue_run(conn, "fetch_all_sources")
+        registry.claim_pending_requests(conn)
+        now = datetime.now(CST).isoformat()
+        conn.execute(
+            "INSERT INTO cron_runs (job_id, triggered_at, finished_at, success, extra) "
+            "VALUES (?,?,?,0,?)",
+            ("fetch_all_sources", now, now, '{"in_progress": true}'),
+        )
+        conn.commit()
+
+        CronScheduler()._recover_interrupted_state()
+
+        req = conn.execute(
+            "SELECT status, error FROM cron_run_requests WHERE id = ?", (rid,)
+        ).fetchone()
+        assert req["status"] == "failed"
+        assert "重启" in req["error"]
+        run = conn.execute("SELECT success, error FROM cron_runs").fetchone()
+        assert run["success"] == 0 and run["error"] is not None
+
+
 # ── 3. fetch interval respected ────────────────────────────────────────────
 
 

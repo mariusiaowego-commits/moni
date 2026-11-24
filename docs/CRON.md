@@ -190,6 +190,15 @@ sqlite3 ~/.moni/data/moni.db \
 - **DB run history**: `cron_runs` table for in-process APScheduler jobs;
   `share_tasks.started_at` / `finished_at` / `error` for manifest jobs
 
+`fetch_all_sources` writes its `cron_runs` row up front with
+`extra = {"in_progress": true}` and clears it in the final UPDATE; the API
+reports such rows as `status="running"` (never as `success`). On scheduler
+startup, rows still carrying the flag are closed as
+`success=0, error="进程中断…"`, and any `cron_run_requests` row left
+`claimed` by a dead process is marked `failed` so the job can be triggered
+again. The 15s tick also closes rows still `in_progress` after 3 hours, so a
+failed final UPDATE heals without waiting for a restart.
+
 ## 6. Tuning
 
 `scripts/default_worker.sh` exposes three env vars:

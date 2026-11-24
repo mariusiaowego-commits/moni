@@ -3622,8 +3622,8 @@
                     <td x-text="formatTime(run.triggered_at || run.started_at)"></td>
                     <td>
                       <span class="status-badge"
-                            :class="(run.success === true || run.status === 'success') ? 'status-success' : 'status-failed'"
-                            x-text="(run.success === true || run.status === 'success') ? 'success' : (run.status || 'failed')"></span>
+                            :class="run.status === 'running' ? 'status-running' : ((run.success === true || run.status === 'success') ? 'status-success' : 'status-failed')"
+                            x-text="run.status === 'running' ? 'running' : ((run.success === true || run.status === 'success') ? 'success' : (run.status || 'failed'))"></span>
                     </td>
                     <td x-text="cronRunProgress(run)"></td>
                     <td x-text="run.new_articles ?? run.articles_fetched ?? 0"></td>

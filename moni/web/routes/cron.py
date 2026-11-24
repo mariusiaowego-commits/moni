@@ -150,7 +150,6 @@ def list_cron_runs(
 
     out: list[CronRun] = []
     for row in rows:
-        ok = bool(row["success"])
         triggered = row["triggered_at"]
         finished = row["finished_at"]
         n = int(row["new_articles"] or 0)
@@ -162,6 +161,8 @@ def list_cron_runs(
                 extra = parsed if isinstance(parsed, dict) else None
             except (TypeError, ValueError):
                 extra = None
+        in_progress = bool(extra and extra.get("in_progress"))
+        ok = bool(row["success"]) and not in_progress
         out.append(
             CronRun(
                 id=row["id"],
@@ -170,11 +171,11 @@ def list_cron_runs(
                 triggered_at=triggered,
                 started_at=triggered,
                 finished_at=finished,
-                status="success" if ok else "failed",
+                status="running" if in_progress else ("success" if ok else "failed"),
                 success=ok,
                 new_articles=n,
                 articles_fetched=n,
-                duration=_duration_seconds(triggered, finished),
+                duration=None if in_progress else _duration_seconds(triggered, finished),
                 log_url=None,
                 error_message=err,
                 error=err,
