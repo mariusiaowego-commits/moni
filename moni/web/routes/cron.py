@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -23,15 +24,32 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cron", tags=["cron"])
 
 
-def _last_runs(conn) -> dict[str, str]:
+def _last_runs(conn) -> dict[str, dict[str, Any]]:
+    """Latest run per job: when it started and whether it is still running."""
     rows = conn.execute(
-        "SELECT job_id, MAX(triggered_at) AS last_run_at FROM cron_runs GROUP BY job_id"
+        """
+        SELECT r.job_id, r.triggered_at,
+               CASE WHEN json_valid(r.extra)
+                    THEN json_extract(r.extra, '$.in_progress')
+                    ELSE 0 END AS in_progress
+        FROM cron_runs r
+        JOIN (SELECT job_id, MAX(id) AS last_id FROM cron_runs GROUP BY job_id) m
+          ON r.id = m.last_id
+        """
     ).fetchall()
-    return {row["job_id"]: row["last_run_at"] for row in rows if row["job_id"]}
+    return {
+        row["job_id"]: {
+            "last_run_at": row["triggered_at"],
+            "is_running": row["in_progress"] == 1,
+        }
+        for row in rows
+        if row["job_id"]
+    }
 
 
-def _to_model(job: dict, last_runs: dict[str, str]) -> CronJob:
+def _to_model(job: dict, last_runs: dict[str, dict[str, Any]]) -> CronJob:
     next_run = registry.next_run_at(job["hour"], job["minute"], job["day_of_week"])
+    last = last_runs.get(job["id"], {})
     return CronJob(
         id=job["id"],
         name=job["name"],
@@ -44,7 +62,8 @@ def _to_model(job: dict, last_runs: dict[str, str]) -> CronJob:
         },
         func_kwargs=job["func_kwargs"],
         is_active=job["is_active"],
-        last_run_at=last_runs.get(job["id"]),
+        is_running=bool(last.get("is_running")),
+        last_run_at=last.get("last_run_at"),
         next_run_at=next_run.isoformat() if next_run else None,
         created_at=job.get("created_at"),
         updated_at=job.get("updated_at"),
