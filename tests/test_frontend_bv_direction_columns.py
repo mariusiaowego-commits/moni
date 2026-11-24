@@ -183,3 +183,34 @@ def test_direction_brief_editor_is_large_enough_to_write():
     css = MAIN_CSS.read_text(encoding="utf-8")
     assert re.search(r"\.direction-brief\s*\{[^}]*min-height:\s*168px", css)
     assert "modal-content-direction" in html
+
+
+
+def test_direction_editor_can_draft_guidance_and_names_the_model():
+    """碎片想法生成草稿，研究提示词单独保存，并写明当前用的模型。"""
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    idea = re.search(r'<textarea class="direction-idea"[^>]*>', html)
+    guidance = re.search(r'<textarea class="direction-guidance"[^>]*>', html)
+    assert idea and 'rows="4"' in idea.group(0) and 'maxlength="2000"' in idea.group(0)
+    assert guidance and 'rows="8"' in guidance.group(0) and 'maxlength="800"' in guidance.group(0)
+    assert " / 800" in html
+    assert "生成草稿" in html
+    assert "保存并立即研究" in html
+    assert "directionModelHint()" in html
+
+    app = APP_JS.read_text(encoding="utf-8")
+    assert "/api/directions/draft" in app
+    save = re.search(
+        r"async configSaveDirection\(andResearch = false\) \{(.*?)\n    async generateDirectionDraft",
+        app,
+        re.S,
+    )
+    assert save, "configSaveDirection 没有带上研究开关"
+    assert "research_guidance: nextGuidance" in save.group(1)
+    assert "directionResearch(saved)" in save.group(1)
+    assert "directionModelHint()" in app
+    assert "hermes profile" in app
+
+    css = MAIN_CSS.read_text(encoding="utf-8")
+    assert re.search(r"\.direction-guidance\s*\{[^}]*min-height:\s*168px", css)
+    assert re.search(r"\.direction-idea\s*\{[^}]*min-height:\s*96px", css)

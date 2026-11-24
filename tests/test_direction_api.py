@@ -233,3 +233,134 @@ def test_cross_origin_write_is_rejected(client: TestClient):
         headers={"Origin": "https://malicious-site.example"},
     )
     assert response.status_code == 403
+
+
+def test_create_and_list_return_research_guidance(client: TestClient):
+    response = client.post(
+        "/api/directions",
+        json={
+            "label": "投放",
+            "brief": "看投放数据能不能变成获客",
+            "research_guidance": "只认正文里的投放数字",
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["research_guidance"] == "只认正文里的投放数字"
+    listed = client.get("/api/directions")
+    assert listed.json()[0]["research_guidance"] == "只认正文里的投放数字"
+
+
+def test_over_long_guidance_is_rejected(client: TestClient):
+    response = client.post(
+        "/api/directions",
+        json={"label": "投放", "brief": "说明", "research_guidance": "好" * 801},
+    )
+    assert response.status_code == 422
+
+
+def test_patch_guidance_expires_passed_research(client: TestClient):
+    created = _create(client)
+    conn = get_db()
+    research, error = direction_store.start_research(conn, created["id"])
+    assert error is None and research is not None
+    direction_store.finish_research_success(
+        conn,
+        direction_id=created["id"],
+        research_version=research["research_version"],
+        raw_research=_payload(),
+        model="test",
+    )
+
+    response = client.patch(
+        f"/api/directions/{created['id']}",
+        json={"research_guidance": "只认投放数字"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["research_guidance"] == "只认投放数字"
+    assert body["research_invalidated"] is True
+    assert body["usable"] is False
+    rows = conn.execute(
+        "SELECT status FROM bv_direction_research WHERE direction_id=?",
+        (created["id"],),
+    ).fetchall()
+    assert [row[0] for row in rows] == ["expired"]
+
+
+def test_patch_same_guidance_keeps_the_passed_research(client: TestClient):
+    created = client.post(
+        "/api/directions",
+        json={"label": "投放", "brief": "看投放数据", "research_guidance": "同一份"},
+    )
+    assert created.status_code == 201, created.text
+    direction_id = created.json()["id"]
+    conn = get_db()
+    research, error = direction_store.start_research(conn, direction_id)
+    assert error is None and research is not None
+    direction_store.finish_research_success(
+        conn,
+        direction_id=direction_id,
+        research_version=research["research_version"],
+        raw_research=_payload(),
+        model="test",
+    )
+
+    response = client.patch(
+        f"/api/directions/{direction_id}",
+        json={"research_guidance": "同一份"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["research_invalidated"] is False
+    assert body["usable"] is True
+
+
+def test_draft_returns_the_model_draft_and_saves_nothing(client: TestClient, monkeypatch):
+    from moni.web.routes import directions as directions_route
+
+    def fake(prompt: str) -> str:
+        assert "投放数据" in prompt
+        return json.dumps(
+            {
+                "label": "投放",
+                "brief": "看投放数据能不能变成获客",
+                "research_guidance": "只认正文里的投放数字",
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(directions_route, "_model_call", fake)
+    response = client.post("/api/directions/draft", json={"idea": "投放数据"})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["label"] == "投放"
+    assert body["brief"] == "看投放数据能不能变成获客"
+    assert body["research_guidance"] == "只认正文里的投放数字"
+    assert client.get("/api/directions").json() == []
+
+
+def test_draft_rejects_unusable_output(client: TestClient, monkeypatch):
+    from moni.web.routes import directions as directions_route
+
+    monkeypatch.setattr(directions_route, "_model_call", lambda _prompt: "not json")
+    response = client.post("/api/directions/draft", json={"idea": "投放数据"})
+    assert response.status_code == 400
+    assert "草稿不可用" in response.json()["message"]
+
+
+def test_draft_reports_a_model_failure(client: TestClient, monkeypatch):
+    from moni.web.routes import directions as directions_route
+
+    def fake(_prompt: str) -> str:
+        raise RuntimeError("timed out after 30 seconds")
+
+    monkeypatch.setattr(directions_route, "_model_call", fake)
+    response = client.post("/api/directions/draft", json={"idea": "投放数据"})
+    assert response.status_code == 400
+    assert "生成草稿失败" in response.json()["message"]
+    assert "超时" in response.json()["message"]
+
+
+def test_blank_idea_is_rejected(client: TestClient):
+    response = client.post("/api/directions/draft", json={"idea": "   "})
+    assert response.status_code == 422

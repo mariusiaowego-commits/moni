@@ -1258,23 +1258,34 @@ function app() {
       const t = this.configModalTarget;
       t.labelError = '';
       t.briefError = '';
+      t.guidanceError = '';
       if (!t.label || !t.label.trim()) t.labelError = '方向名不能为空';
       if (t.label && t.label.trim().length > 6) t.labelError = '方向名不能超过 6 字';
       if (!t.brief || !t.brief.trim()) t.briefError = '方向说明不能为空';
       if (t.brief && t.brief.trim().length > 200) t.briefError = '方向说明不能超过 200 字';
-      return !t.labelError && !t.briefError;
+      if (t.research_guidance && t.research_guidance.trim().length > 800) {
+        t.guidanceError = '研究提示词不能超过 800 字';
+      }
+      return !t.labelError && !t.briefError && !t.guidanceError;
     },
-    async configSaveDirection() {
+    async configSaveDirection(andResearch = false) {
       if (!this.validateDirectionForm()) return;
+      const form = this.configModalTarget;
+      if (!form || form.draftBusy || form.saving) return;
+      form.saving = true;
       const isEdit = !!this.configModalTargetOriginal;
       const url = isEdit ? `/api/directions/${this.configModalTarget.id}` : '/api/directions';
       const nextLabel = this.configModalTarget.label.trim();
       const nextBrief = this.configModalTarget.brief.trim();
-      const original = this.configDirections.find(d => d.id === this.configModalTarget.id);
-      const briefChanged = isEdit && original && (original.label !== nextLabel || original.brief !== nextBrief);
+      const nextGuidance = (this.configModalTarget.research_guidance || '').trim();
       const body = isEdit
-        ? { label: nextLabel, brief: nextBrief, enabled: this.configModalTarget.enabled }
-        : { label: nextLabel, brief: nextBrief };
+        ? {
+            label: nextLabel,
+            brief: nextBrief,
+            research_guidance: nextGuidance,
+            enabled: this.configModalTarget.enabled,
+          }
+        : { label: nextLabel, brief: nextBrief, research_guidance: nextGuidance };
       try {
         const response = await fetch(url, {
           method: isEdit ? 'PATCH' : 'POST',
@@ -1290,12 +1301,78 @@ function app() {
           } catch (_) { /* non-JSON error */ }
           throw new Error(serverMessage || `HTTP ${response.status}`);
         }
+        const saved = await response.json();
         this.closeConfigModal();
         this.loadDirections();
-        this._notify('success', briefChanged ? '方向已保存；研究需重新生成' : (isEdit ? '方向已保存' : '方向已创建'));
+        if (andResearch) {
+          await this.directionResearch(saved);
+          return;
+        }
+        const invalidated = !!saved.research_invalidated;
+        this._notify('success', invalidated ? '方向已保存；研究需重新生成' : (isEdit ? '方向已保存' : '方向已创建'));
       } catch (err) {
         this._notify('error', '保存方向失败: ' + err.message);
+      } finally {
+        form.saving = false;
       }
+    },
+    async generateDirectionDraft() {
+      const t = this.configModalTarget;
+      if (!t || t.saving || t.draftBusy) return;
+      const idea = (t.idea || '').trim();
+      if (!idea) {
+        this._notify('error', '先写一段想法再生成草稿');
+        return;
+      }
+      const hasContent = [t.label, t.brief, t.research_guidance].some(value => (value || '').trim());
+      if (hasContent) {
+        const ok = await moniModal.confirm(
+          '方向名、方向说明或研究提示词里已有内容，生成草稿会覆盖它们。',
+          { title: '覆盖现有内容', okLabel: '覆盖并生成' }
+        );
+        if (!ok) return;
+      }
+      t.draftBusy = true;
+      try {
+        const response = await fetch('/api/directions/draft', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idea, label: (t.label || '').trim() }),
+        });
+        if (!response.ok) {
+          let serverMessage = '';
+          try {
+            const errorBody = await response.json();
+            serverMessage = errorBody.message || (Array.isArray(errorBody.detail) && errorBody.detail[0]?.msg) || errorBody.detail || '';
+          } catch (_) { /* non-JSON error */ }
+          throw new Error(serverMessage || `HTTP ${response.status}`);
+        }
+        const draft = await response.json();
+        t.label = draft.label || '';
+        t.brief = draft.brief || '';
+        t.research_guidance = draft.research_guidance || '';
+        t.labelError = '';
+        t.briefError = '';
+        t.guidanceError = '';
+        this._notify('success', '草稿已填入，改完再保存');
+      } catch (err) {
+        this._notify('error', '生成草稿失败: ' + err.message);
+      } finally {
+        t.draftBusy = false;
+      }
+    },
+    directionModelHint() {
+      const gw = this.llmGateway;
+      if (!gw || !gw.profile) {
+        return '研究使用当前 hermes profile 的默认模型。要换模型，改这个 profile 的默认模型，然后刷新页面。';
+      }
+      const model = gw.profile.default_model || '未读到模型名';
+      const profile = gw.profile.profile || 'moni';
+      if (gw.mode === 'profile') {
+        return `当前研究模型：${model}（hermes profile「${profile}」）。要换模型，改这个 profile 的默认模型，然后刷新页面。`;
+      }
+      return `当前不是 profile 模式，研究走设置里选中的模型，不走 profile「${profile}」的默认模型 ${model}。`;
     },
     async configDeleteDirection(direction) {
       const ok = await moniModal.confirm(`确定删除业务方向 “${direction.label}”？相关研究和打分会一并删除。`, {
@@ -1364,7 +1441,7 @@ function app() {
       if (direction.research?.status === 'running') {
         return `v${direction.research.research_version} 正在研究，完成后自动刷新`;
       }
-      return direction.research ? '基于当前说明重新研究' : '基于当前说明开始研究';
+      return direction.research ? '按当前说明和研究提示词重新研究' : '按当前说明和研究提示词开始研究';
     },
 
     // ── Tags CRUD ───────────────────────────────────────────────────
@@ -2017,20 +2094,28 @@ function app() {
           };
         }
       } else if (type === 'direction') {
+        this.loadLlmGateway();
         if (target && target.id) {
           this.configModalTargetOriginal = target.id;
           this.configModalTarget = {
             id: target.id,
             label: target.label || '',
             brief: target.brief || '',
+            research_guidance: target.research_guidance || '',
+            idea: '',
             enabled: !!target.enabled,
             labelError: '',
             briefError: '',
+            guidanceError: '',
+            draftBusy: false,
+            saving: false,
           };
         } else {
           this.configModalTargetOriginal = null;
           this.configModalTarget = {
-            label: '', brief: '', enabled: true, labelError: '', briefError: '',
+            label: '', brief: '', research_guidance: '', idea: '',
+            enabled: true, labelError: '', briefError: '', guidanceError: '',
+            draftBusy: false, saving: false,
           };
         }
       } else if (type === 'source' && target && target.id) {
