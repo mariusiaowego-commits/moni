@@ -605,8 +605,11 @@ def mask_prompt(
         return result
 
     if inject_note and result.masked_total > 0:
-        # Example code deliberately uses '1' (invalid RFC 4648 base32) so it is never restored.
-        note = "[系统脱敏说明：文本中的 {{ORG_11111111}} 等编码为脱敏占位符，请原样保留并在回答中直接引用。]\n\n"
+        # Reserved KIND=EXAMPLE with all-zero suffix never collides with real vault placeholders.
+        note = (
+            "[系统脱敏说明：形如 {{EXAMPLE_00000000}} 的编码仅为格式示例；"
+            "请只原样引用输入里实际出现的编码，不要输出本示例或自造编码。]\n\n"
+        )
         result.text = note + result.text
 
     result.prompt_chars_after = len(result.text)

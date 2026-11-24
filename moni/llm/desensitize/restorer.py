@@ -27,9 +27,17 @@ _EXPLICIT_UNKNOWN_RE = re.compile(
     r"(?:\{\{|｛｛)\s*([A-Za-z][A-Za-z0-9_]{0,23})[_＿]([A-Za-z0-9]{8})\s*(?:\}\}|｝｝)"
 )
 _RESIDUAL_PLACEHOLDER_RE = re.compile(
-    r"(?:\{\{|｛｛|【)\s*([A-Za-z][A-Za-z0-9_]{0,23})[_＿]([A-Za-z2-7]{8})\s*(?:\}\}|｝｝|】)?"
-    r"|(?:\{|｛)\s*([A-Za-z][A-Za-z0-9_]{0,23})[_＿]([A-Za-z2-7]{8})\s*(?:\}|｝)"
-    r"|([A-Za-z][A-Za-z0-9_]{0,23})[_＿]([A-Za-z2-7]{8})\s*(?:\}\}|｝｝|】)"
+    r"(?:\{\{|｛｛|【)\s*([A-Za-z][A-Za-z0-9_]{0,23})[_＿]([A-Za-z0-9]{8})\s*(?:\}\}|｝｝|】)?"
+    r"|(?:\{|｛)\s*([A-Za-z][A-Za-z0-9_]{0,23})[_＿]([A-Za-z0-9]{8})\s*(?:\}|｝)"
+    r"|([A-Za-z][A-Za-z0-9_]{0,23})[_＿]([A-Za-z0-9]{8})\s*(?:\}\}|｝｝|】)"
+)
+_MD_LINE_FENCE_RE = re.compile(
+    r"(?:^|\n)[ \t]*(```|~~~)[^\n]*\n(.*?)\n[ \t]*\1[ \t]*(?=\n|$)",
+    re.DOTALL,
+)
+_MD_INLINE_FENCE_RE = re.compile(
+    r"(```|~~~)[^\n]*\n?(.*?)\1",
+    re.DOTALL,
 )
 _LOCALIZED_KIND_SUFFIXES = (
     "相关机构",
@@ -202,10 +210,24 @@ def _iter_matches(
     return matches
 
 
-def _count_explicit_unknown(text: str) -> int:
+def _is_hallucinated_code(kind: str, code: str) -> bool:
+    """Return True for plausible valid-base32 model hallucinations; False for example/non-base32 codes."""
+    if kind.upper() == "EXAMPLE":
+        return False
+    return all(ch in _BASE32_CHARS for ch in code.lower())
+
+
+def _count_unknown_codes(text: str) -> tuple[int, int]:
     if "{{" not in text and "｛｛" not in text:
-        return 0
-    return sum(1 for _ in _EXPLICIT_UNKNOWN_RE.finditer(text))
+        return 0, 0
+    hallucinated = 0
+    invalid = 0
+    for m in _EXPLICIT_UNKNOWN_RE.finditer(text):
+        if _is_hallucinated_code(m.group(1), m.group(2)):
+            hallucinated += 1
+        else:
+            invalid += 1
+    return hallucinated, invalid
 
 
 def _apply_replacements(
@@ -241,24 +263,28 @@ def _apply_replacements(
 
     if "{{" in result or "｛｛" in result:
         if preserve_unknown:
-            hallucinated = _count_explicit_unknown(result)
+            hallucinated, invalid = _count_unknown_codes(result)
             if hallucinated:
                 stats.hallucinated_count += hallucinated
+            if invalid:
+                stats.invalid_code_count += invalid
         else:
             hallucinated = 0
+            invalid = 0
 
             def _sub_unknown(m: re.Match[str]) -> str:
-                nonlocal hallucinated
-                hallucinated += 1
-                code = m.group(2).lower()
-                if all(ch in _BASE32_CHARS for ch in code):
-                    return _unknown_fallback(m.group(1))
-                # Preserve non-base32 example codes (e.g. {{ORG_11111111}}) verbatim.
-                return m.group(0)
+                nonlocal hallucinated, invalid
+                if _is_hallucinated_code(m.group(1), m.group(2)):
+                    hallucinated += 1
+                else:
+                    invalid += 1
+                return _unknown_fallback(m.group(1))
 
             result = _EXPLICIT_UNKNOWN_RE.sub(_sub_unknown, result)
             if hallucinated:
                 stats.hallucinated_count += hallucinated
+            if invalid:
+                stats.invalid_code_count += invalid
 
     stats.restore_latency_us += (time.perf_counter_ns() - t0_ns) // 1000
     return result
@@ -321,66 +347,214 @@ def restore_html_safe(
     )
 
 
-def _json_string_positions(text: str) -> list[bool]:
-    """Compute a per-character mask indicating whether index ``i`` is inside a JSON string."""
-    in_str = [False] * len(text)
+def _balance_json_span(text: str, start: int) -> int | None:
+    """Return exclusive end index of a balanced JSON object/array starting at ``start``, or None."""
+    stack: list[str] = []
+    in_string = False
+    backslash_count = 0
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if ch == "\\":
+                backslash_count += 1
+            else:
+                if ch == '"' and (backslash_count & 1) == 0:
+                    in_string = False
+                backslash_count = 0
+            continue
+        if ch == '"':
+            in_string = True
+            backslash_count = 0
+        elif ch == "{":
+            stack.append("}")
+        elif ch == "[":
+            stack.append("]")
+        elif ch == "}" or ch == "]":
+            if not stack or stack[-1] != ch:
+                return None
+            stack.pop()
+            if not stack:
+                return i + 1
+    return None
+
+
+def _extract_json_spans(text: str) -> list[tuple[int, int]]:
+    """Extract balanced JSON object/array intervals, prioritizing Markdown code fences."""
+    spans: list[tuple[int, int]] = []
+    fence_matches = list(_MD_LINE_FENCE_RE.finditer(text))
+    if not fence_matches and ("```" in text or "~~~" in text):
+        fence_matches = list(_MD_INLINE_FENCE_RE.finditer(text))
+
+    if fence_matches:
+        saw_fence_json_opener = False
+        for fm in fence_matches:
+            body_start, body_end = fm.span(2)
+            body = text[body_start:body_end]
+            brace = body.find("{")
+            bracket = body.find("[")
+            if brace < 0 and bracket < 0:
+                continue
+            saw_fence_json_opener = True
+            idx = brace if bracket < 0 else (bracket if brace < 0 else min(brace, bracket))
+            end = _balance_json_span(body, idx)
+            if end is not None:
+                spans.append((body_start + idx, body_start + end))
+        if saw_fence_json_opener:
+            return spans
+
+    if "}" not in text and "]" not in text:
+        return spans
+
+    pos = 0
+    n = len(text)
+    while pos < n:
+        brace = text.find("{", pos)
+        bracket = text.find("[", pos)
+        if brace < 0 and bracket < 0:
+            break
+        start = brace if bracket < 0 else (bracket if brace < 0 else min(brace, bracket))
+        end = _balance_json_span(text, start)
+        if end is not None:
+            spans.append((start, end))
+            pos = end
+        else:
+            pos = start + 1
+    return spans
+
+
+def _json_lexical_state(text: str) -> tuple[list[bool], list[bool]]:
+    """Compute per-character ``in_string`` and ``quote_boundary`` masks for one JSON fragment."""
+    n = len(text)
+    in_str = [False] * n
+    quote_char = [False] * n
     inside = False
-    escaped = False
+    backslash_count = 0
     for i, ch in enumerate(text):
-        in_str[i] = inside
         if not inside:
             if ch == '"':
+                quote_char[i] = True
                 inside = True
+                backslash_count = 0
         else:
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == '"':
-                in_str[i] = False
+            if ch == "\\":
+                in_str[i] = True
+                backslash_count += 1
+            elif ch == '"' and (backslash_count & 1) == 0:
+                quote_char[i] = True
                 inside = False
-    return in_str
+                backslash_count = 0
+            else:
+                in_str[i] = True
+                backslash_count = 0
+    return in_str, quote_char
+
+
+def _is_legal_bare_json_slot(frag: str, start: int, end: int) -> bool:
+    """Check whether ``frag[start:end]`` sits in a valid bare JSON value position."""
+    i = start - 1
+    while i >= 0 and frag[i] in " \t\r\n":
+        i -= 1
+    if i < 0 or frag[i] not in ":[,":
+        return False
+    j = end
+    n = len(frag)
+    while j < n and frag[j] in " \t\r\n":
+        j += 1
+    return j < n and frag[j] in ",}]"
+
+
+def _restore_json_fragment(
+    frag: str,
+    vault: RequestScopeVault | InMemoryVault,
+) -> str:
+    """Restore one balanced JSON fragment lexically, falling back safely on ambiguity or breakage."""
+    t0 = time.perf_counter_ns()
+    matches = _iter_matches(frag, vault)
+    if not matches:
+        hallucinated, invalid = _count_unknown_codes(frag)
+        if hallucinated:
+            vault.stats.hallucinated_count += hallucinated
+        if invalid:
+            vault.stats.invalid_code_count += invalid
+        vault.stats.restore_latency_us += (time.perf_counter_ns() - t0) // 1000
+        return frag
+
+    in_str, quote_char = _json_lexical_state(frag)
+    out: list[str] = []
+    last = 0
+    for a, z, val, _kind, _is_fuzzy in matches:
+        if any(quote_char[k] for k in range(a, z)):
+            return restore_text(frag, vault)
+        if a < len(in_str) and in_str[a]:
+            rep = json.dumps(val, ensure_ascii=False)[1:-1]
+        elif _is_legal_bare_json_slot(frag, a, z):
+            rep = json.dumps(val, ensure_ascii=False)
+        else:
+            return restore_text(frag, vault)
+        out.append(frag[last:a])
+        out.append(rep)
+        last = z
+    out.append(frag[last:])
+    candidate = "".join(out)
+
+    try:
+        json.loads(frag)
+        pre_valid = True
+    except Exception:
+        pre_valid = False
+
+    if pre_valid:
+        try:
+            json.loads(candidate)
+        except Exception:
+            vault.stats.restore_latency_us += (time.perf_counter_ns() - t0) // 1000
+            return frag
+
+    stats = vault.stats
+    back_counts = stats.back_counts
+    for _a, _z, _val, kind, _is_fuzzy in matches:
+        back_counts[kind] = back_counts.get(kind, 0) + 1
+    stats.restored_total += len(matches)
+    stats.fuzzy_restored_total += len(matches)
+
+    hallucinated, invalid = _count_unknown_codes(candidate)
+    if hallucinated:
+        stats.hallucinated_count += hallucinated
+    if invalid:
+        stats.invalid_code_count += invalid
+    stats.restore_latency_us += (time.perf_counter_ns() - t0) // 1000
+    return candidate
 
 
 def restore_json_aware(
     text: str,
     vault: RequestScopeVault | InMemoryVault,
 ) -> str:
-    """Lexically restore placeholders in JSON text, escaping inside strings and quoting bare values."""
+    """Restore Markdown-fenced or embedded JSON lexically while restoring surrounding prose as text."""
     if not text:
         return text
-    t0 = time.perf_counter_ns()
-    matches = _iter_matches(text, vault)
-    if not matches:
-        hallucinated = _count_explicit_unknown(text)
-        if hallucinated:
-            vault.stats.hallucinated_count += hallucinated
-        vault.stats.restore_latency_us += (time.perf_counter_ns() - t0) // 1000
-        return text
+    try:
+        spans = _extract_json_spans(text)
+        if not spans:
+            return restore_text(text, vault)
+        if len(spans) == 1 and spans[0] == (0, len(text)):
+            return _restore_json_fragment(text, vault)
 
-    in_str = _json_string_positions(text)
-
-    def _transform(pos: int, val: str) -> str:
-        if pos < len(in_str) and in_str[pos]:
-            return json.dumps(val, ensure_ascii=False)[1:-1]
-        # Outside quotes: auto-quote if sitting as a JSON value after ':', '[', or ','.
-        i = pos - 1
-        while i >= 0 and text[i] in " \t\r\n":
-            i -= 1
-        if i >= 0 and text[i] in ":[,":
-            return json.dumps(val, ensure_ascii=False)
-        return json.dumps(val, ensure_ascii=False)[1:-1]
-
-    # Strict JSON preserves unknown placeholders literally to avoid breaking schema enums.
-    return _apply_replacements(
-        text,
-        matches,
-        _transform,
-        preserve_unknown=True,
-        vault=vault,
-        t0_ns=t0,
-        force_fuzzy=True,
-    )
+        out: list[str] = []
+        last = 0
+        for a, z in spans:
+            if a > last:
+                out.append(restore_text(text[last:a], vault))
+            out.append(_restore_json_fragment(text[a:z], vault))
+            last = z
+        if last < len(text):
+            out.append(restore_text(text[last:], vault))
+        return "".join(out)
+    except Exception:
+        try:
+            return restore_text(text, vault)
+        except Exception:
+            return text
 
 
 class StreamRestorer:

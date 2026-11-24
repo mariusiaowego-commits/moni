@@ -56,6 +56,7 @@ class RestoreStats:
     fuzzy_restored_total: int = 0
     unrestored_count: int = 0
     hallucinated_count: int = 0
+    invalid_code_count: int = 0
     residual_placeholders: int = 0
     restore_latency_us: int = 0
     back_counts: dict[str, int] = field(default_factory=dict)
@@ -361,6 +362,7 @@ class RequestScopeVault:
         t0 = time.perf_counter_ns()
         from .restorer import (
             _RESIDUAL_PLACEHOLDER_RE,
+            _is_hallucinated_code,
             _unknown_fallback,
             restore_html_safe,
             restore_json_aware,
@@ -385,16 +387,26 @@ class RequestScopeVault:
 
         t_after_restore = time.perf_counter_ns()
         if mode == "json":
-            still_residual = sum(1 for _ in _RESIDUAL_PLACEHOLDER_RE.finditer(out))
-            if still_residual:
-                self._local.stats.unrestored_count += still_residual
+            still_unrestored = 0
+            for m in _RESIDUAL_PLACEHOLDER_RE.finditer(out):
+                kind = m.group(1) or m.group(3) or m.group(5) or ""
+                code = m.group(2) or m.group(4) or m.group(6) or ""
+                if _is_hallucinated_code(kind, code):
+                    still_unrestored += 1
+            if still_unrestored:
+                self._local.stats.unrestored_count += still_unrestored
         else:
-            remaining = 0
+            remaining_unrestored = 0
+            remaining_invalid = 0
 
             def _replace_residual(m: re.Match[str]) -> str:
-                nonlocal remaining
-                remaining += 1
+                nonlocal remaining_unrestored, remaining_invalid
                 kind = m.group(1) or m.group(3) or m.group(5) or ""
+                code = m.group(2) or m.group(4) or m.group(6) or ""
+                if _is_hallucinated_code(kind, code):
+                    remaining_unrestored += 1
+                else:
+                    remaining_invalid += 1
                 fallback = _unknown_fallback(kind)
                 if mode == "html":
                     return html.escape(fallback, quote=True)
@@ -402,8 +414,10 @@ class RequestScopeVault:
 
             if _RESIDUAL_PLACEHOLDER_RE.search(out):
                 out = _RESIDUAL_PLACEHOLDER_RE.sub(_replace_residual, out)
-            if remaining:
-                self._local.stats.unrestored_count += remaining
+            if remaining_unrestored:
+                self._local.stats.unrestored_count += remaining_unrestored
+            if remaining_invalid:
+                self._local.stats.invalid_code_count += remaining_invalid
         self._local.stats.restore_latency_us += (time.perf_counter_ns() - t_after_restore) // 1000
         return out
 
