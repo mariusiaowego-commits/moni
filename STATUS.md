@@ -12,7 +12,7 @@ cron 改动打包一起修。
   `cron_jobs.id` 是**调度项名**（`extract_events_morning` / `_am` / `_noon` / `_evening`），
   `cron_runs.job_id` 写入的却是**函数名**（`moni/cron/jobs.py` 里 `history.log_run(job_id, …)`
   传的是函数侧标识）。生产库实测四个调度项共用 `extract_events_pending` 一个函数。
-- `moni/web/routes/cron.py:162` 是精确匹配 `WHERE job_id = ?`，按 `extract_events_morning`
+- `moni/web/routes/cron.py:156` 是精确匹配 `WHERE job_id = ?`，按 `extract_events_morning`
   过滤必然落空；只有按函数名查才命中，且四个调度项的记录混在一起无法区分归属。
 - 期望：按 `cron_jobs.id` 过滤能查到该调度项全部记录（即同时接受调度项名与函数名两种拼写）。
 - 注意：旧实现只解决「查得到」；四个调度项共用同一函数时仍无法区分单次调度归属，
