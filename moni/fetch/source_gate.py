@@ -1,9 +1,16 @@
 """Fetch gate driven by the ``sources`` table switches.
 
-``is_active = 0`` turns the data plane off, ``is_hidden = 1`` hides the
-source from the management page.  Migration 052 documents both as
-"not scheduled / not batched"; until now only the YAML file was consulted,
-so a source the user had switched off in the UI still ran every morning.
+``is_active = 0`` turns the data plane off; ``is_hidden = 1`` hides the
+source from the management page.  Since v1.0.123 **both** keep the source
+out of scheduled and batch runs — before this gate only ``config/sources.yaml``
+was consulted, so a source the user had switched off in the UI still ran
+every morning.
+
+Migration 052 introduced ``is_hidden`` as a display-only switch ("照跑但不
+显示").  The owner later decided hidden means "don't fetch either", so the
+gate implements that newer contract here rather than by editing the applied
+migration.  Manual single-source runs are deliberately *not* gated: 052
+defines the switches as controlling 定时/批量同步.
 
 ``config/sources.yaml`` decides *when* a source runs, this module decides
 *whether* it may run at all.
@@ -11,10 +18,13 @@ so a source the user had switched off in the UI still ran every morning.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Iterable
 
 from ..db.connection import get_db
+
+logger = logging.getLogger(__name__)
 
 REASON_INACTIVE = "inactive"
 REASON_HIDDEN = "hidden"
@@ -44,8 +54,15 @@ def load_source_gates(names: Iterable[str]) -> dict[str, SourceGate]:
             f"SELECT name, is_active, is_hidden FROM sources WHERE name IN ({placeholders})",
             wanted,
         ).fetchall()
-    except Exception:
+    except Exception as exc:
         # A broken DB must never silently stop the whole sweep — fail open.
+        # But it must be loud: a silent fail-open lets disabled sources back
+        # into the batch with no trace in the run record.
+        logger.warning(
+            "[source_gate] could not read the sources table (%s: %s) — "
+            "allowing every source to run",
+            type(exc).__name__, exc,
+        )
         return gates
     for row in rows:
         if not row["is_active"]:

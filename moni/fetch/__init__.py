@@ -22,6 +22,7 @@ from typing import Any
 
 from .base import _ensure_sources_loaded, _FETCHER_REGISTRY, BaseFetcher, list_fetchers
 from .scheduler import Scheduler
+from .source_gate import split_fetchable
 
 # Import-time source discovery — after BaseFetcher is defined to avoid circular import
 try:
@@ -103,7 +104,14 @@ def fetch_all() -> list[dict[str, Any]]:
     scheduler = Scheduler()
     results: list[dict[str, Any]] = []
 
-    for cfg in scheduler.enabled_sources():
+    cfgs, skipped = split_fetchable(list(scheduler.enabled_sources()))
+    for name, reason in skipped:
+        logger.info(
+            "Skipping %r — %s", name,
+            "信源已停用" if reason == "inactive" else "信源已隐藏",
+        )
+
+    for cfg in cfgs:
         name = cfg["source_name"]
         if not scheduler.should_fetch(name):
             logger.debug("Skipping %r — not due", name)

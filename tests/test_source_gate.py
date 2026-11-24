@@ -11,6 +11,8 @@ Failure modes pinned here:
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from moni.db.connection import close_db, get_db, set_db_path
@@ -118,3 +120,100 @@ def test_batch_sources_respects_switches(fresh_db, tmp_path, monkeypatch):
     )
     assert [c["source_name"] for c in fetchable] == ["good_a"]
     assert skipped == [("hidden_a", REASON_HIDDEN)]
+
+
+# ── wiring: 闸必须真的接在三条批量路径上 ──────────────────────────────────
+
+
+class _FakeFetcher:
+    """最小 fetcher：只够让批跑走完一轮。"""
+
+    def __init__(self):
+        self.date_from = None
+
+    def run(self, dry_run: bool = False):
+        return {"source": "fake", "fetched": 0, "parsed": 0, "inserted": 0,
+                "parse_errors": 0, "error": None}
+
+
+def _write_config(path, names):
+    path.write_text(
+        "sources:\n"
+        + "".join(f"- source_name: {n}\n  enabled: true\n" for n in names),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_cron_batch_never_fetches_a_hidden_source(fresh_db, tmp_path, monkeypatch):
+    """cron 批跑：隐藏源不产生 fetch_log，且跳过原因写进 cron_runs。"""
+    import moni.cron.jobs as cron_jobs
+    import moni.fetch.base as fetch_base
+    import moni.fetch.scheduler as scheduler_mod
+
+    config = _write_config(tmp_path / "sources.yaml", ["good_a", "hidden_a"])
+    monkeypatch.setattr(scheduler_mod, "_CONFIG_PATH", config)
+    _add_source("hidden_a", is_hidden=1)
+    monkeypatch.setitem(fetch_base._FETCHER_REGISTRY, "good_a", _FakeFetcher)
+    monkeypatch.setitem(fetch_base._FETCHER_REGISTRY, "hidden_a", _FakeFetcher)
+
+    cron_jobs.fetch_all_sources()
+
+    conn = get_db()
+    logged = [r["source"] for r in conn.execute("SELECT source FROM fetch_log")]
+    assert logged == ["good_a"]
+    extra = json.loads(
+        conn.execute("SELECT extra FROM cron_runs ORDER BY id DESC LIMIT 1").fetchone()["extra"]
+    )
+    assert extra["skipped_sources"] == {"hidden_a": REASON_HIDDEN}
+
+
+def test_web_batch_reports_skipped_sources(fresh_db, tmp_path, monkeypatch):
+    """Web 一键抓取：被闸挡下的源不排队，并出现在响应里。"""
+    import moni.fetch.base as fetch_base
+    import moni.fetch.scheduler as scheduler_mod
+    from moni.web.routes import fetch as fetch_routes
+
+    config = _write_config(tmp_path / "sources.yaml", ["good_a", "hidden_a"])
+    monkeypatch.setattr(scheduler_mod, "_CONFIG_PATH", config)
+    _add_source("hidden_a", is_hidden=1)
+    monkeypatch.setitem(fetch_base._FETCHER_REGISTRY, "good_a", _FakeFetcher)
+    monkeypatch.setitem(fetch_base._FETCHER_REGISTRY, "hidden_a", _FakeFetcher)
+
+    class _NoThread:
+        """不启动后台 worker —— 本用例只关心排队前的闸。"""
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(fetch_routes.threading, "Thread", _NoThread)
+
+    resp = fetch_routes.trigger_fetch_all()
+
+    assert resp["skipped"] == [{"source": "hidden_a", "reason": REASON_HIDDEN}]
+    queued = [r["source"] for r in get_db().execute("SELECT source FROM fetch_jobs")]
+    assert "hidden_a" not in queued
+
+
+def test_cli_batch_never_fetches_a_hidden_source(fresh_db, tmp_path, monkeypatch):
+    """CLI 批量抓取：被闸挡下的源不进抓取列表。"""
+    import moni.fetch.run as fetch_run
+    import moni.fetch.scheduler as scheduler_mod
+
+    config = _write_config(tmp_path / "sources.yaml", ["good_a", "hidden_a"])
+    monkeypatch.setattr(scheduler_mod, "_CONFIG_PATH", config)
+    _add_source("hidden_a", is_hidden=1)
+
+    seen: list[list[str]] = []
+
+    def _fake_collect(source_names, dry_run=False, force_targeted=False):
+        seen.append(list(source_names))
+        return [], 0, 0
+
+    monkeypatch.setattr(fetch_run, "_collect_results", _fake_collect)
+    fetch_run.main([])
+
+    assert seen == [["good_a"]]

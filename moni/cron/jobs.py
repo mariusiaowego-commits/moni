@@ -7,9 +7,9 @@ must live at the package level (not nested inside a class).
 Job handlers
 -----------
 1. fetch_all_sources
-       Calls ``moni.fetch.fetch_all()`` in a try/except per source so one
-       failed source never blocks the others.  Logs a ``cron_runs`` row and
-       one ``fetch_log`` row per source.
+       Runs its own per-source loop over ``Scheduler.batch_sources()`` in a
+       try/except per source so one failed source never blocks the others.
+       Logs a ``cron_runs`` row and one ``fetch_log`` row per source.
 
 2. predict_tags_pending
        Finds articles that have no tags yet, renders the predict_tag prompt,
@@ -162,7 +162,8 @@ def fetch_all_sources() -> dict[str, Any] | None:
         logger.info("[%s] no enabled sources — nothing to do", job_id)
         finished_at = _cst_now().isoformat()
         history.log_run(job_id, triggered_at=triggered_at, finished_at=finished_at,
-                        success=True, new_articles=0, sources_run=0)
+                        success=True, new_articles=0, sources_run=0,
+                        extra={"skipped_sources": dict(skipped_sources)})
         return None
 
     # _ensure_sources_loaded must be called before iterating _FETCHER_REGISTRY
