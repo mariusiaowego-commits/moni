@@ -203,7 +203,11 @@ def update_direction(direction_id: int, payload: DirectionUpdate) -> Direction:
             or str(before.get("research_guidance") or "")
             != str(direction.get("research_guidance") or "")
         )
-        response.research_invalidated = changed and not response.usable
+        # A direction that never had a research has nothing to invalidate.
+        # Saying "研究需重新生成" for it would be wrong -- there was no
+        # research to regenerate in the first place.
+        had_research = direction_store.research_summary(conn, before) is not None
+        response.research_invalidated = changed and had_research and not response.usable
     return response
 
 

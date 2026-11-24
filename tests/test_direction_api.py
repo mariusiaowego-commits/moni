@@ -364,3 +364,15 @@ def test_draft_reports_a_model_failure(client: TestClient, monkeypatch):
 def test_blank_idea_is_rejected(client: TestClient):
     response = client.post("/api/directions/draft", json={"idea": "   "})
     assert response.status_code == 422
+
+
+def test_patching_a_direction_without_research_does_not_claim_a_was_invalidated(client: TestClient):
+    """A direction that never had a research has nothing to invalidate."""
+    created = _create(client)
+    response = client.patch(
+        f"/api/directions/{created['id']}", json={"brief": "公众号里的银行动作"}
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["usable"] is False
+    assert body["research_invalidated"] is False

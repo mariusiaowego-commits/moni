@@ -16,8 +16,10 @@ from moni.db.migrate import _CURRENT_VERSION, migrate
 NOW = "2026-11-24 00:00:00"
 
 
-def test_current_version_is_59():
-    assert _CURRENT_VERSION == 59
+def test_current_version_is_at_least_59():
+    # 058 is still unmerged (PR #294); the next migration will bump the
+    # version again, so this must not pin an exact number.
+    assert _CURRENT_VERSION >= 59
 
 
 def test_fresh_database_has_empty_guidance_columns(tmp_path):
