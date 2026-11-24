@@ -18,7 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 57  # + 057 article_contexts (sprint-70 article context pack)
+_CURRENT_VERSION = 59  # + 059 bv_direction_guidance (sprint-73 direction research guidance)
 
 # Migrations <= this version were applied by the old "max(schema_version)"
 # rule, which did not record every intermediate row.  Never re-run them.

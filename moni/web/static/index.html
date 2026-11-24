@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261124003">
+  <link rel="stylesheet" href="css/main.css?v=20261124005">
   <!-- v1.0.110: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
        放在 main.css 之后，同名选择器以它们为准，便于单独回滚。 -->
   <link rel="stylesheet" href="css/source-ops.css?v=20261120011">
@@ -4455,6 +4455,19 @@
             </div>
             <div class="modal-body">
               <div class="form-row">
+                <label>碎片想法
+                  <small class="muted">可选。写几句你关心的点，让模型补全下面三栏。这里不会直接保存。</small>
+                </label>
+                <textarea class="direction-idea" x-model="configModalTarget.idea" rows="4" maxlength="2000" placeholder="例如：公众号和视频号里，哪些内容能变成银行获客或合规动作"></textarea>
+                <div class="direction-draft-row">
+                  <small class="muted">下面已有内容时，生成前会先问要不要覆盖。</small>
+                  <button type="button" class="btn btn-secondary btn-sm"
+                          @click="generateDirectionDraft()"
+                          :disabled="configModalTarget.draftBusy || configModalTarget.saving"
+                          x-text="configModalTarget.draftBusy ? '生成中…' : '生成草稿'"></button>
+                </div>
+              </div>
+              <div class="form-row">
                 <label>方向名 <span class="required">*</span>
                   <small class="muted">≤6 字；只作为展示与快照，不参与文章抓取</small>
                 </label>
@@ -4469,16 +4482,29 @@
                 <small class="field-count" x-text="((configModalTarget.brief || '').length) + ' / 200'"></small>
                 <small class="text-danger" x-show="configModalTarget.briefError" x-text="configModalTarget.briefError"></small>
               </div>
+              <div class="form-row">
+                <label>研究提示词
+                  <small class="muted">≤800 字，可空。告诉研究员这个方向具体看什么。改了以后，已通过的研究会作废。</small>
+                </label>
+                <textarea class="direction-guidance" x-model="configModalTarget.research_guidance" rows="8" maxlength="800" placeholder="例如：只认正文里出现的公众号、视频号、小程序和投放数据；没有这些就记 0"></textarea>
+                <small class="field-count" x-text="((configModalTarget.research_guidance || '').length) + ' / 800'"></small>
+                <small class="text-danger" x-show="configModalTarget.guidanceError" x-text="configModalTarget.guidanceError"></small>
+              </div>
               <div class="form-row" x-show="!!configModalTargetOriginal">
                 <label class="checkbox-row">
                   <input type="checkbox" x-model="configModalTarget.enabled">
                   <span>启用这个方向</span>
                 </label>
               </div>
+              <p class="direction-model-hint" x-text="directionModelHint()"></p>
             </div>
             <div class="modal-footer">
               <button class="btn-secondary" @click="closeConfigModal()">取消</button>
-              <button class="btn-primary" @click="configSaveDirection()">保存</button>
+              <button class="btn-secondary" x-show="configModalTarget && configModalTarget.enabled !== false"
+                      @click="configSaveDirection(true)"
+                      :disabled="configModalTarget.draftBusy || configModalTarget.saving">保存并立即研究</button>
+              <button class="btn-primary" @click="configSaveDirection(false)"
+                      :disabled="configModalTarget.draftBusy || configModalTarget.saving">保存</button>
             </div>
           </div>
         </template>
@@ -5168,7 +5194,7 @@
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
-  <script src="js/app.js?v=20261124008"></script>
+  <script src="js/app.js?v=20261124009"></script>
   <script src="js/reader.js?v=20261123103"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind

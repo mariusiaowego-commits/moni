@@ -13,18 +13,20 @@ from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from .direction import (
+    BRIEF_MAX_CHARS,
     DIRECTION_PROMPT_ID,
+    GUIDANCE_MAX_CHARS,
     STATUS_EXPIRED,
     STATUS_FAILED,
     STATUS_PASSED,
     STATUS_RUNNING,
     brief_reject_reason,
+    guidance_reject_reason,
     label_reject_reason,
     parse_research,
     usable_research,
 )
 
-BRIEF_MAX_CHARS = 200
 #: A research run is a single Hermes call; five minutes is generous,
 #: and anything still running after ten minutes is treated as dead.
 RESEARCH_STALE_AFTER_SEC = 600
@@ -36,7 +38,9 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _reject_reason(label: str, brief: str) -> str | None:
+def _reject_reason(
+    label: str, brief: str, research_guidance: str = ""
+) -> str | None:
     label_error = label_reject_reason(label)
     if label_error:
         return label_error
@@ -45,6 +49,9 @@ def _reject_reason(label: str, brief: str) -> str | None:
         return brief_error
     if len((brief or "").strip()) > BRIEF_MAX_CHARS:
         return f"方向说明超过 {BRIEF_MAX_CHARS} 字"
+    guidance_error = guidance_reject_reason(research_guidance)
+    if guidance_error:
+        return guidance_error
     return None
 
 
@@ -64,9 +71,12 @@ def _label_taken(
 
 
 def create_direction(
-    conn: sqlite3.Connection, label: str, brief: str
+    conn: sqlite3.Connection,
+    label: str,
+    brief: str,
+    research_guidance: str = "",
 ) -> tuple[int | None, str | None]:
-    error = _reject_reason(label, brief)
+    error = _reject_reason(label, brief, research_guidance)
     if error:
         return None, error
     now = _now()
@@ -77,9 +87,15 @@ def create_direction(
             conn.rollback()
             return None, DUPLICATE_LABEL_ERROR
         cur = conn.execute(
-            "INSERT INTO bv_direction (label, brief, enabled, created_at, updated_at) "
-            "VALUES (?, ?, 1, ?, ?)",
-            (clean_label, brief.strip(), now, now),
+            "INSERT INTO bv_direction (label, brief, research_guidance, enabled, "
+            "created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
+            (
+                clean_label,
+                brief.strip(),
+                (research_guidance or "").strip(),
+                now,
+                now,
+            ),
         )
         conn.commit()
     except sqlite3.Error:
@@ -94,13 +110,14 @@ def update_direction(
     *,
     label: str | None = None,
     brief: str | None = None,
+    research_guidance: str | None = None,
     enabled: bool | None = None,
 ) -> tuple[dict[str, Any] | None, str | None]:
     now = _now()
     conn.execute("BEGIN IMMEDIATE")
     try:
         row = conn.execute(
-            "SELECT label, brief, enabled FROM bv_direction WHERE id=?",
+            "SELECT label, brief, research_guidance, enabled FROM bv_direction WHERE id=?",
             (direction_id,),
         ).fetchone()
         if row is None:
@@ -109,10 +126,19 @@ def update_direction(
 
         next_label = row["label"] if label is None else label.strip()
         next_brief = row["brief"] if brief is None else brief.strip()
+        next_guidance = (
+            (row["research_guidance"] or "")
+            if research_guidance is None
+            else research_guidance.strip()
+        )
         next_enabled = bool(row["enabled"]) if enabled is None else bool(enabled)
-        research_invalidated = next_label != row["label"] or next_brief != row["brief"]
+        research_invalidated = (
+            next_label != row["label"]
+            or next_brief != row["brief"]
+            or next_guidance != (row["research_guidance"] or "").strip()
+        )
         if research_invalidated:
-            error = _reject_reason(next_label, next_brief)
+            error = _reject_reason(next_label, next_brief, next_guidance)
             if error:
                 conn.rollback()
                 return None, error
@@ -121,19 +147,20 @@ def update_direction(
             return None, DUPLICATE_LABEL_ERROR
 
         conn.execute(
-            "UPDATE bv_direction SET label=?, brief=?, enabled=?, updated_at=? "
-            "WHERE id=?",
+            "UPDATE bv_direction SET label=?, brief=?, research_guidance=?, "
+            "enabled=?, updated_at=? WHERE id=?",
             (
                 next_label,
                 next_brief,
+                next_guidance,
                 1 if next_enabled else 0,
                 now,
                 direction_id,
             ),
         )
-        # A research snapshot carries the label and brief it was built
-        # from.  Only a real change invalidates it; toggling ``enabled``
-        # alone must keep a passed research result usable.
+        # A research snapshot carries the label, brief and guidance it was
+        # built from.  Only a real change invalidates it; toggling
+        # ``enabled`` alone must keep a passed research result usable.
         if research_invalidated:
             conn.execute(
                 "UPDATE bv_direction_research SET status=? "
@@ -149,7 +176,7 @@ def update_direction(
 
 def get_direction(conn: sqlite3.Connection, direction_id: int) -> dict[str, Any] | None:
     row = conn.execute(
-        "SELECT id, label, brief, enabled, created_at, updated_at "
+        "SELECT id, label, brief, research_guidance, enabled, created_at, updated_at "
         "FROM bv_direction WHERE id=?",
         (direction_id,),
     ).fetchone()
@@ -158,7 +185,7 @@ def get_direction(conn: sqlite3.Connection, direction_id: int) -> dict[str, Any]
 
 def list_directions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute(
-        "SELECT id, label, brief, enabled, created_at, updated_at "
+        "SELECT id, label, brief, research_guidance, enabled, created_at, updated_at "
         "FROM bv_direction ORDER BY id"
     ).fetchall()
     return [dict(row) for row in rows]
@@ -178,8 +205,8 @@ def latest_research_rows(
 ) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT id, direction_id, research_version, status, label_snapshot, "
-        "brief_snapshot, prompt_id, scope, out_of_scope, rubric_json, error, "
-        "model, started_at, finished_at "
+        "brief_snapshot, guidance_snapshot, prompt_id, scope, out_of_scope, "
+        "rubric_json, error, model, started_at, finished_at "
         "FROM bv_direction_research WHERE direction_id=? "
         "ORDER BY research_version DESC",
         (direction_id,),
@@ -257,7 +284,8 @@ def start_research(
     conn.execute("BEGIN IMMEDIATE")
     try:
         direction = conn.execute(
-            "SELECT label, brief FROM bv_direction WHERE id=?", (direction_id,)
+            "SELECT label, brief, research_guidance FROM bv_direction WHERE id=?",
+            (direction_id,),
         ).fetchone()
         if direction is None:
             conn.rollback()
@@ -288,14 +316,15 @@ def start_research(
         cur = conn.execute(
             "INSERT INTO bv_direction_research "
             "(direction_id, research_version, status, label_snapshot, "
-            "brief_snapshot, prompt_id, started_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "brief_snapshot, guidance_snapshot, prompt_id, started_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 direction_id,
                 next_version,
                 STATUS_RUNNING,
                 direction["label"],
                 direction["brief"],
+                (direction["research_guidance"] or "").strip(),
                 DIRECTION_PROMPT_ID,
                 now,
             ),
@@ -312,6 +341,7 @@ def start_research(
         "status": STATUS_RUNNING,
         "label_snapshot": direction["label"],
         "brief_snapshot": direction["brief"],
+        "guidance_snapshot": (direction["research_guidance"] or "").strip(),
         "prompt_id": DIRECTION_PROMPT_ID,
         "started_at": now,
     }, None
@@ -394,6 +424,7 @@ def direction_usable(
         rows,
         label=str(direction["label"]),
         brief=str(direction["brief"]),
+        research_guidance=str(direction.get("research_guidance") or ""),
         direction_id=int(direction["id"]),
     )
 
@@ -421,6 +452,7 @@ def research_summary(
 
 __all__ = [
     "BRIEF_MAX_CHARS",
+    "GUIDANCE_MAX_CHARS",
     "RESEARCH_STALE_AFTER_SEC",
     "create_direction",
     "delete_direction",

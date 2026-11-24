@@ -686,6 +686,8 @@ class BasketRescueRequest(BaseModel):
 __all__ = [
     "Direction",
     "DirectionCreate",
+    "DirectionDraft",
+    "DirectionDraftRequest",
     "DirectionResearchAction",
     "DirectionResearchSummary",
     "DirectionUpdate",
@@ -724,8 +726,9 @@ __all__ = [
 class DirectionCreate(BaseModel):
     label: str = Field(min_length=1, max_length=6)
     brief: str = Field(min_length=1, max_length=200)
+    research_guidance: str = Field(default="", max_length=800)
 
-    @field_validator("label", "brief", mode="before")
+    @field_validator("label", "brief", "research_guidance", mode="before")
     @classmethod
     def _strip(cls, value):
         # Strip before length checks, otherwise " 微信生态 " fails the
@@ -736,12 +739,38 @@ class DirectionCreate(BaseModel):
 class DirectionUpdate(BaseModel):
     label: str | None = Field(default=None, min_length=1, max_length=6)
     brief: str | None = Field(default=None, min_length=1, max_length=200)
+    research_guidance: str | None = Field(default=None, max_length=800)
     enabled: bool | None = None
 
-    @field_validator("label", "brief", mode="before")
+    @field_validator("label", "brief", "research_guidance", mode="before")
     @classmethod
     def _strip(cls, value):
         return value.strip() if isinstance(value, str) else value
+
+
+class DirectionDraftRequest(BaseModel):
+    """POST body for the draft generator.
+
+    ``idea`` is the user's fragment; the model turns it into a full
+    direction plus research guidance.  ``label`` is optional and only
+    helps the model keep an already-chosen name.
+    """
+
+    idea: str = Field(min_length=1, max_length=2000)
+    label: str = Field(default="", max_length=6)
+
+    @field_validator("idea", "label", mode="before")
+    @classmethod
+    def _strip(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
+class DirectionDraft(BaseModel):
+    """One model-written draft, not yet saved."""
+
+    label: str
+    brief: str
+    research_guidance: str
 
 
 class DirectionResearchAction(BaseModel):
@@ -772,12 +801,16 @@ class Direction(BaseModel):
     id: int
     label: str
     brief: str
+    research_guidance: str = ""
     enabled: bool
     created_at: str
     updated_at: str
     research: DirectionResearchAction | None = None
     usable: bool = False
     usable_error: str | None = None
+    #: True when the last save changed label, brief or research guidance
+    #: and therefore expired the passed research.
+    research_invalidated: bool = False
 
 
 class DirectionScoreBatch(BaseModel):

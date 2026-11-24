@@ -25,10 +25,17 @@ class ResearchRequest:
     research_version: int
     label: str
     brief: str
+    #: The direction's own research guidance.  It is part of the research
+    #: input, so the request carries the snapshot the run was started
+    #: with rather than reading the direction again -- the row may have
+    #: been edited while the run was queued.
+    research_guidance: str = ""
 
 
 def research_prompt(request: ResearchRequest) -> str:
-    return build_research_prompt(request.label, request.brief)
+    return build_research_prompt(
+        request.label, request.brief, request.research_guidance
+    )
 
 
 def run_research(

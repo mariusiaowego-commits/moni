@@ -15,7 +15,13 @@ from fastapi import APIRouter
 
 from moni.db.connection import get_db
 from moni.scoring import direction_store
-from moni.scoring.direction import STATUS_RUNNING
+from moni.scoring.bv_pipeline import short_llm_error
+from moni.scoring.direction import (
+    STATUS_RUNNING,
+    build_draft_prompt,
+    idea_reject_reason,
+    parse_draft,
+)
 from moni.scoring.direction_runner import (
     DirectionResearchRunner,
     ResearchRequest,
@@ -24,6 +30,8 @@ from moni.web.exceptions import BadRequestError, ConflictError, NotFoundError
 from moni.web.models import (
     Direction,
     DirectionCreate,
+    DirectionDraft,
+    DirectionDraftRequest,
     DirectionResearchAction,
     DirectionResearchSummary,
     DirectionUpdate,
@@ -65,6 +73,7 @@ def _direction_response(direction: dict[str, Any]) -> Direction:
         id=int(direction["id"]),
         label=str(direction["label"]),
         brief=str(direction["brief"]),
+        research_guidance=str(direction.get("research_guidance") or ""),
         enabled=bool(direction["enabled"]),
         created_at=str(direction["created_at"]),
         updated_at=str(direction["updated_at"]),
@@ -123,10 +132,39 @@ def list_directions() -> list[Direction]:
     return [_direction_response(direction) for direction in direction_store.list_directions(conn)]
 
 
+@router.post("/draft", response_model=DirectionDraft)
+def create_draft(payload: DirectionDraftRequest) -> DirectionDraft:
+    """Turn a fragment of an idea into a full direction plus guidance.
+
+    This is the first half of the two-stage flow: the user says roughly
+    what they want, the model writes it down properly, and the user edits
+    the result before any research runs.  Nothing is saved here -- the
+    draft is returned to the form, and only the user's save persists it.
+    """
+    error = idea_reject_reason(payload.idea)
+    if error:
+        raise BadRequestError(message=error)
+    try:
+        raw = _model_call(build_draft_prompt(payload.idea, payload.label))
+    except Exception as exc:  # noqa: BLE001 - reported to the user as text
+        log.warning("direction draft failed: %s", exc)
+        raise BadRequestError(message=f"生成草稿失败：{short_llm_error(str(exc))}")
+    draft, parse_error = parse_draft(raw)
+    if draft is None:
+        raise BadRequestError(message=f"草稿不可用：{parse_error or '模型输出无法解析'}")
+    return DirectionDraft(
+        label=draft.label,
+        brief=draft.brief,
+        research_guidance=draft.research_guidance,
+    )
+
+
 @router.post("", response_model=Direction, status_code=201)
 def create_direction(payload: DirectionCreate) -> Direction:
     conn = get_db()
-    direction_id, error = direction_store.create_direction(conn, payload.label, payload.brief)
+    direction_id, error = direction_store.create_direction(
+        conn, payload.label, payload.brief, payload.research_guidance
+    )
     if direction_id is None:
         if error == direction_store.DUPLICATE_LABEL_ERROR:
             raise ConflictError(message=error)
@@ -139,11 +177,13 @@ def create_direction(payload: DirectionCreate) -> Direction:
 @router.patch("/{direction_id}", response_model=Direction)
 def update_direction(direction_id: int, payload: DirectionUpdate) -> Direction:
     conn = get_db()
+    before = direction_store.get_direction(conn, direction_id)
     direction, error = direction_store.update_direction(
         conn,
         direction_id,
         label=payload.label,
         brief=payload.brief,
+        research_guidance=payload.research_guidance,
         enabled=payload.enabled,
     )
     if direction is None:
@@ -152,7 +192,19 @@ def update_direction(direction_id: int, payload: DirectionUpdate) -> Direction:
         if error == direction_store.DUPLICATE_LABEL_ERROR:
             raise ConflictError(message=error)
         raise BadRequestError(message=error or "方向参数无效")
-    return _direction_response(direction)
+    response = _direction_response(direction)
+    if before is not None:
+        # The caller needs to know whether the save killed the passed
+        # research, otherwise "保存成功" hides the fact that the direction
+        # just became unusable until someone runs research again.
+        changed = (
+            str(before.get("label") or "") != direction["label"]
+            or str(before.get("brief") or "") != direction["brief"]
+            or str(before.get("research_guidance") or "")
+            != str(direction.get("research_guidance") or "")
+        )
+        response.research_invalidated = changed and not response.usable
+    return response
 
 
 @router.delete("/{direction_id}", status_code=204)
@@ -193,6 +245,7 @@ def start_research(direction_id: int) -> DirectionResearchAction:
             research_version=int(running["research_version"]),
             label=str(running["label_snapshot"]),
             brief=str(running["brief_snapshot"]),
+            research_guidance=str(running.get("guidance_snapshot") or ""),
         )
     )
     return DirectionResearchAction(
