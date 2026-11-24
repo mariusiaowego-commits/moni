@@ -201,12 +201,51 @@ def test_scope_over_the_length_limit_is_rejected():
     assert research is None and error and "超过" in error
 
 
-def test_question_over_thirty_chars_is_rejected():
+def test_question_over_the_limit_is_rejected():
     payload = _payload()
-    payload["dimensions"]["rule_delta"]["question"] = "问" * 31
+    payload["dimensions"]["rule_delta"]["question"] = "问" * (direction.QUESTION_MAX_CHARS + 1)
     research, error = parse_research(payload)
     assert research is None
-    assert error and "30" in error
+    assert error and str(direction.QUESTION_MAX_CHARS) in error
+
+
+def test_question_longer_than_the_base_rubric_is_accepted():
+    """A direction rewrite names its object, so it runs longer than the base.
+
+    Rejecting it failed the whole research run over wording, which left the
+    direction unusable and the direction score unreachable.
+    """
+    payload = _payload()
+    question = "在微信生态下，有没有会改变银行或支付机构义务的规则、处罚或窗口指导？点评不算"
+    assert len(question) > 30
+    payload["dimensions"]["rule_delta"]["question"] = question
+    research, error = parse_research(payload)
+    assert error is None
+    assert research is not None
+    by_key = {dim.key: dim for dim in research.dimensions}
+    assert by_key["rule_delta"].question == question
+
+
+def test_question_exactly_at_the_limit_is_accepted():
+    payload = _payload()
+    payload["dimensions"]["rule_delta"]["question"] = "问" * direction.QUESTION_MAX_CHARS
+    research, error = parse_research(payload)
+    assert error is None
+    assert research is not None
+
+
+def test_base_rubric_fits_inside_the_caps_it_is_rewritten_into():
+    """The base rubric is the source the direction rewrites.
+
+    A rewrite keeps its meaning, so it cannot come out shorter than the
+    source.  If the rubric ever grows past a cap, every research run
+    fails on the length check and no direction can be created at all.
+    """
+    for dim in RUBRIC_V1.by_key.values():
+        assert len(dim.question) <= direction.QUESTION_MAX_CHARS, dim.key
+        for anchor in dim.anchors:
+            assert len(anchor) <= direction.ANCHOR_MAX_CHARS, dim.key
+        assert len(dim.template) <= direction.TEMPLATE_MAX_CHARS, dim.key
 
 
 def test_anchor_over_sixty_chars_is_rejected():

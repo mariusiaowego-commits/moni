@@ -33,7 +33,11 @@ from .rubric import (
 
 DIRECTION_PROMPT_ID = "bv_direction_research_v1"
 LABEL_MAX_CHARS = 6
-QUESTION_MAX_CHARS = 30
+#: The base rubric's own questions run 27-35 characters, and a direction
+#: rewrite has to keep their meaning while naming the new object, so it
+#: lands in the same range.  A 30-character cap made a faithful rewrite
+#: impossible and failed the whole research run over one long question.
+QUESTION_MAX_CHARS = 60
 ANCHOR_MAX_CHARS = 60
 TEMPLATE_MAX_CHARS = 120
 ANCHOR_COUNT = 4
@@ -132,7 +136,9 @@ def build_research_prompt(label: str, brief: str) -> str:
         "输出要求：\n"
         "- scope：一句话说明这个方向考什么。\n"
         "- out_of_scope：一句话说明哪些内容一律记 0。\n"
-        "- 每个问题 ≤30 字；0/3/6/10 四档锚点齐全；理由模板保留 {…} 占位。\n"
+        "- 每个问题 ≤45 字且保留原问的限定语；四档锚点（0/3/6/10）必须齐全、"
+        "每档 ≤60 字；理由模板 ≤120 字且保留 {…} 占位；"
+        "scope 与 out_of_scope 各 ≤80 字。\n"
         '严格输出 JSON：{"scope":"…","out_of_scope":"…","dimensions":'
         '{"rule_delta":{"question":"…","anchors":{"0":"…","3":"…","6":"…","10":"…"},'
         '"template":"…"}, …共十个 key}}\n'
