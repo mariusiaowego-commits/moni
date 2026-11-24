@@ -843,7 +843,7 @@ function app() {
       else if (view === 'crud') this.loadCrudArticles();
       else if (view === 'fetch') { this.loadSources(); this.resumeRunningFetchJobs(); }
       else if (view === 'llmJobs') this.loadLlmJobs();  // v1.0.5.1
-      else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
+      else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this.loadShareContextCounts(); this._startSharePoll(); }
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
       else if (view === 'cleaning') { this.loadCleaning(); this.loadLabels(); }
       else if (view === 'calendar') { this.initCalendarPage(); }
@@ -893,7 +893,7 @@ function app() {
       else if (view === 'crud') this.loadCrudArticles();
       else if (view === 'fetch') { this.loadSources(); this.resumeRunningFetchJobs(); }
       else if (view === 'llmJobs') this.loadLlmJobs();
-      else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this._startSharePoll(); }
+      else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this.loadShareContextCounts(); this._startSharePoll(); }
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
       else if (view === 'cleaning') { this.loadCleaning(); this.loadLabels(); }
       else if (view === 'calendar') { this.initCalendarPage(); }
@@ -4655,6 +4655,14 @@ function app() {
     // default profile's provider / model — no override).
     shareIncludeAbstract: true,
     shareIncludeFactCheck: false,
+    // Sprint 69: article-level user contexts.  Off by default; the
+    // user opts in right before sharing.  PNG formats can't render a
+    // fixed text section, so the UI disables the toggle there.
+    shareIncludeContexts: false,
+    shareBriefIncludeContexts: false,
+    shareContextCounts: {},
+    shareContextPinnedTotal: 0,
+    shareEstimateContextCount: 0,
     // v1.0.10: one-click brief
     briefFormat: 'html_landing',  // v1.0.10: offline HTML (full body + fold)
     briefSubmitting: false,
@@ -4746,7 +4754,39 @@ function app() {
       parts.push(this.shareFormatLabel(this.shareFormat));
       if (this.shareIncludeAbstract) parts.push('含 AI 摘要');
       if (this.shareIncludeFactCheck) parts.push('含事实核查');
+      if (this.shareIncludeContexts && this.shareFormatSupportsContexts) {
+        parts.push(`含上下文 ${this.shareSelectedContextCount} 条`);
+      }
       return parts.join(' · ');
+    },
+
+    get shareFormatSupportsContexts() {
+      return !['info_graphic_png', 'report_png'].includes(this.shareFormat);
+    },
+
+    get briefFormatSupportsContexts() {
+      return !['info_graphic_png', 'report_png'].includes(this.briefFormat);
+    },
+
+    get shareSelectedContextCount() {
+      const counts = this.shareContextCounts || {};
+      return (this.selectedArticleIds || [])
+        .reduce((sum, id) => sum + (Number(counts[id]) || 0), 0);
+    },
+
+    get sharePinnedContextCount() {
+      return Number(this.shareContextPinnedTotal) || 0;
+    },
+
+    loadShareContextCounts() {
+      fetch('/api/article-contexts/summary', { credentials: 'same-origin' })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!data) return;
+          this.shareContextCounts = data.counts || {};
+          this.shareContextPinnedTotal = data.pinned_total || 0;
+        })
+        .catch((err) => console.error('loadShareContextCounts failed:', err));
     },
 
     // Batch actions operate on the visible page of the active source.
@@ -4913,6 +4953,10 @@ function app() {
         credentials: 'same-origin',
         body: JSON.stringify({
           format: this.briefFormat || 'markdown',
+          options: {
+            include_user_context:
+              this.shareBriefIncludeContexts && this.briefFormatSupportsContexts,
+          },
           force: force,
         }),
       })
@@ -5061,6 +5105,7 @@ function app() {
         // and apply the documented default.
         include_abstract: this.shareIncludeAbstract,
         include_fact_check: this.shareIncludeFactCheck,
+        include_user_context: this.shareIncludeContexts && this.shareFormatSupportsContexts,
       };
       // provider/model: only send if non-empty (empty == use default
       // profile).  report_png generation_approach only when format
@@ -5103,6 +5148,9 @@ function app() {
 
       this._shareEstimatePayload = payload;
       this._shareEstimateFormat = this.shareFormat;
+      this.shareEstimateContextCount = payload.include_user_context
+        ? this.shareSelectedContextCount
+        : 0;
       this.shareEstimateError = null;
       this.shareEstimateSubmitting = true;  // covers fetch + render
       this.shareEstimate = null;  // show "loading" state via modal-backdrop x-show

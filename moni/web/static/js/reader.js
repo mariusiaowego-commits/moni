@@ -596,6 +596,11 @@
     readerBankParts: [],
     readerRawOpen: false,
     readerImportOpen: false,
+    // Sprint 69: article-level context snapshots (assistant answers the
+    // user chose to keep with this article).
+    readerContexts: [],
+    readerContextsOpen: false,
+    readerSavingMsgId: null,
     readerRendered: '',
     readerBodyEmpty: false,
     readerProgress: 0,
@@ -618,6 +623,9 @@
       this.readerMobileTab = 'read';
       this.readerContentTab = 'read';
       this.readerFactReportOpen = false;
+      this.readerContexts = [];
+      this.readerContextsOpen = false;
+      this.readerSavingMsgId = null;
       this.readerSyncViewport();
       fetch(`/api/articles/${article.id}`, { credentials: 'same-origin' })
         .then((r) => {
@@ -636,6 +644,7 @@
           if (data.has_web_fact_check) this.loadArticleEvidence(data.id);
           this.readerLoadPrompts();
           this.readerLoadConversation();
+          this.readerLoadContexts();
         })
         .catch((err) => this._notify('error', '加载文章失败: ' + err.message));
     },
@@ -652,6 +661,9 @@
       this.readerMobileTab = 'read';
       this.readerContentTab = 'read';
       this.readerFactReportOpen = false;
+      this.readerContexts = [];
+      this.readerContextsOpen = false;
+      this.readerSavingMsgId = null;
       this.summaryLoading = false;
       this.factCheckLoading = false;
       // 弹窗关了就停止跟随：定时器、秒表、槽位一起收（重开由
@@ -659,8 +671,16 @@
       if (typeof this.stopReaderJobs === 'function') this.stopReaderJobs();
     },
 
-    /** Esc 先退出全屏，再关闭阅读器。 */
+    /** Esc 先关上下文面板 / 嵌套弹窗，再退出全屏，最后关闭阅读器。 */
     readerHandleEscape() {
+      const otherModalOpen = Array.from(document.querySelectorAll('.modal-backdrop'))
+        .some((el) => !el.classList.contains('reader-backdrop')
+          && getComputedStyle(el).display !== 'none');
+      if (otherModalOpen) return;
+      if (this.readerContextsOpen) {
+        this.readerContextsOpen = false;
+        return;
+      }
       if (this.readerExpanded) {
         this.readerExpanded = false;
         return;
@@ -1025,6 +1045,104 @@
       navigator.clipboard.writeText(value)
         .then(() => this._notify('info', '已复制回答'))
         .catch(() => this._notify('error', '复制失败'));
+    },
+
+    get readerContextCount() {
+      return (this.readerContexts || []).length;
+    },
+
+    readerContextKindLabel(kind) {
+      return ({
+        chat: 'AI 对话',
+        note: '手记',
+        quote: '原文摘录',
+        summary: '摘要',
+        fact_check: '核查',
+      })[kind] || '上下文';
+    },
+
+    readerIsSavedContext(m) {
+      return (this.readerContexts || []).some((c) => c.source_message_id === m.id);
+    },
+
+    readerLoadContexts() {
+      if (!this.articleDetail?.id) return;
+      const aid = this.articleDetail.id;
+      fetch(`/api/articles/${encodeURIComponent(aid)}/contexts`, {
+        credentials: 'same-origin',
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          // 快速切篇时，旧文章的响应不能覆盖新文章的面板。
+          if (this.articleDetail?.id !== aid) return;
+          this.readerContexts = (data && data.contexts) || [];
+        })
+        .catch((err) => console.error('readerLoadContexts failed:', err));
+    },
+
+    readerToggleContexts() {
+      this.readerContextsOpen = !this.readerContextsOpen;
+      if (!this.readerContextsOpen) return;
+      if (this.readerIsNarrow) this.readerMobileTab = 'ai';
+      this.readerLoadContexts();
+    },
+
+    readerSaveMessageContext(m) {
+      if (!m?.id || !this.articleDetail?.id) return;
+      const aid = this.articleDetail.id;
+      if (this.readerIsSavedContext(m)) {
+        this.readerContextsOpen = true;
+        return;
+      }
+      this.readerSavingMsgId = m.id;
+      fetch(`/api/articles/${encodeURIComponent(aid)}/contexts`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message_id: m.id }),
+      })
+        .then(async (r) => {
+          const data = await r.json().catch(() => null);
+          if (!r.ok) {
+            const detail = data && (data.message || data.detail || data.error);
+            throw new Error(typeof detail === 'string' ? detail : `HTTP ${r.status}`);
+          }
+          return data;
+        })
+        .then((data) => {
+          if (this.articleDetail?.id !== aid) return;
+          const ctx = data && data.context;
+          if (ctx && !this.readerContexts.some((c) => c.id === ctx.id)) {
+            this.readerContexts = [...this.readerContexts, ctx];
+          }
+          this._notify('success', '已存为上下文；分享前可选择带上');
+          this.loadShareContextCounts?.();
+        })
+        .catch((err) => this._notify('error', '保存失败: ' + (err.message || err)))
+        .finally(() => { this.readerSavingMsgId = null; });
+    },
+
+    async readerDeleteContext(ctx) {
+      if (!ctx?.id || !this.articleDetail?.id) return;
+      const aid = this.articleDetail.id;
+      const ok = window.moniModal
+        ? await window.moniModal.confirm('删除后这篇分享里也不会再带上它。', {
+            title: '删除用户上下文', okLabel: '删除', danger: true,
+          })
+        : window.confirm('删除这条用户上下文？');
+      if (!ok) return;
+      fetch(
+        `/api/articles/${encodeURIComponent(aid)}/contexts/${encodeURIComponent(ctx.id)}`,
+        { method: 'DELETE', credentials: 'same-origin' },
+      )
+        .then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          if (this.articleDetail?.id !== aid) return;
+          this.readerContexts = this.readerContexts.filter((c) => c.id !== ctx.id);
+          this._notify('info', '已删除上下文');
+          this.loadShareContextCounts?.();
+        })
+        .catch((err) => this._notify('error', '删除失败: ' + (err.message || err)));
     },
 
     readerScrollToBottom() {

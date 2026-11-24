@@ -60,6 +60,8 @@ recover_artifact() {
     local not_before="$3"
     local artifacts_dir="$4"
     local reason="${5:-timeout}"
+    local include_ctx="${6:-false}"
+    local article_ids="${7:-}"
     local recovered recovered_out
     local output_dir="${MONI_OUTPUT_DIR:-$HOME/.moni/output}"
     output_dir="${output_dir/#\~/$HOME}"
@@ -83,6 +85,12 @@ recover_artifact() {
         log "FAIL $task_id — copy artifact failed: $recovered"
         return 1
     }
+    # 状态置 done 之前完成注入，避免前端轮询到 done 时读到未注入的旧文件。
+    if [[ "$format" == "html_landing" && "$include_ctx" == "true" ]]; then
+        "$PYTHON_BIN" -m moni.share.context_pack \
+            --db "$DB_PATH" --article-ids "$article_ids" \
+            --inject-html "$recovered_out" 2>>"$LOG_FILE" || true
+    fi
     update_progress "$task_id" "writing_artifact" 95 "回收已产出产物: $recovered"
     task_status_update "$task_id" "done" "$recovered_out"
     sqlite3 "$DB_PATH" \
@@ -203,6 +211,21 @@ _stop_child_group() {
     kill "$_kill_watchdog" 2>/dev/null || true
     wait "$_kill_watchdog" 2>/dev/null || true
     _child_pid=""
+}
+
+# Append the deterministic user-context appendix to a text artifact.
+# Contexts are rendered outside the LLM on purpose: they are the user's
+# own notes and must not be rewritten or folded into fact-check copy.
+_append_user_context_section() {
+    local target="$1"
+    local enabled="$2"
+    local ids="$3"
+    [[ "$enabled" == "true" && -n "$ids" && -f "$target" ]] || return 0
+    local section
+    section=$("$PYTHON_BIN" -m moni.share.context_pack \
+        --db "$DB_PATH" --article-ids "$ids" 2>>"$LOG_FILE") || return 0
+    [[ -n "${section//[$'\n\t ']/}" ]] || return 0
+    printf '\n\n%s\n' "$section" >>"$target"
 }
 
 _worker_cleanup() {
@@ -824,7 +847,7 @@ ${new_summaries}"
     # v1.0.10: enrichment (fact_check / business_value / brief re-read).
     # Runs when brief mode or either enrichment flag is on. Rebuilds
     # article_content from DB so format prompt sees writebacks.
-    local brief_val include_fc_val include_bv_val
+    local brief_val include_fc_val include_bv_val include_ctx_val
     brief_val=$(python3 -c "
 import json, sys
 d = json.load(open(sys.argv[1]))
@@ -842,6 +865,12 @@ import json, sys
 d = json.load(open(sys.argv[1]))
 p = d.get('payload', {}) if isinstance(d.get('payload'), dict) else {}
 print('true' if p.get('include_business_value') else 'false')
+" "$manifest_path" 2>/dev/null || echo "false")
+    include_ctx_val=$(python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+p = d.get('payload', {}) if isinstance(d.get('payload'), dict) else {}
+print('true' if p.get('include_user_context') else 'false')
 " "$manifest_path" 2>/dev/null || echo "false")
 
     if task_should_abort "$task_id"; then
@@ -901,12 +930,15 @@ print(p.get('title') or ('同业简报 — ' + date.today().isoformat()))
         local brief_err brief_out
         brief_err=$(mktemp "${TMPDIR:-/tmp}/moni_brief_XXXXXX.err")
         brief_out=$(mktemp "${TMPDIR:-/tmp}/moni_brief_XXXXXX.out")
+        local brief_ctx_args=()
+        [[ "$include_ctx_val" == "true" ]] && brief_ctx_args=(--include-user-context)
         if _run_worker_child "$brief_out" "$brief_err" \
             "$PYTHON_BIN" -m moni.share.brief_html \
             --db "$DB_PATH" \
             --article-ids "$article_ids_str" \
             --output "$output_path" \
             --title "$brief_title" \
+            ${brief_ctx_args[@]+"${brief_ctx_args[@]}"} \
             ; then
             cat "$brief_err" >>"$LOG_FILE" 2>/dev/null || true
             rm -f "$brief_err" "$brief_out"
@@ -1090,6 +1122,7 @@ print(p.get('generation_approach',''))
         output_dir=$(dirname "$output_path")
         mkdir -p "$output_dir"
         printf '%s\n' "$article_content" > "$output_path"
+        _append_user_context_section "$output_path" "$include_ctx_val" "$article_ids_str"
         task_status_update "$task_id" "done" "$output_path"
         sqlite3 "$DB_PATH" \
             "UPDATE share_tasks SET progress_pct=100 WHERE id='$task_id'" \
@@ -1145,7 +1178,8 @@ print(p.get('generation_approach',''))
 
     if [[ $hermes_exit -eq 124 ]]; then
         if recover_artifact "$task_id" "$format" \
-            "$llm_started_epoch" "$artifacts_dir"; then
+            "$llm_started_epoch" "$artifacts_dir" "timeout" \
+            "$include_ctx_val" "$article_ids_str"; then
             return 0
         fi
         error_msg="timeout after ${task_timeout}s"
@@ -1247,6 +1281,11 @@ PYEOF
             output_path="$artifacts_dir/${task_id}-${format}.html"
             cp "$real_html" "$output_path"
             log "HTML artifact copied from $real_html -> $output_path"
+            if [[ "$include_ctx_val" == "true" ]]; then
+                "$PYTHON_BIN" -m moni.share.context_pack \
+                    --db "$DB_PATH" --article-ids "$article_ids_str" \
+                    --inject-html "$output_path" 2>>"$LOG_FILE" || true
+            fi
         fi
     fi
 
@@ -1261,6 +1300,7 @@ PYEOF
             
             # 将 LLM 输出写到临时 Markdown 文件
             echo "$hermes_output" > "$md_temp"
+            _append_user_context_section "$md_temp" "$include_ctx_val" "$article_ids_str"
             
             # 调用 generate_pdf.py 生成 PDF
             if python3 "$REPO_ROOT/scripts/generate_pdf.py" "$md_temp" "$pdf_output" "$info_graphic_title" 2>&1; then
@@ -1280,6 +1320,7 @@ PYEOF
         mkdir -p "$output_dir"
         output_path="$output_dir/${task_id}.out"
         echo "$hermes_output" > "$output_path"
+        _append_user_context_section "$output_path" "$include_ctx_val" "$article_ids_str"
     fi
 
     # v1.0.5.17: 5-stage progress tracking.  Each stage transition

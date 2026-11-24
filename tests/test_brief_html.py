@@ -286,3 +286,52 @@ def test_gate_filters_when_enabled(fresh_db: Path):
     service.set_gate_enabled(True)
     html_doc = render_brief_html(str(fresh_db), ["g2"], title="t")
     assert "应当被拦下的文章" not in html_doc
+
+
+def test_user_context_block_is_opt_in(fresh_db: Path) -> None:
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """
+        INSERT INTO articles
+        (id, title, url, source, publisher, published_at, fetched_at, raw_content,
+         ai_summary, brief_summary, business_value_score, business_value_note,
+         quality_score, fact_check_conclusion)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            "c1",
+            "带上下文的文章",
+            "https://example.com/c1",
+            "bestblogs",
+            "极客公园",
+            now,
+            now,
+            "正文段落。" * 40,
+            "摘要内容，说明文章的核心论点与关键数字。",
+            "短摘要。",
+            80,
+            "对我方有对标价值",
+            70,
+            "无需核查",
+        ),
+    )
+    conn.execute(
+        "INSERT INTO article_contexts "
+        "(id, article_id, kind, title, body, sort_order, created_at, updated_at) "
+        "VALUES ('ctx1', 'c1', 'chat', '关键判断', '这三条判断值得同步。', 0, ?, ?)",
+        (now, now),
+    )
+    conn.commit()
+
+    off = render_brief_html(str(fresh_db), ["c1"], title="t")
+    assert 'class="sec sec-contexts"' not in off
+    assert "这三条判断值得同步。" not in off
+
+    on = render_brief_html(
+        str(fresh_db), ["c1"], title="t", include_user_context=True
+    )
+    assert 'class="sec sec-contexts"' in on
+    assert "用户上下文" in on
+    assert "这三条判断值得同步。" in on
+    assert on.index("事实核查") < on.index('class="sec sec-contexts"')

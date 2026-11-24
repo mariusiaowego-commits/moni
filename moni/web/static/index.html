@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261123007">
+  <link rel="stylesheet" href="css/main.css?v=20261123101">
   <!-- v1.0.110: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
        放在 main.css 之后，同名选择器以它们为准，便于单独回滚。 -->
   <link rel="stylesheet" href="css/source-ops.css?v=20261120011">
@@ -1049,7 +1049,7 @@
               <template x-for="f in briefFormatCards" :key="f.value">
                 <button type="button" class="format-card"
                         :class="{ 'is-active': briefFormat === f.value }"
-                        @click="briefFormat = f.value">
+                        @click="briefFormat = f.value; shareBriefIncludeContexts = shareBriefIncludeContexts && briefFormatSupportsContexts">
                   <div class="format-card-top">
                     <span class="format-card-title">
                       <template x-if="f.value === 'html_landing'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M2 12h20"></path><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></template>
@@ -1066,6 +1066,24 @@
                   <p class="format-card-desc" x-text="f.desc"></p>
                 </button>
               </template>
+            </div>
+
+            <div class="switch-cards-grid switch-cards-single" style="margin-top:var(--space-4);">
+              <button type="button" class="switch-card"
+                      :class="{ 'is-active': shareBriefIncludeContexts && briefFormatSupportsContexts }"
+                      :disabled="!sharePinnedContextCount || !briefFormatSupportsContexts"
+                      @click="shareBriefIncludeContexts = !shareBriefIncludeContexts">
+                <span class="switch-card-info">
+                  <span class="switch-card-title">带上用户上下文 <span class="mini-tag">可选</span></span>
+                  <span class="switch-card-desc">
+                    Pin 池已保存 <b x-text="sharePinnedContextCount"></b> 条；作为简报末尾独立小节，默认不带。
+                  </span>
+                  <span class="switch-card-desc" x-show="!briefFormatSupportsContexts">
+                    PNG 暂不支持固定文本小节，请改用 HTML / Markdown / PDF。
+                  </span>
+                </span>
+                <span class="toggle-switch" :class="{ 'on': shareBriefIncludeContexts && briefFormatSupportsContexts }"></span>
+              </button>
             </div>
 
             <div class="share-actionbar">
@@ -1210,7 +1228,7 @@
               <template x-for="fmt in shareFormats" :key="'seg-'+fmt.value">
                 <button class="segmented-item"
                         :class="{ 'is-active': shareFormat === fmt.value }"
-                        @click="shareFormat = fmt.value"
+                        @click="shareFormat = fmt.value; shareIncludeContexts = shareIncludeContexts && shareFormatSupportsContexts"
                         x-text="fmt.label"></button>
               </template>
             </div>
@@ -1272,6 +1290,24 @@
                   <span class="switch-card-desc" x-show="shareBBSummarySource === 'bestblogs'">当前摘要来源不支持此项，切换为 moni AI 摘要后可用。</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': shareIncludeFactCheck }"></span>
+              </button>
+              <button type="button" class="switch-card switch-card-wide"
+                      :class="{ 'is-active': shareIncludeContexts && shareFormatSupportsContexts }"
+                      :disabled="!shareSelectedContextCount || !shareFormatSupportsContexts"
+                      @click="shareIncludeContexts = !shareIncludeContexts">
+                <span class="switch-card-info">
+                  <span class="switch-card-title">带上用户上下文 <span class="mini-tag">可选</span></span>
+                  <span class="switch-card-desc">
+                    已保存 <b x-text="shareSelectedContextCount"></b> 条；作为文末独立小节，默认不带。
+                  </span>
+                  <span class="switch-card-desc" x-show="!shareFormatSupportsContexts">
+                    PNG 暂不支持固定文本小节，请改用 HTML / Markdown / PDF。
+                  </span>
+                  <span class="switch-card-desc" x-show="shareFormatSupportsContexts && !shareSelectedContextCount">
+                    所选文章还没有保存的上下文。
+                  </span>
+                </span>
+                <span class="toggle-switch" :class="{ 'on': shareIncludeContexts && shareFormatSupportsContexts }"></span>
               </button>
             </div>
           </div>
@@ -3966,6 +4002,13 @@
                 <svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"></path><path d="M5 19h4"></path></svg>
                 <span>AI 对话</span>
                 <span class="ai-context-badge" x-text="readerContextLabel" :title="readerContextTitle"></span>
+                <button type="button" class="ai-ctx-pill"
+                        :class="{ 'is-active': readerContextsOpen }"
+                        :aria-pressed="readerContextsOpen"
+                        @click="readerToggleContexts()"
+                        :title="'这篇文章已保存 ' + readerContextCount + ' 条用户上下文'">
+                  上下文 · <span x-text="readerContextCount"></span>
+                </button>
               </div>
               <div class="ai-head-actions">
                 <select class="ai-reasoning" x-model="readerReasoning" title="思考程度">
@@ -3978,7 +4021,33 @@
               </div>
             </header>
 
-            <div class="ai-messages" x-ref="aiMessages" @scroll="readerTrackAiScroll($event)">
+            <section class="ai-contexts" x-show="readerContextsOpen" x-cloak aria-label="用户上下文">
+              <header class="ai-contexts-head">
+                <h4>用户上下文 <span x-text="readerContextCount"></span></h4>
+                <button type="button" class="btn btn-ghost btn-sm" @click="readerContextsOpen = false">返回对话</button>
+              </header>
+              <p class="ai-contexts-lead">保存在这篇文章上。分享时默认不带，可在分享前开启；会作为独立小节出现。</p>
+              <p class="ai-contexts-empty" x-show="!readerContextCount">还没有保存的上下文。在 AI 回答下方点「存为上下文」。</p>
+              <ul class="ai-contexts-list">
+                <template x-for="c in readerContexts" :key="c.id">
+                  <li class="ai-context-item">
+                    <div class="ai-context-meta">
+                      <span class="ai-context-kind" x-text="readerContextKindLabel(c.kind)"></span>
+                      <span class="ai-context-title" x-text="c.title"></span>
+                    </div>
+                    <p class="ai-context-q" x-show="c.source_question"
+                       x-text="'问：' + c.source_question"></p>
+                    <p class="ai-context-body" x-text="c.body"></p>
+                    <div class="ai-context-foot">
+                      <span>AI 生成 · 未核验</span>
+                      <button type="button" class="ai-msg-act" @click="readerDeleteContext(c)">删除</button>
+                    </div>
+                  </li>
+                </template>
+              </ul>
+            </section>
+
+            <div class="ai-messages" x-show="!readerContextsOpen" x-ref="aiMessages" @scroll="readerTrackAiScroll($event)">
               <div class="ai-empty" x-show="!readerMessages.length">
                 <svg viewBox="0 0 64 64" width="64" height="64" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 14h30a4 4 0 0 1 4 4v24a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V18a4 4 0 0 1 4-4Z"></path><path d="M20 26h18"></path><path d="M20 33h12"></path><path d="M46 22h6a4 4 0 0 1 4 4v22a4 4 0 0 1-4 4H24"></path></svg>
                 <p>选中正文一段可直接对它提问；回答只依据本文。</p>
@@ -4024,12 +4093,18 @@
                   <div class="ai-msg-error" x-show="m.status === 'failed'" x-text="m.error || '生成失败'"></div>
                   <div class="ai-msg-actions" x-show="m.role === 'assistant' && m.status === 'done'">
                     <button class="ai-msg-act" @click="readerCopyMessage(m.content)">复制</button>
+                    <button type="button" class="ai-msg-act"
+                            :class="{ 'is-saved': readerIsSavedContext(m) }"
+                            :aria-pressed="readerIsSavedContext(m)"
+                            :disabled="readerSavingMsgId === m.id"
+                            @click="readerSaveMessageContext(m)"
+                            x-text="readerIsSavedContext(m) ? '已存为上下文' : '存为上下文'"></button>
                   </div>
                 </div>
               </template>
             </div>
 
-            <div class="ai-composer">
+            <div class="ai-composer" x-show="!readerContextsOpen">
               <div class="ai-quote-card" x-show="readerQuote">
                 <span class="ai-quote-label">选中文本</span>
                 <span class="ai-quote-text" x-text="readerQuote"></span>
@@ -4210,6 +4285,10 @@
             <span class="meta-chip">
               <b>文章数:</b>
               <span x-text="shareEstimate?.articles_count ?? '—'"></span>
+            </span>
+            <span class="meta-chip" x-show="shareEstimateContextCount > 0">
+              <b>上下文:</b>
+              <span x-text="shareEstimateContextCount"></span> 条
             </span>
             <span class="meta-chip">
               <b>总字数:</b>
@@ -5059,8 +5138,8 @@
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
-  <script src="js/app.js?v=20261123008"></script>
-  <script src="js/reader.js?v=20261120161"></script>
+  <script src="js/app.js?v=20261123102"></script>
+  <script src="js/reader.js?v=20261123103"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
        GSAP presence, and the scale pop now honours prefers-reduced-motion. -->
