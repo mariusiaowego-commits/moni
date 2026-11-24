@@ -751,7 +751,7 @@ def test_performance_6000_char_chinese_report_under_2ms() -> None:
         _ = restore_text(warm.text, vault)
     gc.collect()
 
-    # 口径说明（实测依据见 /private/tmp/desens-probe/exp_gc.py）：
+    # 口径说明（2026-11-24 在本机 load avg 22 下实测得出，证据见 sprint-68 RUN.md §3.2）：
     # 1) 用 3 轮 × 60 样本合并后的 pooled P95，而不是"三轮 p95 取 max"
     #    （后者统计量接近 p99.9，一次 GC / 调度抖动就误报）。
     # 2) 用 process_time（CPU 时间）而非 wall clock：本机负载高时（load avg 22）
