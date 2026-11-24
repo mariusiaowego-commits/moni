@@ -2,7 +2,7 @@
 
 - **日期**：2026-11-24
 - **分支**：`feat/desens-llm-shield`（基线 `origin/main` @ `9c6adcb`，SQLite `_CURRENT_VERSION` 57 → **58**）
-- **PR**：`#294`（OPEN，head `a9867d6`，6 commits，MERGEABLE，**0 behind** origin/main）
+- **PR**：`#294` → **已 squash 合并**（`main` @ `8b0484d`），head `9158a33`（含 2 个合并提交）
 - **规格**：`docs/plans/2026-11-24_llm-desens-shield-plan.md`（合并版 v1.0，424 行）
 - **设计来源**：agy 方案 A（`/private/tmp/moni-desens-design-agy.md`，615 行）+ codex 方案 B
   （`/private/tmp/moni-desens-design-codex.md`）的 2 项增量 → 合并版 M1 契约
@@ -283,12 +283,19 @@ FROM desensitize_events;
 
 ---
 
-## 7. 上线动作（合并后，需当轮授权）
+## 7. 上线动作（已执行，2026-11-24）
 
-1. `cp data/news.db data/news.db.bak-<ts>` + **同拷 `-wal` / `-shm`**（AGENTS.md 硬规则）
-2. 跑一次迁移：`python -m moni db migrate`（CLI 入口会自动调 `migrate()`；8900 web 进程**不会**）
-3. 线上验证：先 `desensitize.enabled` 保持 `'0'` 观察一版，确认 5 条通道无异常
-4. 再按需置 `'1'`，用 §5 的 SQL 取账本数字
+1. ✅ 备份：`sqlite3 data/news.db ".backup 'data/news.db.sqlite-backup-20261124-202549'"`
+   （151,810,048 B，`PRAGMA integrity_check = ok`，articles 6,433 行；用 `.backup` 而非 `cp`，
+   自动纳入 WAL 内容，不受「三件套一起拷」约束）
+2. ✅ 迁移：`MONI_DB_PATH=<prod db> python3 -c "from moni.db.migrate import migrate; migrate()"`
+   → `Applying migration 058_llm_desensitize.sql (v59 → 58) ... schema_version = 59`
+   （生产库此前在 59 且跳过 058；`migration_should_apply` 按 `recorded` 判定 → 58 仍补跑）
+3. ✅ 校验：表 `desensitize_rules` / `desensitize_events` 存在、6 索引、
+   开关 `enabled=0` / `level_l1=1` / `level_l2=1` / `level_l3=0` / `strict_fail_closed=0`、
+   `articles` 6,433 / `llm_jobs` 217 / `reader_messages` 30 未变、8900 `GET /` → 200
+4. ⏸ 开关保持 `'0'`（用户拍板「默认关」）→ 生产 LLM 行为与上线前逐字节一致
+5. ⏸ 未打 tag（打 tag 需当轮授权）
 
 ---
 

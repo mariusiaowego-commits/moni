@@ -1,4 +1,4 @@
-## 进行中: **对大模型的信息脱敏（LLM Desens Shield）** (2026-11-24 · PR #294 OPEN · Sprint 26112472)
+## 已合并待开: **对大模型的信息脱敏（LLM Desens Shield）** (2026-11-24 · PR #294 → `8b0484d` · Sprint 26112472)
 
 在 moni 进程内、hermes 子进程启动前的最后一跳收口全部 **5 条出站通道**，做
 「出站遮蔽 → 本机本本 → 入站还原」双向管道：外部大模型只做盲态推理，moni 的凭据、
@@ -6,9 +6,30 @@
 `docs/plans/2026-11-24_llm-desens-shield-plan.md`（合并版 v1.0），实施证据见
 `docs/sprint-evidence/sprint-68/RUN.md`。
 
-**当前状态**：代码完成（6 commits，`a9867d6`），PR #294 MERGEABLE、0 behind
-`origin/main` @ `9c6adcb`。**尚未合并、未迁移生产库、未上线** —— 需用户当轮授权后
-squash merge → 生产库 `.backup` + 迁移 058 → 线上验证 → 再打 tag。
+**当前状态**：**已 squash 合并到 `main`（`8b0484d`）**，生产库**已完成 migration 058**，
+`desensitize.enabled` 保持 **`'0'`（默认关，用户已拍板）** → 生产行为与上线前完全一致。
+尚未做：开关打开、UI 面板、决赛物料、打 tag。
+
+**生产库迁移记录（2026-11-24 20:25）**
+
+- 备份：`data/news.db.sqlite-backup-20261124-202549`（151,810,048 B，`PRAGMA integrity_check = ok`，
+  articles 6,433 行）
+- 迁移：`Applying migration 058_llm_desensitize.sql (v59 → 58) ... schema_version = 59`
+  （生产库此前已在 59 且**刻意跳过 058**；`migration_should_apply` 按 `recorded` 判定，
+  58 未记录 → 仍会补跑）
+- 迁移后只读校验：`desensitize_rules` / `desensitize_events` 表存在、6 个索引、
+  开关 5 项全写入（`enabled=0`）、`articles` 6,433 / `llm_jobs` 217 / `reader_messages` 30 未变
+- 8900 服务存活（`GET /` → 200）；运行中的进程仍是旧代码，新表惰性无副作用
+
+**审计（合并前双闸均过）**
+
+| 闸 | 结果 |
+|---|---|
+| `base == latest main` | 合并前 0 behind（期间 main 连进 #300/#301/#302/#303，本分支逐一并入） |
+| 全量 pytest | 基线 `2676 passed, 2 skipped, 0 failed` vs 分支 `2772 passed, 2 skipped, 0 failed`（+96） |
+| 脱敏专项 | 96 passed（合并后再跑 + `test_db.py` = 107 passed） |
+| PII / 密钥扫描 | 新增文件无真实 PII、无 `sk-` 密钥、无本机绝对路径 |
+| 通道覆盖 | 全仓 `rg '"hermes"'` 的 argv 构造点恰好 5 处，全部已接脱敏 |
 
 **用户红线（验收已过）**：开发上线后 5 条大模型通道必须全部畅通。已独立复检：
 
@@ -25,8 +46,9 @@ squash merge → 生产库 `.backup` + 迁移 058 → 线上验证 → 再打 ta
 全局 `~/.hermes/config.yaml` 的 `high` 不覆盖 profile。已改为 `high`，
 备份 `/private/tmp/moni-profile-config.yaml.bak`；其他 profile 未动。
 
-**未做（需决策）**：UI 开关面板、用户自助规则入口、上线时是否默认开启、
-决赛汇报物料（magpie 视频解读截图 + 四栏演练台）。
+**未做（需决策）**：UI 开关面板、用户自助规则入口、决赛汇报物料。
+（magpie 的官方演示录屏截图属**第三方产品素材**，只作参考实现，不进本仓库；
+决赛物料改用 moni 自己的四栏演练台画面。）
 
 ## 待办: **cron 运行历史过滤失效 + `validate_func_path` 白名单无调用点** (2026-11-24 · Issue #296)
 
