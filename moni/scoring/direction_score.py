@@ -50,9 +50,14 @@ MAX_REQUEST = 50
 #: A row left ``running`` for longer than this is treated as dead.
 STALE_RUNNING_AFTER_SEC = 600
 #: Seconds of model time one article may burn.
-DEFAULT_BUDGET_S = 150.0
+#:
+#: A long article plus the ten-dimension rubric makes a prompt of tens of
+#: thousands of characters; the model needs well over 90 seconds for the
+#: evidence pass on those, and a 90-second cap turned every one of them
+#: into a bare "取证失败" in production.
+DEFAULT_BUDGET_S = 300.0
 #: Per-call timeout handed to the model.
-DEFAULT_STEP_TIMEOUT = 90.0
+DEFAULT_STEP_TIMEOUT = 180.0
 
 
 def _now() -> str:
