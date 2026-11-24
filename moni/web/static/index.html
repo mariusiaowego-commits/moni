@@ -2956,7 +2956,7 @@
                       <span class="status-badge" :class="s.is_active ? 'status-ok' : 'status-paused'"
                             x-text="s.is_active ? '启用' : '停用'"></span>
                       <span class="status-badge status-paused" x-show="s.is_hidden" x-cloak
-                            title="已隐藏：信源管理页不显示，但同步照跑">已隐藏</span>
+                            title="已隐藏：信源管理页不显示，且不再被抓取">已隐藏</span>
                     </td>
                     <td class="tags-cell">
                       <div class="tags-flex">
@@ -2981,7 +2981,7 @@
                       <div class="row-actions" style="justify-content: flex-end;">
                         <button class="icon-btn source-hidden-toggle"
                                 :class="{ 'is-hidden': s.is_hidden }"
-                                :title="s.is_hidden ? '恢复显示（信源管理页可见）' : '隐藏（信源管理页不显示，同步照跑）'"
+                                :title="s.is_hidden ? '恢复显示（信源管理页可见，并恢复抓取）' : '隐藏（信源管理页不显示，且不再被抓取）'"
                                 :aria-label="s.is_hidden ? '恢复显示' : '隐藏'"
                                 @click="configToggleSourceHidden(s)">
                           <svg class="icon" x-show="!s.is_hidden" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path><circle cx="12" cy="12" r="3"></circle></svg>
@@ -5167,7 +5167,7 @@
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
-  <script src="js/app.js?v=20261124005"></script>
+  <script src="js/app.js?v=20261124007"></script>
   <script src="js/reader.js?v=20261123103"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind

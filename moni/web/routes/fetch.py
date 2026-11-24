@@ -37,6 +37,7 @@ from moni.db.connection import get_db
 from moni.fetch import run_fetcher
 from moni.fetch.jobs import FetchJobStore
 from moni.fetch.base import _FETCHER_REGISTRY, _ensure_sources_loaded
+from moni.fetch.source_gate import split_fetchable
 from moni.db import leases
 from moni.web.exceptions import NotFoundError
 from moni.web.models import FetchSource, HealthResponse
@@ -823,8 +824,22 @@ def trigger_fetch_all() -> dict[str, Any]:
 
     fetch_scheduler = FetchScheduler()
     enabled = list(fetch_scheduler.batch_sources())
+    # Sources the user switched off or hid in the UI stay out of the batch.
+    enabled, skipped_sources = split_fetchable(enabled)
+    for source_name, reason in skipped_sources:
+        logger.info(
+            "[batch] skip %s — %s", source_name,
+            "信源已停用" if reason == "inactive" else "信源已隐藏",
+        )
     if not enabled:
-        return {"status": "skipped", "message": "No enabled sources", "results": []}
+        return {
+            "status": "skipped",
+            "message": "No enabled sources",
+            "results": [],
+            "skipped": [
+                {"source": name, "reason": reason} for name, reason in skipped_sources
+            ],
+        }
 
     batch_id = str(uuid.uuid4())
 
@@ -859,6 +874,7 @@ def trigger_fetch_all() -> dict[str, Any]:
         "batch_id": batch_id,
         "status": "running",
         "sources_total": len(enabled),
+        "skipped": [{"source": name, "reason": reason} for name, reason in skipped_sources],
         "poll_url": f"/api/fetch/jobs/batch/{batch_id}",
     }
 

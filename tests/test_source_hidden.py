@@ -85,7 +85,7 @@ def test_update_source_persists_is_hidden(client):
         "SELECT is_hidden, is_active FROM sources WHERE id = ?", ("src-hidden-1",)
     ).fetchone()
     assert row["is_hidden"] == 1
-    # 隐藏只是「不显示」—— 不能顺手把源停用掉
+    # 隐藏是「不显示且不再抓」，但不能顺手把源停用掉（is_active 归它管）
     assert row["is_active"] == 1
 
 
@@ -139,11 +139,11 @@ def test_partial_update_keeps_is_hidden(client):
     assert row["is_hidden"] == 1
 
 
-def test_modal_chain_still_draws_hidden_sources():
-    """隐藏只是列表不显示：批次仍会跑隐藏源，链路节点不能少画。
+def test_modal_chain_skips_hidden_sources():
+    """v1.0.123 起隐藏 = 不显示 **且** 不再被抓取。
 
-    链路少画 → 画面节点数与「13/13」对不上；这条锁住 filter 与
-    ``Scheduler.batch_sources()``（不读 is_hidden）同口径。
+    隐藏的源被 ``moni/fetch/source_gate.py`` 挡在定时/批量抓取之外，
+    同步链上就不该再画它 —— 否则画面节点数与「N/N 源」对不上。
     """
     src = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
-    assert ".filter(s => s.is_active && !s.is_hidden)" not in src
+    assert ".filter(s => s.is_active && !s.is_hidden)" in src

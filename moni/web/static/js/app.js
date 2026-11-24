@@ -1457,8 +1457,8 @@ function app() {
     },
     configCreateSource() { this.openConfigModal('source', null); },
     configEditSource(source) { this.openConfigModal('source', source); },
-    // 信源隐藏 = 只在「信源管理」页不显示，数据面照跑（照常定时/批量同步）。
-    // 与 is_active=0（停用，不跑）不是一回事。
+    // v1.0.123: 隐藏 = 「信源管理」页不显示，且退出定时/批量抓取
+    // （后端 source_gate 会把它挡下）。手动单源触发仍然放行。
     configToggleSourceHidden(source) {
       const hide = !source.is_hidden;
       return fetch(`/api/config/sources/${encodeURIComponent(source.id)}`, {
@@ -1471,8 +1471,8 @@ function app() {
           this.configLoadSources();
           this.loadSources();
           this._notify('success', hide
-            ? `已隐藏「${source.display_name || source.name}」，信源管理页不再显示`
-            : `已恢复显示「${source.display_name || source.name}」`);
+            ? `已隐藏「${source.display_name || source.name}」，不再显示也不再抓取`
+            : `已恢复显示「${source.display_name || source.name}」，恢复抓取`);
         })
         .catch(err => this._notify('error', '切换隐藏失败: ' + err.message));
     },
@@ -3025,7 +3025,7 @@ function app() {
         .catch(err => { console.error('loadSources failed:', err); this.setFetchResult('加载失败: ' + err.message, null); });
     },
 
-    // 「信源管理」页只列未隐藏的源；隐藏不影响同步本身。
+    // 「信源管理」页只列未隐藏的源；隐藏的源同时也不再被定时/批量抓取。
     get visibleSources() {
       return (this.sources || []).filter(s => !s.is_hidden);
     },
@@ -4230,10 +4230,10 @@ function app() {
           '36kr_rss', 'bestblog-podcast', 'bestblog-x', 'xwatch',
           'bestblog-yt', 'xbot_feed', 'huxiu',
         ];
-        // v1.0.110: 隐藏只影响「信源管理」页的列表展示；批次实际仍会跑隐藏源
-        // （后端 Scheduler.batch_sources() 不读 is_hidden），链路少画一个源
-        // 会让「13/13」和画面上的节点数对不上。
-        return (this.sources || []).filter(s => s.is_active)
+        // v1.0.123: 隐藏的源退出定时/批量抓取（闸在调用方：
+        // cron/Web/CLI 批跑都过 moni/fetch/source_gate.py），同步链上
+        // 不再出现它，画出来的节点数与实际会跑的源保持一致。
+        return (this.sources || []).filter(s => s.is_active && !s.is_hidden)
           .sort((a, b) => {
             const ia = sortOrder.indexOf(a.name);
             const ib = sortOrder.indexOf(b.name);

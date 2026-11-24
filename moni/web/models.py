@@ -485,7 +485,9 @@ class Source(BaseModel):
     url: str
     fetch_interval_min: int
     is_active: bool
-    # 展示面隐藏：is_active=0 是「不跑」，is_hidden=1 是「照跑但页面上不显示」
+    # 停用与隐藏都会让信源退出定时/批量抓取（moni/fetch/source_gate.py）：
+    # is_active=0 是「数据面停用」，is_hidden=1 是「隐藏且不再抓取」。
+    # 手动单源触发仍放行。
     is_hidden: bool = False
     notes: str | None = None
     fetch_config: dict[str, Any] | None = None

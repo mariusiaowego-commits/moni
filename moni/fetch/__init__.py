@@ -22,6 +22,7 @@ from typing import Any
 
 from .base import _ensure_sources_loaded, _FETCHER_REGISTRY, BaseFetcher, list_fetchers
 from .scheduler import Scheduler
+from .source_gate import split_fetchable
 
 # Import-time source discovery — after BaseFetcher is defined to avoid circular import
 try:
@@ -91,7 +92,9 @@ def fetch_all() -> list[dict[str, Any]]:
     """Fetch all enabled sources that are due for fetching.
 
     Reads ``config/sources.yaml``, checks ``should_fetch()`` for each source,
-    runs eligible fetchers, and records last-run timestamps.
+    runs eligible fetchers, and records last-run timestamps.  This is a bulk
+    sweep, so it honours ``batch_enabled: false`` and the ``sources`` table
+    switches (see ``moni/fetch/source_gate.py``).
 
     Returns:
         List of run result dicts (one per fetcher that ran).
@@ -103,7 +106,14 @@ def fetch_all() -> list[dict[str, Any]]:
     scheduler = Scheduler()
     results: list[dict[str, Any]] = []
 
-    for cfg in scheduler.enabled_sources():
+    cfgs, skipped = split_fetchable(list(scheduler.batch_sources()))
+    for name, reason in skipped:
+        logger.info(
+            "Skipping %r — %s", name,
+            "信源已停用" if reason == "inactive" else "信源已隐藏",
+        )
+
+    for cfg in cfgs:
         name = cfg["source_name"]
         if not scheduler.should_fetch(name):
             logger.debug("Skipping %r — not due", name)

@@ -7,9 +7,9 @@ must live at the package level (not nested inside a class).
 Job handlers
 -----------
 1. fetch_all_sources
-       Calls ``moni.fetch.fetch_all()`` in a try/except per source so one
-       failed source never blocks the others.  Logs a ``cron_runs`` row and
-       one ``fetch_log`` row per source.
+       Runs its own per-source loop over ``Scheduler.batch_sources()`` in a
+       try/except per source so one failed source never blocks the others.
+       Logs a ``cron_runs`` row and one ``fetch_log`` row per source.
 
 2. predict_tags_pending
        Finds articles that have no tags yet, renders the predict_tag prompt,
@@ -40,6 +40,7 @@ from ..db.connection import get_db
 from ..fetch import fetch_all
 from ..fetch.base import _ensure_sources_loaded, _FETCHER_REGISTRY
 from ..fetch.scheduler import Scheduler as FetchScheduler
+from ..fetch.source_gate import split_fetchable
 from ..llm.client import call_llm, resolve_active_model
 from ..llm.prompts import render_predict_tag
 from .run_history import CronRunHistory
@@ -148,11 +149,21 @@ def fetch_all_sources() -> dict[str, Any] | None:
     # Pull per-source configs from the fetch Scheduler
     fetch_scheduler = FetchScheduler()
     enabled = list(fetch_scheduler.batch_sources())
+    # The UI switches in the ``sources`` table outrank the YAML list:
+    # a source the user switched off (is_active=0) or hid (is_hidden=1)
+    # must not run in the scheduled batch.
+    enabled, skipped_sources = split_fetchable(enabled)
+    for source_name, reason in skipped_sources:
+        logger.info(
+            "[%s] skip %s — %s", job_id, source_name,
+            "信源已停用" if reason == "inactive" else "信源已隐藏",
+        )
     if not enabled:
         logger.info("[%s] no enabled sources — nothing to do", job_id)
         finished_at = _cst_now().isoformat()
         history.log_run(job_id, triggered_at=triggered_at, finished_at=finished_at,
-                        success=True, new_articles=0, sources_run=0)
+                        success=True, new_articles=0, sources_run=0,
+                        extra={"skipped_sources": dict(skipped_sources)})
         return None
 
     # _ensure_sources_loaded must be called before iterating _FETCHER_REGISTRY
@@ -306,6 +317,8 @@ def fetch_all_sources() -> dict[str, Any] | None:
         extra: dict[str, Any] = {
             "duration_sec": round((_cst_now() - started_at_dt).total_seconds(), 1),
         }
+        if skipped_sources:
+            extra["skipped_sources"] = dict(skipped_sources)
         if sources_extra:
             extra["sources"] = sources_extra
         # One retry: if this UPDATE never lands, the row keeps in_progress and

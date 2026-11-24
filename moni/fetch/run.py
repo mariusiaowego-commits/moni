@@ -22,6 +22,7 @@ from ..db.connection import close_db
 from . import fetch_all, run as run_fetcher
 from .base import _ensure_sources_loaded
 from .scheduler import Scheduler
+from .source_gate import split_fetchable
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +166,15 @@ def main(argv: list[str] | None = None) -> int:
     else:
         # 批量路径排除 batch_enabled: false 的源 (bank_feed 会拉起 agent,
         # 不跟着全量抓取跑)。显式 --source 时才包含。
-        source_names = [cfg["source_name"] for cfg in scheduler.batch_sources()]
+        batch_cfgs, skipped_sources = split_fetchable(
+            list(scheduler.batch_sources())
+        )
+        for source_name, reason in skipped_sources:
+            print(
+                f"  SKIP {source_name} — "
+                + ("信源已停用" if reason == "inactive" else "信源已隐藏")
+            )
+        source_names = [cfg["source_name"] for cfg in batch_cfgs]
         source_label = "all batch-enabled sources"
 
     if not source_names:
