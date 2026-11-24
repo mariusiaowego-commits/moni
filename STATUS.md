@@ -50,6 +50,39 @@
 `~/.codex/branch-backups/moni/cron-console-uncommitted-20261124.patch`（803 行）
 及 `~/.codex/branch-backups/moni/feat-cron-console-be-e4c1d15.bundle`。
 
+## 已发布: **v1.0.126 — 业务方向研究提示词 + 两段式草稿 + Pin 表列宽收进内容区** (2026-11-24 · PR #300 → `0c9a43d`、PR #301 → `7559647`、PR #302 → `f7765c3` · tag `v1.0.126` · Sprint 26112473)
+
+方向研究的输入只有两个短字段：方向名（≤6 字）和方向说明（≤200 字）。用户手里的真实想法
+通常比 200 字长也散（「想看公众号里能变成银行获客的案例，最好有具体的投放数据和合规提示」），
+只能自己压缩，压缩过程丢约束，研究出来的十维问题集因此不够贴合。模型选择也一直没有出口 ——
+生产 `llm_model_mode = 'profile'`，但界面不告诉用户实际在用哪个模型、怎么改。
+
+**改了什么**
+- 业务方向新增可选的「研究提示词」（≤800 字）。改了它，已通过的研究置为 `expired`；只改启用状态
+  不作废。空提示词与老快照（空串）相等，所以线上「微信生态」的 passed v3 不受影响，迁移后仍
+  `usable: true`（生产只读核对：`label_snapshot`/`brief_snapshot` 与当前方向一致，v3 状态 passed）。
+- 编辑弹窗新增「碎片想法」输入框 + 「生成草稿」按钮：模型把碎片补全成方向名 + 方向说明 +
+  研究提示词。草稿只回填表单，不落库；覆盖已有内容前先弹二次确认。
+- 「保存」不自动研究，另有「保存并立即研究」。弹窗写明当前 hermes profile 的默认模型
+  （线上实测 `group/tq-s-select`）以及要换模型去改 profile。不做单独的模型下拉（口径已确认）。
+- 迁移 059：`bv_direction.research_guidance`、`bv_direction_research.guidance_snapshot`，默认空串。
+- Pin 表列宽：1280 宽的桌面窗口内容区实测 1183px，原表 min-width 1196px 会在常态挂出一条横向
+  滚动条。标题列 268→256、操作列 156→148（内容实测 140px，留 8px），min-width 改 1176。
+  部署后在 1280 视口实测 `scrollWidth - clientWidth = 0`，删除按钮完整可见可点。
+
+**迁移**：`moni/db/migrations/059_bv_direction_guidance.sql`，两条 `ALTER TABLE ADD COLUMN`，
+无 DML。058 仍被未合并的 PR #294 占用；059 大于 hole-fill 水位 41，所以 058 以后落地仍会按
+recorded 集合补跑（实测 `migration_should_apply(58, 59, {59}) == True`）。
+
+**审计**：hermes -p coder 对 #300 做了独立只读审计（自带克隆，不碰生产 checkout），结论
+**APPROVE WITH NITS**，6 条全是 P2，没有 P0/P1。3 条真问题在 PR #302 修掉：提示词给用户输入加
+标签边界、`research_invalidated` 只在真作废过研究时为真、迁移版本断言改成 `>= 59`。
+另有一条不成立：审计说「保存并立即研究」失败会误报「保存方向失败」——`directionResearch` 自己
+带了 try/catch，失败时报的是「启动研究失败」，没改。
+
+**生产**：8900 已部署 v1.0.126（`f7765c3`，PID 79875），schema 57 → 59。迁移前备份
+`/private/tmp/news.db.bak-v1.0.126`。
+
 ## 已发布: **v1.0.123 — 信源开关对定时抓取生效 + bestblog-x 退出批量抓取** (2026-11-24 · PR #293 → `4323a92` · tag `v1.0.123` · Sprint 26112471)
 
 信源管理页的「停用 / 隐藏」此前对定时抓取完全无效：抓取链路只读 `config/sources.yaml`
