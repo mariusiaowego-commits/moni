@@ -13,6 +13,13 @@
 这与 `moni/db/migrations/052_source_hidden.sql:3-6` 写明的语义
 （「is_active = 0 → 不参与定时/批量同步」）直接矛盾。
 
+**契约变更（v1.0.123）**：迁移 052 当初把 `is_hidden` 定义成「只隐藏展示、数据面照跑」，
+本次按产品决定改为 **隐藏即不再抓取**（不改写已应用的迁移，新契约写在
+`moni/fetch/source_gate.py` 的模块 docstring 里）。生产库里 `xwatch`
+（`is_active=1, is_hidden=1`）会因此停止定时抓取 —— **要保留它，把 `is_hidden` 改回 0**
+（管理页点「恢复显示」，或 `UPDATE sources SET is_hidden=0 WHERE name='xwatch'`）；
+手动单源触发（`/api/fetch/sources/xwatch/run`、`moni fetch --source xwatch`）始终放行。
+
 **问题 2 — bestblog-x 拖垮整轮**：上游 `api.xgo.ing` 长期 502，本源入库从
 2026-06 的 48 篇/月跌到 2026-11 的 4 篇（近 60 天 12 篇），却让 run 165 从
 10:05 跑到 11:40 未结束（160 个 X 账号 × 3 次重试 × 20s 超时）。

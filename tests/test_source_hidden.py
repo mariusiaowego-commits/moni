@@ -85,7 +85,7 @@ def test_update_source_persists_is_hidden(client):
         "SELECT is_hidden, is_active FROM sources WHERE id = ?", ("src-hidden-1",)
     ).fetchone()
     assert row["is_hidden"] == 1
-    # 隐藏只是「不显示」—— 不能顺手把源停用掉
+    # 隐藏是「不显示且不再抓」，但不能顺手把源停用掉（is_active 归它管）
     assert row["is_active"] == 1
 
 

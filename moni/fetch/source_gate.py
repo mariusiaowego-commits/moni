@@ -9,8 +9,8 @@ every morning.
 Migration 052 introduced ``is_hidden`` as a display-only switch ("照跑但不
 显示").  The owner later decided hidden means "don't fetch either", so the
 gate implements that newer contract here rather than by editing the applied
-migration.  Manual single-source runs are deliberately *not* gated: 052
-defines the switches as controlling 定时/批量同步.
+migration.  Manual single-source runs are deliberately *not* gated — the
+switches control 定时/批量同步, and an explicit human trigger is neither.
 
 ``config/sources.yaml`` decides *when* a source runs, this module decides
 *whether* it may run at all.

@@ -92,7 +92,9 @@ def fetch_all() -> list[dict[str, Any]]:
     """Fetch all enabled sources that are due for fetching.
 
     Reads ``config/sources.yaml``, checks ``should_fetch()`` for each source,
-    runs eligible fetchers, and records last-run timestamps.
+    runs eligible fetchers, and records last-run timestamps.  This is a bulk
+    sweep, so it honours ``batch_enabled: false`` and the ``sources`` table
+    switches (see ``moni/fetch/source_gate.py``).
 
     Returns:
         List of run result dicts (one per fetcher that ran).
@@ -104,7 +106,7 @@ def fetch_all() -> list[dict[str, Any]]:
     scheduler = Scheduler()
     results: list[dict[str, Any]] = []
 
-    cfgs, skipped = split_fetchable(list(scheduler.enabled_sources()))
+    cfgs, skipped = split_fetchable(list(scheduler.batch_sources()))
     for name, reason in skipped:
         logger.info(
             "Skipping %r — %s", name,

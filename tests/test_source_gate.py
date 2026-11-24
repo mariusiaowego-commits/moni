@@ -217,3 +217,68 @@ def test_cli_batch_never_fetches_a_hidden_source(fresh_db, tmp_path, monkeypatch
     fetch_run.main([])
 
     assert seen == [["good_a"]]
+
+
+def test_fetch_all_honours_gate_and_batch_enabled(fresh_db, tmp_path, monkeypatch):
+    """公共 fetch_all()：隐藏源与 batch_enabled:false 的源都不进这一轮。"""
+    import moni.fetch as fetch_pkg
+    import moni.fetch.base as fetch_base
+    import moni.fetch.scheduler as scheduler_mod
+
+    config = tmp_path / "sources.yaml"
+    config.write_text(
+        "sources:\n"
+        "- source_name: good_a\n"
+        "  enabled: true\n"
+        "- source_name: hidden_a\n"
+        "  enabled: true\n"
+        "- source_name: manual_only\n"
+        "  enabled: true\n"
+        "  batch_enabled: false\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(scheduler_mod, "_CONFIG_PATH", config)
+    # 间隔记录隔离到 tmp —— 否则仓库里的 data/.last_run.json 会让
+    # "good_a" 看起来「刚跑过」，本用例就假红了。
+    monkeypatch.setattr(scheduler_mod, "_LAST_RUN_PATH", tmp_path / "last_run.json")
+    monkeypatch.setattr(scheduler_mod, "_INITIAL_LAST_RUN_PATH", tmp_path / "initial.json")
+    _add_source("hidden_a", is_hidden=1)
+
+    ran: list[str] = []
+
+    class _RecordingFetcher:
+        def __init__(self):
+            self.date_from = None
+
+        def run(self, dry_run: bool = False):
+            ran.append(type(self).source_name)
+            return {"source": type(self).source_name, "fetched": 0, "parsed": 0,
+                    "inserted": 0, "parse_errors": 0, "error": None}
+
+    for name in ("good_a", "hidden_a", "manual_only"):
+        fetcher = type(f"_F_{name}", (_RecordingFetcher,), {"source_name": name})
+        monkeypatch.setitem(fetch_base._FETCHER_REGISTRY, name, fetcher)
+
+    fetch_pkg.fetch_all()
+
+    assert "hidden_a" not in ran
+    assert "manual_only" not in ran
+    assert "good_a" in ran
+
+
+def test_cron_batch_records_skips_when_everything_is_gated(fresh_db, tmp_path, monkeypatch):
+    """全部源被闸挡下：早退路径也要留下跳过原因。"""
+    import moni.cron.jobs as cron_jobs
+    import moni.fetch.scheduler as scheduler_mod
+
+    config = _write_config(tmp_path / "sources.yaml", ["hidden_a"])
+    monkeypatch.setattr(scheduler_mod, "_CONFIG_PATH", config)
+    _add_source("hidden_a", is_hidden=1)
+
+    cron_jobs.fetch_all_sources()
+
+    row = get_db().execute(
+        "SELECT success, extra FROM cron_runs ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert row["success"] == 1
+    assert json.loads(row["extra"])["skipped_sources"] == {"hidden_a": REASON_HIDDEN}
