@@ -46,8 +46,11 @@ CI `pytest · py3.12` SUCCESS；UI 实测 39 项全过（主交互 25 + 错误�
 8901 隔离实例 + 临时库，未碰生产库）。独立评审：agy 终审 FAIL（P1 重名未拦截）→ 修复 → 复审
 **PASS，findings 为空**；pixel UIUX 两轮均 PASS WITH NITS（p1/p2 清零）。
 
-**部署**：`main` = `9fbc0ff`，tag `v1.0.117` → `9fbc0ff`。**本阶段未部署**：生产 8900 仍跑 v1.0.116
-（PID 6397），schema 仍为 **56**（S2 零新增迁移），部署只需拉取 `9fbc0ff` 并重启 8900。
+**部署**：`main` = `b448aeb`（含 #281 文档回填），tag `v1.0.117` → `9fbc0ff`。
+生产 checkout `/Users/mt16/dev/moni` 已快进到 `b448aeb`，8900 于 2026-11-24 08:28 重启为 PID **70054**
+（schema 仍为 **56**，S2 零新增迁移）。核验：`/api/service/status` → `running:true, pid:70054, source:pidfile`；
+`/api/directions` → `[]` 200；`config → 业务方向` 表头 6 列、空态「暂无业务方向」；
+静态资源 `main.css?v=20261123007`、`app.js?v=20261123008`。
 
 **分支清理**：删除远端 `feat/bv-direction-s2`（S1 合并前的旧历史、无 PR 引用）与
 `feat/bv-direction-v2-s2-config`（已合并，`git diff origin/main` 仅 STATUS.md 不同）。
