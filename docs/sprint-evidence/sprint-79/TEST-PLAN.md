@@ -24,7 +24,7 @@
 
 ## 2. 入口优先
 
-- 迁移入口：`migrate()`（真实副本库 001→067 全链）。
+- 迁移入口：`migrate()`（真实副本库 001→068 全链）。
 - 搜索入口：`CaseRepository.search_fts()`（短词/长词/特殊字符）。
 - 聚合入口：`GET /api/cases/stats`（TestClient）。
 - 分享入口：`POST /api/share/cases` + `write_manifest()` + `moni.share.case_brief` CLI。

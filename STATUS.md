@@ -4,14 +4,14 @@
 **计划与结论**：`docs/plans/2026-11-25-cases-library-v2.md`（六问结论 + P0–P2）。
 
 **本分支已完成**：
-- P0：标签 405 修复、归一（枚举/叠词/币种/万亿）、迁移 `061_case_metrics` / `062_cases_fts_v2` / `063_cron_extract_cases`。
-- P1：迁移 `064_enterprises`（116 企业 / 154 别名）、`065_case_taxonomy`（8 类 + 10 场景）、`backfill_taxonomy.py`、四维聚合 + `GET /api/cases/stats`。
-- P2：迁移 `066_case_insights`（建表）、`067_share_case_ids`、`CaseBriefPayload`、`case_brief.py` + 模板、`POST /api/share/cases`、worker 短路。
+- P0：标签 405 修复、归一（枚举/叠词/币种/万亿）、迁移 `062_case_metrics` / `063_cases_fts_v2` / `064_cron_extract_cases`。
+- P1：迁移 `065_enterprises`（116 企业 / 154 别名）、`066_case_taxonomy`（8 类 + 10 场景）、`backfill_taxonomy.py`、四维聚合 + `GET /api/cases/stats`。
+- P2：迁移 `067_case_insights`（建表）、`068_share_case_ids`、`CaseBriefPayload`、`case_brief.py` + 模板、`POST /api/share/cases`、worker 短路。
 - P3：`backfill_metrics.py` 存量指标回填（规则，0 次 LLM）。
 
-**实测**：生产库副本 `001→067` 迁移成功；`cases=432`，企业命中 217 / 未命中 215；FTS `小程序=2 / 支付=160 / C++=0`；指标回填 208 条有金额中命中 174；样本简报 16K。
-**测试**：受影响集 307 passed；全量 2880 passed / 2 skipped，另各出现 1 条不同的进程/信号类 flake（`test_llm_desens_wiring_share`、`test_worker_lock`），单独复跑均通过。
-**未做**：生产库迁移、8900 部署、前端接入、Stage B LLM 回填、案例卡片 PNG、汇率表 068。
+**实测**：生产库副本 `001→068` 迁移成功；`cases=432`，企业命中 217 / 未命中 215；FTS `小程序=2 / 支付=160 / C++=0`；指标回填 208 条有金额中命中 174；样本简报 16K。
+**测试**：受影响集 383 passed；全量 2960 passed / 2 skipped（569.72s）。
+**未做**：生产库迁移、8900 部署、前端接入、Stage B LLM 回填、案例卡片 PNG、汇率表 069（原计划 068，已被分享表占用）。
 
 ## 已发布: **v1.0.132 — 信息脱敏进主站入口** (2026-11-25 · PR #323 → `36495b7` · tag `v1.0.132` · Sprint 78)
 

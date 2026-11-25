@@ -1,8 +1,8 @@
 # Sprint 79 验收记录 — 案例库 2.0 后端
 
 - 日期：2026-11-25
-- 分支：`feature/v1.0.131-cases-library`（base `5ba7a54`）
-- 范围：迁移 061–067、归一、FTS v2、抽取 cron、四维聚合、案例分享、存量回填。
+- 分支：`feature/v1.0.131-cases-library`（rebase 后 base `b739650`）
+- 范围：迁移 062–068、归一、FTS v2、抽取 cron、四维聚合、案例分享、存量回填。
 
 ## 1. 命令与输出
 
@@ -11,28 +11,30 @@ cd /Users/mt16/.codex/worktrees/1323/moni
 PYTHONPATH=. /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 \
   -m pytest tests/test_cases*.py tests/test_case_*.py tests/test_share*.py \
   tests/test_db.py tests/test_cron.py tests/test_cron_registry.py \
-  tests/test_migration_039_xbot_feed.py -q
-# → 307 passed in 32.87s
+  tests/test_xbot_scope*.py -q
+# → 383 passed in 40.38s
 
 PYTHONPATH=. /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m pytest -q
-# → 2880 passed, 2 skipped, 2 warnings in 523.78s
+# → 2960 passed, 2 skipped, 2 warnings in 569.72s
 ```
 
 迁移演练（生产库副本，未动生产库）：
 
 ```bash
-cp /Users/mt16/dev/moni/data/news.db /private/tmp/moni-cases-verify-065.db
-PYTHONPATH=. python3 -m moni.db.migrate --db /private/tmp/moni-cases-verify-065.db
-# → 061 (v60→61) / 062 (61→62) / 063 (62→63) / 064 (63→64)
-# → 065 (64→65) / 066 (65→66) / 067 (66→67)
-# → Migration complete. schema_version = 67
+cp /Users/mt16/dev/moni/data/news.db /private/tmp/case-mig-check/news.db
+PYTHONPATH=. python3 -m moni.db.migrate --db /private/tmp/case-mig-check/news.db
+# → 061 xbot_scope_admission_tag (v60→61)（main #322）
+# → 062 (61→62) / 063 (62→63) / 064 (63→64) / 065 (64→65)
+# → 066 (65→66) / 067 (66→67) / 068 (67→68)
+# → Migration complete. schema_version = 68
+# 副本复算：cases=432 / enterprises=116 / case_categories=8
 ```
 
 ## 2. 数字（可复算）
 
 ```sql
 SELECT COUNT(*) FROM cases;              -- 432
-SELECT MAX(version) FROM schema_version; -- 67
+SELECT MAX(version) FROM schema_version; -- 68
 SELECT COUNT(*) FROM enterprises;        -- 116
 SELECT COUNT(*) FROM enterprise_aliases; -- 154
 SELECT COUNT(*) FROM case_categories;    -- 8
@@ -85,11 +87,12 @@ CaseRepository.search_fts("跨境支付")    # 44
 | 侧栏顺序 | 基本信息 → 标签 → 相关案例 → 分享 | 同左（滚动可见） |
 | 标签 chip | 24px 高、13px 字 | 同左 |
 
-截图：`/private/tmp/cases-v3-detail-1440.png`、`/private/tmp/cases-detail-tags-1024-scrolled.png`。
+截图（已入库）：`docs/sprint-evidence/sprint-79/design/cases-v3-detail-1440.png`、`…/cases-detail-tags-1024-scrolled.png`；
+原型与评审：`docs/sprint-evidence/sprint-79/design/prototype-v2.html`、`copy-review.md`、`pixel-review-v2.md`。
 
 ## 4. failed / skipped
 
-- **failed**：无（最终全量 `2880 passed / 2 skipped`）。
+- **failed**：无（最终全量 `2960 passed / 2 skipped`，569.72s）。
 - 过程观察：两次较早的全量各出现 1 条不同的进程/信号类 flake
   （`tests/test_llm_desens_wiring_share.py::test_reader_interrupt_abort_flushes_without_partial_placeholder_in_db`、
   `tests/test_worker_lock.py::test_sigterm_kills_blocking_child_that_ignores_term`），
@@ -99,7 +102,7 @@ CaseRepository.search_fts("跨境支付")    # 44
   - 8900 部署 / 重启：需当轮授权。
   - 真实 LLM 抽取质量（Stage A v2 / Stage B）：本轮无 prompt 变更。
   - 前端真实页面接入：本轮只有原型。
-  - 案例卡片 PNG、汇率表 068：未实现。
+  - 案例卡片 PNG、汇率表 069（原计划 068，已被分享表占用）：未实现。
 
 ## 5. 独立审计后的修复（round 2）
 
@@ -107,7 +110,7 @@ CaseRepository.search_fts("跨境支付")    # 44
 
 | 编号 | 问题 | 修法 | 复验 |
 |---|---|---|---|
-| P0-1 | worker 的 case 分支用未赋值的 `output_path`，任务必失败 | 分支内补 `output_path=...-case_brief_html.html` | `test_worker_case_branch_sets_output_path_before_summary` |
+| P0-1 | worker 的 case 分支用未赋值的 `output_path`，任务必失败 | 分支内补 `output_path=...-case_brief_html.html`；**round 3 又发现分支内二次 claim，见 §6** | `test_worker_case_branch_sets_output_path_before_summary` |
 | P1-1 | 案例分支晚于 AI 摘要，仍会触发 LLM | 整段前移到 claim 之后、正文读取之前 | 同上（位置断言） |
 | P1-2 | 429 也累加 attempts，三次后文章被永久踢出 | 429/配额错误 `increment_attempts=False` | `test_429_does_not_burn_retry_budget` |
 | P1-3 | `parse_metric` 把“10 个”记成 USD、“国家”记成机构、“6 个月募资”记成 6 人 | 单位只在数字 ±8 字窗口内推断；国家/月优先；时长丢弃 | `test_context_currency_does_not_leak_into_bare_count`、`test_country_is_not_institution`、`test_duration_is_not_a_metric` |
@@ -129,3 +132,30 @@ CaseRepository.search_fts("跨境支付")    # 44
 
 - `case_extract_runs.lease_owner/lease_at` 已建但未使用；当前只有单 scheduler 进程。
 - `_generate_case_id` 用 COUNT+1，非内容派生；prompt 升版重抽时可能新增重复案例。
+
+## 6. 独立审计 round 3（rebase 后终审）
+
+第二轮审计复验：429 预算、`parse_metric` 三条、回填不改短、`sys.path` 四条确认修好；
+同时指出上表 P0-1 只修了一半，并补充了新的 P1/P2。本轮处理：
+
+| 编号 | 问题 | 修法 | 复验 |
+|---|---|---|---|
+| P0 | case 分支在任务已 `running` 时再 claim 一次；`task_status_update` 的 UPDATE 带 `WHERE status='pending'`，命中 0 行返回 1，`set -e` 直接终止 worker，任务永久卡 `running` | 删掉 `scripts/default_worker.sh` case 分支内重复的 `task_status_update "$task_id" "running"`（保留进入分支前那次 claim） | 副本库 + 临时队列真跑：`CASE_BRIEF … -> …-case_brief_html.html` / `DONE` / `exit=0` / 6622 bytes / DB `status=done` |
+| P1 | 上一版本文件 `VERIFY.md` 声称 P0-1 已修，与实测不符 | 改写本节并补 §6 | 本文 |
+| P1 | `test_worker_case_branch_sets_output_path_before_summary` 只做字符串存在性检查，抓不到二次 claim | 增加断言：case 分支区间内 `task_status_update "$task_id" "running"` 出现 0 次 | 同测试 |
+| P1 | CI 收集失败：`moni/share/case_brief.py` 依赖 jinja2，而 CI 只装 `pip install -e ".[dev]"`（jinja2 不在依赖里） | 去掉 jinja2，改纯 Python 字符串渲染；产物结构/CSS 不变；删除 `templates/case_brief.j2` | CI 复跑；本地全量见 §1 |
+| P2 | `parse_metric` 的 `月` 单位在 ±8 字窗口内优先命中，`2025年11月交易额1.2亿` 被判时长丢弃 | 只认 `个月` | `test_month_in_date_is_not_a_duration` |
+| P2 | `pipeline._is_rate_limit_error` 用子串 `quota` 判限流，永久性配额配置错误会无限重试 | **接受并记录**：每批命中即中止，不会烧 token；重试频率受 cron（每日 2 次）约束，暂不加计数器与迁移 | — |
+
+worker 端到端复验（副本库 `schema_version=68`，真实队列 schema）：
+
+```
+[09:18:50] worker started — queue=/private/tmp/case-worker-check/queue timeout=90s
+[09:18:50] CASE_BRIEF <share_id> -> …-case_brief_html.html
+[09:18:50] DONE <share_id> -> …-case_brief_html.html
+[09:18:50] worker finished
+DB: status=done；产物 6622 bytes
+```
+
+迁移重编号：main #322 占用了 `061`，本分支 7 个迁移整体 +1 为 `062–068`，
+`_CURRENT_VERSION = 68`；副本 001→068 全链通过。

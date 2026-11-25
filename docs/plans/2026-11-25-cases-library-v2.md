@@ -111,21 +111,21 @@
 
 1. 标签 405：前端 `/tags` → `/keywords`，删除按 keyword；已完成并补测试。
 2. 归一 bug：枚举直通、主体最长别名与叠词、币种与万亿。已完成并补测试。
-3. `061_case_metrics` + `raw_json` + `case_action_source`。
-4. `062_cases_fts_v2` + 关键词 / 标题同步。
-5. `063_cron_extract_cases` + 抽取账本 + 预算闸。
+3. `062_case_metrics` + `raw_json` + `case_action_source`。
+4. `063_cases_fts_v2` + 关键词 / 标题同步。
+5. `064_cron_extract_cases` + 抽取账本 + 预算闸。
 6. 回填 dry-run：action / category / 主体 / 指标先出报告，不直接改生产。
 
 ### P1 结构化升级（2–3 个 PR）
 
-1. `064_enterprises`：企业、别名、父子机构、案例企业角色。
-2. `065_case_taxonomy`：行业、场景、`case_category`、受控词表。
+1. `065_enterprises`：企业、别名、父子机构、案例企业角色。
+2. `066_case_taxonomy`：行业、场景、`case_category`、受控词表。
 3. Stage A/B 提示词与 `case_insights`；聚合 API 与企业画像。
 4. 搜索 L2：文章级 trigram + 缺口补抽。
 
 ### P2 分享与精修
 
-1. `067_share_case_ids` + 案例简报 / 案例卡片。
+1. `068_share_case_ids` + 案例简报 / 案例卡片。
 2. 汇率表与跨币种可比金额。
 3. 旧表重建（可选）：去掉 `case_type` CHECK、`case_action` 增加 `unknown`。
 
@@ -144,15 +144,15 @@
 |---|---|
 | P0-1 | 标签 405：前端改走 `/keywords`，POST `{keyword, weight}`，DELETE 按 keyword；补契约测试 |
 | P0-2 | 归一：`launch/pilot/scale/transform/exit` 与 `AI/PI` 直通；主体最长别名；币种与万亿；叠词修复 |
-| P0-3 | `061_case_metrics`：`case_metrics` + `cases.raw_json` + `case_action_source` |
-| P0-4 | `062_cases_fts_v2`：索引 keywords / article_title，`search_text` 兜底，<3 字走 LIKE |
-| P0-5 | `063_cron_extract_cases`：`case_extract_runs` 账本 + 13:30 / 20:30 两条 cron + 日 token 预算闸 |
-| P1-1 | `064_enterprises`（116 企业 / 154 别名）、`065_case_taxonomy`（8 类 + 10 场景） |
+| P0-3 | `062_case_metrics`：`case_metrics` + `cases.raw_json` + `case_action_source` |
+| P0-4 | `063_cases_fts_v2`：索引 keywords / article_title，`search_text` 兜底，<3 字走 LIKE |
+| P0-5 | `064_cron_extract_cases`：`case_extract_runs` 账本 + 13:30 / 20:30 两条 cron + 日 token 预算闸 |
+| P1-1 | `065_enterprises`（116 企业 / 154 别名）、`066_case_taxonomy`（8 类 + 10 场景） |
 | P1-2 | `backfill_taxonomy.py` 规则回填 + 四维聚合 + `GET /api/cases/stats` |
-| P2-1 | `066_case_insights`（建表）、`067_share_case_ids`、`CaseBriefPayload`、`case_brief.py` + 模板、`POST /api/share/cases`、worker 短路 |
+| P2-1 | `067_case_insights`（建表）、`068_share_case_ids`、`CaseBriefPayload`、`case_brief.py` + 模板、`POST /api/share/cases`、worker 短路 |
 | P3-1 | `backfill_metrics.py`：存量 432 条规则回填 `case_metrics` 并语义化 `cases.amount`（0 次 LLM） |
 
-### 5.2 复检数字（从生产库重新拷贝，001→065 全链迁移）
+### 5.2 复检数字（从生产库重新拷贝，001→068 全链迁移）
 
 ```
 schema_version=65  cases=432  enterprises=116  aliases=154
@@ -174,7 +174,7 @@ by_scenario: other 90 / ecny_stablecoin 76 / llm_agent 73 / cross_border_pay 50
 
 ### 5.4 仍未做
 
-- Stage B `case_insights` 的 LLM 回填、汇率表 068、案例卡片 PNG。
+- Stage B `case_insights` 的 LLM 回填、汇率表 069（原计划 068，已被分享表占用）、案例卡片 PNG。
 - 前端入口：详情页「分享此案例」、列表多选「生成案例简报」尚未接 `POST /api/share/cases`；沉浸式详情目前只有 pixel 的原型，未进真实页面。
 
 ## 6. 契约与回滚
