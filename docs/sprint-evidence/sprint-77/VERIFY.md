@@ -1,8 +1,8 @@
-# Sprint 75 验收记录 — LLM 用量卡片修复 + verify-moni
+# Sprint 77 验收记录 — LLM 用量卡片修复 + verify-moni
 
 - 日期：2026-11-25
 - 分支：`feature/v1.0.130-llm-usage-state-fix`（base `f838ae0`，已合入 main `11dc915`）
-- 版本：待发 `v1.0.130`
+- 版本：已发 `v1.0.130`（commit `e41a090`，tag `v1.0.130`）
 
 ## 1. 命令与输出
 
@@ -71,3 +71,8 @@ rg -c "llmUsage" moni/web/static/index.html
 - `/config → 大模型设置 → 用量统计` 点击后 7 条 `Cannot read properties of undefined (reading 'after')`
   （Alpine `x-for` key 相关），8900 同样 7 条。
 - `/basket` 2 条 `422 (Unprocessable Entity)`，8900 同样 2 条；已作为 `KNOWN_BASELINE` 写进验证脚本。
+
+## 7. CI
+
+- 首轮 CI 红（2 failed）：`test_desensitize_core` 的两条性能用例，与本改动无关，根因与处置见 Sprint 76 / PR #314。
+- 并入 `main@6800f08`（含 #314）后重跑：**completed success**，随后 squash 合并为 `e41a090`。
