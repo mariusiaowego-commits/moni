@@ -1,6 +1,7 @@
 """moni.share.case_brief — 案例库 HTML 简报渲染器 (P2-1 方案 A 融合).
 
-纯 Python + Jinja2 确定性渲染：不经过 hermes，不调用任何 LLM。
+纯 Python 字符串确定性渲染：不经过 hermes，不调用任何 LLM，不依赖 jinja2
+(CI 只装 pyproject 依赖，案例库是唯一需要模板引擎的模块，故内联)。
 读取 cases / articles / case_metrics / case_enterprises / enterprises /
 case_scenario_links / case_scenarios / case_categories / case_insights
 (case_insights 为空或不存在时优雅降级)。
@@ -9,6 +10,7 @@ case_scenario_links / case_scenarios / case_categories / case_insights
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import sqlite3
 from collections import OrderedDict
@@ -16,9 +18,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
-
-_TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 _GROUP_LABELS = {
     None: "按收录顺序",
     "enterprise": "按机构分组",
@@ -194,6 +193,251 @@ def _group_items(
     return [{"name": name, "cases": grp} for name, grp in buckets.items()]
 
 
+def _esc(value: Any) -> str:
+    return html.escape("" if value is None else str(value), quote=True)
+
+
+_CSS = """
+    :root {
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --text: #162032;
+      --muted: #5b667a;
+      --border: #e1e7f0;
+      --accent: #1d4ed8;
+      --accent-soft: #eff6ff;
+      --high: #b91c1c;
+      --high-bg: #fef2f2;
+      --med: #b45309;
+      --med-bg: #fffbeb;
+      --low: #475569;
+      --low-bg: #f1f5f9;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 28px 18px 56px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.6;
+    }
+    .wrap { max-width: 960px; margin: 0 auto; }
+    .hero {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px 26px;
+      margin-bottom: 22px;
+    }
+    .hero h1 { margin: 0 0 8px; font-size: 24px; line-height: 1.3; }
+    .hero-meta { color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 14px; }
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .stat-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+    }
+    .stat-num { font-size: 20px; font-weight: 700; color: var(--accent); }
+    .stat-lbl { font-size: 12px; color: var(--muted); }
+    .group-title {
+      font-size: 17px;
+      font-weight: 700;
+      margin: 24px 0 12px;
+      padding-left: 10px;
+      border-left: 4px solid var(--accent);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .group-count { font-size: 12px; font-weight: 500; color: var(--muted); }
+    .case-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin-bottom: 14px;
+    }
+    .case-head {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .case-subject { font-size: 17px; font-weight: 700; }
+    .case-id { font-size: 12px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .badge {
+      display: inline-block;
+      font-size: 12px;
+      padding: 2px 9px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 500;
+    }
+    .badge-ref-high { background: var(--high-bg); color: var(--high); }
+    .badge-ref-medium { background: var(--med-bg); color: var(--med); }
+    .badge-ref-low { background: var(--low-bg); color: var(--low); }
+    .badge-muted { background: var(--low-bg); color: var(--low); }
+    .summary { margin: 0 0 10px; font-size: 15px; }
+    .metrics-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+    .metric-chip {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+    .metric-chip strong { color: var(--text); }
+    .insight-box {
+      background: #f8faff;
+      border: 1px solid #dbeafe;
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin: 10px 0;
+      font-size: 13px;
+    }
+    .insight-box h4 { margin: 0 0 6px; font-size: 13px; color: var(--accent); }
+    .insight-box p { margin: 4px 0; }
+    .insight-box ul { margin: 4px 0 4px 18px; padding: 0; }
+    .evidence-box {
+      background: #fafafa;
+      border-left: 3px solid #cbd5e1;
+      padding: 8px 12px;
+      margin: 10px 0;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .case-foot {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: space-between;
+    }
+    .case-foot a { color: var(--accent); text-decoration: none; }
+    .case-foot a:hover { text-decoration: underline; }
+    .footer-note {
+      margin-top: 28px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+    }
+"""
+
+
+def _render_metrics(c: dict[str, Any]) -> str:
+    metrics = c.get("metrics") or []
+    if metrics:
+        chips = "".join(
+            f'<span class="metric-chip"><strong>{_esc(m.get("metric_type"))}</strong>: '
+            f'{_esc(m.get("value_raw"))} ({_esc(m.get("unit"))})</span>'
+            for m in metrics
+        )
+        return f'<div class="metrics-row">{chips}</div>'
+    if c.get("amount"):
+        return (
+            '<div class="metrics-row"><span class="metric-chip">'
+            f'<strong>规模/金额</strong>: {_esc(c["amount"])}</span></div>'
+        )
+    return ""
+
+
+def _render_insight(insight: dict[str, Any]) -> str:
+    parts: list[str] = ['<div class="insight-box"><h4>深度解读</h4>']
+    if insight.get("one_liner"):
+        parts.append(f'<p><strong>一句话结论：</strong>{_esc(insight["one_liner"])}</p>')
+    if insight.get("why_it_matters"):
+        parts.append(f'<p><strong>为什么值得看：</strong>{_esc(insight["why_it_matters"])}</p>')
+    practices = insight.get("transferable_practices") or []
+    if practices:
+        items = "".join(
+            "<li>{}{}</li>".format(
+                _esc(p.get("practice")),
+                f'（前提：{_esc(p["preconditions"])}）' if p.get("preconditions") else "",
+            )
+            for p in practices
+            if isinstance(p, dict)
+        )
+        parts.append(f"<p><strong>可迁移做法：</strong></p><ul>{items}</ul>")
+    risks = insight.get("risks_prerequisites") or []
+    if risks:
+        parts.append(f'<p><strong>风险/前提：</strong>{_esc("；".join(str(r) for r in risks))}</p>')
+    parts.append("</div>")
+    return "".join(parts)
+
+
+def _render_case_card(
+    c: dict[str, Any],
+    *,
+    include_insight: bool,
+    include_evidence: bool,
+) -> str:
+    subject = c.get("enterprise_name") or c.get("subject") or ""
+    counterparty = f' · 对手方：{_esc(c["counterparty"])}' if c.get("counterparty") else ""
+    case_meta = _esc(c.get("case_id"))
+    if c.get("case_date"):
+        case_meta += f' · {_esc(c["case_date"])}'
+
+    badges = [f'<span class="badge">{_esc(c.get("category_name"))}</span>']
+    if c.get("case_action"):
+        badges.append(f'<span class="badge badge-muted">{_esc(c["case_action"])}</span>')
+    if c.get("industry_l1"):
+        badges.append(f'<span class="badge badge-muted">{_esc(c["industry_l1"])}</span>')
+    if c.get("scenario_name"):
+        badges.append(f'<span class="badge badge-muted">{_esc(c["scenario_name"])}</span>')
+
+    if c.get("article_url"):
+        source = (
+            f'<a href="{_esc(c["article_url"])}" target="_blank" rel="noopener noreferrer">'
+            f'{_esc(c.get("article_title") or c.get("article_id"))}</a>'
+        )
+    else:
+        source = _esc(c.get("article_title") or c.get("article_id"))
+    if c.get("article_source"):
+        source += f'（{_esc(c["article_source"])}）'
+
+    chunks = [
+        '<article class="case-card">',
+        '<div class="case-head"><div>',
+        f'<div class="case-subject">{_esc(subject)}{counterparty}</div>',
+        f'<div class="case-id">{case_meta}</div>',
+        "</div>",
+        f'<span class="badge badge-ref-{_esc(c.get("reference_value"))}">'
+        f'参考价值：{_esc(c.get("reference_value"))}</span>',
+        "</div>",
+        f'<div class="badges">{"".join(badges)}</div>',
+    ]
+    if c.get("summary"):
+        chunks.append(f'<p class="summary">{_esc(c["summary"])}</p>')
+    if include_evidence:
+        chunks.append(_render_metrics(c))
+    if include_insight and c.get("insight"):
+        chunks.append(_render_insight(c["insight"]))
+    if include_evidence and c.get("evidence_snippet"):
+        chunks.append(
+            f'<blockquote class="evidence-box"><strong>原文证据：</strong>'
+            f'{_esc(c["evidence_snippet"])}</blockquote>'
+        )
+    foot = [f"<span>来源：{source}</span>"]
+    if c.get("reference_rationale"):
+        foot.append(f'<span>依据：{_esc(c["reference_rationale"])}</span>')
+    chunks.append(f'<div class="case-foot">{"".join(foot)}</div>')
+    chunks.append("</article>")
+    return "".join(chunks)
+
+
 def render_case_brief_html(
     db_path: str | Path,
     case_ids: list[str],
@@ -219,24 +463,64 @@ def render_case_brief_html(
     scenarios = {it.get("scenario_code") or "other" for it in items}
     articles = {it.get("article_id") for it in items if it.get("article_id")}
 
-    env = Environment(
-        loader=FileSystemLoader(str(_TEMPLATE_DIR)),
-        autoescape=select_autoescape(["html", "j2"]),
-    )
-    tmpl = env.get_template("case_brief.j2")
     resolved_title = (title or "").strip() or f"同业案例简报 — {datetime.now().strftime('%Y-%m-%d')}"
-    return tmpl.render(
-        title=resolved_title,
-        generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-        group_label=_GROUP_LABELS.get(group_by, _GROUP_LABELS[None]),
-        total_cases=len(items),
-        enterprise_count=len(enterprises),
-        scenario_count=len(scenarios),
-        article_count=len(articles),
-        groups=groups,
-        include_insight=include_insight,
-        include_evidence=include_evidence,
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    group_label = _GROUP_LABELS.get(group_by, _GROUP_LABELS[None])
+    stats = [
+        ("收录案例", len(items)),
+        ("涉及机构", len(enterprises)),
+        ("覆盖场景", len(scenarios)),
+        ("来源文章", len(articles)),
+    ]
+    stats_html = "".join(
+        f'<div class="stat-box"><div class="stat-num">{num}</div>'
+        f'<div class="stat-lbl">{label}</div></div>'
+        for label, num in stats
     )
+    sections = []
+    for group in groups:
+        cards = "".join(
+            _render_case_card(
+                c,
+                include_insight=include_insight,
+                include_evidence=include_evidence,
+            )
+            for c in group["cases"]
+        )
+        sections.append(
+            "<section>"
+            f'<div class="group-title"><span>{_esc(group["name"])}</span>'
+            f'<span class="group-count">{len(group["cases"])} 条案例</span></div>'
+            f"{cards}</section>"
+        )
+
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{_esc(resolved_title)}</title>
+  <style>{_CSS}</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <h1>{_esc(resolved_title)}</h1>
+      <div class="hero-meta">
+        <span>生成时间：{_esc(generated_at)}</span>
+        <span>分组方式：{_esc(group_label)}</span>
+        <span>渲染模式：结构化直出（0 LLM）</span>
+      </div>
+      <div class="stats-bar">{stats_html}</div>
+    </header>
+    {"".join(sections)}
+    <footer class="footer-note">
+      moni 同业案例库 2.0 · 自动生成简报
+    </footer>
+  </div>
+</body>
+</html>
+"""
 
 
 def write_case_brief_html(
