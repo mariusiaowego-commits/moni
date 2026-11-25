@@ -23,12 +23,17 @@ from moni.scoring.direction import (
     parse_draft,
 )
 from moni.scoring.direction_runner import (
+    ClarificationRequest,
+    DirectionClarificationRunner,
     DirectionResearchRunner,
     ResearchRequest,
 )
 from moni.web.exceptions import BadRequestError, ConflictError, NotFoundError
 from moni.web.models import (
     Direction,
+    DirectionClarification,
+    DirectionClarificationAction,
+    DirectionClarificationAnswers,
     DirectionCreate,
     DirectionDraft,
     DirectionDraftRequest,
@@ -42,6 +47,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/directions", tags=["directions"])
 
 _runner: DirectionResearchRunner | None = None
+_clarification_runner: DirectionClarificationRunner | None = None
 _runner_lock = threading.Lock()
 #: Model identity captured at call time, so a settings change during the
 #: call cannot mislabel which model produced the research.
@@ -62,6 +68,7 @@ def _direction_response(direction: dict[str, Any]) -> Direction:
     conn = get_db()
     research = direction_store.research_summary(conn, direction)
     usable, usable_error = direction_store.direction_usable(conn, direction)
+    clarification = direction_store.clarification_summary(conn, direction)
     research_row = None
     if research is not None:
         research_row = {
@@ -74,10 +81,25 @@ def _direction_response(direction: dict[str, Any]) -> Direction:
         label=str(direction["label"]),
         brief=str(direction["brief"]),
         research_guidance=str(direction.get("research_guidance") or ""),
+        reader_perspective=str(direction.get("reader_perspective") or ""),
         enabled=bool(direction["enabled"]),
         created_at=str(direction["created_at"]),
         updated_at=str(direction["updated_at"]),
         research=_research_action(research_row),
+        clarification=(
+            DirectionClarification(
+                direction_id=int(direction["id"]),
+                clarification_version=int(clarification["clarification_version"]),
+                status=str(clarification["status"]),
+                questions=list(clarification["questions"]),
+                answers=list(clarification["answers"]),
+                error=clarification["error"],
+                started_at=clarification["started_at"],
+                finished_at=clarification["finished_at"],
+            )
+            if clarification is not None
+            else None
+        ),
         usable=usable is not None,
         usable_error=usable_error,
     )
@@ -125,10 +147,19 @@ def _ensure_runner() -> DirectionResearchRunner:
         return _runner
 
 
+def _ensure_clarification_runner() -> DirectionClarificationRunner:
+    global _clarification_runner
+    with _runner_lock:
+        if _clarification_runner is None:
+            _clarification_runner = DirectionClarificationRunner(_model_call)
+        return _clarification_runner
+
+
 @router.get("", response_model=list[Direction])
 def list_directions() -> list[Direction]:
     conn = get_db()
     direction_store.recover_stale_running(conn)
+    direction_store.recover_stale_clarification(conn)
     return [_direction_response(direction) for direction in direction_store.list_directions(conn)]
 
 
@@ -163,7 +194,11 @@ def create_draft(payload: DirectionDraftRequest) -> DirectionDraft:
 def create_direction(payload: DirectionCreate) -> Direction:
     conn = get_db()
     direction_id, error = direction_store.create_direction(
-        conn, payload.label, payload.brief, payload.research_guidance
+        conn,
+        payload.label,
+        payload.brief,
+        payload.research_guidance,
+        payload.reader_perspective,
     )
     if direction_id is None:
         if error == direction_store.DUPLICATE_LABEL_ERROR:
@@ -184,6 +219,7 @@ def update_direction(direction_id: int, payload: DirectionUpdate) -> Direction:
         label=payload.label,
         brief=payload.brief,
         research_guidance=payload.research_guidance,
+        reader_perspective=payload.reader_perspective,
         enabled=payload.enabled,
     )
     if direction is None:
@@ -202,6 +238,8 @@ def update_direction(direction_id: int, payload: DirectionUpdate) -> Direction:
             or str(before.get("brief") or "") != direction["brief"]
             or str(before.get("research_guidance") or "")
             != str(direction.get("research_guidance") or "")
+            or str(before.get("reader_perspective") or "")
+            != str(direction.get("reader_perspective") or "")
         )
         # A direction that never had a research has nothing to invalidate.
         # Saying "研究需重新生成" for it would be wrong -- there was no
@@ -250,6 +288,8 @@ def start_research(direction_id: int) -> DirectionResearchAction:
             label=str(running["label_snapshot"]),
             brief=str(running["brief_snapshot"]),
             research_guidance=str(running.get("guidance_snapshot") or ""),
+            reader_perspective=str(running.get("perspective_snapshot") or ""),
+            clarification_answers=str(running.get("clarification_snapshot") or ""),
         )
     )
     return DirectionResearchAction(
@@ -257,3 +297,79 @@ def start_research(direction_id: int) -> DirectionResearchAction:
         research_version=int(running["research_version"]),
         status=STATUS_RUNNING,
     )
+
+
+def _clarification_response(
+    direction_id: int, summary: dict[str, Any]
+) -> DirectionClarification:
+    return DirectionClarification(
+        direction_id=direction_id,
+        clarification_version=int(summary["clarification_version"]),
+        status=str(summary["status"]),
+        questions=list(summary["questions"]),
+        answers=list(summary["answers"]),
+        error=summary["error"],
+        started_at=summary["started_at"],
+        finished_at=summary["finished_at"],
+    )
+
+
+@router.get("/{direction_id}/clarification", response_model=DirectionClarification)
+def get_clarification(direction_id: int) -> DirectionClarification:
+    conn = get_db()
+    direction_store.recover_stale_clarification(conn)
+    direction = _get_direction_or_404(direction_id)
+    summary = direction_store.clarification_summary(conn, direction)
+    if summary is None:
+        raise NotFoundError(message="该方向还没有澄清记录")
+    return _clarification_response(direction_id, summary)
+
+
+@router.post(
+    "/{direction_id}/clarification",
+    response_model=DirectionClarificationAction,
+    status_code=202,
+)
+def start_clarification(direction_id: int) -> DirectionClarificationAction:
+    """Ask the model what it still needs to know about the reader perspective."""
+    conn = get_db()
+    direction = _get_direction_or_404(direction_id)
+    if not direction["enabled"]:
+        raise ConflictError(message="方向已停用，请先启用再澄清")
+    running, error = direction_store.start_clarification(conn, direction_id)
+    if running is None:
+        raise ConflictError(message=error or "该方向已有澄清在运行")
+    _ensure_clarification_runner().submit(
+        ClarificationRequest(
+            direction_id=direction_id,
+            clarification_version=int(running["clarification_version"]),
+            label=str(direction["label"]),
+            brief=str(direction["brief"]),
+            reader_perspective=str(running["perspective_snapshot"]),
+        )
+    )
+    return DirectionClarificationAction(
+        direction_id=direction_id,
+        clarification_version=int(running["clarification_version"]),
+        status=STATUS_RUNNING,
+    )
+
+
+@router.put(
+    "/{direction_id}/clarification/answers", response_model=DirectionClarification
+)
+def save_clarification_answers(
+    direction_id: int, payload: DirectionClarificationAnswers
+) -> DirectionClarification:
+    """Store the user's answers; a changed answer expires the research."""
+    conn = get_db()
+    _get_direction_or_404(direction_id)
+    saved, error = direction_store.save_clarification_answers(
+        conn, direction_id, payload.answers
+    )
+    if saved is None:
+        raise BadRequestError(message=error or "澄清回答无效")
+    direction = _get_direction_or_404(direction_id)
+    summary = direction_store.clarification_summary(conn, direction)
+    assert summary is not None
+    return _clarification_response(direction_id, summary)

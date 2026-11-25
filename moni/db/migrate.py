@@ -18,7 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 59  # + 058 llm_desensitize, + 059 bv_direction_guidance
+_CURRENT_VERSION = 60  # + 058 llm_desensitize, + 059 bv_direction_guidance, + 060 bv_direction_reader_perspective
 
 # Migrations <= this version were applied by the old "max(schema_version)"
 # rule, which did not record every intermediate row.  Never re-run them.
