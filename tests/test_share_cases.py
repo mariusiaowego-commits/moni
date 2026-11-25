@@ -175,7 +175,7 @@ class TestShareCasesP2:
         assert "<!DOCTYPE html>" in html_no_ins
         assert "P2测试简报" in html_no_ins
         assert "互动日活3000万" in html_no_ins
-        assert "dau" in html_no_ins
+        assert "日活用户" in html_no_ins
         assert "深度解读" not in html_no_ins
 
         # 插入一条 done insight 后应渲染
@@ -190,6 +190,31 @@ class TestShareCasesP2:
         html_with_ins = render_case_brief_html(db_file, [cid], title="含解读简报")
         assert "深度解读" in html_with_ins
         assert "招行标杆落地" in html_with_ins
+
+    def test_brief_uses_chinese_labels_not_raw_enums(self, share_db):
+        """分享出去的简报是给人看的：库里的英文枚举不能直接漏出去。"""
+        conn, db_file, _ = share_db
+        cid = _seed_case(
+            conn,
+            "art_label1",
+            subject="招商银行",
+            summary="招行上线智能投顾系统",
+            evidence="互动日活3000万",
+            amount="互动日活3000万",
+        )
+        conn.execute(
+            "UPDATE cases SET reference_value='high', case_action='launch' WHERE case_id=?",
+            (cid,),
+        )
+        conn.commit()
+
+        html = render_case_brief_html(db_file, [cid], title="标签中文")
+        assert "高价值" in html
+        assert "上线" in html
+        assert "参考价值：high" not in html
+        assert ">launch<" not in html
+        assert "日活用户" in html
+        assert "dau" not in html
 
     def test_post_api_share_cases_enqueue_and_duplicate_guard(self, share_db):
         conn, db_file, _ = share_db

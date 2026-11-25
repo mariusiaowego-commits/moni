@@ -21,6 +21,7 @@ import json
 import logging
 import re
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -162,6 +163,20 @@ def _is_rate_limit_error(err: Any) -> bool:
     return any(tok in msg for tok in ("429", "rate limit", "ratelimit", "quota"))
 
 
+def _local_day_start_utc_iso() -> str:
+    """本地零点换算成的 UTC ISO 串。
+
+    llm_jobs.created_at 存的是 UTC ISO（datetime_iso()），而预算闸想按
+    本地自然日结算。直接拿 date('now','localtime') 去比 UTC 串，会把
+    本地 00:00-08:00 的记录整段漏掉（此时 UTC 还是前一天），闸门等于
+    失效。这里把本地零点换算成 UTC 再比，两边同一把尺子。
+    """
+    local_start = datetime.now().astimezone().replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return local_start.astimezone(timezone.utc).isoformat()
+
+
 def check_daily_token_budget(conn: Any) -> tuple[bool, int, int]:
     """检查当天 case_extract / case_insight 的输入 token 是否超过预算闸.
 
@@ -185,8 +200,9 @@ def check_daily_token_budget(conn: Any) -> tuple[bool, int, int]:
             SELECT COALESCE(SUM(input_tokens), 0)
             FROM llm_jobs
             WHERE task_type IN ('case_extract', 'case_insight')
-              AND created_at >= date('now', 'localtime')
-            """
+              AND created_at >= ?
+            """,
+            (_local_day_start_utc_iso(),),
         ).fetchone()
         if row and row[0] is not None:
             used = int(row[0])

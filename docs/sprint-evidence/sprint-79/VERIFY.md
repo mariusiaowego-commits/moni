@@ -159,3 +159,24 @@ DB: status=done；产物 6622 bytes
 
 迁移重编号：main #322 占用了 `061`，本分支 7 个迁移整体 +1 为 `062–068`，
 `_CURRENT_VERSION = 68`；副本 001→068 全链通过。
+
+## 7. 交付物样式归档（2026-11-26 复核）
+
+复核时发现两处漏到用户眼前的英文枚举 / 系统单位，已在 PR #330 修掉：
+分享简报里 `参考价值：high`、`launch`、`dau` 直接露出（现为
+`高价值` / `上线` / `日活用户`），单位后缀重复（`5倍（倍）`、`…（用户）`）也已去重。
+
+| 产物 | 路径 |
+|---|---|
+| 分享简报 HTML 样本（5 案例，按机构分组） | `docs/sprint-evidence/sprint-79/artifacts/case_brief_sample.html` |
+| 分享简报截图 1440×1500 | `docs/sprint-evidence/sprint-79/artifacts/share-brief-sample-1440.png` |
+| 现网 `/cases` 旧页面截图（对照用，8900 未重启） | `docs/sprint-evidence/sprint-79/artifacts/live-cases-before-1440.png` |
+| 新原型列表页截图 1440 | `docs/sprint-evidence/sprint-79/artifacts/prototype-list-1440.png` |
+
+旧页面截图里仍能看到「3000 万元」「AI 应用 / 产品创新」两个问题——因为 8900
+仍是旧进程、生产库 `schema_version=61` 未迁移；新口径要等迁移 + 重启才生效。
+
+复核时另发现预算是真 bug：`llm_jobs.created_at` 存 UTC ISO，而闸门用
+`date('now','localtime')` 比，本地 00:00–08:00 期间当天的用量整段漏算
+（闸门形同虚设）。已改为「本地零点换算成 UTC 再比」，并补回归测试
+`test_budget_gate_counts_local_day_even_in_early_morning`。
