@@ -349,7 +349,10 @@ class CallRequest:
     article_id: str | None = None
     job_id: str | None = None
     json_output: bool = False
-    _desens_ctx: Any = field(default=None, repr=False, compare=False)
+    #: Set by a caller that already masked the prompt (the desensitize lab).
+    #: The runner then neither masks again nor restores, so the caller keeps
+    #: the raw model reply for its own display.
+    desens_ctx: Any = field(default=None, repr=False, compare=False)
 
 
 @dataclass
@@ -447,25 +450,30 @@ class FailoverRunner:
         eff_json = bool(req.json_output or scope.json_output)
         eff_inject = eff_task != "connectivity_test"
 
-        ctx = prepare_outbound(
-            req.prompt,
-            call_site="runner",
-            task_type=eff_task,
-            article_id=eff_article,
-            job_id=eff_job,
-            share_task_id=scope.share_task_id,
-            json_output=eff_json,
-            inject_note=eff_inject,
-            db_path=scope.db_path,
-        )
-        if ctx is not None:
-            if ctx.mask_result.blocked:
-                record_event(ctx, provider=req.provider, model=req.model_id, blocked=True)
-                raise LLMRunnerError(f"desensitize blocked: {ctx.mask_result.blocked_reason}")
-            record_event(ctx, provider=req.provider, model=req.model_id, blocked=False)
-            eff_req = replace(req, prompt=ctx.masked_text, _desens_ctx=ctx)
-        else:
+        ctx = None
+        if req.desens_ctx is not None:
+            # Pre-masked by the caller: send it as-is, do not restore.
             eff_req = req
+        else:
+            ctx = prepare_outbound(
+                req.prompt,
+                call_site="runner",
+                task_type=eff_task,
+                article_id=eff_article,
+                job_id=eff_job,
+                share_task_id=scope.share_task_id,
+                json_output=eff_json,
+                inject_note=eff_inject,
+                db_path=scope.db_path,
+            )
+            if ctx is not None:
+                if ctx.mask_result.blocked:
+                    record_event(ctx, provider=req.provider, model=req.model_id, blocked=True)
+                    raise LLMRunnerError(f"desensitize blocked: {ctx.mask_result.blocked_reason}")
+                record_event(ctx, provider=req.provider, model=req.model_id, blocked=False)
+                eff_req = replace(req, prompt=ctx.masked_text, desens_ctx=ctx)
+            else:
+                eff_req = req
 
         errors: list[tuple[str, str]] = []
         for m_id in chain:
@@ -565,7 +573,7 @@ class FailoverRunner:
         """Build argv for the given model and run it via HardenedSubprocess."""
         direct_ctx = None
         prompt_text = req.prompt
-        if req._desens_ctx is None:
+        if req.desens_ctx is None:
             scope = current_desensitize_scope()
             eff_task = req.task_type or scope.task_type or (
                 "connectivity_test" if req.prompt.strip().lower() == "hi" else "standard"

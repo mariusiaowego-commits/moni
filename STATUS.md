@@ -1,3 +1,67 @@
+## 进行中: **脱敏实验室（演练台）** (2026-11-25 · PR `feat/desens-lab` · Sprint 69)
+
+给「对大模型的信息脱敏」feature 配一个**能在决赛现场跑真实模型**的演示台：一个 URL 打开，
+贴一段含敏感信息的文本 → 四栏并排显示 **① 原文 / ② 发给模型的内容（已遮蔽）/ ③ 模型回包（原始，
+仍是编码）/ ④ 本地还原后**，下面一条实时指标带。作用：把「我说是安全的」变成「现场看见的」。
+
+**交付物**
+
+- 后端：`moni/web/routes/desensitize.py` —— `POST /api/desensitize/preview`（纯本地预览）、
+  `POST /api/desensitize/run`（真调大模型，四栏回包）、`GET /api/desensitize/stats`（账本口径，
+  生产统计**排除** `call_site='desens_lab'`）
+- 页面：`moni/web/static/desens-lab.html`（独立单文件页，原生 JS，与主界面同源）
+- 内核向后兼容改动：`audit.py` 的 `prepare_outbound(..., force=False, extra_terms=())` +
+  `DesensSettings.rules_raw` + `load_settings` 无论开关都加载规则；
+  `runner.py` 的 `CallRequest.desens_ctx` **公开化**（原 `_desens_ctx`），`call()` 在
+  `desens_ctx` 非空时**跳过遮蔽也跳过还原**（实验室自己遮蔽自己还原，才能拿到模型原始回包）
+- 测试：`tests/test_desensitize_lab_api.py`（16 例）
+- 证据：`docs/sprint-evidence/sprint-69/VERIFY.md`；决赛物料与分镜脚本：
+  `docs/plans/2026-11-25_llm-desens-lab-finals.md`
+
+**实测数字（真实模型，非 mock）**
+
+| 项 | 值 |
+|---|---|
+| 遮蔽 / 还原处数 | 5 / 5（另一轮 5 / 3 —— 还原数随模型复述多少而变，未还原恒为 0） |
+| 未还原 / 出站泄漏命中 / 残留占位符 | 0 / 0 / 0 |
+| 遮蔽 / 还原 / 模型耗时 | 136 µs / 98 µs / 8775 ms |
+| 响应式（Playwright 实测） | 1600/1280 → 4 列，1100 → 2 列，820/760/480 → 1 列，**6 断点均无横向溢出** |
+| 专项 / 脱敏全套 | `16 passed` / `96 passed` |
+
+**范围外（明说不做）**
+
+- 开关面板（用户自助配规则 CRUD）本轮不做，PPT 不提
+- 脱敏总开关维持 `desensitize.enabled='0'`（默认关，用户已拍板）；实验室用 `force=True`
+  不受总开关影响
+- 演练台只读 + 一次显式模型调用，不写业务数据
+
+**合并前独立审计（子 agent，只读）结论 `REQUEST CHANGES` → 已修**
+
+| 级别 | 问题 | 处置 |
+|---|---|---|
+| P1 | `/run` 忽略 `mask_result.blocked` —— 内核判定「遮不干净」（规则 `action=block` 或出站泄漏扫描命中）时仍会出网 | 出网前拦截 → 记一条 `blocked=1` 账本 + 返回 400「已拦截，未出网」；补测试 |
+| P2 | `/run` 还原裸调 `restore_text`，异常会 500 且丢审计行 | 改用 `finalize_inbound`（入站 fail-open，出站仍 fail-closed），账本不再漏记 |
+| P2 | `force=True` 只绕过总开关，遮蔽失败会 fail-open **静默发原文出网** | `force=True` 时强制 fail-closed：遮蔽失败直接报错，绝不出网 |
+| P2 | `extra_terms` 只限条数、单条无长度上限 | 加单条 ≤64 字符校验（对齐 `rules.py` 的 `MAX_CUSTOM_PREFIX_LEN`） |
+| NIT | 账本最近记录用 `innerHTML` 拼服务端字段 | 改 DOM API + `textContent` |
+| NIT | 示例用了真实格式手机号 | 换成 `13800138000`（测试号段） |
+| NIT | `STATUS.md` 写 Alpine.js，实际是原生 JS | 改正 |
+| NIT | 重构遗留死代码 `_compile_rules_from_rows` | 删除 |
+| NIT | 空账本时 `restore_success_rate` 返回 1.0（冒充 100%） | 改为 `None`，页面显示 `—` |
+| NIT | 测试断言 `== 1` 对 bool 恒真；缺 422 / blocked / 模型失败用例 | 改 `is True`，补 7 例（15 例） |
+
+第二轮复核（子 agent，只读）结论 `APPROVE WITH NITS`，余下 4 条同 PR 内修完：
+
+| 级别 | 问题 | 处置 |
+|---|---|---|
+| P2 | 模型调用失败时这单已出网，但账本 0 行 —— 调用次数系统性少记 | 失败也记账：`fallback_used='model_error'` |
+| P3 | `preview` 返回了 `blocked` 但页面不读 —— 被拦截文本预览显示 200，跑一次才 400 | 页面读 `blocked`：红色提示 + 状态行「已拦截」 |
+| P3 | 被拦截的行在账本里与真调用行长得一样，且被算进 `calls` | 账本加「拦截」列与「结果」列，聚合加 `blocked_calls` / `outbound_calls` |
+| P3 | fail-closed 报错是裸 500，现场无法解释原因 | 转 typed 错误 400「脱敏内核异常，已 fail-closed 拦截（未出网）」 |
+| NIT | 响应里的 `fallback_used` 页面不展示 | 状态行追加「降级：xxx」 |
+
+---
+
 ## 已合并待开: **对大模型的信息脱敏（LLM Desens Shield）** (2026-11-24 · PR #294 → `8b0484d` · Sprint 26112472)
 
 在 moni 进程内、hermes 子进程启动前的最后一跳收口全部 **5 条出站通道**，做
