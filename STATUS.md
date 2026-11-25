@@ -1,3 +1,30 @@
+## 已发布: **v1.0.131 — 通用业务价值分按需打分** (2026-11-25 · PR #313 → `147bdb3` · tag `v1.0.131` · Sprint 75)
+
+Pin 列表里，没有通用业务价值分的文章可以直接点「打分」，不用再等生成简报。
+`POST /api/articles/{id}/business-value` 入队，`?force=true` 强制重打。单线程队列，
+状态 `queued → running → ready / needs_review / failed / insufficient`，卡住超过 600 秒可重试。
+缺分显示「打分」，进行中显示「打分中…」，正文变了显示「重打」。
+
+**生产部署记录（2026-11-25）**
+
+- 代码：`/Users/mt16/dev/moni` `git merge --ff-only origin/main` → `147bdb3`（tag `v1.0.131`）。
+  同一次快进带上此前已合并、尚未部署的 #314、#312、#315。无新迁移，schema 仍是 60。
+- 重启：`launchctl kickstart -k gui/$(id -u)/com.moni.web`，PID `19526` → `32727`
+- 端点：`/api/service/info` → `version v1.0.131`、`commit 147bdb3`、`commits_ahead 0`、
+  `schema_version 60`、`worktree_dirty false`、`articles 6596`
+- `GET /` → 200；`GET /api/directions` → 200；OpenAPI 含
+  `/api/articles/{article_id}/business-value`；线上 `app.js?v=20261125004` 含 `scoreGeneralBv`
+- **skipped**：生产没有点「打分」（会真发模型、花额度）
+
+**审计**：三轮只读审计。前两轮 REQUEST CHANGES（死路、简报重复花额度、队列尾部丢任务），
+修后 300 轮连投 0 丢；第三轮 APPROVE WITH NITS，唯一注释已随分支 tip `8b20458` 修正。
+
+**已知未做**
+
+- 批量通用分打分没有入口
+- 文章详情弹窗没有入口，只有 Pin 列表
+- 真实模型端到端打分本轮未跑
+
 ## 已发布: **v1.0.130 — 量化看板 LLM 用量卡片修复 + verify-moni 验证 skill** (2026-11-25 · PR #312 → `e41a090` · tag `v1.0.130` · Sprint 77)
 
 修一个既有前端 bug，并把本次临时端测固化成仓库内可复用的验证 skill。
@@ -17,7 +44,7 @@
 
 **已知未修（既有，8900 同样复现）**：`/config → 用量统计` 7 条 `reading 'after'`；`/basket` 2 条 422。
 
-**状态**：已 squash 合并到 `main`（`e41a090`），tag `v1.0.130` 已推送；**8900 尚未重启部署**（需 dad 当轮授权）。同一 tag 内含 #314 的 CI 性能预算修复（`6800f08`）。
+**状态**：已 squash 合并到 `main`（`e41a090`），tag `v1.0.130` 已推送。同一 tag 内含 #314 的 CI 性能预算修复（`6800f08`）。8900 于 2026-11-25 随 v1.0.131 一次快进部署（`11dc915` → `147bdb3`）。
 ## 已合并: **CI 性能预算基线修复** (2026-11-25 · PR #314 → `6800f08` · Sprint 76)
 
 main 上 4/4 次跑完的 CI 全红，失败固定为 `tests/test_desensitize_core.py` 的两条性能用例
