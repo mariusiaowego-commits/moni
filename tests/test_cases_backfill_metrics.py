@@ -206,3 +206,17 @@ class TestBackfillMetrics:
         assert res["matched"] == 1
         row = conn.execute("SELECT metric_type, unit, evidence_quote FROM case_metrics WHERE case_id = ?", (cid,)).fetchone()
         assert row[0] == "user_count" and row[1] == "account" and "500万户" in row[2]
+
+    def test_shorter_display_does_not_overwrite_richer_amount(self, tmp_db):
+        conn, db_file = tmp_db
+        cid = _seed_legacy_case(
+            conn, "a15", subject="某清算组织",
+            legacy_amount="全球实时支付49%份额",
+            evidence="约49%份额",
+        )
+        res = run_backfill_metrics(db_file, apply=True)
+        assert res["matched"] == 1
+        amount = conn.execute(
+            "SELECT amount FROM cases WHERE case_id = ?", (cid,)
+        ).fetchone()[0]
+        assert amount == "全球实时支付49%份额"

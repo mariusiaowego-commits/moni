@@ -410,6 +410,9 @@ def extract_cases_for_article(
 
     except Exception as e:
         logger.exception("抽取案例失败 (article=%s): %s", article_id, e)
+        # 429 / 配额不是这篇文章的错：不计失败次数，否则连续三次配额
+        # 风暴就把文章永久踢出待抽取池。
+        rate_limited = _is_rate_limit_error(e)
         try:
             with conn:
                 CaseRepository.upsert_extract_run(
@@ -419,6 +422,7 @@ def extract_cases_for_article(
                     status="failed",
                     case_count=0,
                     error=str(e)[:500],
+                    increment_attempts=not rate_limited,
                 )
                 if llm_call_fn is None:
                     _record_case_llm_job(
@@ -427,7 +431,11 @@ def extract_cases_for_article(
                     )
         except Exception:
             pass
-        return {"status": "failed", "case_count": 0, "error": str(e)}
+        return {
+            "status": "rate_limited" if rate_limited else "failed",
+            "case_count": 0,
+            "error": str(e),
+        }
 
 
 def datetime_iso() -> str:

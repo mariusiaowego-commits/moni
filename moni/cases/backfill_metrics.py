@@ -188,7 +188,7 @@ def run_backfill_metrics(db_path: Path, *, apply: bool = False) -> dict[str, Any
 
             display_amount = format_display_amount(metric)
             matched += 1
-            to_write.append((cid, metric, display_amount))
+            to_write.append((cid, metric, display_amount, old_amount))
             if len(samples_before_after) < 12 or any(k in old_amount or k in recovered_raw for k in ("3000", "2.5", "9.9", "6000")):
                 samples_before_after.append(
                     {
@@ -196,6 +196,11 @@ def run_backfill_metrics(db_path: Path, *, apply: bool = False) -> dict[str, Any
                         "subject": r["subject"],
                         "old_amount": old_amount,
                         "new_amount": display_amount,
+                        "applied_amount": (
+                            display_amount
+                            if len(display_amount) >= len(old_amount)
+                            else old_amount
+                        ),
                         "metric_type": metric["metric_type"],
                         "value_num": metric["value_num"],
                         "unit": metric["unit"],
@@ -206,7 +211,7 @@ def run_backfill_metrics(db_path: Path, *, apply: bool = False) -> dict[str, Any
         if apply and to_write:
             now = datetime.now(timezone.utc).isoformat()
             with conn:
-                for cid, m, display_amount in to_write:
+                for cid, m, display_amount, old_amount in to_write:
                     conn.execute(
                         "DELETE FROM case_metrics WHERE case_id = ? AND source_type = 'rule_backfill'",
                         (cid,),
@@ -232,9 +237,16 @@ def run_backfill_metrics(db_path: Path, *, apply: bool = False) -> dict[str, Any
                             now,
                         ),
                     )
+                    # 只在新展示串不比原值短时覆盖：避免
+                    # “全球实时支付49%份额” 被压成 “效率 约49%” 丢信息。
+                    kept = (
+                        display_amount
+                        if len(display_amount) >= len(old_amount)
+                        else old_amount
+                    )
                     conn.execute(
                         "UPDATE cases SET amount = ? WHERE case_id = ?",
-                        (display_amount, cid),
+                        (kept, cid),
                     )
 
         return {

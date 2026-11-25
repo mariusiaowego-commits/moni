@@ -22,6 +22,22 @@ from moni.web.exceptions import BadRequestError
 from moni.web.server import create_app
 
 
+def test_worker_case_branch_sets_output_path_before_summary():
+    """P0 回归：案例分支必须有 output_path，且排在 AI 摘要之前。
+
+    队列文件里没有 output_path；其他格式都在各自分支内赋值。
+    案例分支若晚于摘要生成，还会为来源文章触发真实 LLM 调用。
+    """
+    text = (
+        Path(__file__).resolve().parents[1] / "scripts" / "default_worker.sh"
+    ).read_text(encoding="utf-8")
+    case_at = text.index('if [[ "$format" == case_* ]]')
+    summary_at = text.index("v1.0.5.19: AI summary generation")
+    assert case_at < summary_at
+    block = text[case_at:summary_at]
+    assert 'output_path="$artifacts_dir/${task_id}-case_brief_html.html"' in block
+
+
 @pytest.fixture()
 def share_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     db_file = tmp_path / "share_cases.db"

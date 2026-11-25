@@ -18,6 +18,9 @@
 | 8 | 分享新增格式破坏现有 7 种格式 | 既有分享回归 | `tests/test_share_manifest.py`、`tests/test_share_cases.py` |
 | 9 | 案例简报在 `case_insights` 为空时崩溃 | 分享不可用 | `tests/test_share_cases.py` |
 | 10 | 存量回填把证据不命中的幻觉数字写库 | 数据污染 | `tests/test_cases_backfill_metrics.py` |
+| 11 | 429 也累加尝试次数，三次后文章永久不再抽取 | 覆盖率静默下降 | `tests/test_cases_p0_v2.py::test_429_does_not_burn_retry_budget` |
+| 12 | 单位从同段无关币种推断（`10 个` → USD）、“国家”命中“家” | 指标语义错误 | `tests/test_cases_p0_v2.py::TestParseMetricAndActionSource` |
+| 13 | worker 案例分支没有 `output_path`，或晚于摘要生成 | 分享任务必失败 / 偷跑 LLM | `tests/test_share_cases.py::test_worker_case_branch_sets_output_path_before_summary` |
 
 ## 2. 入口优先
 

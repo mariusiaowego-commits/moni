@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sqlite3
 import sys
 import warnings
@@ -32,9 +31,10 @@ from unittest.mock import patch
 
 import pytest
 
-# Make `moni` importable.  The package is editable-installed at the main
-# checkout, so this is belt-and-suspenders for in-worktree runs.
-sys.path.insert(0, os.path.expanduser("~/dev/moni"))
+# Make `moni` importable from *this* checkout.  Pointing at ~/dev/moni
+# silently imports main's package when the worktree has newer modules,
+# which makes test order matter.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient
 

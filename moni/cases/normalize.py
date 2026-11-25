@@ -452,9 +452,13 @@ _COUNT_UNIT_PATTERNS: list[tuple[str, str]] = [
     (r"日活|DAU|月活|MAU|万用户|用户|客户", "user"),
     (r"万户|户|账户", "account"),
     (r"商户|商家", "merchant"),
-    (r"家|机构|银行|网点|门店", "institution"),
-    (r"万笔|笔|交易", "txn"),
-    (r"人|员工|职位", "person"),
+    (r"个国家|国家|地区", "country"),
+    (r"个月|月", "month"),
+    # "家" 不能命中 "国家"：否则 178 个国家会被记成 178 家机构。
+    (r"(?<!国)家|机构|银行|网点|门店", "institution"),
+    (r"万笔|笔", "txn"),
+    (r"员工|职位|人数", "person"),
+    (r"人", "person"),
     (r"%|％|百分点", "percent"),
     (r"倍", "x"),
 ]
@@ -550,18 +554,27 @@ def parse_metric(
                 unit = cur
                 break
     if not unit and context:
-        # value_raw 只有 "3000万" 等无单位量级时，再看 context
-        for pat, u in _COUNT_UNIT_PATTERNS:
-            if re.search(pat, context, re.IGNORECASE):
-                unit = u
-                break
-        if not unit:
-            for pat, cur in _CURRENCY_PATTERNS:
-                if re.search(pat, context, re.IGNORECASE):
-                    unit = cur
+        # 只在数字附近 ±8 字内找计数单位，避免把同段无关的“800亿美元”
+        # 当成 “10 个” 的币种，也避免“国家”命中“家”。
+        window = ""
+        core = re.search(r"\d+(?:\.\d+)?", value_raw)
+        if core:
+            idx = context.find(core.group(0))
+            if idx >= 0:
+                lo = max(0, idx - 8)
+                hi = idx + len(core.group(0)) + 8
+                window = context[lo:hi]
+        if window:
+            for pat, u in _COUNT_UNIT_PATTERNS:
+                if re.search(pat, window, re.IGNORECASE):
+                    unit = u
                     break
     if not unit:
         unit = "unknown"
+
+    # 时长不是业务指标：`6个月募资` 这类应丢弃，而不是记成 6 人。
+    if unit == "month":
+        return None
 
     # 4. metric_type & period_type
     metric_type = (metric_type_hint or "").strip() or None

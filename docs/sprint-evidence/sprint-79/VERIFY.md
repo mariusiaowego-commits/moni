@@ -56,6 +56,9 @@ python3 -m moni.cases.backfill_metrics --db <copy> --dry-run
 # total_with_amount=208 matched=174 dropped=32 unparseable=2
 ```
 
+注：数字随副本快照时间变化（生产库仍在抓取）。2026-11-25 15:23 的副本为 `174/32`，
+同日审计复算的更新副本为 `176/30`；差异来自快照时点，不是代码回归。
+
 关键样例（回填后）：`互动日活3000万 → dau / 30000000 / user`；`2.5亿美元 → investment / USD`；
 `9.9万亿韩元 → contract_value / KRW`；`约6000万欧元 → deal_value / EUR`。
 
@@ -97,3 +100,32 @@ CaseRepository.search_fts("跨境支付")    # 44
   - 真实 LLM 抽取质量（Stage A v2 / Stage B）：本轮无 prompt 变更。
   - 前端真实页面接入：本轮只有原型。
   - 案例卡片 PNG、汇率表 068：未实现。
+
+## 5. 独立审计后的修复（round 2）
+
+首轮独立审计结论 `REQUEST CHANGES`，本轮已修：
+
+| 编号 | 问题 | 修法 | 复验 |
+|---|---|---|---|
+| P0-1 | worker 的 case 分支用未赋值的 `output_path`，任务必失败 | 分支内补 `output_path=...-case_brief_html.html` | `test_worker_case_branch_sets_output_path_before_summary` |
+| P1-1 | 案例分支晚于 AI 摘要，仍会触发 LLM | 整段前移到 claim 之后、正文读取之前 | 同上（位置断言） |
+| P1-2 | 429 也累加 attempts，三次后文章被永久踢出 | 429/配额错误 `increment_attempts=False` | `test_429_does_not_burn_retry_budget` |
+| P1-3 | `parse_metric` 把“10 个”记成 USD、“国家”记成机构、“6 个月募资”记成 6 人 | 单位只在数字 ±8 字窗口内推断；国家/月优先；时长丢弃 | `test_context_currency_does_not_leak_into_bare_count`、`test_country_is_not_institution`、`test_duration_is_not_a_metric` |
+| P2-1 | 回填把更长的原值改短 | 新展示串短于原值时不覆盖 | `test_shorter_display_does_not_overwrite_richer_amount` |
+| P2-2 | `test_share_manifest` 把 `~/dev/moni` 插进 `sys.path`，测试顺序敏感 | 改为本 checkout 路径 | 两文件连跑通过 |
+| P2-4 | 文档基线/口径漂移 | 基线改 `5ba7a54`；FTS 重建说明；回填数字标注快照 | 文档 diff |
+
+副本复验（2026-11-25 16:4x，生产库仍为 `schema_version=60`、`cases=432`、无 `case_metrics`）：
+
+```
+10 个 → unit=unknown（不再 USD）
+覆盖178个国家和 → unit=country
+超过55个国家和 → unit=country
+6个月募资 → 不产生 metric
+全球实时支付49%份额 → cases.amount 保持原值（未被“效率 约49%”覆盖）
+```
+
+未修（P2，接受并记录）：
+
+- `case_extract_runs.lease_owner/lease_at` 已建但未使用；当前只有单 scheduler 进程。
+- `_generate_case_id` 用 COUNT+1，非内容派生；prompt 升版重抽时可能新增重复案例。

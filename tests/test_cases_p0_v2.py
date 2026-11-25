@@ -107,6 +107,19 @@ class TestParseMetricAndActionSource:
         assert m5["unit"] == "CNY"
         assert m5["value_num"] == 3_950_000.0
 
+    def test_context_currency_does_not_leak_into_bare_count(self):
+        m = parse_metric("10 个", "另据披露，该机构管理资产规模达800亿美元")
+        assert m is not None
+        assert m["unit"] != "USD"
+
+    def test_country_is_not_institution(self):
+        m = parse_metric("178个", "覆盖178个国家和地区")
+        assert m is not None
+        assert m["unit"] == "country"
+
+    def test_duration_is_not_a_metric(self):
+        assert parse_metric("6个月募资") is None
+
     def test_normalize_case_populates_metrics_raw_json_and_action_source(self):
         cs = normalize_case({
             "subject": "微信支付",
@@ -247,6 +260,21 @@ class TestCronLedgerBudgetAndRateLimit:
         assert r["processed"] == 1
         assert r["failed"] == 1
         assert calls == 1
+
+    def test_429_does_not_burn_retry_budget(self, tmp_db: sqlite3.Connection):
+        _seed_article(tmp_db, "art_r3", title="文章3")
+
+        def fake_429(_prompt: str) -> str:
+            raise RuntimeError("HTTP 429 rate limit exceeded")
+
+        extract_cases_batch(batch_size=10, llm_call_fn=fake_429)
+        row = tmp_db.execute(
+            "SELECT status, attempts FROM case_extract_runs WHERE article_id = 'art_r3'"
+        ).fetchone()
+        assert row[0] == "failed"
+        assert row[1] == 0
+        pending = CaseRepository.get_pending_articles(batch_size=10)
+        assert any(p["id"] == "art_r3" for p in pending)
 
     def test_daily_token_budget_gate(self, tmp_db: sqlite3.Connection):
         _seed_article(tmp_db, "art_t1", title="文章1")

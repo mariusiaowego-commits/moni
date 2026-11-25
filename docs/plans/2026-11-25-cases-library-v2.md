@@ -1,7 +1,7 @@
 # 案例库 2.0：调研结论与实施方案
 
 > 状态：调研完成，待确认范围。分支 `feature/v1.0.131-cases-library`。
-> 实测库：`data/news.db`（只读查询），代码基线 `main@147bdb3`。
+> 实测库：`data/news.db`（只读查询），代码基线 `main@5ba7a54`。
 
 ## 1. 先回答六个问题
 
@@ -181,7 +181,8 @@ by_scenario: other 90 / ecny_stablecoin 76 / llm_agent 73 / cross_border_pay 50
 
 ### 6.1 数据库
 
-- 迁移 `061`–`067` 全部为**增量**：新表 + 新列 + 索引 + 触发器重建，无 `DROP TABLE`、无列删除、无 CHECK 收紧。
+- 迁移 `061`–`067` 全部为**增量**：新表 + 新列 + 索引 + 触发器重建，无列删除、无 CHECK 收紧。
+  唯一的重建是 `062` 对 FTS 虚表 `cases_fts` 的 `DROP` + `CREATE`，属于索引结构升级，不涉及业务数据。
 - main 侧最高迁移是 `060`，`061`–`067` 编号未占用。
 - 回滚：代码回退即可；新列与新表对旧代码无害，不需要 down migration。若必须回到干净 schema，用迁移前备份恢复 `data/news.db`。
 - 唯一有副作用的迁移是 `062`：重建 `cases_fts` 并回填；回滚代码后旧 `cases_fts` 结构需要由备份恢复或重跑旧迁移。

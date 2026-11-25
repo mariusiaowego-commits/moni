@@ -524,6 +524,72 @@ PYEOF
     if task_should_abort "$task_id"; then
         return 0
     fi
+    # ── P2-1: case_* formats short-circuit to pure Python renderer ────────
+    if [[ "$format" == case_* ]]; then
+        output_path="$artifacts_dir/${task_id}-case_brief_html.html"
+        task_status_update "$task_id" "running"
+        update_progress "$task_id" "preparing" 20 "正在汇总案例上下文"
+        local case_ids_json case_title case_group_by case_flags=()
+        case_ids_json=$(python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+p = d.get('payload', {}) if isinstance(d.get('payload'), dict) else {}
+print(json.dumps(p.get('case_ids') or [], ensure_ascii=False))
+" "$manifest_path" 2>/dev/null || echo "[]")
+        case_title=$(python3 -c "
+import json, sys
+from datetime import date
+d = json.load(open(sys.argv[1]))
+p = d.get('payload', {}) if isinstance(d.get('payload'), dict) else {}
+print(p.get('title') or ('同业案例简报 — ' + date.today().isoformat()))
+" "$manifest_path" 2>/dev/null || echo "同业案例简报")
+        case_group_by=$(python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+p = d.get('payload', {}) if isinstance(d.get('payload'), dict) else {}
+print(p.get('group_by') or '')
+" "$manifest_path" 2>/dev/null || echo "")
+        local inc_ins inc_evi
+        inc_ins=$(python3 -c "import json,sys; p=json.load(open(sys.argv[1])).get('payload',{}); print('1' if p.get('include_insight', True) else '0')" "$manifest_path" 2>/dev/null || echo "1")
+        inc_evi=$(python3 -c "import json,sys; p=json.load(open(sys.argv[1])).get('payload',{}); print('1' if p.get('include_evidence', True) else '0')" "$manifest_path" 2>/dev/null || echo "1")
+        [[ -n "$case_group_by" ]] && case_flags+=(--group-by "$case_group_by")
+        [[ "$inc_ins" == "0" ]] && case_flags+=(--no-insight)
+        [[ "$inc_evi" == "0" ]] && case_flags+=(--no-evidence)
+
+        local case_err case_out
+        case_err=$(mktemp "${TMPDIR:-/tmp}/moni_case_brief_XXXXXX.err")
+        case_out=$(mktemp "${TMPDIR:-/tmp}/moni_case_brief_XXXXXX.out")
+        if _run_worker_child "$case_out" "$case_err" \
+            "$PYTHON_BIN" -m moni.share.case_brief \
+            --db "$DB_PATH" \
+            --case-ids "$case_ids_json" \
+            --output "$output_path" \
+            --title "$case_title" \
+            ${case_flags[@]+"${case_flags[@]}"} \
+            ; then
+            cat "$case_err" >>"$LOG_FILE" 2>/dev/null || true
+            rm -f "$case_err" "$case_out"
+            log "CASE_BRIEF $task_id -> $output_path"
+            update_progress "$task_id" "writing_artifact" 95 "HTML 已写入 $output_path"
+            task_status_update "$task_id" "done" "$output_path"
+            sqlite3 "$DB_PATH" \
+                "UPDATE share_tasks SET progress_pct=100 WHERE id='$task_id'" \
+                >/dev/null 2>&1 || true
+            log "DONE $task_id -> $output_path"
+            return 0
+        else
+            cat "$case_err" >>"$LOG_FILE" 2>/dev/null || true
+            local case_tail
+            case_tail=$(tail -c 400 "$case_err" 2>/dev/null | tr '\n' ' ' | head -c 300 || true)
+            rm -f "$case_err" "$case_out"
+            error_msg="case_brief render failed"
+            [[ -n "${case_tail// /}" ]] && error_msg="case_brief render failed: $case_tail"
+            log "FAIL $task_id — $error_msg"
+            task_status_update "$task_id" "failed" "" "$error_msg"
+            return 0
+        fi
+    fi
+
     update_progress "$task_id" "fetching" 20 \
         "正在从 articles 表读 raw_content ..."
 
@@ -959,71 +1025,6 @@ print(p.get('title') or ('同业简报 — ' + date.today().isoformat()))
             if [[ -n "${brief_tail// /}" ]]; then
                 error_msg="brief_html render failed: $brief_tail"
             fi
-            log "FAIL $task_id — $error_msg"
-            task_status_update "$task_id" "failed" "" "$error_msg"
-            return 0
-        fi
-    fi
-
-    # ── P2-1: case_* formats short-circuit to pure Python renderer ────────
-    if [[ "$format" == case_* ]]; then
-        task_status_update "$task_id" "running"
-        update_progress "$task_id" "preparing" 20 "正在汇总案例上下文"
-        local case_ids_json case_title case_group_by case_flags=()
-        case_ids_json=$(python3 -c "
-import json, sys
-d = json.load(open(sys.argv[1]))
-p = d.get('payload', {}) if isinstance(d.get('payload'), dict) else {}
-print(json.dumps(p.get('case_ids') or [], ensure_ascii=False))
-" "$manifest_path" 2>/dev/null || echo "[]")
-        case_title=$(python3 -c "
-import json, sys
-from datetime import date
-d = json.load(open(sys.argv[1]))
-p = d.get('payload', {}) if isinstance(d.get('payload'), dict) else {}
-print(p.get('title') or ('同业案例简报 — ' + date.today().isoformat()))
-" "$manifest_path" 2>/dev/null || echo "同业案例简报")
-        case_group_by=$(python3 -c "
-import json, sys
-d = json.load(open(sys.argv[1]))
-p = d.get('payload', {}) if isinstance(d.get('payload'), dict) else {}
-print(p.get('group_by') or '')
-" "$manifest_path" 2>/dev/null || echo "")
-        local inc_ins inc_evi
-        inc_ins=$(python3 -c "import json,sys; p=json.load(open(sys.argv[1])).get('payload',{}); print('1' if p.get('include_insight', True) else '0')" "$manifest_path" 2>/dev/null || echo "1")
-        inc_evi=$(python3 -c "import json,sys; p=json.load(open(sys.argv[1])).get('payload',{}); print('1' if p.get('include_evidence', True) else '0')" "$manifest_path" 2>/dev/null || echo "1")
-        [[ -n "$case_group_by" ]] && case_flags+=(--group-by "$case_group_by")
-        [[ "$inc_ins" == "0" ]] && case_flags+=(--no-insight)
-        [[ "$inc_evi" == "0" ]] && case_flags+=(--no-evidence)
-
-        local case_err case_out
-        case_err=$(mktemp "${TMPDIR:-/tmp}/moni_case_brief_XXXXXX.err")
-        case_out=$(mktemp "${TMPDIR:-/tmp}/moni_case_brief_XXXXXX.out")
-        if _run_worker_child "$case_out" "$case_err" \
-            "$PYTHON_BIN" -m moni.share.case_brief \
-            --db "$DB_PATH" \
-            --case-ids "$case_ids_json" \
-            --output "$output_path" \
-            --title "$case_title" \
-            ${case_flags[@]+"${case_flags[@]}"} \
-            ; then
-            cat "$case_err" >>"$LOG_FILE" 2>/dev/null || true
-            rm -f "$case_err" "$case_out"
-            log "CASE_BRIEF $task_id -> $output_path"
-            update_progress "$task_id" "writing_artifact" 95 "HTML 已写入 $output_path"
-            task_status_update "$task_id" "done" "$output_path"
-            sqlite3 "$DB_PATH" \
-                "UPDATE share_tasks SET progress_pct=100 WHERE id='$task_id'" \
-                >/dev/null 2>&1 || true
-            log "DONE $task_id -> $output_path"
-            return 0
-        else
-            cat "$case_err" >>"$LOG_FILE" 2>/dev/null || true
-            local case_tail
-            case_tail=$(tail -c 400 "$case_err" 2>/dev/null | tr '\n' ' ' | head -c 300 || true)
-            rm -f "$case_err" "$case_out"
-            error_msg="case_brief render failed"
-            [[ -n "${case_tail// /}" ]] && error_msg="case_brief render failed: $case_tail"
             log "FAIL $task_id — $error_msg"
             task_status_update "$task_id" "failed" "" "$error_msg"
             return 0
