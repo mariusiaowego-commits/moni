@@ -331,6 +331,16 @@ def start_research(
             return None, "该方向已有研究在运行"
 
         perspective = (direction["reader_perspective"] or "").strip()
+        running_clarification = conn.execute(
+            "SELECT COUNT(*) FROM bv_direction_clarification "
+            "WHERE direction_id=? AND status=?",
+            (direction_id, STATUS_RUNNING),
+        ).fetchone()[0]
+        if running_clarification:
+            # The user is re-clarifying; starting research now would build
+            # it from answers that are about to change.
+            conn.rollback()
+            return None, "澄清正在运行，请等它结束再研究"
         clarification = _current_clarification(conn, direction_id, perspective)
         if perspective:
             # A one-line perspective is not enough to rewrite ten scoring

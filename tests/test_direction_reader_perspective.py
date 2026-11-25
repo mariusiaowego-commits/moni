@@ -291,3 +291,15 @@ def test_a_clarification_for_an_older_perspective_does_not_count(db):
     running, error = direction_store.start_research(db, direction_id)
     assert running is None
     assert error and "澄清" in error
+
+
+def test_research_is_blocked_while_a_clarification_is_running(db):
+    direction_id = _direction(db, perspective=PERSPECTIVE)
+    _clarify(db, direction_id, ["更在意获客还是合规？"])
+    direction_store.save_clarification_answers(db, direction_id, ["先获客"])
+    running, error = direction_store.start_clarification(db, direction_id)
+    assert error is None and running is not None
+
+    research, error = direction_store.start_research(db, direction_id)
+    assert research is None
+    assert error and "澄清正在运行" in error
