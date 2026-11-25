@@ -1,4 +1,4 @@
-## 进行中: **v1.0.130 — 量化看板 LLM 用量卡片修复 + verify-moni 验证 skill** (2026-11-25 · Sprint 75)
+## 已发布: **v1.0.130 — 量化看板 LLM 用量卡片修复 + verify-moni 验证 skill** (2026-11-25 · PR #312 → `e41a090` · tag `v1.0.130` · Sprint 77)
 
 修一个既有前端 bug，并把本次临时端测固化成仓库内可复用的验证 skill。
 
@@ -17,7 +17,7 @@
 
 **已知未修（既有，8900 同样复现）**：`/config → 用量统计` 7 条 `reading 'after'`；`/basket` 2 条 422。
 
-**在跑**：PR #312（`feature/v1.0.130-llm-usage-state-fix`，base `11dc915`）；合并 / 打 tag / 重启 8900 需 dad 当轮授权。
+**状态**：已 squash 合并到 `main`（`e41a090`），tag `v1.0.130` 已推送；**8900 尚未重启部署**（需 dad 当轮授权）。同一 tag 内含 #314 的 CI 性能预算修复（`6800f08`）。
 ## 已合并: **CI 性能预算基线修复** (2026-11-25 · PR #314 → `6800f08` · Sprint 76)
 
 main 上 4/4 次跑完的 CI 全红，失败固定为 `tests/test_desensitize_core.py` 的两条性能用例
