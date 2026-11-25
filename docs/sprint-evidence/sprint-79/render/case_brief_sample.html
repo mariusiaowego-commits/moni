@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>同业案例简报 — 腾讯系（样本）</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --text: #162032;
+      --muted: #5b667a;
+      --border: #e1e7f0;
+      --accent: #1d4ed8;
+      --accent-soft: #eff6ff;
+      --high: #b91c1c;
+      --high-bg: #fef2f2;
+      --med: #b45309;
+      --med-bg: #fffbeb;
+      --low: #475569;
+      --low-bg: #f1f5f9;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 28px 18px 56px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.6;
+    }
+    .wrap { max-width: 960px; margin: 0 auto; }
+    .hero {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px 26px;
+      margin-bottom: 22px;
+    }
+    .hero h1 { margin: 0 0 8px; font-size: 24px; line-height: 1.3; }
+    .hero-meta { color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 14px; }
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .stat-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+    }
+    .stat-num { font-size: 20px; font-weight: 700; color: var(--accent); }
+    .stat-lbl { font-size: 12px; color: var(--muted); }
+    .group-title {
+      font-size: 17px;
+      font-weight: 700;
+      margin: 24px 0 12px;
+      padding-left: 10px;
+      border-left: 4px solid var(--accent);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .group-count { font-size: 12px; font-weight: 500; color: var(--muted); }
+    .case-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin-bottom: 14px;
+    }
+    .case-head {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .case-subject { font-size: 17px; font-weight: 700; }
+    .case-id { font-size: 12px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .badge {
+      display: inline-block;
+      font-size: 12px;
+      padding: 2px 9px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 500;
+    }
+    .badge-ref-high { background: var(--high-bg); color: var(--high); }
+    .badge-ref-medium { background: var(--med-bg); color: var(--med); }
+    .badge-ref-low { background: var(--low-bg); color: var(--low); }
+    .badge-muted { background: var(--low-bg); color: var(--low); }
+    .summary { margin: 0 0 10px; font-size: 15px; }
+    .metrics-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+    .metric-chip {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+    .metric-chip strong { color: var(--text); }
+    .insight-box {
+      background: #f8faff;
+      border: 1px solid #dbeafe;
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin: 10px 0;
+      font-size: 13px;
+    }
+    .insight-box h4 { margin: 0 0 6px; font-size: 13px; color: var(--accent); }
+    .insight-box p { margin: 4px 0; }
+    .insight-box ul { margin: 4px 0 4px 18px; padding: 0; }
+    .evidence-box {
+      background: #fafafa;
+      border-left: 3px solid #cbd5e1;
+      padding: 8px 12px;
+      margin: 10px 0;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .case-foot {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: space-between;
+    }
+    .case-foot a { color: var(--accent); text-decoration: none; }
+    .case-foot a:hover { text-decoration: underline; }
+    .footer-note {
+      margin-top: 28px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+    }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <h1>同业案例简报 — 腾讯系（样本）</h1>
+      <div class="hero-meta">
+        <span>生成时间：2026-11-25 23:12 UTC</span>
+        <span>分组方式：按机构分组</span>
+        <span>渲染模式：结构化直出（0 LLM）</span>
+      </div>
+      <div class="stats-bar"><div class="stat-box"><div class="stat-num">5</div><div class="stat-lbl">收录案例</div></div><div class="stat-box"><div class="stat-num">2</div><div class="stat-lbl">涉及机构</div></div><div class="stat-box"><div class="stat-num">3</div><div class="stat-lbl">覆盖场景</div></div><div class="stat-box"><div class="stat-num">3</div><div class="stat-lbl">来源文章</div></div></div>
+    </header>
+    <section><div class="group-title"><span>腾讯</span><span class="group-count">4 条案例</span></div><article class="case-card"><div class="case-head"><div><div class="case-subject">腾讯</div><div class="case-id">MN-AI-2611-0004 · 2026-11</div></div><span class="badge badge-ref-high">高价值</span></div><div class="badges"><span class="badge">AI与大模型应用</span><span class="badge badge-muted">上线</span><span class="badge badge-muted">互联网</span><span class="badge badge-muted">数字化信贷与供应链</span></div><p class="summary">微信 AI 助理小微首次披露互动日活 3000 万，触点扩展至 30 多个场景</p><div class="metrics-row"><span class="metric-chip"><strong>日活用户</strong>: 互动日活3000万</span></div><blockquote class="evidence-box"><strong>原文证据：</strong>小微第一次披露数据：互动日活3000万，触点扩展到朋友圈、公众号、视频号等30多个。</blockquote><div class="case-foot"><span>来源：<a href="https://www.huxiu.com/article/4906747.html?f=rss" target="_blank" rel="noopener noreferrer">小微日活3000万：腾讯Q3财报电话会的12条观察与思考</a>（huxiu）</span><span>依据：国民级 App 内嵌个人助理并披露日活与全量成本边界，对同业入口型 AI 落地有强参考</span></div></article><article class="case-card"><div class="case-head"><div><div class="case-subject">腾讯 · 对手方：越南国家支付公司（NAPAS）、越南投资发展银行（BIDV）</div><div class="case-id">MN-AI-2608-0002 · 2026-08-06</div></div><span class="badge badge-ref-high">高价值</span></div><div class="badges"><span class="badge">融资与资本运作</span><span class="badge badge-muted">上线</span><span class="badge badge-muted">互联网</span><span class="badge badge-muted">跨境支付与清算</span></div><p class="summary">微信支付与越南联合推出中越跨境二维码支付服务扩容上线</p><blockquote class="evidence-box"><strong>原文证据：</strong>越南国家支付公司（NAPAS）、越南投资发展银行（BIDV）与微信支付于8月6日联合宣布，中越跨境二维码支付服务正式扩容上线</blockquote><div class="case-foot"><span>来源：<a href="https://www.mpaypass.com.cn/news/202608/10090508.html" target="_blank" rel="noopener noreferrer">【这一周】央行下半年工作会召开、多家支付机构高管调整、港元稳定币或延迟发布</a>（mpaypass）</span><span>依据：中越跨境二维码支付落地，是中国支付机构海外布局的标杆案例</span></div></article><article class="case-card"><div class="case-head"><div><div class="case-subject">腾讯</div><div class="case-id">MN-AI-2603-0013 · 2026-03</div></div><span class="badge badge-ref-high">高价值</span></div><div class="badges"><span class="badge">AI与大模型应用</span><span class="badge badge-muted">上线</span><span class="badge badge-muted">互联网</span><span class="badge badge-muted">大模型与智能体</span></div><p class="summary">腾讯 WorkBuddy 3 月上线后首次披露数据，日活超 1000 万、年化收入超 5 亿美元</p><div class="metrics-row"><span class="metric-chip"><strong>效率提升</strong>: 5倍</span></div><blockquote class="evidence-box"><strong>原文证据：</strong>日活超1000万，日均Token消耗超100万亿，Q3收入是Q2的5倍以上，中国前100强企业里60%成了它的客户。WorkBuddy过去七天的年化总收入已超过5亿美元</blockquote><div class="case-foot"><span>来源：<a href="https://www.huxiu.com/article/4906747.html?f=rss" target="_blank" rel="noopener noreferrer">小微日活3000万：腾讯Q3财报电话会的12条观察与思考</a>（huxiu）</span><span>依据：企业级 AI 助手 8 个月做到腾讯会议两倍体量，是 AI 原生 To B 商业化的可对标样本</span></div></article><article class="case-card"><div class="case-head"><div><div class="case-subject">腾讯 · 对手方：短剧内容方</div><div class="case-id">MN-AI-2611-0006 · 2026-11</div></div><span class="badge badge-ref-medium">中价值</span></div><div class="badges"><span class="badge">AI与大模型应用</span><span class="badge badge-muted">上线</span><span class="badge badge-muted">互联网</span><span class="badge badge-muted">大模型与智能体</span></div><p class="summary">腾讯 AI 广告插播方案已支撑短剧方约 80% 的广告变现</p><div class="metrics-row"><span class="metric-chip"><strong>效率提升</strong>: 约80%的广告变现</span></div><blockquote class="evidence-box"><strong>原文证据：</strong>腾讯的AI广告插播方案已经支撑了短剧方约80%的广告变现。</blockquote><div class="case-foot"><span>来源：<a href="https://www.huxiu.com/article/4906747.html?f=rss" target="_blank" rel="noopener noreferrer">小微日活3000万：腾讯Q3财报电话会的12条观察与思考</a>（huxiu）</span><span>依据：AI 广告方案在短剧场景规模化变现，属内容侧智能投放的可复制路径</span></div></article></section><section><div class="group-title"><span>招商银行</span><span class="group-count">1 条案例</span></div><article class="case-card"><div class="case-head"><div><div class="case-subject">招商银行 · 对手方：腾讯微信、阿里千问</div><div class="case-id">MN-AI-2611-0003 · 2026-11-06</div></div><span class="badge badge-ref-high">高价值</span></div><div class="badges"><span class="badge">生态合作与联名</span><span class="badge badge-muted">上线</span><span class="badge badge-muted">银行</span><span class="badge badge-muted">数字化信贷与供应链</span></div><p class="summary">招行信用卡在微信小微与千问智能体内测上线查优惠、查账单、选卡办卡服务</p><blockquote class="evidence-box"><strong>原文证据：</strong>11月6日，招商银行信用卡发文称，其成为首批接入微信智能体、千问智能体的银行机构，把查优惠、查账单、选卡办卡等服务搬进第三方AI助手的对话框。目前“小微智能体”“千问智能体”处于分批内测阶段，仅对部分用户开放。</blockquote><div class="case-foot"><span>来源：<a href="https://www.mpaypass.com.cn/news/202611/10091412.html" target="_blank" rel="noopener noreferrer">招行信用卡刚“拒绝”豆包手机助手，现主动“牵手”微信、千问智能体</a>（mpaypass）</span><span>依据：股份行把信用卡查账、选卡、办卡搬进第三方国民级智能体对话框，给存量时代信用卡获客提供了可复制的入口合作范式</span></div></article></section>
+    <footer class="footer-note">
+      moni 同业案例库 2.0 · 自动生成简报
+    </footer>
+  </div>
+</body>
+</html>
