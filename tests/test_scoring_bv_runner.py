@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -97,3 +98,48 @@ def test_crash_mark_never_kills_the_queue_thread():
             raise sqlite3.ProgrammingError("Cannot operate on a closed database.")
 
     bv_runner._mark_crashed(_Broken(), "a1")
+
+
+def test_task_arriving_while_the_worker_winds_down_is_not_dropped(conn, monkeypatch):
+    """队列尾部竞态：上一条刚跑完时提交的任务不能没人消费。
+
+    旧写法在工作线程收尾时把 _pending 清空，任务就此丢失，行会一直卡在
+    queued 直到 600 秒过期。这里把 close_db 拖慢，复现那个窗口。
+    """
+    import moni.db.connection as conn_mod
+
+    conn.execute(
+        "INSERT INTO articles (id, title, url, source, publisher, published_at, "
+        "fetched_at, raw_content) VALUES (?,?,?,?,?,?,?,?)",
+        ("a2", "t2", "https://e.com/2", "s", "p", "2024-05-10", "2024-05-11", BODY),
+    )
+    conn.commit()
+
+    processed: list[str] = []
+
+    def _factory(article_id: str):
+        def llm(prompt: str, timeout: float):
+            processed.append(article_id)
+            return "", 1, "boom"
+
+        return llm
+
+    monkeypatch.setattr(conn_mod, "close_db", lambda: time.sleep(0.3))
+    runner = bv_runner.GeneralBvRunner(_factory)
+
+    # 认领由路由做：worker 只处理 queued → running 的行。
+    assert bv_runner.mark_queued(conn, "a1") is True
+    assert bv_runner.mark_queued(conn, "a2") is True
+    runner.submit(["a1"])
+    deadline = time.monotonic() + 5
+    while "a1" not in processed and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert "a1" in processed
+
+    # a1 已打完，工作线程正在收尾：这时提交 a2。
+    runner.submit(["a2"])
+
+    deadline = time.monotonic() + 5
+    while "a2" not in processed and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert "a2" in processed, "a2 被丢在队列里没人处理"

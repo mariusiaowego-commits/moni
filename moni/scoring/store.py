@@ -219,3 +219,16 @@ def bv_inflight_fresh(row: Mapping[str, Any] | sqlite3.Row) -> bool:
     if at.tzinfo is None:
         at = at.replace(tzinfo=timezone.utc)
     return (datetime.now(timezone.utc) - at).total_seconds() < STALE_AFTER_SEC
+
+
+def bv_inflight_stuck(row: Mapping[str, Any] | sqlite3.Row) -> bool:
+    """In flight, but older than the liveness window: that job is dead."""
+    from .bv_runner import INFLIGHT_STATUSES
+
+    try:
+        status = row["business_value_status"]
+    except (KeyError, IndexError, TypeError):
+        return False
+    if status not in INFLIGHT_STATUSES:
+        return False
+    return not bv_inflight_fresh(row)

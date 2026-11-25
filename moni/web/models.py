@@ -903,6 +903,8 @@ class BusinessValueState(BaseModel):
     #: When the current job started (queued/running) or the score was
     #: written.  The client uses it to tell a live job from a dead one.
     at: str | None = None
+    #: The job looks alive but is past the liveness window: it is dead.
+    stuck: bool = False
 
 
 class BusinessValueQueued(BaseModel):

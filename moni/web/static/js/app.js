@@ -6362,8 +6362,10 @@ function app() {
     generalBvStuck(a) {
       const bv = a.business_value || {};
       if (bv.status !== 'queued' && bv.status !== 'running') return false;
+      // 服务端已经知道死线，优先用它；本地判断只是还没拿到服务端状态时的兜底。
+      if (bv.stuck !== undefined && bv.stuck !== null) return !!bv.stuck;
       const at = Date.parse(bv.at || '');
-      if (!at) return true;
+      if (!at) return false;
       return Date.now() - at > 600000;
     },
 
@@ -6397,7 +6399,12 @@ function app() {
       }
       if (!ok) return;
       const previous = Object.assign({}, bv);
-      a.business_value = Object.assign({}, bv, { status: 'queued', error: null });
+      a.business_value = Object.assign({}, bv, {
+        status: 'queued',
+        error: null,
+        at: new Date().toISOString(),
+        stuck: false,
+      });
       fetch(`/api/articles/${a.id}/business-value${force ? '?force=true' : ''}`, {
         method: 'POST',
         credentials: 'same-origin',
@@ -6437,6 +6444,7 @@ function app() {
                 stale: state.stale,
                 breakdown: state.breakdown,
                 at: state.at,
+                stuck: state.stuck,
               });
             }
             if (state.status === 'queued' || state.status === 'running') {

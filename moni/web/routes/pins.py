@@ -35,7 +35,7 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 from moni.db.connection import get_db
-from moni.scoring import ensure_quality, needs_quality_refresh
+from moni.scoring import bv_inflight_stuck, ensure_quality, needs_quality_refresh
 from moni.scoring.bv_pipeline import content_hash
 from moni.scoring.store import public_breakdown
 from moni.web.exceptions import NotFoundError
@@ -322,6 +322,9 @@ def business_value_payload(row: Any) -> dict[str, Any]:
         # When the current job started (or the score was written).  The
         # client uses it to tell a live job from one whose process died.
         "at": row["business_value_at"],
+        # The job is still marked running but is older than the liveness
+        # window: nobody is working on it any more.
+        "stuck": bv_inflight_stuck(row),
         # Length of the body as it is now: the score needs 200+ characters,
         # so the client can say so without guessing from the stale status.
         "content_chars": len(str(row["raw_content"] or "")),

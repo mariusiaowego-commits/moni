@@ -102,6 +102,9 @@ def _state(row: Any) -> dict[str, Any]:
         "stale": bool(stored_hash) and stored_hash != current_hash,
         "breakdown": breakdown,
         "at": row["business_value_at"],
+        # The job says running but is older than the liveness window:
+        # nobody is working on it, so the client can offer a retry.
+        "stuck": store.bv_inflight_stuck(row),
     }
 
 

@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from moni.share.summary_gen import _invoke_hermes, generate_and_writeback
+import moni.share.enrichment as enrichment_module
 
 log = logging.getLogger(__name__)
 
@@ -842,7 +843,7 @@ def _ensure_fact_check(
     from moni.llm.desensitize.audit import desensitize_scope
 
     with desensitize_scope(task_type="fact_check", article_id=row["id"], json_output=True):
-        out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
+        out, code = enrichment_module._invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
     budget_left[0] -= timeout  # approximate
     if code != 0:
         log.warning("enrichment: fact_check hermes exit %s for %s", code, row["id"])
@@ -907,16 +908,16 @@ def _ensure_business_value(
             log.error("enrichment: BV skip write failed (migration 045 missing?): %s", exc)
         return False
 
-    def llm(prompt: str, timeout: float) -> tuple[str, int]:
+    def llm(prompt: str, timeout: float) -> tuple[str, int, str]:
         from moni.llm.desensitize.audit import desensitize_scope
 
         started = time.monotonic()
         with desensitize_scope(task_type="business_value", article_id=row["id"], json_output=True):
-            out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
+            out, code = enrichment_module._invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
         # Charge actual wall time, not the requested timeout: a fast hermes
         # must not spend the whole run budget (§4.6).
         budget_left[0] -= max(time.monotonic() - started, 0.0)
-        return out, code
+        return out, code, out if code else ""
 
     elapsed = time.monotonic()
     result = score_general_bv(
@@ -1127,7 +1128,7 @@ def _ensure_brief_body(
     from moni.llm.desensitize.audit import desensitize_scope
 
     with desensitize_scope(task_type="brief_body", article_id=row["id"], json_output=False):
-        out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
+        out, code = enrichment_module._invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
     budget_left[0] -= timeout
     if code != 0:
         log.warning(
@@ -1290,7 +1291,7 @@ def _ensure_brief_summary(
     from moni.llm.desensitize.audit import desensitize_scope
 
     with desensitize_scope(task_type="brief_summary", article_id=row["id"], json_output=True):
-        out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
+        out, code = enrichment_module._invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
     budget_left[0] -= timeout
     if code != 0:
         log.warning("enrichment: compact summary hermes exit %s for %s", code, row["id"])
@@ -1337,9 +1338,9 @@ def run_enrichment(
 
     ``invoke_hermes`` injectable for tests: (prompt, timeout, extra) -> (stdout, code)
     """
-    global _invoke_hermes  # noqa: PLW0603 — test injection via param preferred
     if invoke_hermes is not None:
-        # Patch summary_gen + local references by temporary replace
+        # Both modules bind the name at import time, so patch the module
+        # attribute itself or the inner calls keep the original function.
         import moni.share.summary_gen as sg
         import moni.share.enrichment as self_mod
 
@@ -1437,11 +1438,17 @@ def run_enrichment(
                   )
                   if ok:
                       stats["business_value"] += 1
-                  elif row["business_value_status"] in ("queued", "running"):
-                      # 另一条链路正在给这篇打分：不重复花额度，也不算失败。
-                      stats["business_value_pending"] += 1
                   else:
-                      stats["failed"].append(f"business_value:{row['id']}")
+                      # 看调用之后的真实状态：接管后打分失败要算失败，
+                      # 只有真的在跑（别人接手了）才算 pending。
+                      status_now = conn.execute(
+                          "SELECT business_value_status FROM articles WHERE id=?",
+                          (row["id"],),
+                      ).fetchone()
+                      if status_now and status_now[0] in ("queued", "running"):
+                          stats["business_value_pending"] += 1
+                      else:
+                          stats["failed"].append(f"business_value:{row['id']}")
 
           rows = _article_rows(conn, article_ids)
 

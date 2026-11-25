@@ -145,12 +145,18 @@ class GeneralBvRunner:
                 self._queued.add(article_id)
                 self._pending.append(article_id)
                 accepted.append(article_id)
-            if accepted and (self._thread is None or not self._thread.is_alive()):
-                self._thread = threading.Thread(
-                    target=self._run_queue, name="bv-general-score", daemon=True
-                )
-                self._thread.start()
+            if accepted:
+                self._start_thread_locked()
         return accepted
+
+    def _start_thread_locked(self) -> None:
+        """Start the worker unless one is already running.  Lock held."""
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._thread = threading.Thread(
+            target=self._run_queue, name="bv-general-score", daemon=True
+        )
+        self._thread.start()
 
     def _run_queue(self) -> None:
         from moni.db.connection import close_db, get_db
@@ -160,6 +166,7 @@ class GeneralBvRunner:
         except Exception:  # noqa: BLE001 - no database, no work possible
             log.exception("general bv queue could not open the database")
             with self._lock:
+                self._thread = None
                 self._queued.clear()
                 self._pending.clear()
             return
@@ -181,12 +188,20 @@ class GeneralBvRunner:
                         self._queued.discard(article_id)
                         self._active = None
         finally:
+            # Close the connection before a successor thread opens its own:
+            # both share the module-level connection.
+            try:
+                close_db()
+            except Exception:  # noqa: BLE001 - closing must not kill the queue
+                log.exception("general bv queue failed to close the database")
             with self._lock:
-                # A dead thread must not keep ids claimed forever; otherwise
-                # the same article can never be queued again.
-                self._queued.clear()
-                self._pending.clear()
-            close_db()
+                self._thread = None
+                if self._pending:
+                    # A task arrived while this thread was winding down.
+                    # Dropping it would leave the row queued for good.
+                    self._start_thread_locked()
+                else:
+                    self._queued.clear()
 
     def _score(self, conn: sqlite3.Connection, article_id: str) -> None:
         row = load_row(conn, article_id)
