@@ -1,3 +1,43 @@
+## 已发布: **v1.0.134 — X-bot 精选 scope 准入接入入库** (2026-11-25 · PR #322 → `b739650` · tag `v1.0.134` · Sprint 54 家族续)
+
+`fetch_config.scope`（`wechat_regex` / `xcircle_accounts`）从「展示副本」升级为 moni 的**入库准入门**。
+准入 = scope 命中 **与领域关键词表 OR**：wechat 话题按正则匹配标题+正文（大小写不敏感），
+xcircle 话题按固定账号匹配作者（`normalize_handle` 精确）。作者屏蔽 / 入库门槛 / 跨源 URL 去重
+**优先级更高**，scope 命中不能绕过。只读 moni **显式存储**的 scope；上游导出值与默认兜底仅作展示。
+scope-only 救回的条目挂专用 tag `xbot-scope`（migration 061）。UI 上加「恢复默认展示」按钮，
+`PUT {"scope": null}` = 删键停用准入，**不会**把兜底名单写进准入。
+
+**验收**
+
+- 全量 pytest：`2912 passed / 2 skipped`（`55c4fad` 树）；合并后受影响集 `434 passed`
+  （含全部 12 个 frontend 契约测试 + 2 个脱敏测试，覆盖与 #323 的重叠面）
+- 既有 flake 如实记录：`test_worker_lock::test_sigterm_kills_blocking_child_that_ignores_term`
+  在全量里 2 次命中、隔离复跑 1 红 2 绿；本 PR 对该文件与 `runner.py` / `worker_llm.py` / `cron/` 无 diff
+- CI：`pytest · py3.12` success（PR head `d99b21f`，16:59:47→17:09:03 CST；squash `b739650` push run 亦 success）
+- 隔离复算（**非生产**）：`fetched 2860 = 作者屏蔽 16 + 门槛 74 + 真重复 3 + 词表与 scope 都不命中 4 + scope 准入 2763`
+  （2763 = xcircle 2686 + wechat 77），在 scratch 副本上跑，未写生产库
+
+**生产部署记录（2026-11-25 17:28–17:33 CST）**
+
+- 备份：`data/backups/news.db.pre-v1.0.134-redeploy-20261125-172840`（`sqlite3 .backup`，含 WAL 内容的一致快照；
+  `PRAGMA integrity_check = ok`，迁移前 `schema_version = 60`、`articles = 6596`、154,415,104 B）
+- 代码：`/Users/mt16/dev/moni` `git merge --ff-only origin/main` → `b739650`（原 `88a4aa7`）
+- 迁移：`python3 -m moni db init` → `Applying migration 061_xbot_scope_admission_tag.sql (v60 → v61)`，
+  `schema_version = 61`；`tag_definitions` 新增 `xbot-scope`（`is_active=1`、`keywords=[]`）
+- 用户配置未被改动：迁移前后 `xbot_feed.fetch_config` **逐字相同**（scope 仍 `wechat_regex` 含 `skill|agent`、32 个 xcircle 账号）
+- 重启：`launchctl kickstart -k gui/$(id -u)/com.moni.web`，PID `32727` → `46898`（只重启 `com.moni.web`；`com.moni.cron` 未动）
+- `/api/service/info` → `version v1.0.134`、`commit b739650`、`commits_ahead 0`、`schema_version 61`、
+  `worktree_dirty false`、`articles 6596`
+- 只读核：`GET /health` 200、`GET /` 200；线上 `main.css?v=20261125006` / `app.js?v=20261125006`，
+  `app.js` 含 `configRestoreScopeDefault`，首页含「恢复默认展示」；
+  `GET /api/config/sources/src-xbot-feed/scope` → `scope_source=moni_stored`、`scope_stored=true`、
+  **`scope_admission_active=true`**、`scope_gates_ingest=true`；门槛 wechat 1000 粉 / xcircle 998 粉
+
+**已知未做**：**没有触发生成环境的真实 fetch/sync**（回补那 2763 条要用户自己点同步，部署后首轮 `xbot_feed`
+同步才会真写库）；不承诺全文匹配（`SCOPE_REGEX_MAX_TEXT_CHARS=2000` 硬截断）；4 个新 xcircle 账号
+（`UberEng` / `ShopifyEng` / `AirbnbEng` / `Meta_Engineers`）上游当时 0 条，**未采集到任何内容**；
+UI 契约仍是静态断言 + 变异负控，未在浏览器实点。
+
 ## 已发布: **v1.0.132 — 信息脱敏进主站入口** (2026-11-25 · PR #323 → `36495b7` · tag `v1.0.132` · Sprint 78)
 
 顶部导航新增「信息脱敏」，右侧徽章读 `/api/desensitize/stats` 显示开/关（请求失败显示「…」）。
