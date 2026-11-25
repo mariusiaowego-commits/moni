@@ -1,3 +1,58 @@
+## 已发布: **v1.0.129 — 业务方向「读者视角」+ 模型澄清追问** (2026-11-25 · PR #306 → `f838ae0` · tag `v1.0.129` · Sprint 26112574)
+
+方向研究提示词原来写死第二条「问题一律从银行或支付机构角度问」，读者视角被锁死成银行机构。
+本版给方向加**可配置的「读者视角」**：填一句「这个方向的文章写给谁看、站在谁的立场评价」，
+模型先**反问你最多 5 个问题**把这个视角问清楚，你回答完才能研究；研究出的十维问题和打分提示词
+都按这个读者的立场走。视角或回答一改，旧研究立刻作废。
+
+**没填视角的老方向零影响**：仍走 `bv_direction_research_v1`（提示词**逐字节不变**，
+用 `687f98b` 旧代码对比 sha256 完全一致），线上「微信生态」已通过的 v3 研究继续可用。
+
+**生产部署记录（2026-11-25）**
+
+- 代码：`/Users/mt16/dev/moni` `git pull --ff-only` → `f838ae0`（tag `v1.0.129`）；
+  迁移 `059_bv_direction_guidance` → `060_bv_direction_reader_perspective`（**schema 59 → 60**）；
+  重启 `launchctl kickstart -k gui/$(id -u)/com.moni.web`，PID `77347` → `19526`
+- 端点：`/api/service/info` → `version v1.0.129`、`commit f838ae0`、`schema_version 60`、
+  `worktree_dirty false`、`articles 6599`
+- 老方向：`/api/directions` → 「微信生态」`reader_perspective: ""`、`research v3 passed`、
+  `usable: true`（迁移未让老研究失效）
+- 迁移前备份 `/private/tmp/news.db.bak-v1.0.129`（147M），验证后已删除
+
+**交付物**
+
+- 迁移：`moni/db/migrations/060_bv_direction_reader_perspective.sql`
+  （`bv_direction.reader_perspective`、`bv_direction_research.perspective_snapshot` +
+  `clarification_snapshot`、新表 `bv_direction_clarification`，FK CASCADE）
+- 评分：`moni/scoring/direction.py`（澄清提示词 `bv_direction_clarify_v1`、研究提示词
+  `bv_direction_research_v2`、`clarification_text`、快照闸门）、
+  `direction_store.py`（澄清轮次状态机 + 研究闸门）、`direction_runner.py`（澄清队列）、
+  `rubric.py` / `bv_pipeline.py`（`Rubric.reader_perspective` → 打分提示词「读者是：X」）
+- API：`POST/GET /api/directions/{id}/clarification`、
+  `PUT /api/directions/{id}/clarification/answers`；`Direction` 增 `reader_perspective` / `clarification`
+- 前端：方向编辑弹窗「读者视角」+「视角澄清」问答区；列表说明列下追加视角摘要行
+- 文档：`docs/plans/2026-11-25_bv-reader-perspective.md`；Obsidian
+  `sprints/sprint-74-bv-reader-perspective-2026-11-25/`（prd/plan/tech-spec/test-plan/verify）
+
+**测试**
+
+- 新增 29 例：`tests/test_direction_reader_perspective.py`（17）、
+  `tests/test_direction_clarification_api.py`（6）、
+  `tests/test_migration_060_bv_direction_reader_perspective.py`（6）
+- 全量：`2816 passed, 2 failed, 2 skipped`。失败两项均非本改动：
+  `test_039_upgrades_a_db_built_by_old_code`（沙箱不能写 `.git/worktrees`，非沙箱 33 passed）、
+  `test_desensitize_core` 性能用例（机器速度敏感，重跑即绿；CI 最终 success）
+- CI：PR #306 最终 run `45532768971` @ `ae9dd66` → **success**
+
+**审计**：hermes `-p coder`（Herdr `w52:pN`）独立只读审计 → `APPROVE WITH NITS`，无 P0；
+报告 `/private/tmp/herdr-dispatch/tasks/20261125-0935-moni-pr306-audit/result.md`。
+审计期间另修两处：模型说「已够具体」但仍带问题不再判失败；澄清运行中后端也拒绝启动研究。
+
+**已知未做**
+
+- 生产「生成澄清问题」按钮未真点（会真发模型请求、消耗额度），由 API 用例与单测覆盖
+- 通用分（无方向）的银行语境未放开——方向是叠加层，本轮不动
+
 ## 已合并待部署: **v1.0.128 — 脱敏实验室（四栏决赛演练台）** (2026-11-25 · PR #305 → `5e4e1dc` · tag `v1.0.128` · Sprint 69)
 
 给「对大模型的信息脱敏」feature 配一个**能在决赛现场跑真实模型**的演示台：一个 URL 打开，
