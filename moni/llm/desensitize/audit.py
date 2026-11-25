@@ -50,6 +50,8 @@ SETTING_FIELDS: tuple[str, ...] = (
 
 _CACHE_LOCK = threading.Lock()
 _SETTINGS_CACHE: dict[str, tuple[float, DesensSettings]] = {}
+#: 配置版本号：每次写配置 +1，读线程用它判断自己读到的快照是不是已经过期。
+_SETTINGS_EPOCH = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,6 +227,7 @@ def load_settings(db_path: str | os.PathLike[str] | None = None) -> DesensSettin
         cached = _SETTINGS_CACHE.get(key)
         if cached is not None and (now - cached[0]) < _SETTINGS_TTL_SEC:
             return cached[1]
+        epoch = _SETTINGS_EPOCH
 
     conn: sqlite3.Connection | None = None
     owns_conn = False
@@ -273,13 +276,17 @@ def load_settings(db_path: str | os.PathLike[str] | None = None) -> DesensSettin
                 pass
 
     with _CACHE_LOCK:
-        _SETTINGS_CACHE[key] = (now, settings)
+        # 读库期间有人写过配置就别把旧快照写回缓存，否则旧值会再活 30 秒。
+        if epoch == _SETTINGS_EPOCH:
+            _SETTINGS_CACHE[key] = (now, settings)
     return settings
 
 
 def invalidate_settings_cache() -> None:
     """丢掉进程内设置缓存：配置刚被写过时调用，下一次读立刻生效。"""
+    global _SETTINGS_EPOCH
     with _CACHE_LOCK:
+        _SETTINGS_EPOCH += 1
         _SETTINGS_CACHE.clear()
 
 

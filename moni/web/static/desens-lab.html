@@ -96,6 +96,7 @@
   .cfg-levels label { display: flex; align-items: center; gap: 8px; font-size: var(--font-13); }
   .toggle { min-width: 96px; font-weight: 600; }
   .toggle.on { background: var(--success-muted); color: var(--success-muted-fg); border-color: var(--success-muted); }
+  #cfgRules { max-width: 100%; overflow-x: auto; }
   #labPanels { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); }
   main { padding: 20px 24px 40px; display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); }
   .panel { background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
@@ -345,6 +346,7 @@ function row(label, t) {
 
 // ── 配置区（总开关 / 级别 / 严格模式 / 用户规则） ─────────────────
 let currentConfig = null;
+let configSeq = 0;
 
 async function loadConfig() {
   const res = await fetch("/api/desensitize/config");
@@ -358,7 +360,7 @@ function renderConfig(d) {
   btn.textContent = d.enabled ? "已开启" : "已关闭";
   btn.className = "toggle" + (d.enabled ? " on" : "");
   $("cfgEnabledHint").textContent = d.enabled
-    ? "生产出站的提示词会先遮蔽，回包在本地还原。"
+    ? "生产出站的提示词会先遮蔽，回包在本地还原（本进程立即生效；分享 worker 与定时任务最多 30 秒内跟上）。"
     : "关闭时不脱敏：提示词原样发给大模型（实验室的「真跑一次」不受影响）。";
   $("cfgL1").checked = !!d.levels.level_l1;
   $("cfgL2").checked = !!d.levels.level_l2;
@@ -404,6 +406,7 @@ function renderRules(rules) {
 }
 
 async function saveConfig(patch) {
+  const seq = ++configSeq;
   $("cfgMsg").textContent = "保存中…";
   try {
     const res = await fetch("/api/desensitize/config", {
@@ -411,7 +414,9 @@ async function saveConfig(patch) {
       body: JSON.stringify(patch),
     });
     if (!res.ok) throw new Error("config " + res.status);
-    renderConfig(await res.json());
+    const data = await res.json();
+    if (seq !== configSeq) return;  // 旧响应不覆盖新状态
+    renderConfig(data);
     $("cfgMsg").textContent = "已保存，立即生效";
     loadStats().catch(() => {});
   } catch (e) {

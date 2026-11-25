@@ -5881,8 +5881,6 @@ function app() {
     init() {
       // Apply saved theme (from theme.js mixin)
       this.initTheme();
-      // v1.0.134: 脱敏配置（配置管理 → 脱敏 tab 用）
-      this.loadDesensConfig();
       // v1.0.110: 滚动锁统一在 modal.js 的 _syncScrollLock() 里按「是否有
       // 可见浮层」计算（v1.0.109 这里只锁了 fetchProgressModal 一个）。
       // Load service status for topnav indicator
