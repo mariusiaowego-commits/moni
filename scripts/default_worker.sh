@@ -527,7 +527,6 @@ PYEOF
     # ── P2-1: case_* formats short-circuit to pure Python renderer ────────
     if [[ "$format" == case_* ]]; then
         output_path="$artifacts_dir/${task_id}-case_brief_html.html"
-        task_status_update "$task_id" "running"
         update_progress "$task_id" "preparing" 20 "正在汇总案例上下文"
         local case_ids_json case_title case_group_by case_flags=()
         case_ids_json=$(python3 -c "

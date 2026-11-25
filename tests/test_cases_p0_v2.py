@@ -120,6 +120,12 @@ class TestParseMetricAndActionSource:
     def test_duration_is_not_a_metric(self):
         assert parse_metric("6个月募资") is None
 
+    def test_month_in_date_is_not_a_duration(self):
+        # 「月」出现在日期里（2025年11月）不代表时长，指标本身要保留。
+        m = parse_metric("1.2亿", "2025年11月交易额1.2亿")
+        assert m is not None
+        assert m["metric_type"] == "txn_volume"
+
     def test_normalize_case_populates_metrics_raw_json_and_action_source(self):
         cs = normalize_case({
             "subject": "微信支付",

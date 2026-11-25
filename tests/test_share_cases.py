@@ -36,6 +36,10 @@ def test_worker_case_branch_sets_output_path_before_summary():
     assert case_at < summary_at
     block = text[case_at:summary_at]
     assert 'output_path="$artifacts_dir/${task_id}-case_brief_html.html"' in block
+    # 案例分支不得二次 claim：任务此时已是 running，task_status_update
+    # 带 WHERE status='pending'，命中 0 行返回 1，配合 set -e 会让 worker
+    # 直接退出，任务永远停在 running。
+    assert block.count('task_status_update "$task_id" "running"') == 0
 
 
 @pytest.fixture()
