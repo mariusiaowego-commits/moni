@@ -931,9 +931,12 @@ function app() {
     configModalType: null,  // 'tag' | 'source' | 'sourceTags' | 'filter' | 'fetchConfig'
     configModalTarget: null,
     configModalTargetOriginal: null,  // for tag edit: original name (immutable)
-    fetchConfigData: { source_id: '', source_name: '', merged: {}, defaults: {}, has_custom: false },
+    fetchConfigData: { source_id: '', source_name: '', merged: {}, defaults: {}, has_custom: false, scope_stored: false },
     // v1.0.71 (sprint-35): X-bot 精选的 scope 信息 (来源徽标 / 串联说明)。
     fetchConfigScopeInfo: null,
+    // sprint-55 (v1.0.131): scope 面板是否被用户动过 —— 未存储过 scope 时,
+    // 只有动过才允许把 scope 写回库（否则保存门槛会静默激活兜底名单）。
+    fetchConfigScopeDirty: false,
     // v1.0.88 (sprint-38): 作者屏蔽名单 (独立表 source_author_blocks)。
     //   builtin_handles —— 内置只读黑名单 (刷量/营销/灰产号), 不可删;
     //   blocked_authors —— dad 自己屏蔽的, 可撤销。
@@ -1853,6 +1856,7 @@ function app() {
       if (!merged.scope) merged.scope = {};
       merged.scope[key] = String(text || '')
         .split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      this.fetchConfigScopeDirty = true;
     },
     /** 读 scope 里的字符串字段。 */
     fetchConfigScopeText(key) {
@@ -1864,6 +1868,19 @@ function app() {
       const merged = this.fetchConfigData.merged || (this.fetchConfigData.merged = {});
       if (!merged.scope) merged.scope = {};
       merged.scope[key] = String(text == null ? '' : text);
+      this.fetchConfigScopeDirty = true;
+    },
+    /** sprint-55: 「默认未启用」vs「实际启用」—— 必须如实显示, 不能靠猜。 */
+    fetchConfigScopeStatus() {
+      const info = this.fetchConfigScopeInfo || {};
+      if (info.scope_admission_active === true) {
+        return '当前生效：scope 命中即准入（wechat 正则 / xcircle 固定账号），与领域关键词表是 OR。';
+      }
+      if (info.scope_stored === true) {
+        return '已保存但当前不参与准入：正则为空/非法，或固定账号为空。填好后保存即生效。';
+      }
+      return '当前未启用：moni 侧还没有显式存储的 scope。下面显示的是兜底快照，'
+        + '修改任一项并保存后才会参与入库准入。';
     },
     /** scope 的来源徽标文案 (三态: upstream / moni_stored / moni_fallback)。 */
     fetchConfigScopeSourceLabel() {
@@ -1897,7 +1914,12 @@ function app() {
             merged: { ...data.fetch_config },
             defaults: { ...data.defaults },
             has_custom: data.has_custom,
+            // sprint-55: 库里有没有**显式存储**的 scope —— 决定保存时是否
+            // 允许把 scope 写回去（未存储且用户没动过 → 不写，避免保存门槛
+            // 顺手把兜底名单激活）。
+            scope_stored: data.scope_stored === true,
           };
+          this.fetchConfigScopeDirty = false;
           this.configModalType = 'fetchConfig';
           this.configModalOpen = true;
           // v1.0.71 (sprint-35): X-bot 精选额外拉 scope (来源徽标 + 串联说明)
@@ -1913,8 +1935,61 @@ function app() {
         })
         .catch(err => this._notify('error', '加载同步配置失败: ' + err.message));
     },
+    /**
+     * t114u (pV P1-2): 恢复默认展示 —— **删掉** 显式存储的 scope（= 停用准入）。
+     *
+     * 为什么发 `scope: null`: PUT 是合并语义, 省略这个键 = 库里那份原样留着
+     * （用户点了"恢复默认"却什么都没变）; 写空 dict 会变成「存了但空」
+     * （stored=true，徽标仍显示"moni 侧副本"）。只有 null 表达"删除"。
+     *
+     * **绝不**把展示用的兜底副本当 scope 发出去 —— 那等于把兜底名单/正则
+     * 静默提升成准入门（brief 明令禁止）。
+     */
+    async configRestoreScopeDefault() {
+      if (this.fetchConfigData.source_name !== 'xbot_feed') return;
+      if (!this.fetchConfigData.scope_stored) return;
+      const ok = await moniModal.confirm(
+        '恢复默认展示会删除已保存的 scope，并停用 scope 准入'
+        + '（不再按正则 / 固定账号救回条目）。兜底名单与正则只用于展示，'
+        + '不会被写入准入；已入库的文章不受影响。',
+        { title: '恢复默认展示', okLabel: '恢复默认', danger: true });
+      if (!ok) return;
+      const sid = encodeURIComponent(this.fetchConfigData.source_id);
+      const body = { ...(this.fetchConfigData.merged || {}), scope: null };
+      fetch(`/api/config/sources/${sid}/fetch_config`, {
+        method: 'PUT', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then(r => {
+        if (!r.ok) return r.text().then(t => { throw new Error(t || `HTTP ${r.status}`); });
+        return r.json();
+      }).then(data => {
+        this.fetchConfigData = {
+          source_id: data.source_id,
+          source_name: data.source_name,
+          merged: { ...data.fetch_config },
+          defaults: { ...data.defaults },
+          has_custom: data.has_custom,
+          scope_stored: data.scope_stored === true,
+        };
+        this.fetchConfigScopeDirty = false;
+        this.configLoadScope(data.source_id);
+        this.configLoadSources();
+        this._notify('success', '已恢复默认展示，scope 准入已停用');
+      }).catch(err => this._notify('error', '恢复默认展示失败: ' + err.message));
+    },
     configSaveFetchConfig() {
       const sid = encodeURIComponent(this.fetchConfigData.source_id);
+      // sprint-55: 未显式存储过 scope 且用户没编辑过 scope 面板 → 不要把
+      // 展示用的兜底 scope 写进库。否则「只改门槛保存一次」会顺手把
+      // xcircle 名单 + 正则**静默激活**（pV 交叉审 P0: 假控件变隐式生效）。
+      if (this.fetchConfigData.source_name === 'xbot_feed'
+          && !this.fetchConfigData.scope_stored
+          && !this.fetchConfigScopeDirty
+          && this.fetchConfigData.merged
+          && 'scope' in this.fetchConfigData.merged) {
+        delete this.fetchConfigData.merged.scope;
+      }
       fetch(`/api/config/sources/${sid}/fetch_config`, {
         method: 'PUT', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
@@ -1929,7 +2004,9 @@ function app() {
           merged: { ...data.fetch_config },
           defaults: { ...data.defaults },
           has_custom: data.has_custom,
+          scope_stored: data.scope_stored === true,
         };
+        this.fetchConfigScopeDirty = false;
         this.configLoadSources();
         this.closeConfigModal();
       }).catch(err => this._notify('error', '保存同步配置失败: ' + err.message));
@@ -3246,6 +3323,34 @@ function app() {
           value: `丢弃 ${authorBlocked} 条`,
           detail: '命中已屏蔽作者，未入库',
         });
+      }
+
+      // sprint-55 (v1.0.131): scope 准入（wechat 正则 / xcircle 固定账号）。
+      // 口径: scope_admitted 只计 scope-only 救回; scope_matched_by 是总命中
+      // （含与领域词表双命中的），两者不可相加。
+      if (d.scope_gate_active === true) {
+        const scopeAdmitted = d.scope_admitted ?? 0;
+        const matchedBy = d.scope_matched_by || {};
+        const admittedBy = d.scope_admitted_by || {};
+        const fmtBy = (obj) => Object.entries(obj)
+          .map(([k, v]) => `${k} ${v}`).join('，') || '—';
+        lines.push({ type: 'section', text: '范围准入' });
+        lines.push({
+          type: 'item',
+          label: 'scope 救回',
+          value: `新增 ${scopeAdmitted} 条`,
+          detail: scopeAdmitted > 0
+            ? `按字段：${fmtBy(admittedBy)}（其中命中正则/账号但词表也命中的不重复计入）`
+            : '本轮全靠领域关键词表或全部被丢弃',
+        });
+        if (Object.keys(matchedBy).length > 0) {
+          lines.push({
+            type: 'item',
+            label: 'scope 命中',
+            value: `${Object.values(matchedBy).reduce((a, b) => a + b, 0)} 条`,
+            detail: `按字段：${fmtBy(matchedBy)}`,
+          });
+        }
       }
 
       return lines;

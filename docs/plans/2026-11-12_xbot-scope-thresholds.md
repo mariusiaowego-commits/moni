@@ -3,6 +3,26 @@
 > 文档创建日期：2026-11-12 · 分支 `feat/xbot-scope-thresholds-v1.0.71` · 基线 main @ `04c9a42`
 > Sprint: 35（`26111103`）· 目标版本 v1.0.71
 
+> ## ⚠️ 状态：§2 与 AC-12 已被取代（2026-11-25）
+>
+> 本文档 §2「scope 是 moni 侧副本，**不参与入库闸门**」与 AC-12
+> 「改 scope 前后入库 URL 集合相同」是 **v1.0.71 / sprint-35 当时的决策**，
+> 已被 **sprint-55 / v1.0.131**（2026-11-25 12:33 批准）**取代**：
+>
+> - `fetch_config.scope` 的 `wechat_regex` / `xcircle_accounts` 现在是 moni 的
+>   **入库准入门**：与领域关键词表 **OR**（命中即准入）；作者屏蔽 / 粉丝门槛 /
+>   跨源 URL 去重仍前置，scope 命中不能绕过；
+> - 只有 **moni 显式存储**的副本参与准入（展示用的兜底 / 上游值不参与）；
+> - `scope_gates_ingest` 由 `false` 翻为 **`true`**；AC-12 的行为测试由
+>   `test_scope_edit_does_not_change_ingested_url_set` 改为
+>   `test_scope_admission_behavior_off_vs_on`（未存储不变 / 上游导出仍不变 /
+>   显式存储后**严格多收**）；
+> - scope 单独救回的条目挂专用归属 tag `xbot-scope`
+>   （`moni/db/migrations/061_xbot_scope_admission_tag.sql`）。
+>
+> **原文完整保留作历史**。读本文请以本状态块为准，不要照 §2 / AC-12 的旧结论
+> 改动当前实现；现行实现见 `moni/fetch/sources/xbot_feed.py::_match_scope`。
+
 ## 背景
 
 X-bot 精选（`src-xbot-feed` / `xbot_feed`）这条信源"它到底抓什么、按什么标准筛"，
@@ -38,6 +58,10 @@ thresholds、来源标注。
 feed JSON**（与 fetcher 同一份数据），**不在请求路径里做 git 操作**。
 
 ### 2. scope 是 moni 侧副本，**不参与入库闸门**（关键决策）
+
+> **⛔ 本节结论已被取代（2026-11-25，sprint-55 / v1.0.131）**：scope 现在是
+> moni 的**入库准入门**（与领域关键词表 OR；只有显式存储的副本生效）。
+> 下面的三条理由与「不作为入库闸门」只作历史记录，**勿据此实现**。原文保持不动。
 
 moni 侧 `fetch_config.scope` 是**可编辑、可保存的副本**，用于"记录 + 展示上游到底在搜什么"。
 
@@ -142,6 +166,13 @@ UI 上必须写清三行：①moni 侧副本仅记录与展示，不改变 X-bot
 | AC-11 | 全量 pytest 绿；schema 仍 40；无新表 | 命令原文 + 输出原文 |
 | AC-12 | scope 可编辑可保存；**改 scope 前后入库 URL 集合相同** | API 测试 + 行为测试（跑两遍比集合） |
 | AC-13 | `seed_config.py` 零改动；migrate-only 升级保留 thresholds / scope；守卫测试钉死"seed 无 xbot 特判" | 单元 |
+
+> **⛔ AC-12 已被取代（2026-11-25，sprint-55 / v1.0.131）**：
+> scope 现在是入库准入门，「改 scope 前后入库 URL 集合相同」不再成立
+> —— 显式存储后必须**严格多收**（不变的情况只有「未存储」与「上游导出值」）。
+> 现行验收：`tests/test_xbot_scope_api.py::test_scope_admission_behavior_off_vs_on`
+> 与 `tests/test_xbot_scope_admission_ingest.py::test_scope_stored_admits_scope_only_items`。
+> 上表 AC-12 原文保留作历史。
 
 ## 测试
 

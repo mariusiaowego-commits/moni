@@ -239,3 +239,153 @@ def test_scope_source_label_maps_all_three_states(app_js: str):
     assert "upstream" in src
     assert "moni_stored" in src
     assert "moni_fallback" in src
+
+
+# ── sprint-55 (v1.0.131): scope 是入库准入 → UI/契约必须如实 ──────────────
+
+def test_scope_copy_no_longer_claims_display_only(index_html: str):
+    """旧文案「仅用于记录与展示 / 不参与入库闸门」必须改掉（否则是谎言）。"""
+    block = _xbot_block(index_html)
+    assert "不参与入库闸门" not in block
+    assert "仅用于记录与展示" not in block
+    assert "决定 moni 的入库准入" in block
+    assert "OR" in block
+    # 仍然要保留上游边界与串联语义（P0 断言不能被顺手删）
+    assert "不会改变 X-bot 的搜索范围" in block
+    assert "第二道串联闸门" in block
+
+
+def test_scope_status_line_reflects_active_vs_default(index_html: str,
+                                                     app_js: str):
+    """「默认未启用」vs「实际启用」要由后端字段驱动，不靠猜。"""
+    block = _xbot_block(index_html)
+    assert "fetchConfigScopeStatus()" in block
+
+    src = app_js[app_js.index("fetchConfigScopeStatus() {"):]
+    src = src[:src.index("\n    },")]
+    assert "scope_admission_active" in src
+    assert "scope_stored" in src
+    assert "当前未启用" in src
+
+
+def test_wechat_queries_is_marked_display_only(index_html: str):
+    block = _xbot_block(index_html)
+    assert "仅展示，不参与 moni 准入" in block
+
+
+def test_scope_setters_mark_dirty(app_js: str):
+    """改过 scope 面板 → dirty=true（未存储时唯一允许写回 scope 的条件）。"""
+    for fn in ("setFetchConfigScopeList(key, text) {",
+               "setFetchConfigScopeText(key, text) {"):
+        src = app_js[app_js.index(fn):]
+        src = src[:src.index("\n    },")]
+        assert "fetchConfigScopeDirty = true" in src, fn
+
+
+def test_save_strips_unstored_scope(app_js: str):
+    """未显式存储且没动过 scope 面板 → 保存时不许把兜底 scope 写进库。
+
+    这是 pV 交叉审的 P0: 「只改门槛保存一次」不得静默激活准入。
+
+    断言强度（吃过一次亏: 只查标识符存在 → `if (false && …)` 变异仍是绿）:
+    ① 守卫条件里必须**没有**短路常量（`false`/`true` 混进条件 = 守卫可能恒假）；
+    ② 三个操作数都在条件里；
+    ③ `delete …merged.scope` 必须落在守卫体内、且在 `fetch(` 之前。
+    """
+    src = app_js[app_js.index("configSaveFetchConfig() {"):]
+    src = src[:src.index("\n    },")]
+
+    guard_at = src.index("if (")
+    cond_end = src.index("{", guard_at)
+    cond = src[guard_at:cond_end]
+    assert "false" not in cond, f"守卫条件里混进了短路常量: {cond!r}"
+    assert "source_name === 'xbot_feed'" in cond
+    assert "!this.fetchConfigData.scope_stored" in cond
+    assert "!this.fetchConfigScopeDirty" in cond
+
+    body_end = src.index("fetch(`", cond_end)
+    body = src[cond_end:body_end]
+    assert "delete this.fetchConfigData.merged.scope" in body, (
+        "删除兜底 scope 的语句不在守卫体内 —— 「只改门槛保存」会静默激活准入"
+    )
+    # 仍然 PUT merged 全量（其它键的行为不变）
+    assert "JSON.stringify(this.fetchConfigData.merged)" in src
+
+
+def test_fetch_result_panel_has_scope_section(app_js: str):
+    """漏斗: 后端 result 字段必须在前端渲染出来（否则用户只看到「抓了 N 条」）。"""
+    src = app_js[app_js.index("formatFetchResult() {"):]
+    src = src[:src.index("\n    },")]
+    assert "范围准入" in src
+    assert "scope_gate_active" in src
+    assert "scope_admitted" in src
+    assert "scope_matched_by" in src
+    assert "scope_admitted_by" in src
+
+
+# ── t114u 收尾: 「恢复默认展示 / 删除显式 scope」UI 路径（pV P1-2）────────
+
+def test_restore_scope_button_only_when_stored(index_html: str):
+    """按钮只在**已显式存储**时出现（未存储时展示兜底，没有可恢复的东西）。"""
+    block = _xbot_block(index_html)
+    assert "configRestoreScopeDefault()" in block
+    at = block.index("configRestoreScopeDefault()")
+    tag_start = block.rindex("<button", 0, at)
+    tag = block[tag_start:at]
+    assert "fetchConfigData.scope_stored" in tag, (
+        "恢复按钮必须由 scope_stored 控制显隐 —— 否则未存储时点它会写出一份空/兜底 scope"
+    )
+
+
+def test_restore_scope_copy_states_it_stops_admission(index_html: str):
+    """文案必须说清两件事：① 会停用 scope 准入；② 兜底值不会被写入准入。"""
+    block = _xbot_block(index_html)
+    at = block.index("configRestoreScopeDefault()")
+    window = block[max(0, at - 1200):at + 200]
+    assert "停用" in window, "没写明会停用 scope 准入"
+    assert "兜底" in window
+    assert "不会" in window
+
+
+def test_restore_scope_sends_null_and_never_fallback(app_js: str):
+    """恢复默认必须发 ``scope: null``（删键语义），绝不能把兜底副本当 scope 发出去。
+
+    断言强度（按本仓教训）: 切方法体 → 剥注释 → 只认 ``scope: null`` 这个**语句**，
+    并显式禁止方法体里出现兜底/展示字段的名字（出现 = 有可能把兜底写进准入）。
+    """
+    src = app_js[app_js.index("configRestoreScopeDefault() {"):]
+    src = src[:src.index("\n    },")]
+    code = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    code = "\n".join(
+        line for line in code.splitlines() if not line.lstrip().startswith("//")
+    )
+    assert "scope: null" in code, "恢复默认没有发 null 哨兵"
+    for banned in ("xcircle_accounts", "wechat_regex", "wechat_queries",
+                   "fetchConfigScopeList(", "fetchConfigScopeText("):
+        assert banned not in code, (
+            f"方法体里出现了 {banned!r} —— 恢复默认有可能把兜底值写进准入"
+        )
+    assert "fetch_config" in code and "PUT" in code
+    assert "scope_stored" in code, "恢复后要按后端回包刷新 stored 状态"
+
+
+# ── 文档契约: 旧 plan 的 §2 / AC-12 必须标注被取代（保留原文）────────────
+
+_OLD_PLAN = REPO / "docs" / "plans" / "2026-11-12_xbot-scope-thresholds.md"
+
+
+def test_old_plan_marks_scope_section_superseded():
+    text = _OLD_PLAN.read_text(encoding="utf-8")
+    # ① 原文必须**保留**（不得篡改历史决策）
+    assert "### 2. scope 是 moni 侧副本，**不参与入库闸门**（关键决策）" in text
+    assert "| AC-12 | scope 可编辑可保存；**改 scope 前后入库 URL 集合相同**" in text
+    # ② 文首必须有取代标注，且指向新契约（sprint-55 / v1.0.131）
+    head = text[: text.index("## 背景")]
+    assert "已被取代" in head
+    assert "sprint-55" in head and "v1.0.131" in head
+    assert "2026-11-25" in head
+    # ③ §2 与 AC-12 各自附近都要有就地标注（只改文首会让读者直接读到旧结论）
+    at_section = text.index("### 2. scope 是 moni 侧副本")
+    assert "已被取代" in text[at_section:at_section + 400]
+    at_ac = text.index("| AC-12 |")
+    assert "已被取代" in text[at_ac:at_ac + 600]
