@@ -1,8 +1,30 @@
-## 进行中: **脱敏实验室（演练台）** (2026-11-25 · PR `feat/desens-lab` · Sprint 69)
+## 已合并待部署: **v1.0.128 — 脱敏实验室（四栏决赛演练台）** (2026-11-25 · PR #305 → `5e4e1dc` · tag `v1.0.128` · Sprint 69)
 
 给「对大模型的信息脱敏」feature 配一个**能在决赛现场跑真实模型**的演示台：一个 URL 打开，
 贴一段含敏感信息的文本 → 四栏并排显示 **① 原文 / ② 发给模型的内容（已遮蔽）/ ③ 模型回包（原始，
 仍是编码）/ ④ 本地还原后**，下面一条实时指标带。作用：把「我说是安全的」变成「现场看见的」。
+
+**当前状态**：**已 squash 合并到 `main`（`5e4e1dc`）**，tag `v1.0.128` 已推送，
+**并已部署到 8900**（生产 checkout 快进到 `5e4e1dc`，PID `44198` → `77347`）。
+合并前两轮独立只读审计（第一轮 `REQUEST CHANGES`、第二轮 `APPROVE WITH NITS`）提出的问题
+已全部在本 PR 内修完。
+
+**生产部署记录（2026-11-25）**
+
+- 代码：`/Users/mt16/dev/moni` `git pull --ff-only` → `5e4e1dc`（tag `v1.0.128`），
+  快进无冲突；重启 `launchctl kickstart -k gui/$(id -u)/com.moni.web`，PID `44198` → `77347`
+- 端点冒烟：openapi 里 **58 个无参 GET 端点 → 54 个 200**，
+  4 个 422（`/api/cases/search`、`/api/moderation/labels/samples`、`/api/reader/conversations`、
+  `/api/stats/timeseries` —— 必填查询参数缺失，非故障）
+- 演练台：`/static/desens-lab.html` → 200，`/api/desensitize/stats` → 200
+- **生产真跑一次（真实模型）**：②发给模型的内容无明文、③模型回包无明文、④本地还原后为明文；
+  遮蔽 5 / 还原 5 / 未还原 0 / 出站泄漏命中 0 / 残留占位符 0 / 遮蔽 1218 µs / 还原 321 µs /
+  模型 13557 ms
+- 账本：实验室口径 1 行（`call_site='desens_lab'`），**生产口径 0 行**（排除生效）
+- 生产库 `PRAGMA integrity_check = ok`，`schema_version = 59`（本次无迁移）
+- 日志：`/private/tmp/moni-8900-v1.0.52.log` 本次仅新增 2 行 chrome_profile 提示，
+  **无新增错误**；日志第 349 行的 `no such column: research_guidance` 是**上一进程的历史报错**
+  （该列在 `bv_direction` 表，已存在；当前 `/api/directions` 返回 200 且含 `research_guidance` 字段）
 
 **交付物**
 
