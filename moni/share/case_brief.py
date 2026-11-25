@@ -25,6 +25,55 @@ _GROUP_LABELS = {
     "category": "按案例类型分组",
 }
 
+# 分享出去的简报是给人看的，不能把库里的英文枚举直接漏出去
+# （前端 cases.js 已有中文标签，这里服务端同源一份）。
+_REFERENCE_LABELS = {"high": "高价值", "medium": "中价值", "low": "低价值"}
+_ACTION_LABELS = {
+    "launch": "上线",
+    "pilot": "试点",
+    "scale": "规模化",
+    "transform": "转型",
+    "exit": "退出",
+}
+_METRIC_TYPE_LABELS = {
+    "dau": "日活用户",
+    "mau": "月活用户",
+    "funding": "融资额",
+    "contract_value": "合同/预算金额",
+    "deal_value": "交易金额",
+    "penalty": "罚没金额",
+    "revenue": "营收",
+    "valuation": "估值",
+    "investment": "投资额",
+    "cost_saving": "降本",
+    "txn_volume": "交易额",
+    "txn_count": "交易笔数",
+    "user_count": "用户数",
+    "coverage": "覆盖规模",
+    "headcount": "人员规模",
+    "efficiency": "效率提升",
+    "other": "其他",
+}
+_UNIT_LABELS = {
+    "user": "用户",
+    "account": "账户",
+    "merchant": "商户",
+    "country": "国家/地区",
+    "month": "月",
+    "institution": "机构",
+    "txn": "笔",
+    "person": "人",
+    "percent": "%",
+    "x": "倍",
+    "CNY": "元",
+    "USD": "美元",
+    "EUR": "欧元",
+    "KRW": "韩元",
+    "JPY": "日元",
+    "HKD": "港元",
+    "GBP": "英镑",
+    "INR": "卢比",
+}
 
 def _safe_json_obj(raw: str | None) -> dict[str, Any] | None:
     if not raw:
@@ -340,17 +389,36 @@ _CSS = """
 def _render_metrics(c: dict[str, Any]) -> str:
     metrics = c.get("metrics") or []
     if metrics:
-        chips = "".join(
-            f'<span class="metric-chip"><strong>{_esc(m.get("metric_type"))}</strong>: '
-            f'{_esc(m.get("value_raw"))} ({_esc(m.get("unit"))})</span>'
-            for m in metrics
-        )
+        chips_parts = []
+        for m in metrics:
+            type_label = _METRIC_TYPE_LABELS.get(str(m.get("metric_type")), str(m.get("metric_type")))
+            unit_part = _unit_suffix(m.get("value_raw"), str(m.get("unit") or ""))
+            chips_parts.append(
+                f'<span class="metric-chip"><strong>{_esc(type_label)}</strong>: '
+                f'{_esc(m.get("value_raw"))}{unit_part}</span>'
+            )
+        chips = "".join(chips_parts)
         return f'<div class="metrics-row">{chips}</div>'
     if c.get("amount"):
         return (
             '<div class="metrics-row"><span class="metric-chip">'
             f'<strong>规模/金额</strong>: {_esc(c["amount"])}</span></div>'
         )
+    return ""
+
+
+def _unit_suffix(value_raw: Any, unit: str) -> str:
+    """单位后缀只在原值没表达单位时才补，避免「5倍（倍）」「日活用户…（用户）」这种重复。"""
+    label = _UNIT_LABELS.get(unit, unit)
+    raw = str(value_raw or "")
+    if not label or label == "unknown" or label in raw:
+        return ""
+    if unit == "percent":
+        return "" if "%" in raw or "％" in raw else "（%）"
+    if unit == "x":
+        return "" if "倍" in raw else "（倍）"
+    if unit.isupper():  # 币种
+        return f"（{_esc(label)}）"
     return ""
 
 
@@ -392,7 +460,8 @@ def _render_case_card(
 
     badges = [f'<span class="badge">{_esc(c.get("category_name"))}</span>']
     if c.get("case_action"):
-        badges.append(f'<span class="badge badge-muted">{_esc(c["case_action"])}</span>')
+        action_label = _ACTION_LABELS.get(str(c["case_action"]), str(c["case_action"]))
+        badges.append(f'<span class="badge badge-muted">{_esc(action_label)}</span>')
     if c.get("industry_l1"):
         badges.append(f'<span class="badge badge-muted">{_esc(c["industry_l1"])}</span>')
     if c.get("scenario_name"):
@@ -415,7 +484,7 @@ def _render_case_card(
         f'<div class="case-id">{case_meta}</div>',
         "</div>",
         f'<span class="badge badge-ref-{_esc(c.get("reference_value"))}">'
-        f'参考价值：{_esc(c.get("reference_value"))}</span>',
+        f'{_esc(_REFERENCE_LABELS.get(str(c.get("reference_value")), str(c.get("reference_value"))))}</span>',
         "</div>",
         f'<div class="badges">{"".join(badges)}</div>',
     ]
