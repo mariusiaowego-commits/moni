@@ -23,6 +23,8 @@ from moni.web.routes.cleaning import router as cleaning_router
 from moni.web.routes.directions import router as directions_router
 from moni.web.routes.direction_scores import router as direction_scores_router
 from moni.web.routes.cases import router as cases_router
+# sprint-69: 脱敏实验室（决赛四栏演练台）—— 三个新增只读/演示端点
+from moni.web.routes.desensitize import router as desensitize_router
 from moni.web.routes.cron import router as cron_router
 from moni.web.routes.crud import router as crud_router
 from moni.web.routes.events import router as events_router
@@ -55,6 +57,7 @@ _routers: list[APIRouter] = [
     config_sources_router,
     config_tags_router,
     cleaning_router,
+    desensitize_router,
     cron_router,
     crud_router,
     events_router,

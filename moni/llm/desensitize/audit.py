@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Sequence
 
 from moni.db.connection import get_db, get_db_path
 
@@ -53,6 +53,9 @@ class DesensSettings:
     level_l3: bool
     strict_fail_closed: bool
     rules: UserRules | None
+    #: Uncompiled rule rows — kept so callers can merge extra terms in and
+    #: recompile (the desensitize lab's ad-hoc terms).
+    rules_raw: tuple[Rule, ...] = ()
 
 
 _DISABLED_SETTINGS = DesensSettings(
@@ -162,6 +165,11 @@ def _open_conn(db_path: str | os.PathLike[str] | None) -> tuple[sqlite3.Connecti
 
 
 def _compile_rules_from_rows(rows: list[sqlite3.Row]) -> UserRules | None:
+    compiled = _rules_from_rows(rows)
+    return UserRules.from_rules(compiled) if compiled else None
+
+
+def _rules_from_rows(rows: list[sqlite3.Row]) -> list[Rule]:
     compiled: list[Rule] = []
     for row in rows:
         rule_type = str(row["rule_type"] or "").strip()
@@ -202,7 +210,7 @@ def _compile_rules_from_rows(rows: list[sqlite3.Row]) -> UserRules | None:
                     match_case=match_case,
                 )
             )
-    return UserRules.from_rules(compiled) if compiled else None
+    return compiled
 
 
 def load_settings(db_path: str | os.PathLike[str] | None = None) -> DesensSettings:
@@ -230,17 +238,16 @@ def load_settings(db_path: str | os.PathLike[str] | None = None) -> DesensSettin
         level_l3 = cfg.get("desensitize.level_l3", "0") == "1"
         strict_fail_closed = cfg.get("desensitize.strict_fail_closed", "0") == "1"
 
-        user_rules: UserRules | None = None
-        if enabled:
-            rule_rows = conn.execute(
-                """
-                SELECT rule_type, kind, pattern, aliases_json, pseudonym, action, match_case
-                FROM desensitize_rules
-                WHERE is_active = 1
-                ORDER BY id ASC
-                """
-            ).fetchall()
-            user_rules = _compile_rules_from_rows(rule_rows)
+        rule_rows = conn.execute(
+            """
+            SELECT rule_type, kind, pattern, aliases_json, pseudonym, action, match_case
+            FROM desensitize_rules
+            WHERE is_active = 1
+            ORDER BY id ASC
+            """
+        ).fetchall()
+        rules_raw = _rules_from_rows(rule_rows)
+        user_rules = UserRules.from_rules(rules_raw) if rules_raw else None
 
         settings = DesensSettings(
             enabled=enabled,
@@ -249,6 +256,7 @@ def load_settings(db_path: str | os.PathLike[str] | None = None) -> DesensSettin
             level_l3=level_l3,
             strict_fail_closed=strict_fail_closed,
             rules=user_rules,
+            rules_raw=tuple(rules_raw),
         )
     except Exception as exc:  # noqa: BLE001 — fail-open when DB/tables unavailable
         logger.debug("desensitize load_settings failed (returning disabled): %s", exc)
@@ -286,12 +294,20 @@ def prepare_outbound(
     db_path: str | os.PathLike[str] | None = None,
     force_level_l2: bool | None = None,
     force_level_l3: bool | None = None,
+    force: bool = False,
+    extra_terms: Sequence[str] = (),
 ) -> OutboundContext | None:
-    """Mask an outbound prompt when ``desensitize.enabled`` is active; else return None."""
+    """Mask an outbound prompt when ``desensitize.enabled`` is active; else return None.
+
+    ``force=True`` masks regardless of the global switch — the desensitize lab
+    uses it so the demo always shows the shielded side even while the
+    production switch stays off.  ``extra_terms`` adds ad-hoc dictionary terms
+    (kind ``ORG``) on top of the stored user rules without touching the DB.
+    """
     if not prompt:
         return None
     settings = load_settings(db_path)
-    if not settings.enabled:
+    if not settings.enabled and not force:
         return None
 
     started_ns = time.perf_counter_ns()
@@ -300,6 +316,10 @@ def prepare_outbound(
     eff_l3 = settings.level_l3 if force_level_l3 is None else force_level_l3
     eff_db = str(db_path) if db_path is not None else None
     tokens_before = _estimate_tokens_local(prompt)
+    user_rules = settings.rules
+    ad_hoc = [Rule(kind="ORG", word=term.strip()) for term in extra_terms if term and term.strip()]
+    if ad_hoc:
+        user_rules = UserRules.from_rules([*settings.rules_raw, *ad_hoc])
 
     try:
         policy = resolve_policy(
@@ -316,7 +336,7 @@ def prepare_outbound(
             task_type=task_type,
             vault=vault,
             policy=policy,
-            user_rules=settings.rules,
+            user_rules=user_rules,
             inject_note=eff_inject,
         )
         return OutboundContext(

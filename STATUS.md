@@ -1,3 +1,42 @@
+## 进行中: **脱敏实验室（演练台）** (2026-11-25 · PR `feat/desens-lab` · Sprint 69)
+
+给「对大模型的信息脱敏」feature 配一个**能在决赛现场跑真实模型**的演示台：一个 URL 打开，
+贴一段含敏感信息的文本 → 四栏并排显示 **① 原文 / ② 发给模型的内容（已遮蔽）/ ③ 模型回包（原始，
+仍是编码）/ ④ 本地还原后**，下面一条实时指标带。作用：把「我说是安全的」变成「现场看见的」。
+
+**交付物**
+
+- 后端：`moni/web/routes/desensitize.py` —— `POST /api/desensitize/preview`（纯本地预览）、
+  `POST /api/desensitize/run`（真调大模型，四栏回包）、`GET /api/desensitize/stats`（账本口径，
+  生产统计**排除** `call_site='desens_lab'`）
+- 页面：`moni/web/static/desens-lab.html`（独立单文件页，Alpine.js，与主界面同源）
+- 内核向后兼容改动：`audit.py` 的 `prepare_outbound(..., force=False, extra_terms=())` +
+  `DesensSettings.rules_raw` + `load_settings` 无论开关都加载规则；
+  `runner.py` 的 `CallRequest.desens_ctx` **公开化**（原 `_desens_ctx`），`call()` 在
+  `desens_ctx` 非空时**跳过遮蔽也跳过还原**（实验室自己遮蔽自己还原，才能拿到模型原始回包）
+- 测试：`tests/test_desensitize_lab_api.py`（8 例）
+- 证据：`docs/sprint-evidence/sprint-69/VERIFY.md`；决赛物料与分镜脚本：
+  `docs/plans/2026-11-25_llm-desens-lab-finals.md`
+
+**实测数字（真实模型，非 mock）**
+
+| 项 | 值 |
+|---|---|
+| 遮蔽 / 还原处数 | 5 / 5 |
+| 未还原 / 出站泄漏命中 / 残留占位符 | 0 / 0 / 0 |
+| 遮蔽 / 还原 / 模型耗时 | 128 µs / 256 µs / 11344 ms |
+| 响应式（Playwright 实测） | 1600/1280 → 4 列，1100 → 2 列，820/760/480 → 1 列，**6 断点均无横向溢出** |
+| 专项 / 脱敏全套 / 全量 | `8 passed` / `96 passed` / `2780 passed, 2 skipped, 0 failed`（基线 2772 + 8） |
+
+**范围外（明说不做）**
+
+- 开关面板（用户自助配规则 CRUD）本轮不做，PPT 不提
+- 脱敏总开关维持 `desensitize.enabled='0'`（默认关，用户已拍板）；实验室用 `force=True`
+  不受总开关影响
+- 演练台只读 + 一次显式模型调用，不写业务数据
+
+---
+
 ## 已合并待开: **对大模型的信息脱敏（LLM Desens Shield）** (2026-11-24 · PR #294 → `8b0484d` · Sprint 26112472)
 
 在 moni 进程内、hermes 子进程启动前的最后一跳收口全部 **5 条出站通道**，做
