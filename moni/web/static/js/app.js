@@ -1161,6 +1161,8 @@ function app() {
         this.loadCronRuns();
         if (!this.cronJobs.length) this.loadCronJobs();
         this._startCronPoll();
+      } else if (this.configTab === 'desens') {
+        this.loadDesensConfig();
       }
     },
 
@@ -5774,8 +5776,8 @@ function app() {
     init() {
       // Apply saved theme (from theme.js mixin)
       this.initTheme();
-      // v1.0.132: 顶栏「信息脱敏」入口的状态徽章（开/关）
-      this.loadDesensState();
+      // v1.0.134: 脱敏配置（配置管理 → 脱敏 tab 用）
+      this.loadDesensConfig();
       // v1.0.110: 滚动锁统一在 modal.js 的 _syncScrollLock() 里按「是否有
       // 可见浮层」计算（v1.0.109 这里只锁了 fetchProgressModal 一个）。
       // Load service status for topnav indicator
@@ -5801,13 +5803,13 @@ function app() {
       window.addEventListener('popstate', (e) => this.onPopState(e));
     },
 
-    // v1.0.132: 只读一次状态，失败不影响主流程（徽章显示「…」）。
-    desensEnabled: null,
-    loadDesensState() {
+    // v1.0.134: 脱敏配置总览（总开关/级别/规则条数），失败不影响主流程。
+    desensConfig: null,
+    loadDesensConfig() {
       const self = this;
-      fetch('/api/desensitize/stats', { credentials: 'same-origin' })
+      fetch('/api/desensitize/config', { credentials: 'same-origin' })
         .then(r => r.ok ? r.json() : null)
-        .then(d => { if (d) self.desensEnabled = !!d.enabled; })
+        .then(d => { if (d) self.desensConfig = d; })
         .catch(() => {});
     },
 

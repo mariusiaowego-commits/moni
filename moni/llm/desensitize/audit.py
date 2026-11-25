@@ -12,6 +12,7 @@ import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, Sequence
 
@@ -37,6 +38,14 @@ _SETTING_KEYS = (
     "desensitize.level_l2",
     "desensitize.level_l3",
     "desensitize.strict_fail_closed",
+)
+#: 配置字段 → ``app_settings`` 键，顺序与 ``_SETTING_KEYS`` 一致。
+SETTING_FIELDS: tuple[str, ...] = (
+    "enabled",
+    "level_l1",
+    "level_l2",
+    "level_l3",
+    "strict_fail_closed",
 )
 
 _CACHE_LOCK = threading.Lock()
@@ -266,6 +275,36 @@ def load_settings(db_path: str | os.PathLike[str] | None = None) -> DesensSettin
     with _CACHE_LOCK:
         _SETTINGS_CACHE[key] = (now, settings)
     return settings
+
+
+def invalidate_settings_cache() -> None:
+    """丢掉进程内设置缓存：配置刚被写过时调用，下一次读立刻生效。"""
+    with _CACHE_LOCK:
+        _SETTINGS_CACHE.clear()
+
+
+def save_settings(**fields: bool | None) -> DesensSettings:
+    """写开关/级别到 ``app_settings``（运行时生效，不需要发版）。
+
+    只认布尔字段；``None`` 表示这次不改。写完立即让缓存失效。
+    """
+    keys = dict(zip(SETTING_FIELDS, _SETTING_KEYS))
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_db()
+    for field_name, value in fields.items():
+        if value is None or field_name not in keys:
+            continue
+        conn.execute(
+            """
+            INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE
+               SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (keys[field_name], "1" if value else "0", now),
+        )
+    conn.commit()
+    invalidate_settings_cache()
+    return load_settings()
 
 
 def _estimate_tokens_local(text: str) -> int:
