@@ -93,7 +93,7 @@ def _seed_case(
 
 
 class TestShareCasesP2:
-    def test_migrations_066_067_and_format_ext(self, share_db):
+    def test_migrations_067_068_and_format_ext(self, share_db):
         conn, _, _ = share_db
         assert _CURRENT_VERSION >= 67
         assert current_version(conn) == _CURRENT_VERSION

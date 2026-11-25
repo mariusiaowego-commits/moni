@@ -1,5 +1,5 @@
--- 065_case_taxonomy.sql — 案例 8 类体系 + 10 个业务场景受控词表 (P1-1)
--- schema_version 64 → 65
+-- 066_case_taxonomy.sql — 案例 8 类体系 + 10 个业务场景受控词表 (P1-1)
+-- schema_version 65 → 66
 
 CREATE TABLE IF NOT EXISTS case_categories (
     code        TEXT PRIMARY KEY,

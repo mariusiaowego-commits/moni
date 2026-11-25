@@ -1,5 +1,5 @@
--- 062_cases_fts_v2.sql — 扩展 cases_fts 索引 keywords + article_title，加 search_text 兜底列 (P0-5)
--- schema_version 61 → 62
+-- 063_cases_fts_v2.sql — 扩展 cases_fts 索引 keywords + article_title，加 search_text 兜底列 (P0-5)
+-- schema_version 62 → 63
 
 DROP TRIGGER IF EXISTS cases_fts_ai;
 DROP TRIGGER IF EXISTS cases_fts_ad;

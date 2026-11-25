@@ -1,5 +1,5 @@
--- 066_case_insights.sql — 案例深度解读表 (P2-1 建表，本轮不跑 LLM)
--- schema_version 65 → 66
+-- 067_case_insights.sql — 案例深度解读表 (P2-1 建表，本轮不跑 LLM)
+-- schema_version 66 → 67
 
 CREATE TABLE IF NOT EXISTS case_insights (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -1,4 +1,4 @@
-"""P0 案例库 2.0 止血验收测试 (migrations 061-063, metrics, FTS v2, cron/ledger/budget)."""
+"""P0 案例库 2.0 止血验收测试 (migrations 062-064, metrics, FTS v2, cron/ledger/budget)."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ def _seed_article(conn: sqlite3.Connection, aid: str, *, title: str = "测试文
     conn.commit()
 
 
-class TestMigrations061To063:
+class TestMigrations062To064:
     def test_schema_version_and_tables(self, tmp_db: sqlite3.Connection):
         assert _CURRENT_VERSION >= 63
         assert current_version(tmp_db) == _CURRENT_VERSION

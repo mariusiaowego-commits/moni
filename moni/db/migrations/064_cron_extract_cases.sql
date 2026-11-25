@@ -1,5 +1,5 @@
--- 063_cron_extract_cases.sql — 案例抽取账本 + cron 调度种子 + 日预算闸 (P0-4)
--- schema_version 62 → 63
+-- 064_cron_extract_cases.sql — 案例抽取账本 + cron 调度种子 + 日预算闸 (P0-4)
+-- schema_version 63 → 64
 
 CREATE TABLE IF NOT EXISTS case_extract_runs (
     article_id     TEXT NOT NULL,

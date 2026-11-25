@@ -1,4 +1,4 @@
-"""P1-1 企业/行业/场景/8类 分类体系与回填验收测试 (migrations 064-065)."""
+"""P1-1 企业/行业/场景/8类 分类体系与回填验收测试 (migrations 065-066)."""
 
 from __future__ import annotations
 
@@ -70,7 +70,7 @@ def _seed_case(
     return conn.execute("SELECT case_id FROM cases WHERE article_id = ?", (aid,)).fetchone()[0]
 
 
-class TestMigrations064To065:
+class TestMigrations065To066:
     def test_migration_idempotent_and_version_65(self, tmp_db):
         conn, _ = tmp_db
         assert _CURRENT_VERSION >= 65

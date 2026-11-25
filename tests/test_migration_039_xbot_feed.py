@@ -769,7 +769,7 @@ CREATE TABLE llm_jobs (
 );
 
 -- 024/031 landed before v38, so a real v38 database already has the
--- case tables. 061/062 extend them; the fixture must model that or the
+-- case tables. 062/063 extend them; the fixture must model that or the
 -- upgrade path fails on a shape no real database has.
 -- (``articles`` is deliberately absent: schema.sql creates the full
 -- base table, and a partial copy would shadow it.)

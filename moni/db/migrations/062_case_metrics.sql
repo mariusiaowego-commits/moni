@@ -1,5 +1,5 @@
--- 061_case_metrics.sql — 案例结构化指标 + 原始输出保留 + 动作来源标记 (P0-3 / P0-2)
--- schema_version 60 → 61
+-- 062_case_metrics.sql — 案例结构化指标 + 原始输出保留 + 动作来源标记 (P0-3 / P0-2)
+-- schema_version 61 → 62
 
 CREATE TABLE IF NOT EXISTS case_metrics (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,

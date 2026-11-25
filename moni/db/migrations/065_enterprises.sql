@@ -1,5 +1,5 @@
--- 064_enterprises.sql — 企业规范实体 + 别名表 + 案例企业关联表 (P1-1)
--- schema_version 63 → 64
+-- 065_enterprises.sql — 企业规范实体 + 别名表 + 案例企业关联表 (P1-1)
+-- schema_version 64 → 65
 
 CREATE TABLE IF NOT EXISTS enterprises (
     enterprise_id TEXT PRIMARY KEY,
