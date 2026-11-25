@@ -108,14 +108,23 @@ def _insert_context(aid: str, cid: str, body: str, *, kind: str = "chat", title:
 
 def test_share_flag_defaults_off_for_every_format() -> None:
     for fmt in sorted(VALID_FORMATS):
+        primary_id = (
+            {"case_ids": ["MN-AI-2608-0001"]}
+            if fmt == "case_brief_html"
+            else {"article_ids": ["a1"]}
+        )
         manifest = {
             "format": fmt,
             "version": "1.0",
-            "payload": {"article_ids": ["a1"]},
+            "payload": primary_id,
         }
         if fmt in ("html_landing", "info_graphic_png", "pdf"):
             manifest["payload"]["title"] = "标题"
         _, payload = validate_manifest(manifest)
+        if "include_user_context" not in payload:
+            # case_brief_html is case-scoped: it has no article-context
+            # section, so the flag does not exist on that payload.
+            continue
         assert payload["include_user_context"] is False, fmt
 
         manifest["payload"]["include_user_context"] = True

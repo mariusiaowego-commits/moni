@@ -339,7 +339,7 @@ function casesModule() {
       this.casesTags = [];
       if (!caseId) return;
       try {
-        const r = await fetch(`/api/cases/${encodeURIComponent(caseId)}/tags`, {
+        const r = await fetch(`/api/cases/${encodeURIComponent(caseId)}/keywords`, {
           credentials: 'same-origin',
         });
         if (!r.ok) return;
@@ -356,11 +356,11 @@ function casesModule() {
       if (!kw || !id || this.casesTagBusy) return;
       this.casesTagBusy = true;
       try {
-        const r = await fetch(`/api/cases/${encodeURIComponent(id)}/tags`, {
+        const r = await fetch(`/api/cases/${encodeURIComponent(id)}/keywords`, {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ keyword: kw, source_type: 'manual_user' }),
+          body: JSON.stringify({ keyword: kw, weight: 1 }),
         });
         const body = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(this._casesApiError(body, r.status));
@@ -382,11 +382,11 @@ function casesModule() {
     async casesRemoveTag(kw) {
       const id = this.casesDetail && this.casesDetail.case_id;
       if (!id || !kw || this.casesTagBusy) return;
-      const token = kw.id != null ? kw.id : kw.keyword;
+      const keyword = kw.keyword || kw;
       this.casesTagBusy = true;
       try {
         const r = await fetch(
-          `/api/cases/${encodeURIComponent(id)}/tags/${encodeURIComponent(token)}`,
+          `/api/cases/${encodeURIComponent(id)}/keywords/${encodeURIComponent(keyword)}`,
           { method: 'DELETE', credentials: 'same-origin' }
         );
         if (!r.ok && r.status !== 204) {

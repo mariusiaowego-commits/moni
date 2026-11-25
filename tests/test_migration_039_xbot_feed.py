@@ -767,6 +767,35 @@ CREATE TABLE llm_jobs (
     created_at  TEXT NOT NULL,
     fence       INTEGER NOT NULL DEFAULT 0
 );
+
+-- 024/031 landed before v38, so a real v38 database already has the
+-- case tables. 062/063 extend them; the fixture must model that or the
+-- upgrade path fails on a shape no real database has.
+-- (``articles`` is deliberately absent: schema.sql creates the full
+-- base table, and a partial copy would shadow it.)
+CREATE TABLE cases (
+    case_id         TEXT PRIMARY KEY,
+    article_id      TEXT NOT NULL,
+    subject         TEXT NOT NULL,
+    case_type       TEXT NOT NULL,
+    case_action     TEXT NOT NULL,
+    counterparty    TEXT,
+    amount          TEXT,
+    summary         TEXT,
+    evidence_snippet TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+
+CREATE TABLE case_keywords (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    case_id     TEXT NOT NULL,
+    keyword     TEXT NOT NULL,
+    source_type TEXT NOT NULL DEFAULT 'auto_llm',
+    weight      INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL,
+    UNIQUE(case_id, keyword)
+);
 """
 
 #: The four business tags migration 039 binds the source to.

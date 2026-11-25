@@ -62,6 +62,12 @@ _PREDICT_TAGS_LOCK = threading.Lock()
 #: Chain trigger: how many pending articles one post-fetch tagging run may take.
 TAG_CHAIN_MAX_ARTICLES = 2000
 
+#: Chain trigger: max pending articles per post-fetch case extraction run.
+CASE_CHAIN_MAX_ARTICLES = 40
+
+#: In-process mutex guarding ``extract_cases_pending`` (prevents concurrent case_id race).
+_CASE_LOCK = threading.Lock()
+
 #: Cap on tags accepted per article — ``predict_tag.md`` asks for 1-3.
 _MAX_TAGS_PER_ARTICLE = 3
 
@@ -359,6 +365,7 @@ def fetch_all_sources() -> dict[str, Any] | None:
     # is finalised so a slow LLM never makes the fetch look unfinished.
     if total_inserted > 0:
         _run_tag_chain(job_id=job_id, cron_run_rowid=cron_run_rowid)
+        _run_case_chain(job_id=job_id, cron_run_rowid=cron_run_rowid)
 
     logger.info(
         "[%s] finished at %s — sources_run=%d inserted=%d failed=%d",
@@ -404,6 +411,53 @@ def _run_tag_chain(*, job_id: str, cron_run_rowid: int) -> None:
         chain["error"] = f"{type(exc).__name__}: {exc}"
 
     _write_tag_chain(cron_run_rowid, chain)
+
+
+def _case_model_configured() -> bool:
+    try:
+        resolve_active_model()
+        return True
+    except Exception:
+        return False
+
+
+def _write_case_chain(cron_run_rowid: int, chain: dict[str, Any]) -> None:
+    if not cron_run_rowid:
+        return
+    try:
+        conn = get_db()
+        conn.execute(
+            """
+            UPDATE cron_runs
+            SET extra = json_set(COALESCE(extra, '{}'), '$.case_chain', json(?))
+            WHERE id = ?
+            """,
+            (json.dumps(chain, ensure_ascii=False), cron_run_rowid),
+        )
+        conn.commit()
+    except Exception as exc:
+        logger.warning("failed to record case chain: %s", exc)
+
+
+def _run_case_chain(*, job_id: str, cron_run_rowid: int) -> None:
+    """Extract cases for pending articles right after fetch+tag; record outcome."""
+    if not _case_model_configured():
+        _write_case_chain(cron_run_rowid, {"skipped": "no active case model"})
+        return
+
+    chain: dict[str, Any] = {}
+    try:
+        res = extract_cases_pending(
+            batch_size=CASE_CHAIN_MAX_ARTICLES,
+            triggered_by=job_id,
+        )
+        if res is not None:
+            chain.update(res)
+    except Exception as exc:
+        logger.error("[%s] chained case extraction failed: %s", job_id, exc)
+        chain["error"] = f"{type(exc).__name__}: {exc}"
+
+    _write_case_chain(cron_run_rowid, chain)
 
 
 def _tag_model_configured() -> bool:
@@ -866,3 +920,106 @@ def extract_events_pending(
         result["events_extracted"],
     )
     return None
+
+
+# ── 同业案例抽取 (P0-4) ──────────────────────────────────────────────
+
+
+def extract_cases_pending(
+    *,
+    batch_size: int = 30,
+    provider: str | None = None,
+    model: str | None = None,
+    llm_call_fn: Any = None,
+    triggered_by: str | None = None,
+) -> dict[str, Any] | None:
+    """为新入库的文章批量抽取同业案例 (走 case_extract_runs 账本 + 互斥锁 + 预算闸)."""
+    if not _CASE_LOCK.acquire(blocking=False):
+        logger.info("[extract_cases_pending] skipped: previous run still in progress")
+        return {"skipped": "busy"}
+
+    job_id = "extract_cases_pending"
+    triggered_at = _cst_now().isoformat()
+    history = CronRunHistory()
+    cron_run_rowid = 0
+    try:
+        try:
+            cron_run_rowid = history.log_run(
+                job_id,
+                triggered_at=triggered_at,
+                finished_at=_cst_now().isoformat(),
+                success=True,
+                error=None,
+                new_articles=0,
+                sources_run=0,
+            )
+        except Exception as exc:
+            logger.error("[%s] Failed to create cron_runs row: %s", job_id, exc)
+
+        try:
+            from moni.cases.pipeline import extract_cases_batch
+
+            result = extract_cases_batch(
+                batch_size=batch_size,
+                provider=provider,
+                model=model,
+                llm_call_fn=llm_call_fn,
+            )
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            logger.error("[%s] batch extraction failed: %s", job_id, error)
+            if cron_run_rowid:
+                try:
+                    conn = get_db()
+                    conn.execute(
+                        "UPDATE cron_runs SET finished_at=?, success=0, error=? WHERE id=?",
+                        (_cst_now().isoformat(), error, cron_run_rowid),
+                    )
+                    conn.commit()
+                except Exception:
+                    pass
+            return {"error": error}
+
+        finished_at = _cst_now().isoformat()
+        success = result["failed"] == 0 and not result.get("rate_limited")
+        err_msg = None
+        if result.get("rate_limited"):
+            err_msg = "rate_limited (429)"
+        elif result["failed"]:
+            err_msg = f"{result['failed']} failed"
+
+        extra_payload: dict[str, Any] = {}
+        if result.get("budget_exhausted"):
+            extra_payload["budget_exhausted"] = True
+        if triggered_by:
+            extra_payload["triggered_by"] = triggered_by
+
+        if cron_run_rowid:
+            try:
+                conn = get_db()
+                conn.execute(
+                    """
+                    UPDATE cron_runs
+                    SET finished_at=?, success=?, error=?,
+                        new_articles=?, sources_run=?,
+                        extra=CASE WHEN ? != '{}' THEN ? ELSE extra END
+                    WHERE id=?
+                    """,
+                    (
+                        finished_at,
+                        1 if success else 0,
+                        err_msg,
+                        result["cases_extracted"],
+                        result["processed"],
+                        json.dumps(extra_payload),
+                        json.dumps(extra_payload),
+                        cron_run_rowid,
+                    ),
+                )
+                conn.commit()
+            except Exception as log_exc:
+                logger.error("[%s] Failed to update cron_runs row: %s", job_id, log_exc)
+
+        return result
+    finally:
+        _CASE_LOCK.release()

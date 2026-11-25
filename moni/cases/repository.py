@@ -108,14 +108,15 @@ class CaseRepository:
                     INSERT OR IGNORE INTO cases
                         (case_id, article_id, case_date, case_date_precision,
                          subject, subject_raw, case_type, case_action,
-                         counterparty, amount,
+                         case_action_source,
+                         counterparty, amount, raw_json,
                          reference_value, reference_rationale,
                          summary, evidence_snippet,
                          extraction_confidence, extraction_status, review_status,
                          case_lifecycle,
                          extraction_attempts, last_error, extracted_at,
                          normalize_version, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                             ?, ?, ?, ?, ?, 'completed', ?, ?,
                             1, NULL, ?, ?, ?, ?)
                     """,
@@ -124,7 +125,9 @@ class CaseRepository:
                         cs.get("case_date"), cs.get("case_date_precision"),
                         cs["subject"], cs.get("subject_raw"),
                         cs["case_type"], cs["case_action"],
+                        cs.get("case_action_source") or "default",
                         cs.get("counterparty"), cs.get("amount"),
+                        cs.get("raw_json"),
                         cs.get("reference_value"), cs.get("reference_rationale"),
                         cs.get("summary"), cs.get("evidence_snippet"),
                         cs.get("extraction_confidence"),
@@ -140,11 +143,101 @@ class CaseRepository:
                     CaseRepository._insert_geography_rows(
                         conn, case_id, cs.get("geography") or [], now=now,
                     )
+                    CaseRepository._insert_metrics_rows(
+                        conn, case_id, cs.get("metrics") or [], now=now,
+                    )
             except sqlite3.IntegrityError as e:
                 logger.warning("插入案例失败 (%s): %s", case_id, e)
                 continue
 
         return inserted
+
+    @staticmethod
+    def _insert_metrics_rows(
+        conn: sqlite3.Connection,
+        case_id: str,
+        metrics: Sequence[Any],
+        *,
+        now: str | None = None,
+    ) -> int:
+        """同事务写入 case_metrics 结构化指标."""
+        if not metrics:
+            return 0
+        ts = now or datetime.now(timezone.utc).isoformat()
+        n = 0
+        for m in metrics:
+            if not isinstance(m, dict):
+                continue
+            value_raw = str(m.get("value_raw") or "").strip()
+            if not value_raw:
+                continue
+            src = m.get("source_type") or "auto_llm"
+            if src not in ("auto_llm", "rule_backfill", "manual_user"):
+                src = "auto_llm"
+            cur = conn.execute(
+                """INSERT INTO case_metrics
+                       (case_id, metric_type, value_num, value_approx, unit,
+                        period, period_type, value_raw, evidence_quote,
+                        is_primary, source_type, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    case_id,
+                    m.get("metric_type") or "other",
+                    m.get("value_num"),
+                    m.get("value_approx"),
+                    m.get("unit") or "unknown",
+                    m.get("period"),
+                    m.get("period_type"),
+                    value_raw,
+                    m.get("evidence_quote"),
+                    1 if m.get("is_primary") else 0,
+                    src,
+                    ts,
+                ),
+            )
+            if cur.rowcount > 0:
+                n += 1
+        return n
+
+    @staticmethod
+    def list_metrics(case_id: str) -> list[dict[str, Any]]:
+        """获取单条案例的结构化指标列表."""
+        conn = get_db()
+        rows = conn.execute(
+            """SELECT id, case_id, metric_type, value_num, value_approx, unit,
+                      period, period_type, value_raw, evidence_quote,
+                      is_primary, source_type, created_at
+               FROM case_metrics WHERE case_id = ?
+               ORDER BY is_primary DESC, id""",
+            (case_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    @staticmethod
+    def _attach_metrics(conn: sqlite3.Connection, cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """批量为案例列表附加 metrics 字段."""
+        if not cases:
+            return cases
+        ids = [c["case_id"] for c in cases if c.get("case_id")]
+        if not ids:
+            return cases
+        placeholders = ",".join("?" * len(ids))
+        rows = conn.execute(
+            f"""SELECT id, case_id, metric_type, value_num, value_approx, unit,
+                       period, period_type, value_raw, evidence_quote,
+                       is_primary, source_type, created_at
+                FROM case_metrics
+                WHERE case_id IN ({placeholders})
+                ORDER BY is_primary DESC, id""",
+            ids,
+        ).fetchall()
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for r in rows:
+            d = dict(r)
+            grouped.setdefault(d["case_id"], []).append(d)
+        for c in cases:
+            c["metrics"] = grouped.get(c["case_id"], [])
+        return cases
 
     @staticmethod
     def _insert_auto_keywords(
@@ -402,34 +495,71 @@ class CaseRepository:
         )
 
     @staticmethod
+    def upsert_extract_run(
+        conn: sqlite3.Connection,
+        article_id: str,
+        *,
+        prompt_version: str = "v1",
+        input_hash: str = "",
+        status: str,
+        case_count: int = 0,
+        error: str | None = None,
+        increment_attempts: bool = True,
+    ) -> None:
+        """写入或更新 case_extract_runs 账本."""
+        now = datetime.now(timezone.utc).isoformat()
+        att_inc = 1 if increment_attempts else 0
+        conn.execute(
+            """
+            INSERT INTO case_extract_runs
+                (article_id, prompt_version, input_hash, status,
+                 case_count, attempts, last_error, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(article_id, prompt_version) DO UPDATE SET
+                input_hash = COALESCE(NULLIF(excluded.input_hash, ''), case_extract_runs.input_hash),
+                status = excluded.status,
+                case_count = excluded.case_count,
+                attempts = case_extract_runs.attempts + ?,
+                last_error = excluded.last_error,
+                updated_at = excluded.updated_at
+            """,
+            (
+                article_id, prompt_version, input_hash, status,
+                case_count, att_inc, error, now, att_inc,
+            ),
+        )
+
+    @staticmethod
     def get_pending_articles(
         batch_size: int = 20,
         *,
         source: str | None = None,
         min_content_len: int = 100,
         after_id: str | None = None,
+        prompt_version: str = "v1",
     ) -> list[dict[str, Any]]:
-        """获取待提取案例的文章列表（无任何 cases 行的新文章）。
-
-        v1.0.35.19: CLI 批量提取选文入口。占位行 (skipped/processing) 也是
-        cases 行, 因此已处理过 (含无案例) 的文章天然被排除, 不重复烧 LLM。
+        """获取待提取案例的文章列表（走 case_extract_runs 账本 + 无 cases 行）.
 
         Args:
             batch_size: 每批文章数
             source: 只选指定信源
             min_content_len: raw_content 最短长度 (过滤无正文文章)
             after_id: resume 游标 (只取 id > after_id 的文章)
+            prompt_version: 抽取 prompt 版本号
         """
         conn = get_db()
         sql = """
             SELECT a.id, a.title, a.raw_content, a.source, a.published_at, a.fetched_at
             FROM articles a
+            LEFT JOIN case_extract_runs r
+                   ON r.article_id = a.id AND r.prompt_version = ?
             LEFT JOIN cases c ON c.article_id = a.id
-            WHERE c.article_id IS NULL
+            WHERE (r.article_id IS NULL OR (r.status = 'failed' AND r.attempts < 3))
+              AND c.article_id IS NULL
               AND a.raw_content IS NOT NULL
               AND length(a.raw_content) >= ?
         """
-        params: list[Any] = [min_content_len]
+        params: list[Any] = [prompt_version, min_content_len]
         if source:
             sql += " AND a.source = ?"
             params.append(source)
@@ -507,7 +637,7 @@ class CaseRepository:
                    a.published_at AS article_published_at,
                    c.case_date, c.case_date_precision,
                    c.subject, c.subject_raw,
-                   c.case_type, c.case_action,
+                   c.case_type, c.case_action, c.case_action_source,
                    c.counterparty, c.amount,
                    c.reference_value, c.reference_rationale,
                    c.summary, c.evidence_snippet,
@@ -546,7 +676,7 @@ class CaseRepository:
 
         conn = get_db()
         rows = conn.execute(sql, params).fetchall()
-        return [dict(row) for row in rows]
+        return CaseRepository._attach_metrics(conn, [dict(row) for row in rows])
 
     @staticmethod
     def count_cases(
@@ -587,7 +717,9 @@ class CaseRepository:
         """
         conn = get_db()
         row = conn.execute(sql, (case_id,)).fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        return CaseRepository._attach_metrics(conn, [dict(row)])[0]
 
     @staticmethod
     def get_by_article(article_id: str) -> list[dict[str, Any]]:
@@ -597,7 +729,7 @@ class CaseRepository:
             "SELECT * FROM cases WHERE article_id = ? ORDER BY case_type, case_action",
             (article_id,),
         ).fetchall()
-        return [dict(row) for row in rows]
+        return CaseRepository._attach_metrics(conn, [dict(row) for row in rows])
 
     # ── 编辑 / 软删除 (v1.0.35.19 agy v3 评审需求1) ────────────────
 
@@ -704,7 +836,7 @@ class CaseRepository:
 
     @staticmethod
     def search_fts(query: str, limit: int = 50) -> list[dict[str, Any]]:
-        """FTS5 全文检索 (trigram tokenizer, 中文友好).
+        """FTS5 全文检索 (trigram tokenizer + <3 字 LIKE 兜底 + 语法转义).
 
         Args:
             query: 搜索关键词
@@ -712,25 +844,150 @@ class CaseRepository:
         """
         if not query or not query.strip():
             return []
+
+        tokens = [t for t in query.strip().split() if t]
+        if not tokens:
+            return []
+
+        fts_terms = [t for t in tokens if len(t) >= 3]
+        short_terms = [t for t in tokens if len(t) < 3]
+
+        conn = get_db()
+        select_cols = """
+            SELECT c.case_id, c.article_id, a.title AS article_title,
+                   a.source AS article_source, a.url AS article_url,
+                   a.published_at AS article_published_at,
+                   c.case_date, c.case_date_precision,
+                   c.subject, c.subject_raw,
+                   c.case_type, c.case_action, c.case_action_source,
+                   c.counterparty, c.amount,
+                   c.reference_value, c.reference_rationale,
+                   c.summary, c.evidence_snippet,
+                   c.extraction_confidence, c.review_status,
+                   c.extraction_status, c.case_lifecycle,
+                   c.extraction_attempts, c.last_error,
+                   c.extracted_at, c.normalize_version,
+                   c.created_at, c.updated_at
+        """
+        short_clauses = []
+        short_params: list[Any] = []
+        for st in short_terms:
+            escaped = st.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            short_clauses.append(
+                "COALESCE(c.search_text, c.subject || ' ' || COALESCE(c.summary, '') || ' ' || COALESCE(c.evidence_snippet, '')) LIKE ? ESCAPE '\\'"
+            )
+            short_params.append(f"%{escaped}%")
+
+        if fts_terms:
+            fts_expr = " AND ".join('"' + t.replace('"', '""') + '"' for t in fts_terms)
+            where_extra = (" AND " + " AND ".join(short_clauses)) if short_clauses else ""
+            sql = f"""
+                {select_cols}, bm25(cases_fts) AS rank
+                FROM cases_fts
+                JOIN cases c ON cases_fts.case_id = c.case_id
+                LEFT JOIN articles a ON c.article_id = a.id
+                WHERE cases_fts MATCH ?
+                  AND c.subject != '__processing__'
+                  {where_extra}
+                ORDER BY rank LIMIT ?
+            """
+            rows = conn.execute(sql, [fts_expr, *short_params, limit]).fetchall()
+        else:
+            where_sql = " AND ".join(short_clauses)
+            sql = f"""
+                {select_cols}
+                FROM cases c
+                LEFT JOIN articles a ON c.article_id = a.id
+                WHERE c.subject != '__processing__'
+                  AND {where_sql}
+                ORDER BY c.created_at DESC LIMIT ?
+            """
+            rows = conn.execute(sql, [*short_params, limit]).fetchall()
+
+        return CaseRepository._attach_metrics(conn, [dict(row) for row in rows])
+
+    @staticmethod
+    def aggregate_cases_by_enterprise(limit: int = 20) -> list[dict[str, Any]]:
+        """按规范企业聚合案例数 (未归类统一计入 other)."""
         conn = get_db()
         rows = conn.execute(
             """
-            SELECT c.case_id, c.subject, c.case_type, c.case_action,
-                   c.case_date, c.summary, c.amount, c.counterparty,
-                   c.reference_value,
-                   bm25(cases_fts) AS rank
-            FROM cases_fts
-            JOIN cases c ON cases_fts.case_id = c.case_id
-            WHERE cases_fts MATCH ?
-            ORDER BY rank LIMIT ?
+            SELECT COALESCE(e.enterprise_id, 'other') AS enterprise_id,
+                   COALESCE(e.name_cn, '其他/未归类') AS name_cn,
+                   COALESCE(e.industry_l1, '其他') AS industry_l1,
+                   COUNT(*) AS count
+            FROM cases c
+            LEFT JOIN enterprises e ON e.enterprise_id = c.subject_enterprise_id
+            WHERE c.subject != '__processing__'
+              AND c.case_lifecycle != 'archived'
+            GROUP BY 1, 2, 3
+            ORDER BY count DESC, enterprise_id ASC
+            LIMIT ?
             """,
-            (query, limit),
+            (limit,),
         ).fetchall()
-        return [dict(row) for row in rows]
+        return [dict(r) for r in rows]
+
+    @staticmethod
+    def aggregate_cases_by_industry() -> list[dict[str, Any]]:
+        """按一级行业聚合案例数 (银行/保险/证券/互联网/其他)."""
+        conn = get_db()
+        rows = conn.execute(
+            """
+            SELECT COALESCE(e.industry_l1, '其他') AS industry_l1,
+                   COUNT(*) AS count
+            FROM cases c
+            LEFT JOIN enterprises e ON e.enterprise_id = c.subject_enterprise_id
+            WHERE c.subject != '__processing__'
+              AND c.case_lifecycle != 'archived'
+            GROUP BY 1
+            ORDER BY count DESC, industry_l1 ASC
+            """
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    @staticmethod
+    def aggregate_cases_by_scenario() -> list[dict[str, Any]]:
+        """按受控业务场景聚合案例数."""
+        conn = get_db()
+        rows = conn.execute(
+            """
+            SELECT COALESCE(s.code, 'other') AS scenario_code,
+                   COALESCE(s.name, '其他业务场景') AS scenario_name,
+                   COUNT(DISTINCT c.case_id) AS count
+            FROM cases c
+            LEFT JOIN case_scenario_links l ON l.case_id = c.case_id
+            LEFT JOIN case_scenarios s ON s.code = l.scenario_code
+            WHERE c.subject != '__processing__'
+              AND c.case_lifecycle != 'archived'
+            GROUP BY 1, 2
+            ORDER BY count DESC, scenario_code ASC
+            """
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    @staticmethod
+    def aggregate_cases_by_category() -> list[dict[str, Any]]:
+        """按 8 类案例体系聚合案例数."""
+        conn = get_db()
+        rows = conn.execute(
+            """
+            SELECT COALESCE(cat.code, COALESCE(c.case_category, 'unclassified')) AS category_code,
+                   COALESCE(cat.name, '未分类') AS category_name,
+                   COUNT(*) AS count
+            FROM cases c
+            LEFT JOIN case_categories cat ON cat.code = c.case_category
+            WHERE c.subject != '__processing__'
+              AND c.case_lifecycle != 'archived'
+            GROUP BY 1, 2
+            ORDER BY count DESC, category_code ASC
+            """
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     @staticmethod
     def stats() -> dict[str, Any]:
-        """案例统计数据."""
+        """案例统计数据 (含 P1-1 四维聚合: by_enterprise / by_industry / by_scenario / by_category)."""
         conn = get_db()
         total = conn.execute("SELECT COUNT(*) FROM cases").fetchone()[0]
 
@@ -762,4 +1019,8 @@ class CaseRepository:
             "by_action": by_action,
             "by_reference_value": by_reference,
             "pending_review": pending_review,
+            "by_enterprise": CaseRepository.aggregate_cases_by_enterprise(),
+            "by_industry": CaseRepository.aggregate_cases_by_industry(),
+            "by_scenario": CaseRepository.aggregate_cases_by_scenario(),
+            "by_category": CaseRepository.aggregate_cases_by_category(),
         }

@@ -77,7 +77,13 @@ from moni.web.routes.fact_check_plus import (
 
 logger = logging.getLogger(__name__)
 
-_VALID_TASK_TYPES = ("summary", "fact_check", "fact_check_plus")
+_VALID_TASK_TYPES = (
+    "summary",
+    "fact_check",
+    "fact_check_plus",
+    "case_extract",
+    "case_insight",
+)
 
 #: How many times we'll try a single LLM call before giving up.
 #: 1 = no retry; 2 = original + 1 retry.  Pinned to 2 by v1.0.5.1.

@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>moni 案例库 v2 · 原型</title>
+<style>
+/* ═══ moni token（沿用 moni/web/static/css/main.css :root，未新增体系） ═══ */
+:root{
+  --background:oklch(0.963 0.013 97.4);   /* 纯衣 */
+  --foreground:oklch(0.218 0.000 89.9);   /* 玄色 */
+  --card:oklch(0.996 0.007 97.3);         /* 雪白 */
+  --surface-modal:oklch(0.974 0.018 92);
+  --card-fg:oklch(0.218 0.000 89.9);
+  --muted:oklch(0.928 0.034 84.6);        /* 荔肉白 */
+  --muted-fg:oklch(0.486 0.040 87.0);     /* 蟹壳灰 */
+  --accent:oklch(0.819 0.109 302.2);      /* 浅紫藤萝 */
+  --accent-fg:oklch(0.218 0.000 89.9);
+  --destructive:oklch(0.542 0.208 19.5);
+  --border:oklch(0.848 0.030 75.6);       /* 杏子灰 */
+  --link:#4a3a8c;
+  --shadow:0 1px 3px oklch(0.218 0.000 89.9 / 0.06);
+  --shadow-lg:0 12px 32px oklch(0.218 0.000 89.9 / 0.18), 0 2px 8px oklch(0.218 0.000 89.9 / 0.08);
+  --font:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --mono:'JetBrains Mono','SF Mono',Consolas,monospace;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-8:32px;
+  --radius-sm:6px; --radius-md:8px; --radius-lg:12px;
+  --font-12:12px; --font-13:13px; --font-14:14px; --font-16:16px; --font-18:18px; --font-22:22px; --font-28:28px; --font-32:32px;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--background); color:var(--foreground); font-family:var(--font); font-size:var(--font-14); line-height:1.6; -webkit-font-smoothing:antialiased}
+a{color:var(--link); text-decoration:none}
+a:hover{text-decoration:underline}
+button{font-family:inherit; cursor:pointer}
+:where(a,button,input,select,textarea,summary,[tabindex]):focus-visible{outline:2px solid var(--muted-fg); outline-offset:2px; border-radius:inherit}
+
+/* ═══ 顶栏（沿用 index.html .topnav 结构；品牌标记=左上直角三角） ═══ */
+.topnav{position:sticky; top:0; z-index:200; display:flex; align-items:center; gap:var(--space-4); padding:var(--space-3) var(--space-6); background:var(--card); border-bottom:1px solid var(--border)}
+.brand{display:flex; align-items:center; gap:var(--space-2); color:var(--foreground)}
+.brand-mark{width:22px; height:22px; flex-shrink:0; background:linear-gradient(to bottom right, var(--foreground) 0 50%, transparent 50% 100%); border-radius:2px}
+.brand-cn{font-weight:600; font-size:var(--font-16); letter-spacing:.02em}
+.brand-en{font-size:var(--font-12); color:var(--muted-fg); letter-spacing:.14em; margin-left:2px}
+.navlinks{display:flex; gap:var(--space-2); margin-left:var(--space-4)}
+.navlinks a{font-size:var(--font-13); color:var(--muted-fg); padding:6px 10px; border-radius:var(--radius-sm)}
+.navlinks a.active{background:var(--muted); color:var(--card-fg); font-weight:600}
+.navlinks a:hover{text-decoration:none; color:var(--card-fg)}
+.search{margin-left:auto; flex:1; max-width:420px; display:flex; align-items:center; gap:var(--space-2); background:var(--background); border:1px solid var(--border); border-radius:var(--radius-sm); padding:6px 10px}
+.search input{flex:1; border:0; background:transparent; color:var(--foreground); font-size:var(--font-13); outline:none; font-family:inherit}
+.search .k{font-size:var(--font-12); color:var(--muted-fg); font-family:var(--mono)}
+
+/* ═══ 状态 tab（原生 JS） ═══ */
+.tabbar{display:flex; gap:var(--space-2); padding:var(--space-3) var(--space-6) 0; max-width:1280px; margin:0 auto}
+.tabbar button{font-size:var(--font-13); padding:7px 14px; background:var(--card); color:var(--muted-fg); border:1px solid var(--border); border-radius:var(--radius-sm)}
+.tabbar button[aria-selected="true"]{background:var(--foreground); color:var(--background); border-color:var(--foreground); font-weight:600}
+
+/* ═══ 容器 ═══ */
+.wrap{max-width:1280px; margin:0 auto; padding:var(--space-6)}
+.state{display:none}
+.state.is-active{display:block}
+
+/* ═══ A 聚合页 ═══ */
+.stats-strip{display:grid; grid-template-columns:repeat(4,1fr); gap:var(--space-3); margin-bottom:var(--space-6)}
+.stat{background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-4) var(--space-5)}
+.stat .n{font-size:var(--font-28); font-weight:600; letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1.1}
+.stat .u{font-size:var(--font-12); color:var(--muted-fg); margin-top:2px}
+.stat .d{font-size:var(--font-12); color:var(--muted-fg); margin-top:var(--space-2)}
+.stat .d b{color:var(--card-fg); font-weight:600}
+
+.facets{display:grid; grid-template-columns:repeat(3,1fr); gap:var(--space-3); margin-bottom:var(--space-6)}
+.facet{background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-4)}
+.facet h4{margin:0 0 var(--space-3); font-size:var(--font-12); font-weight:600; color:var(--muted-fg); letter-spacing:.06em}
+.facet .row{display:flex; flex-wrap:wrap; gap:var(--space-2)}
+.chip-facet{font-size:var(--font-13); padding:5px 10px; background:var(--background); color:var(--card-fg); border:1px solid var(--border); border-radius:999px; display:inline-flex; align-items:center; gap:6px}
+.chip-facet .c{font-family:var(--mono); font-size:var(--font-12); color:var(--muted-fg)}
+.chip-facet[aria-pressed="true"]{background:var(--foreground); color:var(--background); border-color:var(--foreground)}
+.chip-facet[aria-pressed="true"] .c{color:var(--background); opacity:.7}
+.chip-facet:hover{border-color:var(--muted-fg)}
+
+.case-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:var(--space-4)}
+.case-card{background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-5); cursor:pointer; display:flex; flex-direction:column; gap:var(--space-3); transition:transform 120ms ease-out, box-shadow 120ms ease-out, border-color 120ms ease-out}
+@media (hover:hover){.case-card:hover{transform:translateY(-1px); box-shadow:var(--shadow); border-color:var(--muted-fg)}}
+.case-card:active{transform:scale(.995)}
+.cc-top{display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap}
+.cc-id{font-family:var(--mono); font-size:var(--font-12); color:var(--muted-fg); background:var(--muted); padding:2px 8px; border-radius:var(--radius-sm)}
+.cc-ent{font-size:var(--font-13); font-weight:600; color:var(--card-fg)}
+.cc-type{margin-left:auto; font-size:var(--font-12); padding:2px 8px; border-radius:var(--radius-sm); background:var(--accent); color:var(--accent-fg); font-weight:600}
+.cc-verdict{font-size:var(--font-16); font-weight:600; line-height:1.5; color:var(--card-fg)}
+.cc-sum{font-size:var(--font-13); color:var(--card-fg); opacity:.85; line-height:1.55}
+.cc-metric{display:flex; align-items:baseline; gap:var(--space-2); flex-wrap:wrap; background:var(--background); border:1px solid var(--border); border-radius:var(--radius-md); padding:var(--space-3)}
+.cc-metric .mn{font-size:var(--font-12); color:var(--muted-fg)}
+.cc-metric .mv{font-size:var(--font-22); font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:-.01em}
+.cc-metric .mu{font-size:var(--font-13); color:var(--muted-fg)}
+.cc-why{font-size:var(--font-13); line-height:1.55; color:var(--card-fg)}
+.cc-why .lb{color:var(--muted-fg); font-size:var(--font-12); margin-right:4px}
+.cc-foot{display:flex; gap:var(--space-2); flex-wrap:wrap; margin-top:auto; padding-top:var(--space-2); border-top:1px dashed var(--border)}
+.tag{font-size:var(--font-12); color:var(--muted-fg); background:var(--muted); padding:2px 8px; border-radius:var(--radius-sm)}
+.case-empty{grid-column:1/-1; text-align:center; padding:var(--space-8) var(--space-4); color:var(--muted-fg); font-size:var(--font-13); line-height:1.6; background:var(--card); border:1px dashed var(--border); border-radius:var(--radius-lg)}
+
+/* ═══ B 沉浸详情：90vw / max 1280 / 双栏 62-38 ═══ */
+.overlay{position:fixed; inset:0; z-index:500; background:oklch(0.218 0.000 89.9 / 0.42); display:flex; align-items:center; justify-content:center; padding:var(--space-6)}
+.sheet{width:90vw; max-width:1280px; height:90vh; max-height:900px; background:var(--surface-modal); border:1px solid var(--border); border-radius:var(--radius-lg); box-shadow:var(--shadow-lg); display:grid; grid-template-columns:62fr 38fr; overflow:hidden}
+.sheet-main{overflow-y:auto; padding:var(--space-6) var(--space-8)}
+.sheet-side{overflow-y:auto; padding:var(--space-6); background:var(--card); border-left:1px solid var(--border); display:flex; flex-direction:column; gap:var(--space-5)}
+.d-head{display:flex; align-items:flex-start; gap:var(--space-3); margin-bottom:var(--space-5)}
+.d-id{font-family:var(--mono); font-size:var(--font-12); color:var(--muted-fg); background:var(--muted); padding:3px 10px; border-radius:var(--radius-sm)}
+.d-ent{font-size:var(--font-13); font-weight:600; margin-top:var(--space-2)}
+.d-title{font-size:var(--font-22); font-weight:600; line-height:1.35; margin:var(--space-2) 0 0; letter-spacing:-.01em}
+.d-close{margin-left:auto; flex-shrink:0; width:32px; height:32px; border:1px solid var(--border); background:var(--card); color:var(--muted-fg); border-radius:var(--radius-sm); font-size:var(--font-16); line-height:1; display:grid; place-items:center}
+.d-close:hover{color:var(--foreground); border-color:var(--muted-fg)}
+
+.verdict-box{background:var(--card); border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:var(--radius-md); padding:var(--space-4) var(--space-5); margin-bottom:var(--space-5)}
+.verdict-box .lb{font-size:var(--font-12); color:var(--muted-fg); letter-spacing:.06em; margin-bottom:4px}
+.verdict-box .tx{font-size:var(--font-16); line-height:1.55; font-weight:600}
+
+.hero-metrics{display:grid; grid-template-columns:repeat(3,1fr); gap:var(--space-3); margin-bottom:var(--space-6)}
+.hm{background:var(--card); border:1px solid var(--border); border-radius:var(--radius-md); padding:var(--space-4)}
+.hm .mn{font-size:var(--font-12); color:var(--muted-fg)}
+.hm .mv{font-size:var(--font-32); font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:-.02em; line-height:1.1; margin-top:2px}
+.hm .mu{font-size:var(--font-13); color:var(--muted-fg)}
+
+.sec{margin-bottom:var(--space-6)}
+.sec-h{display:flex; align-items:center; gap:var(--space-2); font-size:var(--font-12); font-weight:600; color:var(--muted-fg); letter-spacing:.06em; margin-bottom:var(--space-3)}
+.sec-h::before{content:""; width:10px; height:10px; flex-shrink:0; background:linear-gradient(to bottom right, var(--muted-fg) 0 50%, transparent 50% 100%)}
+.sec-body{font-size:var(--font-14); line-height:1.65; color:var(--card-fg)}
+.sec-body p{margin:0 0 var(--space-3)}
+.sec-body p:last-child{margin-bottom:0}
+.sec-body ul{margin:0; padding-left:var(--space-5)}
+.sec-body li{margin-bottom:var(--space-2); line-height:1.6}
+.sec-body b{font-weight:600}
+
+.ev{display:flex; flex-direction:column; gap:var(--space-2)}
+.ev-row{background:var(--card); border:1px solid var(--border); border-radius:var(--radius-md); padding:var(--space-3) var(--space-4)}
+.ev-row .k{font-size:var(--font-12); color:var(--muted-fg); margin-bottom:2px}
+.ev-row .v{font-size:var(--font-13); line-height:1.6}
+.ev-row.quote .v{border-left:2px solid var(--border); padding-left:var(--space-3)}
+.ev-row a{font-size:var(--font-13); word-break:break-all}
+
+.side-card{background:var(--background); border:1px solid var(--border); border-radius:var(--radius-md); padding:var(--space-4)}
+.side-card h5{margin:0 0 var(--space-3); font-size:var(--font-12); font-weight:600; color:var(--muted-fg); letter-spacing:.06em}
+.kv{display:grid; grid-template-columns:auto 1fr; gap:6px var(--space-3); font-size:var(--font-13); line-height:1.5}
+.kv dt{color:var(--muted-fg)}
+.kv dd{margin:0; color:var(--card-fg)}
+.share-row{display:flex; flex-direction:column; gap:var(--space-2)}
+.tag-card .tag-list{display:flex; flex-wrap:wrap; gap:var(--space-2); margin-bottom:var(--space-3)}
+.tag-chip{display:inline-flex; align-items:center; gap:4px; height:24px; padding:0 6px 0 8px; font-size:var(--font-13); color:var(--muted-fg); background:var(--muted); border-radius:var(--radius-sm)}
+.tag-chip button{width:16px; height:16px; padding:0; border:0; background:none; color:var(--muted-fg); font-size:12px; line-height:1; display:inline-flex; align-items:center; justify-content:center; cursor:pointer}
+.tag-chip button:hover{color:var(--foreground)}
+.tag-add{display:flex; gap:var(--space-2)}
+.tag-add input{flex:1; min-width:0; font-size:var(--font-13); padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--card); color:var(--foreground); font-family:inherit}
+.tag-add .btn{flex-shrink:0}
+.btn{font-size:var(--font-13); padding:8px 14px; border-radius:var(--radius-sm); border:1px solid var(--border); background:var(--card); color:var(--card-fg); text-align:center}
+.btn:hover{border-color:var(--muted-fg)}
+.btn-primary{background:var(--foreground); color:var(--background); border-color:var(--foreground); font-weight:600}
+.btn-primary:hover{opacity:.9}
+.similar{display:flex; flex-direction:column; gap:var(--space-2)}
+.similar a{display:block; font-size:var(--font-13); line-height:1.5; color:var(--card-fg); background:var(--background); border:1px solid var(--border); border-radius:var(--radius-sm); padding:var(--space-3)}
+.similar a:hover{text-decoration:none; border-color:var(--muted-fg)}
+.similar .m{display:block; font-size:var(--font-12); color:var(--muted-fg); margin-top:2px}
+
+/* ═══ C 分享预览：卡片 / 长图 / 简报 ═══ */
+.share-stage{display:grid; grid-template-columns:repeat(3,1fr); gap:var(--space-4)}
+.mock{background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-4); display:flex; flex-direction:column; gap:var(--space-3)}
+.mock-h{font-size:var(--font-12); font-weight:600; color:var(--muted-fg); letter-spacing:.06em}
+.mock-frame{background:var(--background); border:1px solid var(--border); border-radius:var(--radius-md); padding:var(--space-4)}
+.m-card .t{font-size:var(--font-16); font-weight:600; line-height:1.4}
+.m-card .e{font-size:var(--font-12); color:var(--muted-fg); margin-top:2px}
+.m-card .m{display:flex; gap:var(--space-4); margin:var(--space-3) 0}
+.m-card .m div .n{font-size:var(--font-12); color:var(--muted-fg)}
+.m-card .m div .v{font-size:var(--font-18); font-weight:600; font-variant-numeric:tabular-nums}
+.m-card .w{font-size:var(--font-13); line-height:1.55; color:var(--card-fg); opacity:.85}
+.m-card .f{font-size:var(--font-12); color:var(--muted-fg); margin-top:var(--space-3); border-top:1px dashed var(--border); padding-top:var(--space-2)}
+.m-long .lp{background:var(--card); border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden}
+.m-long .lp .hd{padding:var(--space-3); border-bottom:1px solid var(--border)}
+.m-long .lp .hd .t{font-size:var(--font-14); font-weight:600; line-height:1.4}
+.m-long .lp .bd{padding:var(--space-3); display:flex; flex-direction:column; gap:var(--space-2)}
+.m-long .lp .bd .big{font-size:var(--font-28); font-weight:600; letter-spacing:-.02em; line-height:1.1}
+.m-long .lp .bd .cap{font-size:var(--font-12); color:var(--muted-fg)}
+.m-long .lp .bd .tx{font-size:var(--font-13); line-height:1.55}
+.m-long .lp .ft{padding:var(--space-3); font-size:var(--font-12); color:var(--muted-fg); border-top:1px solid var(--border)}
+.m-brief .doc{background:var(--card); border:1px solid var(--border); border-radius:var(--radius-sm); padding:var(--space-4)}
+.m-brief .doc .h{font-size:var(--font-14); font-weight:600; line-height:1.4; margin-bottom:var(--space-2)}
+.m-brief .doc .meta{font-size:var(--font-12); color:var(--muted-fg); margin-bottom:var(--space-3)}
+.m-brief .doc .s{font-size:var(--font-13); line-height:1.6; margin-bottom:var(--space-2)}
+.m-brief .doc .s .k{font-weight:600}
+
+@media (prefers-reduced-motion:reduce){*{transition:none !important; animation:none !important}}
+
+/* ═══ 响应式 ═══ */
+@media (max-width:1100px){
+  .stats-strip{grid-template-columns:repeat(2,1fr)}
+  .facets{grid-template-columns:1fr}
+  .sheet{display:block; overflow-y:auto; height:92vh}
+  .sheet-main,.sheet-side{overflow:visible; height:auto}
+  .sheet-side{border-left:0; border-top:1px solid var(--border)}
+  .share-stage{grid-template-columns:1fr}
+}
+@media (max-width:720px){
+  .wrap,.sheet-main,.sheet-side{padding:var(--space-4)}
+  .topnav{flex-wrap:wrap}
+  .search{max-width:none; order:3; flex-basis:100%}
+  .hero-metrics{grid-template-columns:1fr}
+  .case-grid{grid-template-columns:1fr}
+  .sheet{width:96vw; height:94vh}
+}
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <a class="brand" href="#"><span class="brand-mark" aria-hidden="true"></span><span class="brand-cn">瞭望</span><span class="brand-en">MONI</span></a>
+  <div class="navlinks">
+    <a href="#">信源管理</a><a href="#">文章查阅</a><a href="#">行业日历</a>
+    <a href="#" class="active">案例库</a><a href="#">量化看板</a>
+  </div>
+  <div class="search"><input type="text" placeholder="搜索机构、场景或关键词…" aria-label="搜索案例"><span class="k">⌘K</span></div>
+</nav>
+
+<div class="tabbar" role="tablist" aria-label="原型状态切换">
+  <button type="button" role="tab" data-state="a" aria-selected="true">A 案例库</button>
+  <button type="button" role="tab" data-state="b" aria-selected="false">B 沉浸式详情</button>
+  <button type="button" role="tab" data-state="c" aria-selected="false">C 分享预览</button>
+</div>
+
+<!-- ══════════ A 列表 / 聚合页 ══════════ -->
+<section class="state is-active" id="state-a">
+  <div class="wrap">
+    <div class="stats-strip">
+      <div class="stat"><div class="n">432</div><div class="u">案例</div><div class="d">高价值 <b>137</b></div></div>
+      <div class="stat"><div class="n">429 / 3</div><div class="u">AI 应用 / 产品创新</div><div class="d">类型分布</div></div>
+      <div class="stat"><div class="n">137</div><div class="u">高价值</div><div class="d">中 199 · 低 96</div></div>
+      <div class="stat"><div class="n">30+</div><div class="u">最高频触点</div><div class="d">微信小微 · 30+</div></div>
+    </div>
+
+    <div class="facets">
+      <div class="facet"><h4>企业</h4><div class="row" id="facet-ent"></div></div>
+      <div class="facet"><h4>行业</h4><div class="row" id="facet-ind"></div></div>
+      <div class="facet"><h4>场景</h4><div class="row" id="facet-scene"></div></div>
+    </div>
+
+    <div class="case-grid" id="case-grid"></div>
+  </div>
+</section>
+
+<!-- ══════════ B 沉浸式详情 ══════════ -->
+<section class="state" id="state-b">
+  <div class="overlay">
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="案例详情">
+      <div class="sheet-main">
+        <div class="d-head">
+          <div>
+            <div><span class="d-id">MN-AI-2611-0004</span></div>
+            <div class="d-ent">腾讯 · 微信</div>
+            <h2 class="d-title">微信 AI 助理「小微」首次披露数据：互动日活 3000 万，触点扩到 30+ 场景</h2>
+          </div>
+          <button type="button" class="d-close" aria-label="关闭" onclick="setState('a')">✕</button>
+        </div>
+
+        <div class="verdict-box">
+          <div class="lb">结论</div>
+          <div class="tx">微信把 AI 助理「小微」铺到朋友圈、公众号、视频号等 30 多个触点，互动日活 3000 万，并首次公开成本边界；同业做入口型 AI 可直接对表。</div>
+        </div>
+
+        <div class="hero-metrics">
+          <div class="hm"><div class="mn">互动日活</div><div class="mv">3000</div><div class="mu">万 / 日</div></div>
+          <div class="hm"><div class="mn">覆盖场景</div><div class="mv">30+</div><div class="mu">个触点</div></div>
+          <div class="hm"><div class="mn">参考价值</div><div class="mv">高</div><div class="mu">入口型 AI 对表</div></div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-h">做法</div>
+          <div class="sec-body">
+            <ul>
+              <li><b>触点优先于模型</b>：先占住朋友圈 / 公众号 / 视频号等既有高频入口，再回填能力。</li>
+              <li><b>用日活而非注册量对外披露</b>：以「互动日活」作为唯一北极星指标，口径可复核。</li>
+              <li><b>成本边界同步公开</b>：把全量成本边界与日活一起披露，便于同业测算投入产出。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-h">风险与前提</div>
+          <div class="sec-body">
+            <ul>
+              <li>数据来自厂商自述披露，口径未经第三方审计。</li>
+              <li>「30+ 场景」为触点计数，非独立功能数，横向对比需先对齐定义。</li>
+              <li>入口型铺量依赖微信存量流量，同业不具备同等入口时不可直接照搬。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-h">原文证据</div>
+          <div class="ev">
+            <div class="ev-row quote"><div class="v">小微第一次披露数据：互动日活3000万，触点扩展到朋友圈、公众号、视频号等30多个。</div></div>
+            <div class="ev-row"><div class="k">原文链接</div><div class="v"><a href="#" onclick="return false">mp.weixin.qq.com / 微信小微数据披露（示例链接）</a></div></div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="sheet-side">
+        <div class="side-card">
+          <h5>基本信息</h5>
+          <dl class="kv">
+            <dt>企业</dt><dd>腾讯</dd>
+            <dt>主体</dt><dd>微信</dd>
+            <dt>行业</dt><dd>互联网 / 社交</dd>
+            <dt>业务场景</dt><dd>智能助理 · 内容分发</dd>
+            <dt>案例类型</dt><dd>AI 应用</dd>
+            <dt>动作</dt><dd>上线</dd>
+            <dt>时间</dt><dd>2026-11</dd>
+          </dl>
+        </div>
+
+        <div class="side-card tag-card">
+          <h5>标签</h5>
+          <div class="tag-list" id="tag-list">
+            <span class="tag-chip">智能助理<button type="button" aria-label="删除标签 智能助理" onclick="removeTag(this)">×</button></span>
+            <span class="tag-chip">大模型应用<button type="button" aria-label="删除标签 大模型应用" onclick="removeTag(this)">×</button></span>
+            <span class="tag-chip">微信生态<button type="button" aria-label="删除标签 微信生态" onclick="removeTag(this)">×</button></span>
+          </div>
+          <div class="tag-add">
+            <input type="text" id="tag-input" placeholder="添加标签" aria-label="添加标签" onkeydown="if(event.key==='Enter'){event.preventDefault();addTag();}">
+            <button type="button" class="btn" onclick="addTag()">添加</button>
+          </div>
+        </div>
+
+        <div class="side-card">
+          <h5>相关案例</h5>
+          <div class="similar">
+            <a href="#" onclick="setState('a');return false">微信拟向商家与服务商收取智能体撮合服务费<span class="m">MN-AI-2611-0007 · 中参考价值</span></a>
+            <a href="#" onclick="setState('a');return false">查看「腾讯」全部案例<span class="m">共 2 条</span></a>
+          </div>
+        </div>
+
+        <div class="side-card">
+          <h5>分享</h5>
+          <div class="share-row">
+            <button type="button" class="btn btn-primary" onclick="setState('c')">生成分享</button>
+            <button type="button" class="btn" onclick="setState('c')">复制链接</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ C 分享预览 ══════════ -->
+<section class="state" id="state-c">
+  <div class="wrap">
+    <div class="share-stage">
+      <div class="mock">
+        <div class="mock-h">案例卡片</div>
+        <div class="mock-frame m-card">
+          <div class="t">微信 AI 助理「小微」<br>互动日活 3000 万</div>
+          <div class="e">腾讯 · 微信 · AI 应用</div>
+          <div class="m">
+            <div><div class="n">互动日活</div><div class="v">3000万</div></div>
+            <div><div class="n">覆盖场景</div><div class="v">30+</div></div>
+          </div>
+          <div class="w">国民级 App 内嵌个人助理，首次披露日活与全量成本边界，入口型 AI 可直接对表。</div>
+          <div class="f">MN-AI-2611-0004 · 瞭望 MONI 案例库</div>
+        </div>
+      </div>
+
+      <div class="mock">
+        <div class="mock-h">长图海报</div>
+        <div class="mock-frame m-long">
+          <div class="lp">
+            <div class="hd"><div class="t">微信小微：入口型 AI 的日活样本</div></div>
+            <div class="bd">
+              <div class="big">3000万</div><div class="cap">互动日活 / 日</div>
+              <div class="big">30+</div><div class="cap">覆盖触点场景</div>
+              <div class="tx">触点扩到朋友圈、公众号、视频号等 30 多个；成本边界同步公开。</div>
+              <div class="tx">可迁移：触点优先于模型；以互动日活为北极星；成本与日活同披露。</div>
+            </div>
+            <div class="ft">来源：厂商公开披露</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mock">
+        <div class="mock-h">案例简报</div>
+        <div class="mock-frame m-brief">
+          <div class="doc">
+            <div class="h">同业案例简报 · 微信 AI 助理小微</div>
+            <div class="meta">MN-AI-2611-0004 · 2026-11 · 参考价值 高</div>
+            <div class="s"><span class="k">结论：</span>微信把 AI 助理铺到 30+ 触点，互动日活 3000 万，入口型 AI 首个可对标样本。</div>
+            <div class="s"><span class="k">做法：</span>触点优先；日活为唯一北极星；成本边界同披露。</div>
+            <div class="s"><span class="k">风险：</span>厂商自述口径；场景计数为触点非功能；依赖微信存量入口。</div>
+            <div class="s"><span class="k">证据：</span>原文披露「互动日活3000万，触点扩展到朋友圈、公众号、视频号等30多个」。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+/* ═══ 真实数据（brief 给定，未编造） ═══ */
+var CASES = [
+  {
+    id:'MN-AI-2611-0004', ent:'腾讯', entFull:'腾讯 · 微信',
+    ind:'互联网 / 社交', scenes:['智能助理','内容分发'],
+    type:'AI 应用', action:'上线', ref:'高', date:'2026-11',
+    verdict:'微信 AI 助理「小微」首次披露数据',
+    summary:'微信 AI 助理小微首次披露互动日活 3000 万，触点扩展至 30 多个场景',
+    mName:'互动日活', mValue:'3000', mUnit:'万 / 日',
+    m2Name:'覆盖场景', m2Value:'30+', m2Unit:'个触点',
+    why:'国民级 App 内嵌个人助理并披露日活与全量成本边界，对同业入口型 AI 落地有强参考'
+  },
+  {
+    id:'MN-AI-2611-0007', ent:'腾讯', entFull:'腾讯 · 微信',
+    ind:'互联网 / 社交', scenes:['小程序导流'],
+    type:'AI 应用', action:'上线', ref:'中', date:'2026-11',
+    verdict:'微信拟向商家与服务员收取智能体撮合服务费',
+    summary:'微信拟向商家和服务商收取智能体之间的撮合服务费',
+    mName:'撮合服务费', mValue:'拟收取', mUnit:'金额未披露',
+    m2Name:'涉及方', m2Value:'商家 / 服务商', m2Unit:'两类',
+    why:'原文未给出参考依据，待人工核验后补（当前参考价值：中）'
+  }
+];
+
+/* ═══ facet 聚合：计数由真实卡片数组计算，不虚构 ═══ */
+function buildFacets(){
+  var groups = [
+    {el:'facet-ent', key:function(c){return c.ent}, label:'企业'},
+    {el:'facet-ind', key:function(c){return c.ind}, label:'行业'},
+    {el:'facet-scene', key:function(c){return c.scenes}, label:'场景'}
+  ];
+  groups.forEach(function(g){
+    var box = document.getElementById(g.el);
+    var counts = {};
+    CASES.forEach(function(c){
+      var v = g.key(c);
+      (Array.isArray(v)?v:[v]).forEach(function(x){
+        if(!x) return;
+        counts[x] = (counts[x]||0) + 1;
+      });
+    });
+    Object.keys(counts).forEach(function(name){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip-facet';
+      b.setAttribute('aria-pressed','false');
+      b.innerHTML = name + '<span class="c">'+counts[name]+'</span>';
+      b.addEventListener('click', function(){
+        var on = b.getAttribute('aria-pressed') === 'true';
+        box.querySelectorAll('.chip-facet').forEach(function(x){x.setAttribute('aria-pressed','false')});
+        b.setAttribute('aria-pressed', on ? 'false' : 'true');
+        renderCards(on ? null : name, g.label);
+      });
+      box.appendChild(b);
+    });
+  });
+}
+
+/* ═══ 卡片渲染 ═══ */
+function renderCards(filterVal, filterLabel){
+  var grid = document.getElementById('case-grid');
+  grid.innerHTML = '';
+  var list = CASES.filter(function(c){
+    if(!filterVal) return true;
+    if(filterLabel === '企业') return c.ent === filterVal;
+    if(filterLabel === '行业') return c.ind === filterVal;
+    return c.scenes.indexOf(filterVal) !== -1;
+  });
+  if(!list.length){
+    var e = document.createElement('div');
+    e.className = 'case-empty';
+    e.textContent = '暂无匹配案例，试试清除筛选条件';
+    grid.appendChild(e);
+    return;
+  }
+  list.forEach(function(c){
+    var card = document.createElement('article');
+    card.className = 'case-card';
+    card.tabIndex = 0;
+    card.setAttribute('role','button');
+    card.setAttribute('aria-label','打开案例 '+c.id);
+    card.innerHTML =
+      '<div class="cc-top">'+
+        '<span class="cc-ent">'+c.entFull+'</span>'+
+        '<span class="cc-type">'+c.type+'</span>'+
+      '</div>'+
+      '<div class="cc-verdict">'+c.verdict+'</div>'+
+      '<div class="cc-sum">'+c.summary+'</div>'+
+      '<div class="cc-metric">'+
+        '<span class="mn">'+c.mName+'</span>'+
+        '<span class="mv">'+c.mValue+'</span>'+
+        '<span class="mu">'+c.mUnit+'</span>'+
+        '<span class="mn" style="margin-left:auto">'+c.m2Name+'</span>'+
+        '<span class="mv">'+c.m2Value+'</span>'+
+        '<span class="mu">'+c.m2Unit+'</span>'+
+      '</div>'+
+      '<div class="cc-why">'+c.why+'</div>'+
+      '<div class="cc-foot">'+
+        '<span class="tag">'+c.ind.split(' / ')[0]+'</span>'+
+        c.scenes.map(function(s){return '<span class="tag">'+s+'</span>'}).join('')+
+        '<span class="tag">'+c.action+'</span>'+
+        '<span class="tag">'+c.date+'</span>'+
+        '<span class="tag">'+c.ref+'价值</span>'+
+      '</div>';
+    card.addEventListener('click', function(){ setState('b') });
+    card.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); setState('b') } });
+    grid.appendChild(card);
+  });
+}
+
+/* ═══ 标签块（纯前端演示，不请求后端） ═══ */
+function addTag(){
+  var input = document.getElementById('tag-input');
+  var list = document.getElementById('tag-list');
+  var val = (input.value || '').trim();
+  if(!val) return;
+  var chip = document.createElement('span');
+  chip.className = 'tag-chip';
+  chip.appendChild(document.createTextNode(val));
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.setAttribute('aria-label', '删除标签 ' + val);
+  btn.textContent = '×';
+  btn.addEventListener('click', function(){ removeTag(btn) });
+  chip.appendChild(btn);
+  list.appendChild(chip);
+  input.value = '';
+  input.focus();
+}
+function removeTag(btn){
+  var chip = btn.closest('.tag-chip');
+  if(chip) chip.remove();
+}
+
+/* ═══ 三态切换（原生 JS，无 Alpine） ═══ */
+function setState(s){
+  ['a','b','c'].forEach(function(k){
+    var sec = document.getElementById('state-'+k);
+    if(sec) sec.classList.toggle('is-active', k===s);
+  });
+  document.querySelectorAll('.tabbar button').forEach(function(b){
+    b.setAttribute('aria-selected', b.getAttribute('data-state')===s ? 'true':'false');
+  });
+  window.scrollTo(0,0);
+}
+document.querySelectorAll('.tabbar button').forEach(function(b){
+  b.addEventListener('click', function(){ setState(b.getAttribute('data-state')) });
+});
+
+buildFacets();
+renderCards(null, null);
+</script>
+</body>
+</html>

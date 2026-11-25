@@ -1,3 +1,20 @@
+## 已发布: **v1.0.135 — 案例库 2.0 后端** (2026-11-25 · PR #326 → `6d141c8` · tag `v1.0.135` · Sprint 79)
+
+**目标**：详情页可“震撼”演示、案例可分享、企业/行业/场景聚合、搜索补齐、抽取升级。
+**计划与结论**：`docs/plans/2026-11-25-cases-library-v2.md`（六问结论 + P0–P2）。
+**验收记录**：`docs/sprint-evidence/sprint-79/VERIFY.md`、`TEST-PLAN.md`；设计原型与截图在 `docs/sprint-evidence/sprint-79/design/`。
+
+**本次发布**：
+- P0：标签 405 修复、归一（枚举/叠词/币种/万亿）、迁移 `062_case_metrics` / `063_cases_fts_v2` / `064_cron_extract_cases`。
+- P1：迁移 `065_enterprises`（116 企业 / 154 别名）、`066_case_taxonomy`（8 类 + 10 场景）、`backfill_taxonomy.py`、四维聚合 + `GET /api/cases/stats`。
+- P2：迁移 `067_case_insights`（建表）、`068_share_case_ids`、`CaseBriefPayload`、`case_brief.py`（纯 Python 渲染，无 jinja2）、`POST /api/share/cases`、worker 短路。
+- P3：`backfill_metrics.py` 存量指标回填（规则，0 次 LLM）。
+
+**实测**：生产库副本 `001→068` 迁移成功（含 main 的 `061 xbot_scope`）；`cases=432`，企业命中 217 / 未命中 215；FTS `小程序=2 / 支付=160 / C++=0 / 数字人民币=29 / 跨境支付=44`；指标回填 208 条有金额中命中 174；worker 端到端 `status=done` + 6622 bytes 简报。
+**测试**：受影响集 383 passed；全量 2960 passed / 2 skipped（569.72s）；CI `pytest · py3.12` pass（9m14s）。
+**审计**：三轮独立审计，round 3 修掉 worker 二次 claim（任务卡 `running`）与 CI 缺 jinja2，其余 P2 记录在 VERIFY §6。
+**未做**：生产库迁移、8900 部署、前端 `/cases` 页面接入（本轮只有原型与设计验收）、Stage B `case_insights` LLM 回填、案例卡片 PNG、汇率表 069（原计划 068，已被分享表占用）。
+
 ## 已发布: **v1.0.132 — 信息脱敏进主站入口** (2026-11-25 · PR #323 → `36495b7` · tag `v1.0.132` · Sprint 78)
 
 顶部导航新增「信息脱敏」，右侧徽章读 `/api/desensitize/stats` 显示开/关（请求失败显示「…」）。
@@ -44,6 +61,7 @@ Pin 列表里，没有通用业务价值分的文章可以直接点「打分」�
 - 批量通用分打分没有入口
 - 文章详情弹窗没有入口，只有 Pin 列表
 - 真实模型端到端打分本轮未跑
+
 
 ## 已发布: **v1.0.130 — 量化看板 LLM 用量卡片修复 + verify-moni 验证 skill** (2026-11-25 · PR #312 → `e41a090` · tag `v1.0.130` · Sprint 77)
 
