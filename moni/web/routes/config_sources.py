@@ -26,7 +26,11 @@ from moni.fetch.sources.xbot_feed import (
 from moni.fetch.sources.xbot_feed import (
     DEFAULT_SCOPE as XBOT_FEED_DEFAULT_SCOPE,
     DEFAULT_THRESHOLDS as XBOT_FEED_DEFAULT_THRESHOLDS,
+    SCOPE_FIELD_WECHAT_REGEX,
+    SCOPE_FIELD_XCIRCLE_ACCOUNTS,
 )
+# sprint-55: 正则的「能不能编译 / 怎么匹配」只有一份实现（AGENTS.md 铁律 1）。
+from moni.fetch.keyword_match import compile_regex as _compile_scope_regex
 # v1.0.76: bank_feed 同样只认 bank_feed.py 里的 DEFAULT_FETCH_CONFIG。
 from moni.fetch.sources.bank_feed import (
     DEFAULT_FETCH_CONFIG as BANK_FEED_DEFAULT_FETCH_CONFIG,
@@ -218,6 +222,16 @@ def _validate_scope(raw: object) -> dict[str, object]:
             if not isinstance(val, str):
                 raise BadRequestError(
                     message="scope.wechat_regex must be a string")
+            # sprint-55: 这一项现在是**入库准入门**, 非法正则必须在保存时拒掉
+            # (否则抓取侧只能降级成「该维度不参与」, 用户会以为自己在生效)。
+            text = val.strip()
+            if text and _compile_scope_regex(text) is None:
+                raise BadRequestError(
+                    message=(
+                        "scope.wechat_regex is not a valid regular expression: "
+                        f"{text!r}"
+                    )
+                )
             out[key] = val
             continue
         if not isinstance(val, list) or any(
@@ -332,8 +346,40 @@ def _effective_scope(user_cfg: dict) -> tuple[dict, str, bool, bool]:
     return scope, source, upstream_available, has_stored
 
 
+def _scope_admission_state(user_cfg: dict) -> tuple[bool, bool]:
+    """``(scope_stored, scope_admission_active)`` —— scope 是否**真的**在准入。
+
+    sprint-55 的关键区分（pV 交叉审 P0）: UI 里看到的 scope 可能是
+    ``_effective_scope()`` 的兜底/上游值，**只有 moni 显式存储的副本**才参与
+    入库准入。两个布尔分开返回，正是为了让 API/UI 能如实标注
+    「默认未启用」vs「实际启用」。
+
+    ``scope_stored``: ``sources.fetch_config.scope`` 里有非空 dict。
+    ``scope_admission_active``: 上面为真 **且** 至少一个字段可用
+    （正则能编译且非空 / 账号列表非空）。
+    """
+    raw = user_cfg.get("scope")
+    if not isinstance(raw, dict) or not raw:
+        return False, False
+    regex = raw.get(SCOPE_FIELD_WECHAT_REGEX)
+    has_regex = (
+        isinstance(regex, str) and bool(regex.strip())
+        and _compile_scope_regex(regex) is not None
+    )
+    accounts = raw.get(SCOPE_FIELD_XCIRCLE_ACCOUNTS)
+    has_accounts = isinstance(accounts, list) and any(
+        isinstance(a, str) and a.strip() for a in accounts
+    )
+    return True, bool(has_regex or has_accounts)
+
+
 def _moni_scope_copy(user_cfg: dict) -> dict:
-    """moni 侧**可编辑**的 scope 副本 (用户存的, 没有就用兜底常量)。"""
+    """moni 侧**可编辑**的 scope 副本 (用户存的, 没有就用兜底常量)。
+
+    ⚠️ 只用于**展示**。入库准入只读 ``user_cfg["scope"]``（见
+    :func:`_scope_admission_state`）—— 兜底值一旦参与准入，新装库会按一份
+    2026-11-11 的手抄名单把 xcircle 全放通。
+    """
     user_scope = user_cfg.get("scope")
     if isinstance(user_scope, dict) and user_scope:
         return dict(user_scope)
@@ -636,12 +682,18 @@ def get_fetch_config(source_id: str) -> FetchConfigResponse:
         merged["thresholds"] = _effective_thresholds(user_cfg)
         merged["scope"] = _moni_scope_copy(user_cfg)
 
+    scope_stored = False
+    if source_name == "xbot_feed":
+        # sprint-55: 只有**显式存储**的 scope 才在准入；展示值可能是兜底。
+        scope_stored, _active = _scope_admission_state(user_cfg)
+
     return FetchConfigResponse(
         source_id=source_id,
         source_name=source_name,
         fetch_config=merged,
         has_custom=bool(user_cfg),
         defaults=defaults,
+        scope_stored=scope_stored,
     )
 
 
@@ -650,12 +702,13 @@ def get_source_scope(source_id: str) -> ScopeResponse:
     """X-bot 精选的信源范围 (scope) + 门槛 (thresholds)。
 
     * ``scope`` —— 展示用的范围: 上游导出的 > moni 侧存的副本 > 兜底常量;
-    * ``scope_source`` —— ``upstream`` | ``moni_fallback``;
+    * ``scope_source`` —— ``upstream`` | ``moni_fallback`` | ``moni_stored``;
     * ``upstream_scope_available`` —— 上游 feed JSON 顶层有没有 scope 键;
     * ``scope_edited`` —— moni 侧有没有用户编辑过的副本;
     * ``thresholds`` —— per-topic 门槛 (默认全 0 = 不设限);
-    * ``scope_gates_ingest`` —— **false**: scope 只是记录与展示, 不参与
-      入库闸门 (编辑它不会改变 X-bot 的搜索范围)。
+    * ``scope_gates_ingest`` —— **true**（v1.0.131 起）: scope 是入库准入门;
+    * ``scope_stored`` / ``scope_admission_active`` —— 库里有没有存储 /
+      此刻是否真的在准入（展示值来自兜底时 active 为 false）。
 
     只读本地 clone 的 feed JSON —— **绝不在请求路径上做 git 操作**。
     """
@@ -688,6 +741,8 @@ def get_source_scope(source_id: str) -> ScopeResponse:
     scope, scope_source, upstream_available, scope_edited = _effective_scope(
         user_cfg
     )
+    # sprint-55: 「展示值」与「是否真的在准入」必须分开报（pV P0）
+    scope_stored, scope_active = _scope_admission_state(user_cfg)
     return ScopeResponse(
         source_id=source_id,
         source_name=source_name,
@@ -696,10 +751,17 @@ def get_source_scope(source_id: str) -> ScopeResponse:
         upstream_scope_available=upstream_available,
         scope_edited=scope_edited,
         thresholds=_effective_thresholds(user_cfg),
-        scope_gates_ingest=False,
+        scope_gates_ingest=True,
+        scope_stored=scope_stored,
+        scope_admission_active=scope_active,
         stacking_note=(
-            "上游自 2026-11-12 起自带 wechat 门槛（5000 粉 / 5 赞）；"
-            "moni 门槛是第二道串联闸门，只能更严，捞不回上游已丢的条目。"
+            "这两项是 moni 的**入库准入**：wechat 话题按正则匹配标题+正文"
+            "（大小写不敏感），xcircle 话题按固定账号匹配作者；命中即准入，"
+            "与领域关键词表是 OR 关系。"
+            "它不会改变 X-bot 的搜索范围（采集在上游）。"
+            "作者屏蔽 / 入库门槛 / 跨源 URL 去重优先级更高，scope 命中不能绕过。"
+            "上游自 2026-11-12 起自带 wechat 门槛（5000 粉 / 5 赞）；moni 门槛"
+            "是第二道串联闸门，只能更严，捞不回上游已丢的条目。"
         ),
     )
 
@@ -714,6 +776,10 @@ def update_fetch_config(source_id: str, body: dict) -> FetchConfigResponse:
     * **合并语义** (只对 xbot_feed): ``stored = {**现有, **body}``
       → 只传 ``thresholds`` 时其余 8 个键仍在。
       其它信源维持"整体替换 body"的既有语义 (G-2: 不改既有行为契约)。
+
+    sprint-55 收尾 (t114u): ``{"scope": null}`` = **删除** ``fetch_config.scope``
+    （"恢复默认展示"）。omit 这个键 = 不动库里那份；``{"scope": {}}`` =
+    「存了但空」（stored=True / 准入停用）。三种写法语义不同，别混用。
     """
     conn = get_db()
     row = conn.execute(
@@ -731,6 +797,15 @@ def update_fetch_config(source_id: str, body: dict) -> FetchConfigResponse:
         # ``thresholds`` / ``scope`` 键按普通键透传 → 维持"整体替换 body"
         # 的既有语义 (G-2), 公共端点的 body 契约不被单信源需求改写。
         payload = dict(body)
+        # t114u (pV P1-2): ``{"scope": null}`` = **显式删除** fetch_config.scope。
+        # 为什么必须是 null 而不是"省略这个键": PUT 是合并语义, 省略 = 库里那份
+        # 原样保留（用户点了"恢复默认"却什么都没变）; 写空 dict 会变成
+        # 「存了但空」(scope_stored=True), 展示仍标"moni 侧副本"。
+        # 只有 null 能表达"删掉", 且**只在本分支生效** —— 其它信源发
+        # scope=null 仍走既有的"整体替换 body"契约。
+        delete_scope = "scope" in payload and payload["scope"] is None
+        if delete_scope:
+            payload.pop("scope")
         if "thresholds" in payload:
             payload["thresholds"] = _validate_thresholds(payload["thresholds"])
         if "scope" in payload:
@@ -746,6 +821,9 @@ def update_fetch_config(source_id: str, body: dict) -> FetchConfigResponse:
             except (_json.JSONDecodeError, TypeError):
                 stored = {}
         merged_payload = {**stored, **payload}
+        if delete_scope:
+            # 合并会把库里那份 scope 带回来 → 显式摘掉（"恢复默认展示"）。
+            merged_payload.pop("scope", None)
     else:
         merged_payload = dict(body)
 

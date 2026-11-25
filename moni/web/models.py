@@ -524,12 +524,21 @@ class SourceWithTags(Source):
 
 
 class FetchConfigResponse(BaseModel):
-    """Response for GET /api/config/sources/{id}/fetch_config."""
+    """Response for GET /api/config/sources/{id}/fetch_config.
+
+    sprint-55 (v1.0.131): ``scope_stored`` 说明 ``sources.fetch_config`` 里
+    有**显式存储**的 ``scope``（= 准入真的生效）；仅 xbot_feed 有意义，
+    其它信源恒为 False。``fetch_config["scope"]`` 仍返回**展示值**
+    （存储在就用存储的，否则用兜底快照）—— UI 必须靠 ``scope_stored``
+    区分「默认未启用」与「实际启用」，且**未启用时保存不要把它写进库**
+    （否则保存门槛会顺手把兜底 scope 激活）。
+    """
     source_id: str
     source_name: str
     fetch_config: dict[str, Any]
     has_custom: bool
     defaults: dict[str, Any]
+    scope_stored: bool = False
 
 
 class ScopeResponse(BaseModel):
@@ -539,13 +548,20 @@ class ScopeResponse(BaseModel):
     (三态, 优先级从上到下):
 
     * ``upstream`` —— 上游 feed JSON 顶层导出了 scope (权威, 只读);
-    * ``moni_stored`` —— moni 侧存着用户编辑过的副本 (可编辑, 仅记录与展示);
+    * ``moni_stored`` —— moni 侧存着用户编辑过的副本;
     * ``moni_fallback`` —— 都没有 → 用兜底快照 (moni 侧兜底, 2026-11-11)。
 
     ``scope_edited`` 是给 UI 用的独立布尔 (与 ``scope_source`` 同步)。
 
-    ``scope_gates_ingest`` 恒为 false: scope **不参与入库闸门** ——
-    编辑它不会改变 X-bot 的搜索范围。
+    sprint-55 (v1.0.131) 语义变更（dad 2026-11-25 12:33 批准）:
+
+    * ``scope_gates_ingest`` 现在为 **true** —— ``wechat_regex`` /
+      ``xcircle_accounts`` 是 moni 的入库准入门（与领域关键词表 OR）；
+    * 但只有 **moni 显式存储**的副本才真的生效 ⇒ 用
+      ``scope_admission_active`` 表示「此刻是否生效」，``scope_stored``
+      表示「库里有没有存储」；展示用的 ``scope`` 可能是兜底/上游值，
+      **不代表生效**；
+    * 它依然**不会**改变 X-bot 的搜索范围（采集在上游）。
     """
     source_id: str
     source_name: str
@@ -556,6 +572,10 @@ class ScopeResponse(BaseModel):
     thresholds: dict[str, Any]
     scope_gates_ingest: bool
     stacking_note: str
+    #: 库里有没有**显式存储**的 scope（False = 准入未启用，展示值只是兜底）。
+    scope_stored: bool = False
+    #: 此刻是否真的在准入（stored 且有可用字段）。
+    scope_admission_active: bool = False
 
 
 # ---------------------------------------------------------------------------
