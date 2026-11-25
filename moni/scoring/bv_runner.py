@@ -188,8 +188,8 @@ class GeneralBvRunner:
                         self._queued.discard(article_id)
                         self._active = None
         finally:
-            # Close the connection before a successor thread opens its own:
-            # both share the module-level connection.
+            # get_db() is thread-local, so this only closes this thread's
+            # connection; the successor thread opens its own afterwards.
             try:
                 close_db()
             except Exception:  # noqa: BLE001 - closing must not kill the queue
