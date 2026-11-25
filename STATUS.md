@@ -1,3 +1,24 @@
+## 进行中: **v1.0.129 — 量化看板 LLM 用量卡片修复 + verify-moni 验证 skill** (2026-11-25 · Sprint 75)
+
+修一个既有前端 bug，并把本次临时端测固化成仓库内可复用的验证 skill。
+
+**修什么**：`/stats` 的「LLM 用量」卡片恒显示 0（接口实际 57 次调用），且任意页面停留即出
+9 条 console error。根因是 `llmUsage` / `loadLlmUsage` 在 `stats.js` 与 `app.js` 重名，
+`app.js` 的后定义覆盖了 `stats.js`（数据源从 `/api/stats/llm-usage` 变成 `/api/llm/usage`，
+后者没有 `totals` 字段）。改法：`stats.js` 一侧改名为 `statsLlmUsage` / `loadStatsLlmUsage`，
+模板 9 处改指向并补前置 `?.`，`app.js` 的 `/config` 用量页保持原样。
+
+**验证**：`pytest` 全绿；Playwright 12 路由 `console_real=0`、卡片「59 次调用」与接口一致；
+真模型三段各 1 次（摘要 15.6 s / 联网核查 238 s + 14 条证据 / 简报 145 s done）。
+生产 8900 对照仍是「0 次调用」+ 9 条报错。
+
+**新增**：`.codex/skills/verify-moni/`（SKILL.md + 3 个 feature + 2 个脚本），
+证据目录 `docs/moni-screenshots-verify-moni-<date>/`（已被 `.gitignore` 忽略）。
+
+**已知未修（既有，8900 同样复现）**：`/config → 用量统计` 7 条 `reading 'after'`；`/basket` 2 条 422。
+
+**在跑**：PR 待开；合并 / 打 tag / 重启 8900 需 dad 当轮授权。
+
 ## 已合并待部署: **v1.0.128 — 脱敏实验室（四栏决赛演练台）** (2026-11-25 · PR #305 → `5e4e1dc` · tag `v1.0.128` · Sprint 69)
 
 给「对大模型的信息脱敏」feature 配一个**能在决赛现场跑真实模型**的演示台：一个 URL 打开，

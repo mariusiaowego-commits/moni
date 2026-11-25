@@ -2800,16 +2800,16 @@
             <div class="stats-module-head">
               <span class="stats-module-title">LLM 用量</span>
               <span class="stats-module-status"
-                    :class="(llmUsage.totals?.calls || 0) > 0 ? 'stat-ok' : 'stat-sparse'"
-                    x-text="(llmUsage.totals?.calls || 0) > 0 ? '展示中' : '数据积累中'"></span>
+                    :class="(statsLlmUsage?.totals?.calls || 0) > 0 ? 'stat-ok' : 'stat-sparse'"
+                    x-text="(statsLlmUsage?.totals?.calls || 0) > 0 ? '展示中' : '数据积累中'"></span>
             </div>
-            <div class="stats-module-primary" x-text="fmt(llmUsage.totals?.calls || 0) + ' 次调用'"></div>
-            <div class="stats-module-row"><span>输入 tokens</span><strong x-text="fmt(llmUsage.totals?.input_tokens || 0)"></strong></div>
-            <div class="stats-module-row"><span>输出 tokens</span><strong x-text="fmt(llmUsage.totals?.output_tokens || 0)"></strong></div>
-            <div class="stats-module-row"><span>花费</span><strong x-text="costFmt(llmUsage.totals?.cost_usd)"></strong></div>
+            <div class="stats-module-primary" x-text="fmt(statsLlmUsage?.totals?.calls || 0) + ' 次调用'"></div>
+            <div class="stats-module-row"><span>输入 tokens</span><strong x-text="fmt(statsLlmUsage?.totals?.input_tokens || 0)"></strong></div>
+            <div class="stats-module-row"><span>输出 tokens</span><strong x-text="fmt(statsLlmUsage?.totals?.output_tokens || 0)"></strong></div>
+            <div class="stats-module-row"><span>花费</span><strong x-text="costFmt(statsLlmUsage?.totals?.cost_usd)"></strong></div>
             <div class="stats-module-row"><span>窗口</span><strong x-text="period"></strong></div>
 
-            <table class="stats-usage-table" x-show="(llmUsage.by_model || []).length > 0">
+            <table class="stats-usage-table" x-show="(statsLlmUsage?.by_model || []).length > 0">
               <thead>
                 <tr>
                   <th>模型</th>
@@ -2820,7 +2820,7 @@
                 </tr>
               </thead>
               <tbody>
-                <template x-for="(item, i) in (llmUsage.by_model || [])" :key="item.model + '-' + i">
+                <template x-for="(item, i) in (statsLlmUsage?.by_model || [])" :key="item.model + '-' + i">
                   <tr>
                     <td x-text="item.model"></td>
                     <td x-text="fmt(item.calls)"></td>
@@ -2831,7 +2831,7 @@
                 </template>
               </tbody>
             </table>
-            <div class="stats-usage-empty" x-show="!(llmUsage.by_model || []).length">
+            <div class="stats-usage-empty" x-show="!(statsLlmUsage?.by_model || []).length">
               数据积累中 (还没有带 token 统计的 LLM 任务)
             </div>
           </div>
@@ -5231,7 +5231,7 @@
   <script src="js/safe_url.js?v=20261023001"></script>
   <script src="js/calendar.js?v=20260810001"></script>
   <script src="js/cases.js?v=20260826023"></script>
-  <script src="js/stats.js?v=20260827002"></script>
+  <script src="js/stats.js?v=20261125002"></script>
   <script src="js/theme.js?v=20260813019"></script>
   <script src="vendor/marked-16.4.2.umd.js?v=20261116001"></script>
   <script src="vendor/dompurify-3.4.17.min.js?v=20261116001"></script>
