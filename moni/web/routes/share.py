@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Query
+from pydantic import BaseModel, Field
 
 from moni.db.connection import get_db, get_db_path
 from moni.share.artifacts import ensure_artifact
@@ -426,6 +427,26 @@ def _find_active_task_same_pins(conn: Any, article_ids: list[str]) -> dict[str, 
     return None
 
 
+def _find_active_task_same_cases(conn: Any, case_ids: list[str]) -> dict[str, Any] | None:
+    """Return the newest pending/running case share task whose case_ids set matches."""
+    target = set(case_ids)
+    if not target:
+        return None
+    rows = conn.execute(
+        """
+        SELECT id, status, format, case_ids, created_at
+        FROM share_tasks
+        WHERE item_kind = 'case'
+          AND status IN ('pending', 'running')
+        ORDER BY created_at DESC
+        """
+    ).fetchall()
+    for row in rows:
+        if _article_id_set(row["case_ids"]) == target:
+            return dict(row)
+    return None
+
+
 def _fetch_share_task_row(conn: Any, task_id: str) -> dict[str, Any] | None:
     row = conn.execute(
         """
@@ -582,6 +603,138 @@ def create_brief(body: BriefCreateRequest) -> BriefCreateResponse:
         status="pending",
         article_count=len(article_ids),
         worker=worker_info,
+    )
+
+
+class CaseBriefCreateRequest(BaseModel):
+    """P2-1: 案例库分享入队请求 (支持传 case_ids 或筛选条件; 只入队不真发)."""
+
+    case_ids: list[str] | None = None
+    enterprise_id: str | None = None
+    scenario_code: str | None = None
+    category_code: str | None = None
+    case_type: str | None = None
+    case_action: str | None = None
+    reference_value: str | None = None
+    limit: int = Field(default=50, ge=1, le=200)
+    title: str | None = None
+    include_insight: bool = True
+    include_evidence: bool = True
+    group_by: str | None = None
+    force: bool = False
+
+
+class CaseBriefCreateResponse(BaseModel):
+    share_id: str
+    status: str = "pending"
+    format: str = "case_brief_html"
+    case_count: int
+    article_count: int
+
+
+@router.post("/cases", response_model=CaseBriefCreateResponse, status_code=201)
+def create_case_share(body: CaseBriefCreateRequest) -> CaseBriefCreateResponse:
+    """将案例简报任务入队到 share_tasks (item_kind='case', 只入队不真发)."""
+    conn = get_db()
+
+    if body.case_ids:
+        raw_ids = [str(cid).strip() for cid in body.case_ids if str(cid).strip()]
+        if not raw_ids:
+            raise BadRequestError(message="no_cases", details={"hint": "请至少选择 1 条案例"})
+        ph = ",".join("?" * len(raw_ids))
+        rows = conn.execute(
+            f"""
+            SELECT case_id, article_id
+            FROM cases
+            WHERE case_id IN ({ph})
+              AND subject != '__processing__'
+              AND case_lifecycle != 'archived'
+              AND review_status != 'rejected'
+            """,
+            raw_ids,
+        ).fetchall()
+        found_map = {str(r[0]): str(r[1]) for r in rows}
+        case_ids = [cid for cid in raw_ids if cid in found_map]
+        article_ids = list(dict.fromkeys(found_map[cid] for cid in case_ids if found_map.get(cid)))
+    else:
+        sql = """
+            SELECT DISTINCT c.case_id, c.article_id
+            FROM cases c
+            LEFT JOIN case_scenario_links l ON l.case_id = c.case_id
+            WHERE c.subject != '__processing__'
+              AND c.case_lifecycle != 'archived'
+              AND c.review_status != 'rejected'
+        """
+        params: list[Any] = []
+        if body.enterprise_id:
+            sql += " AND c.subject_enterprise_id = ?"
+            params.append(body.enterprise_id)
+        if body.scenario_code:
+            sql += " AND l.scenario_code = ?"
+            params.append(body.scenario_code)
+        if body.category_code:
+            sql += " AND c.case_category = ?"
+            params.append(body.category_code)
+        if body.case_type:
+            sql += " AND c.case_type = ?"
+            params.append(body.case_type)
+        if body.case_action:
+            sql += " AND c.case_action = ?"
+            params.append(body.case_action)
+        if body.reference_value:
+            sql += " AND c.reference_value = ?"
+            params.append(body.reference_value)
+        sql += " ORDER BY c.created_at DESC LIMIT ?"
+        params.append(body.limit)
+        rows = conn.execute(sql, params).fetchall()
+        case_ids = [str(r[0]) for r in rows]
+        article_ids = list(dict.fromkeys(str(r[1]) for r in rows if r[1]))
+
+    if not case_ids:
+        raise BadRequestError(
+            message="no_cases",
+            details={"hint": "未匹配到符合条件的有效案例"},
+        )
+
+    if not body.force:
+        dup = _find_active_task_same_cases(conn, case_ids)
+        if dup is not None:
+            raise ConflictError(
+                message="duplicate_active_case_brief",
+                details={
+                    "share_id": dup["id"],
+                    "status": dup["status"],
+                    "format": dup.get("format"),
+                    "hint": "已有相同案例集的简报任务在排队或运行；确认后再生成请传 force=true",
+                },
+            )
+
+    title = (body.title or "").strip() or f"同业案例简报 — {datetime.now().strftime('%Y-%m-%d')}"
+    manifest_body = {
+        "format": "case_brief_html",
+        "version": "1.0",
+        "payload": {
+            "case_ids": case_ids,
+            "article_ids": article_ids,
+            "title": title,
+            "include_insight": body.include_insight,
+            "include_evidence": body.include_evidence,
+            "group_by": body.group_by,
+        },
+    }
+    format_name, validated_payload = validate_manifest(manifest_body)
+    share_id = write_manifest(
+        share_id=None,
+        validated_payload=validated_payload,
+        format_name=format_name,
+        item_kind="case",
+    )
+    return CaseBriefCreateResponse(
+        share_id=share_id,
+        status="pending",
+        format=format_name,
+        case_count=len(case_ids),
+        article_count=len(article_ids),
     )
 
 

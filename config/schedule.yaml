@@ -55,3 +55,24 @@ jobs:
     func_path: moni.cron.jobs:extract_events_pending
     func_kwargs:
       batch_size: 20
+
+  # ── 同业案例抽取 (工作日午后/晚间补漏, fetch 后另有链式触发) ──
+  - id: extract_cases_noon_post
+    name: "同业案例抽取-午后"
+    trigger_type: cron
+    hour: 13
+    minute: 30
+    day_of_week: "mon-fri"
+    func_path: moni.cron.jobs:extract_cases_pending
+    func_kwargs:
+      batch_size: 30
+
+  - id: extract_cases_night
+    name: "同业案例抽取-晚间"
+    trigger_type: cron
+    hour: 20
+    minute: 30
+    day_of_week: "mon-fri"
+    func_path: moni.cron.jobs:extract_cases_pending
+    func_kwargs:
+      batch_size: 30

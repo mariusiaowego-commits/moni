@@ -204,6 +204,11 @@ class TestNormalizeSubject:
         result = normalize_subject("招行某业务部")
         assert result is not None and "招商银行" in result
 
+    def test_canonical_name_not_duplicated(self):
+        assert normalize_subject("兴业银行") == "兴业银行"
+        assert normalize_subject("浦发银行") == "浦发银行"
+        assert normalize_subject("中信建投证券") == "中信建投证券"
+
 
 class TestNormalizeCaseType:
     """case_type 归一 (2 类: AI / PI)."""
@@ -224,6 +229,12 @@ class TestNormalizeCaseType:
         assert normalize_case_type("未知类型") == "AI"
         assert normalize_case_type("", "招商银行") == "AI"
 
+    def test_enum_passthrough(self):
+        # LLM 直接返回枚举时不能被中文关键词映射吞掉
+        assert normalize_case_type("AI") == "AI"
+        assert normalize_case_type("PI") == "PI"
+        assert normalize_case_type("pi", "产品创新") == "PI"
+
 
 class TestNormalizeCaseAction:
     """case_action 归一 (5 类)."""
@@ -236,6 +247,13 @@ class TestNormalizeCaseAction:
     def test_pilot(self):
         assert normalize_case_action("试运行") == "pilot"
         assert normalize_case_action("小范围试点") == "pilot"
+
+    def test_enum_passthrough(self):
+        # LLM 返回 pilot/scale/transform/exit 时必须原样保留
+        assert normalize_case_action("pilot") == "pilot"
+        assert normalize_case_action("scale") == "scale"
+        assert normalize_case_action("transform") == "transform"
+        assert normalize_case_action("exit") == "exit"
 
     def test_scale(self):
         assert normalize_case_action("全面推广") == "scale"
@@ -264,6 +282,17 @@ class TestNormalizeAmount:
     def test_wan_yuan(self):
         assert normalize_amount("100 万元") == "100 万元"
         assert normalize_amount("50 万") == "50 万元"
+
+    def test_count_metric_not_money(self):
+        # 计数指标不能补成 "元"
+        assert normalize_amount("互动日活3000万") == "3000 万"
+        assert normalize_amount("月活 1.2 亿") == "1.2 亿"
+        assert normalize_amount("覆盖 30 个场景") == "30 个"
+
+    def test_currency_and_magnitude(self):
+        assert normalize_amount("2.5亿美元") == "2.5 亿美元"
+        assert normalize_amount("6000万欧元") == "6000 万欧元"
+        assert normalize_amount("9.9万亿韩元") == "9.9 万亿韩元"
 
     def test_user_count(self):
         assert normalize_amount("1000 用户") == "1000 用户"
@@ -811,6 +840,7 @@ class TestCaseAPI:
         resp = client.post(f"/api/cases/{case_id}/keywords", json={"keyword": "智能风控"})
         assert resp.status_code == 200
         assert resp.json()["id"] is not None
+        assert resp.json()["source_type"] == "manual_user"
 
         # 列表
         resp = client.get(f"/api/cases/{case_id}/keywords")

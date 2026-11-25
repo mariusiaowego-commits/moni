@@ -68,11 +68,32 @@ def _db_connect() -> Any:
     return conn
 
 
+def _dedupe_case_article_ids(conn: Any, case_ids: list[str]) -> list[str]:
+    """从 cases 表查询 case_ids 对应的去重来源 article_id 列表 (保序)."""
+    if not case_ids:
+        return []
+    ph = ",".join("?" * len(case_ids))
+    rows = conn.execute(
+        f"SELECT case_id, article_id FROM cases WHERE case_id IN ({ph})",
+        case_ids,
+    ).fetchall()
+    by_case = {str(r[0]): str(r[1]) for r in rows if r[1]}
+    seen: set[str] = set()
+    out: list[str] = []
+    for cid in case_ids:
+        aid = by_case.get(cid)
+        if aid and aid not in seen:
+            seen.add(aid)
+            out.append(aid)
+    return out
+
+
 def write_manifest(
     share_id: str | None,
     validated_payload: dict[str, Any],
     *,
     format_name: str | None = None,
+    item_kind: str | None = None,
 ) -> str:
     """Write a share manifest: DB row + queue file.
 
@@ -111,17 +132,36 @@ def write_manifest(
     # --- DB transaction -------------------------------------------------
     conn = _db_connect()
     try:
-        article_ids = validated_payload.get("article_ids", [])
-
-        conn.execute(
-            """
-            INSERT INTO share_tasks (id, format, article_ids, status, created_at)
-            VALUES (?, ?, ?, 'pending', ?)
-            """,
-            (share_id, format_name, json.dumps(article_ids), now),
+        kind = item_kind or (
+            "case"
+            if format_name == "case_brief_html" or validated_payload.get("case_ids")
+            else "article"
         )
+        if kind == "case":
+            case_ids = [str(x) for x in (validated_payload.get("case_ids") or []) if x]
+            article_ids = [str(x) for x in (validated_payload.get("article_ids") or []) if x]
+            if not article_ids and case_ids:
+                article_ids = _dedupe_case_article_ids(conn, case_ids)
+                validated_payload["article_ids"] = article_ids
+                manifest_doc["payload"] = validated_payload
+            conn.execute(
+                """
+                INSERT INTO share_tasks (id, format, article_ids, case_ids, item_kind, status, created_at)
+                VALUES (?, ?, ?, ?, 'case', 'pending', ?)
+                """,
+                (share_id, format_name, json.dumps(article_ids), json.dumps(case_ids), now),
+            )
+        else:
+            article_ids = validated_payload.get("article_ids", [])
+            conn.execute(
+                """
+                INSERT INTO share_tasks (id, format, article_ids, status, created_at)
+                VALUES (?, ?, ?, 'pending', ?)
+                """,
+                (share_id, format_name, json.dumps(article_ids), now),
+            )
         conn.commit()
-        logger.info("share_tasks row created: id=%s format=%s", share_id, format_name)
+        logger.info("share_tasks row created: id=%s format=%s kind=%s", share_id, format_name, kind)
     except Exception:
         conn.rollback()
         logger.exception("DB rollback for share_id=%s", share_id)

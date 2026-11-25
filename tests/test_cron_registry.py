@@ -72,7 +72,7 @@ class TestNextRun:
 
 
 class TestSeeding:
-    def test_migration_seeds_five_jobs(self, db):
+    def test_migration_seeds_seven_jobs(self, db):
         jobs = registry.list_jobs(db)
         assert [j["id"] for j in jobs] == [
             "extract_events_morning",
@@ -80,14 +80,18 @@ class TestSeeding:
             "extract_events_noon",
             "extract_events_evening",
             "fetch_all_sources",
+            "extract_cases_noon_post",
+            "extract_cases_night",
         ] or sorted(j["id"] for j in jobs) == sorted([
             "fetch_all_sources",
             "extract_events_morning",
             "extract_events_am",
             "extract_events_noon",
             "extract_events_evening",
+            "extract_cases_noon_post",
+            "extract_cases_night",
         ])
-        assert len(jobs) == 5
+        assert len(jobs) == 7
 
     def test_seed_from_yaml_is_idempotent(self, db, tmp_path):
         path = tmp_path / "schedule.yaml"
@@ -165,7 +169,7 @@ class TestRunQueue:
 class TestCronApi:
     def test_get_jobs_shape(self, client):
         data = client.get("/api/cron/jobs").json()
-        assert len(data) == 5
+        assert len(data) == 7
         job = next(j for j in data if j["id"] == "fetch_all_sources")
         assert job["schedule"] == {"hour": 9, "minute": 10, "day_of_week": "mon-fri"}
         assert job["func_path"] == "moni.cron.jobs:fetch_all_sources"
@@ -194,7 +198,7 @@ class TestCronApi:
         registry.write_heartbeat(db)
         data = client.get("/api/cron/status").json()
         assert data["running"] is True
-        assert data["job_count"] == 5
+        assert data["job_count"] == 7
         assert data["revision"] >= 1
 
     def test_runs_filter_by_job_id(self, client, db):

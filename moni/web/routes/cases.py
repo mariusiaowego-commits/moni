@@ -42,8 +42,10 @@ def _row_to_case(row: dict[str, Any]) -> dict[str, Any]:
         "subject_raw": row.get("subject_raw"),
         "case_type": row.get("case_type"),
         "case_action": row.get("case_action"),
+        "case_action_source": row.get("case_action_source"),
         "counterparty": row.get("counterparty"),
         "amount": row.get("amount"),
+        "metrics": row.get("metrics") or [],
         "reference_value": row.get("reference_value"),
         "reference_rationale": row.get("reference_rationale"),
         "summary": row.get("summary"),
@@ -133,7 +135,19 @@ def list_pending_review(
 
 @router.get("/stats")
 def get_stats() -> dict[str, Any]:
-    """案例统计数据."""
+    """案例统计数据 (兼容旧字段 + P1-1 四维聚合).
+
+    前端约定响应字段:
+      - total: int
+      - by_type: dict[str, int]
+      - by_action: dict[str, int]
+      - by_reference_value: dict[str, int]
+      - pending_review: int
+      - by_enterprise: list[{enterprise_id, name_cn, industry_l1, count}]
+      - by_industry: list[{industry_l1, count}]
+      - by_scenario: list[{scenario_code, scenario_name, count}]
+      - by_category: list[{category_code, category_name, count}]
+    """
     return CaseRepository.stats()
 
 
@@ -302,7 +316,13 @@ def add_case_keyword(case_id: str, body: KeywordBody) -> dict[str, Any]:
     if CaseRepository.get_case(case_id) is None:
         raise NotFoundError(message=f"Case {case_id!r} not found")
     new_id = CaseRepository.add_keyword(case_id, body.keyword, weight=body.weight)
-    return {"case_id": case_id, "keyword": body.keyword.strip(), "id": new_id}
+    return {
+        "case_id": case_id,
+        "keyword": body.keyword.strip(),
+        "id": new_id,
+        "source_type": "manual_user",
+        "weight": body.weight,
+    }
 
 
 @router.delete("/{case_id}/keywords/{keyword}")

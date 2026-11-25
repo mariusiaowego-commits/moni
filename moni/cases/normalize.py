@@ -282,21 +282,26 @@ def normalize_subject(raw_subject: str | None) -> str | None:
     # 关键词匹配:
     # - alias 在 subject 开头 → 允许后接任何字符 ("招行某业务部" → "招商银行某业务部")
     # - alias 不在开头 → 必须前后都不是中文 (避 "意大利人民银行" → "意大利中国人民银行")
+    # - 最长 alias 优先 (避 "中信" 截胡 "中信建投")
+    candidates: list[tuple[int, int, int, str, str]] = []
     for alias, canonical in BANK_ALIAS_MAP.items():
         if alias not in raw_subject or len(alias) < 2:
             continue
         idx = raw_subject.find(alias)
         end = idx + len(alias)
         if idx == 0:
-            # 开头别名: 后接任何字符都 OK (业务场景: "招行某业务部" 等)
-            return raw_subject[:idx] + canonical + raw_subject[end:]
-        # 不在开头: 前缀和后缀都不能是 CJK
-        if not _is_cjk(raw_subject[idx - 1]) and (
+            if raw_subject.startswith(canonical):
+                return raw_subject  # 已经是规范名, 不重复替换成 "兴业银行银行"
+            candidates.append((-len(alias), idx, end, alias, canonical))
+        elif not _is_cjk(raw_subject[idx - 1]) and (
             end == len(raw_subject) or not _is_cjk(raw_subject[end])
         ):
-            return raw_subject[:idx] + canonical + raw_subject[end:]
+            candidates.append((-len(alias), idx, end, alias, canonical))
 
-    return raw_subject
+    if not candidates:
+        return raw_subject
+    _, idx, end, _, canonical = min(candidates)
+    return raw_subject[:idx] + canonical + raw_subject[end:]
 
 
 def _is_cjk(ch: str) -> bool:
@@ -306,23 +311,48 @@ def _is_cjk(ch: str) -> bool:
     return "\u4e00" <= ch <= "\u9fff"
 
 
+def normalize_case_action_with_source(
+    raw_action: str | None,
+    context_text: str | None = None,
+) -> tuple[str, str]:
+    """case_action 归一并返回 (action, source).
+
+    source:
+      - 'llm_enum': raw_action 直接命中 5 类枚举
+      - 'rule_text': raw_action 或 context_text 命中中文关键词
+      - 'default': 兜底回退为 'launch'
+    """
+    if raw_action:
+        cleaned = raw_action.strip()
+        if cleaned.lower() in CASE_ACTION_KEYWORDS:
+            return cleaned.lower(), "llm_enum"
+        for action, keywords in CASE_ACTION_KEYWORDS.items():
+            for kw in keywords:
+                if kw in cleaned:
+                    return action, "rule_text"
+
+    if context_text:
+        for action in ("exit", "pilot", "scale", "transform", "launch"):
+            for kw in CASE_ACTION_KEYWORDS[action]:
+                if kw in context_text:
+                    return action, "rule_text"
+
+    return "launch", "default"
+
+
 def normalize_case_action(raw_action: str | None) -> str:
     """case_action 关键词映射 (5 类枚举).  默认 'launch'."""
-    if not raw_action:
-        return "launch"
-
-    raw_action = raw_action.strip()
-    for action, keywords in CASE_ACTION_KEYWORDS.items():
-        for kw in keywords:
-            if kw in raw_action:
-                return action
-    return "launch"
+    action, _ = normalize_case_action_with_source(raw_action)
+    return action
 
 
 def normalize_case_type(raw_type: str | None, subject: str | None = None) -> str:
     """case_type 关键词映射 (2 类枚举: AI / PI).  默认 'AI'."""
-    text = (raw_type or "") + " " + (subject or "")
-    text = text.strip()
+    raw = (raw_type or "").strip()
+    if raw.upper() in CASE_TYPE_KEYWORDS:
+        return raw.upper()
+
+    text = (raw + " " + (subject or "")).strip()
     if not text:
         return "AI"
 
@@ -365,16 +395,255 @@ def normalize_amount(raw_amount: str | None) -> str | None:
         # 万户/千家/万笔/万个/万用户 — 单位已是复合, 直接输出
         return _fmt(num, unit)
 
-    # 2. 金额单位 (X 亿元 / X 万元 / X 百万元)
-    m = re.search(r"(\d+(?:\.\d+)?)\s*(亿元|万元|百万元|千万元|亿|万|百万|千)", raw_amount)
+    # 2. 金额单位 (万亿 > 亿 > 千万 > 百万 > 万 > 千, 长度优先)
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(万亿|亿|千万|百万|万|千)", raw_amount)
     if m:
-        num, unit = m.groups()
-        unit_map = {"亿": "亿元", "万": "万元", "百万": "百万元", "千": "千万元"}
-        unit = unit_map.get(unit, unit)
-        return _fmt(num, unit)
+        num, magnitude = m.groups()
+        currency = next(
+            (
+                name
+                for pattern, name in (
+                    (r"美元|美金|USD", "美元"),
+                    (r"欧元|EUR", "欧元"),
+                    (r"韩元|KRW", "韩元"),
+                    (r"日元|JPY", "日元"),
+                    (r"港元|港币|HKD", "港元"),
+                    (r"英镑|GBP", "英镑"),
+                    (r"卢比|INR", "卢比"),
+                    (r"元|人民币|RMB", "元"),
+                )
+                if re.search(pattern, raw_amount, re.IGNORECASE)
+            ),
+            None,
+        )
+        # 计数指标 (日活/用户/场景...) 的 "3000 万" 不是金额, 不能补 "元"
+        if currency is None and re.search(
+            r"(日活|月活|DAU|MAU|用户|客户|商户|门店|场景|员工|笔|户)", raw_amount, re.IGNORECASE
+        ):
+            return _fmt(num, magnitude)
+        return _fmt(num, magnitude + (currency or "元"))
 
     # 3. 没匹配上 — 原样返回 (保持语义)
     return raw_amount
+
+
+# ── 结构化指标解析 (P0-3: case_metrics) ──────────────────────────────────
+_MAGNITUDE_MULTIPLIER: list[tuple[str, float]] = [
+    ("万亿", 1e12),
+    ("亿", 1e8),
+    ("千万", 1e7),
+    ("百万", 1e6),
+    ("万", 1e4),
+    ("千", 1e3),
+]
+
+_CURRENCY_PATTERNS: list[tuple[str, str]] = [
+    (r"美元|美金|USD|\$", "USD"),
+    (r"欧元|EUR|€", "EUR"),
+    (r"韩元|KRW", "KRW"),
+    (r"日元|JPY", "JPY"),
+    (r"港元|港币|HKD", "HKD"),
+    (r"英镑|GBP|£", "GBP"),
+    (r"卢比|INR", "INR"),
+    (r"元|人民币|RMB|CNY", "CNY"),
+]
+
+_COUNT_UNIT_PATTERNS: list[tuple[str, str]] = [
+    (r"日活|DAU|月活|MAU|万用户|用户|客户", "user"),
+    (r"万户|户|账户", "account"),
+    (r"商户|商家", "merchant"),
+    (r"个国家|国家|地区", "country"),
+    # 只认「个月」：单字「月」会把「2025年11月交易额1.2亿」这种真实指标
+    # 判成时长并丢弃。
+    (r"个月", "month"),
+    # "家" 不能命中 "国家"：否则 178 个国家会被记成 178 家机构。
+    (r"(?<!国)家|机构|银行|网点|门店", "institution"),
+    (r"万笔|笔", "txn"),
+    (r"员工|职位|人数", "person"),
+    (r"人", "person"),
+    (r"%|％|百分点", "percent"),
+    (r"倍", "x"),
+]
+
+_METRIC_TYPE_RULES: list[tuple[str, str, str | None]] = [
+    (r"日活|DAU", "dau", "daily"),
+    (r"月活|MAU", "mau", "monthly"),
+    (r"融资|募资|种子轮|天使轮|[A-D]\+?轮", "funding", None),
+    (r"中标|招标|采购|预算|入围|比选", "contract_value", None),
+    (r"收购|并购|要约|出售|剥离|股权价值", "deal_value", None),
+    (r"罚|处罚|罚款", "penalty", None),
+    (r"ARR|营收|收入", "revenue", "annual"),
+    (r"估值", "valuation", None),
+    (r"投入|投资|资本支出", "investment", None),
+    (r"降本|节省|节约|减少.*成本", "cost_saving", None),
+    (r"交易额|交易规模|GMV", "txn_volume", None),
+    (r"交易笔数|笔数", "txn_count", None),
+    (r"用户|客户|万户|开户", "user_count", None),
+    (r"网点|机构|门店|国家|覆盖|场景", "coverage", None),
+    (r"裁员|员工|职位|人数|缩减", "headcount", None),
+    (r"%|％|倍|效率|提速|增长|提升", "efficiency", None),
+]
+
+_APPROX_PATTERNS: list[tuple[str, str]] = [
+    (r"约|左右|大约|接近|近", "about"),
+    (r"超|超过|以上|\+|多", "over"),
+    (r"不足|不到|少于|以下|不超过", "under"),
+    (r"数亿|数千万|数百万|数十万|数万", "vague"),
+]
+
+
+def parse_metric(
+    raw_value: str | None,
+    context: str | None = None,
+    *,
+    metric_type_hint: str | None = None,
+    unit_hint: str | None = None,
+    period: str | None = None,
+    period_type: str | None = None,
+    evidence_quote: str | None = None,
+    source_type: str = "auto_llm",
+) -> dict[str, Any] | None:
+    """将金额/规模/效果描述解析为结构化 metric dict.
+
+    解决旧 normalize_amount 把 '互动日活3000万' 错写成 '3000 万元' 的问题。
+    """
+    if not raw_value or not str(raw_value).strip():
+        return None
+
+    value_raw = str(raw_value).strip()
+    combined = f"{value_raw} {context or ''}".strip()
+
+    # 1. 近似标记
+    value_approx: str | None = None
+    for pat, label in _APPROX_PATTERNS:
+        if re.search(pat, value_raw):
+            value_approx = label
+            break
+
+    # 2. 数值 + 数量级 (万亿 > 亿 > 千万 > 百万 > 万 > 千)
+    value_num: float | None = None
+    num_match = re.search(
+        r"(\d+(?:\.\d+)?)\s*(万亿|亿|千万|百万|万|千)?",
+        value_raw.replace(",", ""),
+    )
+    if num_match:
+        base = float(num_match.group(1))
+        mag = num_match.group(2)
+        mult = 1.0
+        if mag:
+            for mag_str, m_val in _MAGNITUDE_MULTIPLIER:
+                if mag == mag_str:
+                    mult = m_val
+                    break
+        value_num = base * mult
+
+    # 3. 单位判定: 先识别明确外币/人民币, 再计数/百分比单位 (防止 "交易额1500万美元" 被 "交易" 误判成 txn), 最后看 context
+    unit = (unit_hint or "").strip() or None
+    if not unit:
+        for pat, cur in _CURRENCY_PATTERNS:
+            if cur != "CNY" and re.search(pat, value_raw, re.IGNORECASE):
+                unit = cur
+                break
+    if not unit:
+        # 优先在 value_raw 自身识别非货币单位
+        for pat, u in _COUNT_UNIT_PATTERNS:
+            if re.search(pat, value_raw, re.IGNORECASE):
+                unit = u
+                break
+    if not unit:
+        for pat, cur in _CURRENCY_PATTERNS:
+            if re.search(pat, value_raw, re.IGNORECASE):
+                unit = cur
+                break
+    if not unit and context:
+        # 只在数字附近 ±8 字内找计数单位，避免把同段无关的“800亿美元”
+        # 当成 “10 个” 的币种，也避免“国家”命中“家”。
+        window = ""
+        core = re.search(r"\d+(?:\.\d+)?", value_raw)
+        if core:
+            idx = context.find(core.group(0))
+            if idx >= 0:
+                lo = max(0, idx - 8)
+                hi = idx + len(core.group(0)) + 8
+                window = context[lo:hi]
+        if window:
+            for pat, u in _COUNT_UNIT_PATTERNS:
+                if re.search(pat, window, re.IGNORECASE):
+                    unit = u
+                    break
+    if not unit:
+        unit = "unknown"
+
+    # 时长不是业务指标：`6个月募资` 这类应丢弃，而不是记成 6 人。
+    if unit == "month":
+        return None
+
+    # 4. metric_type & period_type
+    metric_type = (metric_type_hint or "").strip() or None
+    inferred_period_type = period_type
+    if not metric_type:
+        # 先匹配 value_raw，再匹配 combined
+        for pat, mtype, ptype in _METRIC_TYPE_RULES:
+            if re.search(pat, value_raw, re.IGNORECASE):
+                metric_type = mtype
+                if not inferred_period_type and ptype:
+                    inferred_period_type = ptype
+                break
+        if not metric_type:
+            for pat, mtype, ptype in _METRIC_TYPE_RULES:
+                if re.search(pat, combined, re.IGNORECASE):
+                    metric_type = mtype
+                    if not inferred_period_type and ptype:
+                        inferred_period_type = ptype
+                    break
+    if not metric_type:
+        metric_type = "other"
+
+    return {
+        "metric_type": metric_type,
+        "value_num": value_num,
+        "value_approx": value_approx,
+        "unit": unit,
+        "period": period,
+        "period_type": inferred_period_type,
+        "value_raw": value_raw[:200],
+        "evidence_quote": (evidence_quote or "")[:400] or None,
+        "is_primary": 1,
+        "source_type": source_type,
+    }
+
+
+def normalize_metrics(
+    raw_metrics: Any = None,
+    raw_amount: str | None = None,
+    context: str | None = None,
+) -> list[dict[str, Any]]:
+    """归一化 LLM 返回的 metrics 列表或回退解析 raw_amount."""
+    out: list[dict[str, Any]] = []
+    if isinstance(raw_metrics, list):
+        for idx, item in enumerate(raw_metrics):
+            if not isinstance(item, dict):
+                continue
+            val = item.get("value_raw") or item.get("amount") or item.get("value")
+            parsed = parse_metric(
+                str(val) if val is not None else None,
+                context,
+                metric_type_hint=item.get("metric_type"),
+                unit_hint=item.get("unit_hint") or item.get("unit"),
+                period=item.get("period"),
+                period_type=item.get("period_type"),
+                evidence_quote=item.get("evidence_quote"),
+                source_type="auto_llm",
+            )
+            if parsed is not None:
+                parsed["is_primary"] = 1 if idx == 0 else 0
+                out.append(parsed)
+    if not out and raw_amount:
+        parsed = parse_metric(raw_amount, context, source_type="auto_llm")
+        if parsed is not None:
+            parsed["is_primary"] = 1
+            out.append(parsed)
+    return out
 
 
 # ── 案例关键词归一 (sprint-18) ─────────────────────────────────────────
@@ -813,10 +1082,19 @@ def normalize_case(raw: dict[str, Any]) -> dict[str, Any] | None:
 
     case_date, precision = normalize_date(raw.get("case_date"))
     case_type = normalize_case_type(raw.get("case_type"), subject)
-    case_action = normalize_case_action(raw.get("case_action"))
+    context_text = f"{raw.get('summary') or ''} {raw.get('evidence_snippet') or ''}".strip()
+    case_action, case_action_source = normalize_case_action_with_source(
+        raw.get("case_action"),
+        context_text=context_text,
+    )
     amount = normalize_amount(raw.get("amount"))
     counterparty = normalize_subject(raw.get("counterparty"))  # 复用主体别名归一
     reference_value = normalize_reference_value(raw.get("reference_value"))
+    metrics = normalize_metrics(
+        raw.get("metrics"),
+        raw_amount=raw.get("amount"),
+        context=context_text,
+    )
 
     return {
         "subject": subject,
@@ -825,8 +1103,11 @@ def normalize_case(raw: dict[str, Any]) -> dict[str, Any] | None:
         "case_date_precision": precision,
         "case_type": case_type,
         "case_action": case_action,
+        "case_action_source": case_action_source,
         "counterparty": counterparty,
         "amount": amount,
+        "metrics": metrics,
+        "raw_json": json.dumps(raw, ensure_ascii=False),
         "reference_value": reference_value,
         "reference_rationale": (raw.get("reference_rationale") or "")[:200],  # 截断
         "summary": (raw.get("summary") or "")[:200],
