@@ -1432,6 +1432,16 @@ label { font-size: var(--font-14); }
 .fetch-config-scope-block {
   margin-bottom: 0.85rem;
 }
+/* t114u: 「恢复默认展示」区块（说明文字在上、按钮在下）。 */
+.fetch-config-scope-restore {
+  margin: 0 0 0.85rem;
+}
+.fetch-config-scope-restore .fetch-config-hint {
+  margin: 0 0 6px;
+}
+.fetch-config-scope-restore .btn {
+  align-self: flex-start;
+}
 .fetch-config-scope-label {
   display: flex;
   align-items: baseline;

@@ -260,15 +260,22 @@ DEFAULT_THRESHOLDS: dict[str, dict[str, int]] = {
 #: (不因门槛丢条目), 并记 warning。
 THRESHOLD_TOPICS: tuple[str, ...] = ("wechat", "xcircle")
 
-#: moni 侧存的 **scope 副本** (可编辑, 仅用于记录与展示)。
+#: moni 侧存的 **scope 副本** (可编辑)。
 #:
-#: 它**不参与入库闸门** —— moni 改不了 X-bot 的搜索, 而上游已经筛过一遍;
-#: 按一份手抄名单再过滤 = 静默丢条目, 收益为零。
-#: 编辑它只改这份副本, UI 会明确标注"不会改变 X-bot 的搜索范围"。
+#: v1.0.131 (sprint-55) 起它**参与 moni 自己的入库准入**（dad 2026-11-25 12:33
+#: 批准），与 sprint-35 的「仅记录与展示」相反 —— 旧决策作废的理由:
+#: ①「静默丢条目」被 OR 准入消掉（只增不减）；②「假控件」由 UI 拆成
+#: 「上游范围只读 / moni 准入策略生效」消掉；③「默认零变化」由
+#: 「只有**显式存储**才生效」保住（见 ``_prepare`` / migration 061）。
 #:
-#: 账号名单来自 brief 的快照 (2026-11-11); 上游目前**没有**导出 scope 键
-#: (8 个 feed 文件顶层都只有 date/generated_at/counts_by_topic/items),
-#: 所以这份是"moni 侧兜底"来源, UI 标注快照日期以暴露漂移。
+#: 三条硬边界（改这段前先读）:
+#:
+#: 1. **只读 moni 显式存储的副本** —— 绝不用 ``_effective_scope()`` 的上游/
+#:    兜底值，否则上游某天导出 ``scope`` 键会静默改写 moni 的准入结果。
+#: 2. **没存过 = 不参与准入**（不是「全放通」）。空正则 / 空名单同理。
+#: 3. 它**不会**改变 X-bot 的搜索范围 —— 采集在上游，moni 只有 ``git pull``。
+#:
+#: 下面这份常量只是**展示兜底**（新装库在 UI 里看到的历史快照）。
 DEFAULT_SCOPE: dict[str, Any] = {
     "xcircle_accounts": [
         "dotey", "Gorden_Sun", "lxfater", "op7418", "oran_ge", "vista8",
@@ -282,6 +289,33 @@ DEFAULT_SCOPE: dict[str, Any] = {
     # 上游 2026-11-12 起才把每日 query 写进 out/wechat-queries-*.txt
     # (在 X-bot 那台机器上), moni 看不到 → 空列表 + UI 标注"上游未导出"。
     "wechat_queries": [],
+}
+
+# ── sprint-55 (v1.0.131): scope 准入 ────────────────────────────────────
+#
+# 口径（dad 2026-11-25 12:33 已批，勿再改问）:
+#
+#   * ``wechat_regex``      只对 ``topic == "wechat"``，匹配 **title + content**，
+#                           大小写不敏感；
+#   * ``xcircle_accounts``  只对 ``topic == "xcircle"``，按 ``normalize_handle()``
+#                           精确命中；
+#   * 两者与「候选 tag 的关键词闸门」是 **OR**（命中即准入），不是 AND ——
+#     AND 会让接入等价于「什么都没变」（实测: 存活段 2767 条里 tag 命中 0 条）；
+#   * 作者屏蔽 / 粉丝门槛 / 跨源 URL 去重 **优先级更高**，scope 命中不能绕过；
+#   * scope-only 命中合成到**专用 tag** ``xbot-scope``，绝不冒充领域关键词命中
+#     （与 ``dedupe_insert`` 丢弃 bypass 合成 hit 的既有取舍一致）。
+
+#: scope-only 命中挂的专用 tag 名（由 migration 061 建，keywords 为空数组）。
+SCOPE_ADMISSION_TAG = "xbot-scope"
+
+#: ``scope`` 里参与准入的两个字段（``wechat_queries`` 仍仅展示）。
+SCOPE_FIELD_WECHAT_REGEX = "wechat_regex"
+SCOPE_FIELD_XCIRCLE_ACCOUNTS = "xcircle_accounts"
+
+#: 字段 → 生效的 topic（两个字段各管自己那一半，绝不跨 topic 串用）。
+SCOPE_FIELD_TOPIC: dict[str, str] = {
+    SCOPE_FIELD_WECHAT_REGEX: "wechat",
+    SCOPE_FIELD_XCIRCLE_ACCOUNTS: "xcircle",
 }
 
 #: 这两个键在 ``sources.fetch_config`` 里是**用户配的**, 读取时按它们
@@ -717,6 +751,19 @@ class FetcherXbotFeed(BaseFetcher):
         # **不并入** threshold_dropped / threshold_missing (AC-8): 混在一起
         # 会让 sprint-35 已验收的计数口径失真, 也无法归因。
         self._author_blocked: int = 0
+        # sprint-55: scope 准入（本轮的生效态 + 计数）。每轮重置。
+        #
+        # 计数口径（pV 交叉审后写死，别再漂）:
+        #   * ``_scope_matched_by``  = scope 字段的**总命中**（含与领域词表双命中）；
+        #   * ``_scope_admitted``    = **只计 scope-only 救回**（tag 未命中、靠
+        #     scope 进来的条数）⇒ ``parsed`` 不会被重复计数；
+        #   * ``_scope_admitted_by`` = 上面那批按字段拆分。
+        self._scope_gate_active: bool = False
+        self._scope_wechat_regex: Any = None       # re.Pattern | None
+        self._scope_accounts: frozenset[str] = frozenset()
+        self._scope_admitted: int = 0
+        self._scope_admitted_by: dict[str, int] = {}
+        self._scope_matched_by: dict[str, int] = {}
 
     # ── config ────────────────────────────────────────────────────────────
     def _load_config(self) -> dict[str, Any]:
@@ -1350,9 +1397,32 @@ class FetcherXbotFeed(BaseFetcher):
         hit_tags, hits = self._match_topic_tags(
             topic, title, content, self._cfg
         )
+
+        # ── sprint-55 (v1.0.131): scope 准入（与上面的词表闸门 **OR**）──
+        #
+        # 位置很关键: 这一步在 作者屏蔽 / 门槛 / 跨源 URL 去重 **之后** ——
+        # 那三道是强优先闸门, scope 命中不能绕过它们。
+        # OR 而不是 AND: 实测存活段 2767 条里领域词表命中 0 条 —— AND 会让
+        # 「接入」等价于「什么都没变」（表面接入）。
+        scope_fields, scope_hits = self._match_scope(topic, title, content, handle)
+        if scope_fields and not hit_tags:
+            # scope-only 救回: 挂专用 tag（绝不冒充领域关键词命中）
+            hit_tags = [SCOPE_ADMISSION_TAG]
+            hits = scope_hits
+            self._scope_admitted += 1
+            for field in scope_fields:
+                self._scope_admitted_by[field] = (
+                    self._scope_admitted_by.get(field, 0) + 1
+                )
+            logger.debug(
+                "[xbot-feed] item %s (topic=%s) admitted by scope %s",
+                tweet_id or canonical_url, topic or "?", ",".join(scope_fields),
+            )
+
         if not hit_tags:
             logger.info(
-                "[xbot-feed] item %s (topic=%s) hit no candidate-tag keyword — "
+                "[xbot-feed] item %s (topic=%s) hit no candidate-tag keyword "
+                "and no scope rule — "
                 "not ingested (stays eligible for a later round)",
                 tweet_id or canonical_url, topic or "?",
             )
@@ -1543,6 +1613,25 @@ class FetcherXbotFeed(BaseFetcher):
         # sprint-38: 作者屏蔽丢弃独立计数 (标量) —— 与上面三个门槛字段
         # **彼此独立、互不包含** (AC-8 / AC-19)。前端结果面板单列一行。
         result["author_blocked"] = self._author_blocked
+        # sprint-55 (v1.0.131): scope 准入漏斗（后端字段 → job result_json →
+        # 前端面板；缺任何一段用户只看到「抓了 N 条」）。
+        #
+        # 口径写死（pV 交叉审）:
+        #   * ``scope_admitted``    = **scope-only 救回**条数（parsed 的一部分）；
+        #   * ``scope_admitted_by`` = 上面那批按字段拆分；
+        #   * ``scope_matched_by``  = scope 字段**总命中**（含与词表双命中的，
+        #                             双命中不进 scope_admitted）。
+        result["scope_gate_active"] = bool(self._scope_gate_active)
+        result["scope_admitted"] = self._scope_admitted
+        result["scope_admitted_by"] = dict(self._scope_admitted_by)
+        result["scope_matched_by"] = dict(self._scope_matched_by)
+        if self._scope_admitted:
+            logger.info(
+                "[xbot-feed] scope admitted %d item(s): %s",
+                self._scope_admitted,
+                ", ".join(f"{k}={v}" for k, v in sorted(
+                    self._scope_admitted_by.items())),
+            )
         if self._author_blocked:
             logger.info(
                 "[xbot-feed] author-blocked dropped %d item(s)", self._author_blocked,
@@ -1740,3 +1829,111 @@ class FetcherXbotFeed(BaseFetcher):
         self._threshold_missing = {}
         # sprint-38: 作者屏蔽计数同样每轮重置 (生命周期同门槛计数)。
         self._author_blocked = 0
+        # sprint-55: scope 准入态 —— **只读显式存储的副本**（cfg["scope"]）。
+        #
+        # 为什么不是 `_DEFAULTS` / `DEFAULT_SCOPE` 兜底: 兜底一旦参与准入, 就是
+        # 「用户什么都没配, 系统却按一份 2026-11-11 的手抄名单把 xcircle 全放
+        # 通」—— 正是 sprint-35 反对的「假控件」的镜像（假控件 → 隐式生效）。
+        # 所以: 空 / 缺失 / 非法 → 该维度不参与, 而不是「匹配一切」。
+        self._scope_gate_active, self._scope_wechat_regex, self._scope_accounts = (
+            self._load_scope_gate(cfg)
+        )
+        self._scope_admitted = 0
+        self._scope_admitted_by = {}
+        self._scope_matched_by = {}
+
+    # ── scope 准入 (sprint-55) ────────────────────────────────────────────
+    def _load_scope_gate(
+        self, cfg: dict[str, Any]
+    ) -> tuple[bool, Any, frozenset[str]]:
+        """把 ``fetch_config.scope`` 解析成（是否生效, 编译后的正则, 账号集合）。
+
+        只认 **dict 且非空** 的显式存储副本；字段空串 / 空数组 / 非法正则
+        一律「该维度不参与」。返回的第一项为 False ⇒ 整道 scope 闸门不参与
+        准入（逐条行为与 v1.0.130 完全相同）。
+        """
+        from ..keyword_match import compile_regex
+
+        raw = cfg.get("scope")
+        if not isinstance(raw, dict) or not raw:
+            return False, None, frozenset()
+
+        regex = None
+        raw_regex = raw.get(SCOPE_FIELD_WECHAT_REGEX)
+        if isinstance(raw_regex, str) and raw_regex.strip():
+            # compile_regex 内部吞掉 re.error 并返回 None（非法 = 该维度不参与）
+            regex = compile_regex(raw_regex, ignore_case=True)
+
+        accounts = normalize_handles(raw.get(SCOPE_FIELD_XCIRCLE_ACCOUNTS))
+
+        active = bool(regex is not None or accounts)
+        if not active:
+            logger.info(
+                "[xbot-feed] scope stored but no usable field "
+                "(wechat_regex 空/非法, xcircle_accounts 空) — admission off",
+            )
+        return active, regex, frozenset(accounts)
+
+    def _match_scope(
+        self,
+        topic: str,
+        title: str,
+        body: str,
+        handle: str,
+    ) -> tuple[list[str], list[dict[str, Any]]]:
+        """scope 字段是否命中（返回 ``(命中字段名列表, hits)``）。
+
+        * ``wechat``   → ``wechat_regex`` 扫 ``title + body``（大小写不敏感）
+        * ``xcircle``  → ``xcircle_accounts`` 用 ``normalize_handle()`` 精确比
+        * 其它 topic / 闸门未生效 → 空结果
+
+        命中结果只用于「准入」与「留痕」，**不**冒充领域关键词命中:
+        ``keyword`` 记 ``regex:<pattern>`` / ``account:<handle>``，
+        ``hit_field`` 记 ``"scope"``。
+        """
+        from ..keyword_match import regex_matches
+
+        topic_key = (topic or "").strip().lower()
+        if not self._scope_gate_active:
+            return [], []
+
+        fields: list[str] = []
+        hits: list[dict[str, Any]] = []
+
+        if (
+            topic_key == SCOPE_FIELD_TOPIC[SCOPE_FIELD_WECHAT_REGEX]
+            and self._scope_wechat_regex is not None
+            and regex_matches(
+                self._scope_wechat_regex,
+                text=f"{title}\n{body}" if body else title,
+            )
+        ):
+            fields.append(SCOPE_FIELD_WECHAT_REGEX)
+            hits.append({
+                "article_url": "",              # 调用方补
+                "keyword": f"regex:{self._scope_wechat_regex.pattern}",
+                "tag_name": SCOPE_ADMISSION_TAG,
+                "filter_id": None,
+                "hit_field": "scope",
+            })
+
+        if (
+            topic_key == SCOPE_FIELD_TOPIC[SCOPE_FIELD_XCIRCLE_ACCOUNTS]
+            and self._scope_accounts
+        ):
+            normalized = normalize_handle(handle)
+            if normalized and normalized in self._scope_accounts:
+                fields.append(SCOPE_FIELD_XCIRCLE_ACCOUNTS)
+                hits.append({
+                    "article_url": "",
+                    "keyword": f"account:{normalized}",
+                    "tag_name": SCOPE_ADMISSION_TAG,
+                    "filter_id": None,
+                    "hit_field": "scope",
+                })
+
+        for field in fields:
+            self._scope_matched_by[field] = (
+                self._scope_matched_by.get(field, 0) + 1
+            )
+        return fields, hits

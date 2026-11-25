@@ -137,7 +137,12 @@ def test_get_scope_returns_fallback_mode(client, fresh_db):
         "wechat": {"min_followers": 0, "min_likes": 0},
         "xcircle": {"min_followers": 0, "min_likes": 0},
     }
-    assert data["scope_gates_ingest"] is False
+    assert data["scope_gates_ingest"] is True, (
+        "sprint-55 (v1.0.131): scope 已接入入库准入 —— 该字段不再恒为 False"
+    )
+    # 但「能力为真」≠「此刻生效」: 新装库没有显式存储 → 准入未启用
+    assert data["scope_stored"] is False
+    assert data["scope_admission_active"] is False
 
 
 def test_get_scope_upstream_mode(client, fresh_db):
@@ -401,24 +406,198 @@ def test_put_rejects_invalid_scope_and_does_not_write_db(client, bad):
     assert _sha_of_stored(conn) == before
 
 
-def test_scope_does_not_gate_ingest():
-    """scope 是记录与展示用的副本 → 没有任何 ingest 路径读它。"""
+@pytest.mark.parametrize("bad_regex", ["(", "[a-", "a{2,1}", "(?P<n>"])
+def test_put_rejects_invalid_regex_and_does_not_write_db(client, bad_regex):
+    """sprint-55: 正则现在是准入门 —— 非法模式必须在保存时 400 且库零写入。
+
+    （抓取侧另有降级兜底；但保存侧不拒就会「用户以为在生效，实际没生效」。）
+    """
+    conn = get_db()
+    _seed_xbot(conn)
+    before = _sha_of_stored(conn)
+    resp = client.put(
+        f"/api/config/sources/{_SOURCE_ID}/fetch_config",
+        json={"scope": {"xcircle_accounts": [], "wechat_regex": bad_regex,
+                        "wechat_queries": []}},
+    )
+    assert resp.status_code == 400, resp.text
+    assert "regular expression" in resp.text
+    assert _sha_of_stored(conn) == before, "400 之后库内容必须逐字未变"
+
+
+def test_put_accepts_valid_regex_and_scope_stored_turns_true(client):
+    conn = get_db()
+    _seed_xbot(conn)
+    before = client.get(
+        f"/api/config/sources/{_SOURCE_ID}/fetch_config").json()
+    assert before["scope_stored"] is False, "未存储时必须是 False（准入未启用）"
+
+    scope = {"xcircle_accounts": ["UberEng", "@dotey"],
+             "wechat_regex": "微信|skill|agent", "wechat_queries": []}
+    resp = client.put(
+        f"/api/config/sources/{_SOURCE_ID}/fetch_config", json={"scope": scope})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["scope_stored"] is True
+
+    scope_info = client.get(f"/api/config/sources/{_SOURCE_ID}/scope").json()
+    assert scope_info["scope_stored"] is True
+    assert scope_info["scope_admission_active"] is True
+    assert scope_info["scope_gates_ingest"] is True
+
+
+def test_scope_admission_inactive_when_only_empty_fields(client):
+    """存了 scope 但两个字段都空 → stored=True / active=False（不放通）。"""
+    conn = get_db()
+    _seed_xbot(conn)
+    resp = client.put(
+        f"/api/config/sources/{_SOURCE_ID}/fetch_config",
+        json={"scope": {"xcircle_accounts": [], "wechat_regex": "",
+                        "wechat_queries": ["微信"]}},
+    )
+    assert resp.status_code == 200, resp.text
+    scope_info = client.get(f"/api/config/sources/{_SOURCE_ID}/scope").json()
+    assert scope_info["scope_stored"] is True
+    assert scope_info["scope_admission_active"] is False, (
+        "空值 = 该维度不参与准入，绝不是全放通"
+    )
+
+
+# ── t114u 收尾: 「恢复默认展示 / 删除显式 scope」（pV P1-2）────────────
+#   语义边界（brief 明令）:
+#     * 清空字段保存 = 写入空 scope → scope_stored=True / admission inactive
+#       （既有行为，不动）；
+#     * 恢复默认展示 = **删掉** fetch_config.scope 键 → scope_stored=False，
+#       展示回落到 moni_fallback；
+#     * 恢复默认**绝不能**把兜底名单/正则写进 scope（那就等于静默激活准入）。
+
+
+def _seed_xbot_with_stored_scope(conn):
+    _seed_xbot(conn, fetch_config=json.dumps({
+        "max_days": 30,
+        "thresholds": {"wechat": {"min_followers": 100}, "xcircle": {}},
+        "scope": {"xcircle_accounts": ["UberEng"], "wechat_regex": "skill|agent",
+                  "wechat_queries": []},
+    }, ensure_ascii=False))
+
+
+def test_put_scope_null_deletes_stored_scope(client):
+    """``{"scope": null}`` = 显式删键（不是写空 dict）。"""
+    conn = get_db()
+    _seed_xbot_with_stored_scope(conn)
+    resp = client.put(
+        f"/api/config/sources/{_SOURCE_ID}/fetch_config", json={"scope": None})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["scope_stored"] is False
+
+    stored = json.loads(_stored_fetch_config(conn))
+    assert "scope" not in stored, (
+        "null 哨兵必须真的删键 —— 留空 dict 会让 GET 继续报 scope_stored=true"
+    )
+    # 兄弟键必须原样保留（PUT 的合并语义不能被删除路径带跑）
+    assert stored["thresholds"] == {"wechat": {"min_followers": 100}, "xcircle": {}}
+    assert stored["max_days"] == 30
+
+
+def test_put_scope_null_stops_admission_and_shows_fallback(client):
+    from moni.fetch.sources.xbot_feed import DEFAULT_SCOPE
+
+    conn = get_db()
+    _seed_xbot_with_stored_scope(conn)
+    client.put(
+        f"/api/config/sources/{_SOURCE_ID}/fetch_config", json={"scope": None})
+
+    info = client.get(f"/api/config/sources/{_SOURCE_ID}/scope").json()
+    assert info["scope_stored"] is False
+    assert info["scope_admission_active"] is False
+    assert info["scope_source"] == "moni_fallback"
+    assert info["scope"]["xcircle_accounts"] == list(
+        DEFAULT_SCOPE["xcircle_accounts"]), "展示必须回落到兜底快照"
+
+
+def test_put_scope_null_does_not_persist_fallback_as_admission(client):
+    """恢复默认 = 停用准入，**不是**把兜底名单/正则提升成准入门。"""
+    from moni.fetch.sources.xbot_feed import DEFAULT_SCOPE
+
+    conn = get_db()
+    _seed_xbot_with_stored_scope(conn)
+    client.put(
+        f"/api/config/sources/{_SOURCE_ID}/fetch_config", json={"scope": None})
+
+    stored_blob = _stored_fetch_config(conn) or ""
+    assert "scope" not in json.loads(stored_blob)
+    for handle in DEFAULT_SCOPE["xcircle_accounts"][:5]:
+        assert handle not in stored_blob, (
+            f"兜底账号 {handle!r} 被写进了库 —— 恢复默认变成了静默激活准入"
+        )
+    assert DEFAULT_SCOPE["wechat_regex"] not in stored_blob
+
+
+def test_put_scope_null_is_noop_when_nothing_stored(client):
+    """本来就没存 scope → 发 null 也必须 200，且库内容不多出 scope 键。"""
+    conn = get_db()
+    _seed_xbot(conn)
+    resp = client.put(
+        f"/api/config/sources/{_SOURCE_ID}/fetch_config",
+        json={"scope": None, "thresholds": {"wechat": {"min_likes": 7}}},
+    )
+    assert resp.status_code == 200, resp.text
+    stored = json.loads(_stored_fetch_config(conn))
+    assert "scope" not in stored
+    assert stored["thresholds"] == {"wechat": {"min_likes": 7}}
+    assert resp.json()["scope_stored"] is False
+
+
+def test_put_scope_null_on_other_source_keeps_replace_semantics(client):
+    """哨兵只属于 xbot 分支 —— 其它信源发 scope=null 仍是「整体替换 body」。"""
+    conn = get_db()
+    _seed_other(conn)
+    resp = client.put(
+        f"/api/config/sources/{_OTHER_SOURCE_ID}/fetch_config",
+        json={"scope": None, "timeout_sec": 20},
+    )
+    assert resp.status_code == 200, resp.text
+    stored = json.loads(conn.execute(
+        "SELECT fetch_config FROM sources WHERE id=?",
+        (_OTHER_SOURCE_ID,)).fetchone()["fetch_config"])
+    assert stored == {"scope": None, "timeout_sec": 20}, (
+        "非 xbot 信源的行为契约不能被这个哨兵改写"
+    )
+
+
+def test_scope_gate_is_wired_into_parse():
+    """sprint-55 (v1.0.131) 起 parse() **必须**读 scope（旧断言已作废）。
+
+    但只允许读**显式存储**的副本 ⇒ 这个文件里同时钉住「不读展示兜底」:
+    ``xbot_feed.py`` 不得引用 ``_effective_scope``（那是 Web 层的展示口径）。
+    """
     import inspect
+    import re as _re
 
     from moni.fetch.sources import xbot_feed
     src = inspect.getsource(xbot_feed)
-    # parse() 里不能用 cfg["scope"] 做闸门
     parse_src = src.split("def parse(", 1)[1].split("\n    def ", 1)[0]
-    assert "scope" not in parse_src
-    # 判定用的只有 thresholds
-    assert "evaluate_thresholds" in parse_src
+    assert "_match_scope" in parse_src, "scope 准入没有接进 parse()"
+    # 断言前先剥注释 —— 注释里提到 `_effective_scope` 是**警示**, 不是用法
+    # （本仓的既有教训: 注释里的字样会让 `assert X not in src` 恒红/恒绿）
+    code_only = "\n".join(
+        line for line in src.splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    code_only = _re.sub(r'""".*?"""', "", code_only, flags=_re.S)
+    assert "_effective_scope" not in code_only, (
+        "fetcher 不得读 Web 层的展示兜底 (上游/兜底值会静默改写准入结果)"
+    )
+    assert "evaluate_thresholds" in parse_src, "门槛闸门被删了？"
 
 
-def test_scope_edit_does_not_change_ingested_url_set():
-    """AC-12 **行为**证据: 改 scope 前后入库 URL 集合完全相同。
+def test_scope_admission_behavior_off_vs_on():
+    """AC-12（**sprint-55 重写**, 旧口径「改 scope 不改变入库集合」已作废）。
 
-    静态断言 (``"scope" not in parse_src``) 只证明"代码没读它"；这条用
-    真实抓取跑两遍 (scope 不同) → 证明"改了也没用"。
+    三跑对照:
+      1. 未存储 scope → 与**改动前基线**相同（准入未启用, 默认行为零变化）;
+      2. 未存储 scope + 上游导出了另一份 scope 显示值 → 仍然相同
+         （证明闸门不读展示值 / 上游值）;
+      3. 显式存储 scope → 严格多收（OR 准入真的生效）。
     """
     import shutil
     from datetime import date, timedelta
@@ -426,8 +605,9 @@ def test_scope_edit_does_not_change_ingested_url_set():
     from moni.fetch.sources.xbot_feed import FetcherXbotFeed
 
     fixture_dir = Path(__file__).parent / "fixtures" / "xbot_feed"
+    _ABSENT = object()
 
-    def _run(scope_value):
+    def _run(scope_value, upstream_scope=None):
         close_db()
         data_dir = Path(tempfile.mkdtemp(prefix="moni-scope-ac12-"))
         os.environ["MONI_DATA_DIR"] = str(data_dir)
@@ -439,18 +619,20 @@ def test_scope_edit_does_not_change_ingested_url_set():
         conn.execute("DELETE FROM sources WHERE id = ? OR name = ?",
                      ("src-xbot-feed", "xbot_feed"))
         conn.commit()
+        cfg = {
+            "bypass_keyword_filters": True,
+            "repo_url": "https://example.invalid/xbot-feed.git",
+            "max_days": 30,
+        }
+        if scope_value is not _ABSENT:
+            cfg["scope"] = scope_value
         conn.execute(
             "INSERT INTO sources (id, name, display_name, source_type, url, "
             "fetch_interval_min, is_active, notes, fetch_config, created_at, "
             "updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             ("src-xbot-feed", "xbot_feed", "X-bot 精选", "json",
              "https://github.com/mariusiaowego-commits/xbot-feed.git", 60, 1, "t",
-             json.dumps({
-                 "bypass_keyword_filters": True,
-                 "repo_url": "https://example.invalid/xbot-feed.git",
-                 "max_days": 30,
-                 "scope": scope_value,
-             }, ensure_ascii=False), "2026-01-01", "2026-01-01"),
+             json.dumps(cfg, ensure_ascii=False), "2026-01-01", "2026-01-01"),
         )
         for tag, kws in (("wechat", ["微信", "小程序"]),
                          ("miniprogram", ["小程序"]),
@@ -471,30 +653,48 @@ def test_scope_edit_does_not_change_ingested_url_set():
         feed = clone / "feed"
         feed.mkdir(parents=True, exist_ok=True)
         today = date.today()
-        for name, off in (("2026-11-03.json", 0), ("2026-11-02.json", 1)):
+        for name, off in (("2026-11-03.json", 0), ("2026-11-02.json", 1),
+                          ("2026-11-11.json", 2)):
             shutil.copy2(fixture_dir / name,
                          feed / f"{(today - timedelta(days=off)).isoformat()}.json")
         shutil.copy2(fixture_dir / "latest.json", feed / "latest.json")
+        if upstream_scope is not None:
+            # 在「今天」那份文件顶层塞一个 scope 键（模拟上游开始导出 scope）
+            target = feed / f"{today.isoformat()}.json"
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            payload["scope"] = upstream_scope
+            target.write_text(json.dumps(payload, ensure_ascii=False),
+                              encoding="utf-8")
 
         fetcher = FetcherXbotFeed()
         fetcher._sync_clone = lambda cfg: clone  # type: ignore[assignment]
-        fetcher.run()
+        result = fetcher.run()
         urls = sorted(r["url"] for r in conn.execute(
             "SELECT url FROM articles WHERE source = ?", ("xbot_feed",)).fetchall())
         close_db()
         shutil.rmtree(data_dir, ignore_errors=True)
-        return urls
+        return urls, result
 
-    scope_a = {"xcircle_accounts": ["dotey"], "wechat_regex": "微信",
-               "wechat_queries": []}
-    scope_b = {"xcircle_accounts": ["someone-else", "another"], "wechat_regex": "完全不同的正则",
-               "wechat_queries": ["查询一", "查询二"]}
+    stored_scope = {"xcircle_accounts": ["dotey"], "wechat_regex": "微信|小程序",
+                    "wechat_queries": []}
+    upstream_only_scope = {"xcircle_accounts": ["someone-else"],
+                           "wechat_regex": "完全不同", "wechat_queries": []}
 
-    urls_a = _run(scope_a)
-    urls_b = _run(scope_b)
+    urls_off, result_off = _run(_ABSENT)
+    urls_off2, result_off2 = _run(_ABSENT, upstream_scope=upstream_only_scope)
+    urls_on, result_on = _run(stored_scope)
 
-    assert urls_a, "基线跑出 0 条 → 断言无意义"
-    assert urls_a == urls_b, "改 scope 改变了入库集合 → scope 参与了闸门"
+    assert urls_off, "基线跑出 0 条 → 断言无意义"
+    assert urls_off == urls_off2, (
+        "上游导出的 scope 是**展示值**，不得改变准入结果（否则上游一导出就静默改语义）"
+    )
+    assert result_off["scope_gate_active"] is False
+    assert result_off2["scope_gate_active"] is False
+    assert result_off["scope_admitted"] == 0
+
+    assert result_on["scope_gate_active"] is True
+    assert set(urls_on) > set(urls_off), "显式存储 scope 后必须严格多收（OR 准入）"
+    assert result_on["scope_admitted"] == len(urls_on) - len(urls_off)
 
 
 # ── AC-13: migrate-only 升级不覆盖 thresholds / scope ───────────────────

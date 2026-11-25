@@ -58,9 +58,13 @@ Not covered on purpose
 
 from __future__ import annotations
 
+import logging
 import re
+import time
 from functools import lru_cache
 from typing import Iterable, Literal, Sequence
+
+logger = logging.getLogger(__name__)
 
 # A pure-Han keyword at or below this length needs corroboration —
 # one passing mention in a long body is not a topic signal.
@@ -184,3 +188,89 @@ def keyword_profile(keywords: Sequence[str]) -> dict[str, int]:
         else:
             profile["substring"] += 1
     return profile
+
+
+# ── scope 正则 (sprint-55 / v1.0.131) ────────────────────────────────────
+#
+# X-bot 精选的 ``fetch_config.scope.wechat_regex`` 从 v1.0.131 起是 moni 的
+# 入库准入门（不再只是展示副本）。它和 ``keyword_matches()`` 是**两种语义**：
+#
+#   * ``keyword_matches()`` —— 字面关键词 + 词边界 / 短中文配信度规则；
+#   * ``regex_matches()``   —— 用户写的**真正则**（大小写不敏感）。
+#
+# 之所以仍然放在这个模块里: AGENTS.md 铁律 1 要求「匹配规则只有一份实现」。
+# 开两个引擎各自演进 = 同一个概念在不同入口有不同语义。这里只是把
+# 「正则怎么匹配」这一件事收敛成唯一实现，``keyword_matches()`` 一行未改。
+
+#: 正则匹配前把文本截断到这个长度 —— 无上限的正则扫超长正文是回溯风险面。
+SCOPE_REGEX_MAX_TEXT_CHARS = 2000
+
+#: 单条正则匹配的健康阈值 (毫秒)。超过只记 warning (不改变结果)。
+SCOPE_REGEX_SLOW_MS = 50
+
+
+def compile_regex(
+    pattern: object, *, ignore_case: bool = True
+) -> re.Pattern[str] | None:
+    """把用户写的正则编译成 ``re.Pattern``; 非法 / 空 → ``None``。
+
+    ``None`` 的语义是「这个维度不参与匹配」—— **不是**「匹配一切」。
+    保存侧 (``PUT /fetch_config``) 用 ``re.error`` 拒非法模式; 这里再兜一次,
+    防止历史脏数据 / 手工改库让整轮抓取炸掉。
+    """
+    if not isinstance(pattern, str):
+        return None
+    text = pattern.strip()
+    if not text:
+        return None
+    flags = re.IGNORECASE if ignore_case else 0
+    try:
+        return re.compile(text, flags)
+    except re.error as exc:
+        logger.warning("[keyword-match] invalid regex %r dropped: %s", text, exc)
+        return None
+
+
+def regex_matches(
+    pattern: str | re.Pattern[str] | None,
+    *,
+    text: str,
+    ignore_case: bool = True,
+) -> bool:
+    """``pattern`` 是否命中 ``text``（大小写不敏感，UTF-8 子串语义的正则）。
+
+    * 空 / 非法 pattern → ``False``（该维度不参与，绝不放通）；
+    * 匹配前按 :data:`SCOPE_REGEX_MAX_TEXT_CHARS` 截断文本；
+    * 单次匹配超过 :data:`SCOPE_REGEX_SLOW_MS` 记 warning（便于发现灾难回溯
+      型模式），**不改变返回值** —— 抓取不该因为一条正则慢就静默丢内容，
+      也不该无限期阻塞。
+    """
+    if pattern is None:
+        return False
+    if isinstance(pattern, str):
+        rx = compile_regex(pattern, ignore_case=ignore_case)
+    elif isinstance(pattern, re.Pattern):
+        rx = pattern
+    else:
+        # 非 str / 非编译结果（int / list / dict …）→ 该维度不参与，绝不匹配一切
+        return False
+    if rx is None:
+        return False
+    haystack = text or ""
+    if len(haystack) > SCOPE_REGEX_MAX_TEXT_CHARS:
+        haystack = haystack[:SCOPE_REGEX_MAX_TEXT_CHARS]
+    started = time.perf_counter()
+    try:
+        hit = rx.search(haystack) is not None
+    except Exception as exc:  # noqa: BLE001 — 正则运行期异常不得炸整轮抓取
+        logger.warning("[keyword-match] regex %r raised %s — treated as no match",
+                       rx.pattern, exc)
+        return False
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    if elapsed_ms > SCOPE_REGEX_SLOW_MS:
+        logger.warning(
+            "[keyword-match] slow regex %r took %.1fms (> %.0fms) on %d chars",
+            rx.pattern, elapsed_ms, SCOPE_REGEX_SLOW_MS, len(haystack),
+        )
+    return hit
+
