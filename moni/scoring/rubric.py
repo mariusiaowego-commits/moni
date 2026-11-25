@@ -196,6 +196,11 @@ class Rubric:
 
     id: str
     dimensions: tuple[Dimension, ...]
+    #: Who the questions are asked from.  Empty means the general rubric's
+    #: default reader; a direction research carries the direction's own
+    #: reader perspective so the scoring prompt asks from the same point
+    #: of view the research used.
+    reader_perspective: str = ""
 
     @property
     def keys(self) -> tuple[str, ...]:

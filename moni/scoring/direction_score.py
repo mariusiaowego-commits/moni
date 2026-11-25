@@ -73,7 +73,7 @@ def resolve_direction(
     why a direction cannot be scored.  Only one of them is ever set.
     """
     row = conn.execute(
-        "SELECT id, label, brief, enabled FROM bv_direction WHERE id=?",
+        "SELECT id, label, brief, reader_perspective, enabled FROM bv_direction WHERE id=?",
         (direction_id,),
     ).fetchone()
     if row is None:

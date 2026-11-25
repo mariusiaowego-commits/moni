@@ -1643,6 +1643,37 @@ label { font-size: var(--font-14); }
   width: 100%; min-height: 96px; resize: vertical;
   line-height: 1.55;
 }
+.direction-perspective {
+  width: 100%; min-height: 76px; resize: vertical;
+  line-height: 1.55;
+}
+.direction-clarify-list {
+  display: flex; flex-direction: column; gap: 10px;
+  margin-top: 8px;
+}
+.direction-clarify-item {
+  padding: 10px 12px;
+  border: 1px solid var(--border-color, oklch(0 0 0 / 0.1));
+  border-radius: var(--radius-sm, 6px);
+}
+.direction-clarify-question {
+  margin: 0 0 6px;
+  font-size: var(--font-13);
+  line-height: 1.5;
+}
+.direction-clarify-answer {
+  width: 100%; min-height: 52px; resize: vertical;
+  line-height: 1.55;
+  font-size: var(--font-13);
+}
+.direction-perspective-line {
+  margin-top: 2px;
+  font-size: var(--font-12);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .direction-draft-row {
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px; margin-top: 8px;

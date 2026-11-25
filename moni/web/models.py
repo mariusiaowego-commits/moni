@@ -727,8 +727,9 @@ class DirectionCreate(BaseModel):
     label: str = Field(min_length=1, max_length=6)
     brief: str = Field(min_length=1, max_length=200)
     research_guidance: str = Field(default="", max_length=800)
+    reader_perspective: str = Field(default="", max_length=200)
 
-    @field_validator("label", "brief", "research_guidance", mode="before")
+    @field_validator("label", "brief", "research_guidance", "reader_perspective", mode="before")
     @classmethod
     def _strip(cls, value):
         # Strip before length checks, otherwise " 微信生态 " fails the
@@ -740,9 +741,10 @@ class DirectionUpdate(BaseModel):
     label: str | None = Field(default=None, min_length=1, max_length=6)
     brief: str | None = Field(default=None, min_length=1, max_length=200)
     research_guidance: str | None = Field(default=None, max_length=800)
+    reader_perspective: str | None = Field(default=None, max_length=200)
     enabled: bool | None = None
 
-    @field_validator("label", "brief", "research_guidance", mode="before")
+    @field_validator("label", "brief", "research_guidance", "reader_perspective", mode="before")
     @classmethod
     def _strip(cls, value):
         return value.strip() if isinstance(value, str) else value
@@ -781,6 +783,40 @@ class DirectionResearchAction(BaseModel):
     status: str
 
 
+class DirectionClarificationAction(BaseModel):
+    """Response of POST /api/directions/{id}/clarification."""
+
+    direction_id: int
+    clarification_version: int
+    status: str
+
+
+class DirectionClarificationAnswers(BaseModel):
+    """The user's answers to one clarification round."""
+
+    answers: list[str] = Field(default_factory=list)
+
+    @field_validator("answers", mode="before")
+    @classmethod
+    def _strip_each(cls, value):
+        if isinstance(value, list):
+            return [item.strip() if isinstance(item, str) else item for item in value]
+        return value
+
+
+class DirectionClarification(BaseModel):
+    """The latest clarification round of a direction."""
+
+    direction_id: int
+    clarification_version: int
+    status: str
+    questions: list[str] = Field(default_factory=list)
+    answers: list[str] = Field(default_factory=list)
+    error: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+
+
 class DirectionResearchSummary(BaseModel):
     """Latest research row as shown in the config panel."""
 
@@ -802,10 +838,14 @@ class Direction(BaseModel):
     label: str
     brief: str
     research_guidance: str = ""
+    #: Who this direction's articles are for.  Empty means the general
+    #: bank perspective.
+    reader_perspective: str = ""
     enabled: bool
     created_at: str
     updated_at: str
     research: DirectionResearchAction | None = None
+    clarification: DirectionClarification | None = None
     usable: bool = False
     usable_error: str | None = None
     #: True when the last save changed label, brief or research guidance

@@ -3086,7 +3086,13 @@
                 <template x-for="d in configDirections" :key="d.id">
                   <tr>
                     <td><strong x-text="d.label"></strong></td>
-                    <td class="nowrap" :title="d.brief" x-text="d.brief"></td>
+                    <td class="nowrap">
+                      <div :title="d.brief" x-text="d.brief"></div>
+                      <div class="muted direction-perspective-line"
+                           x-show="d.reader_perspective"
+                           :title="'读者视角：' + d.reader_perspective"
+                           x-text="'读者视角：' + d.reader_perspective"></div>
+                    </td>
                     <td>
                       <span class="status-badge" :class="d.enabled ? 'status-ok' : 'status-paused'"
                             x-text="d.enabled ? '启用' : '停用'"></span>
@@ -4481,6 +4487,44 @@
                 <textarea class="direction-brief" x-model="configModalTarget.brief" rows="8" maxlength="200" placeholder="这个方向关心什么。例如：微信公众号与视频号里，能转成银行获客或合规落地的选题"></textarea>
                 <small class="field-count" x-text="((configModalTarget.brief || '').length) + ' / 200'"></small>
                 <small class="text-danger" x-show="configModalTarget.briefError" x-text="configModalTarget.briefError"></small>
+              </div>
+              <div class="form-row">
+                <label>读者视角
+                  <small class="muted">可选，≤200 字。这个方向的文章是写给谁看的、要站在谁的立场评价。填了以后模型会先追问，把它问清楚再研究。</small>
+                </label>
+                <textarea class="direction-perspective" x-model="configModalTarget.reader_perspective" rows="3" maxlength="200" placeholder="例如：银行新媒体渠道从业者，想知道哪些内容能变成公众号选题或合规动作"></textarea>
+                <small class="field-count" x-text="((configModalTarget.reader_perspective || '').length) + ' / 200'"></small>
+                <small class="text-danger" x-show="configModalTarget.perspectiveError" x-text="configModalTarget.perspectiveError"></small>
+              </div>
+              <div class="form-row" x-show="!!(configModalTarget.reader_perspective || '').trim()">
+                <label>视角澄清
+                  <small class="muted">模型会问清这个视角具体是什么，你回答完才能研究。</small>
+                </label>
+                <div class="direction-draft-row">
+                  <small class="muted" x-text="directionClarificationStatusText()"></small>
+                  <button type="button" class="btn btn-secondary btn-sm"
+                          @click="generateDirectionClarification()"
+                          :disabled="configModalTarget.clarifyBusy || configModalTarget.saving"
+                          x-text="configModalTarget.clarifyBusy ? '生成中…' : '生成澄清问题'"></button>
+                </div>
+                <div class="direction-clarify-list" x-show="directionClarificationQuestions().length">
+                  <template x-for="(question, index) in directionClarificationQuestions()" :key="index">
+                    <div class="direction-clarify-item">
+                      <p class="direction-clarify-question" x-text="(index + 1) + '. ' + question"></p>
+                      <textarea class="direction-clarify-answer"
+                                x-model="configModalTarget.clarificationAnswers[index]"
+                                rows="2" maxlength="300"
+                                placeholder="你的回答"></textarea>
+                    </div>
+                  </template>
+                </div>
+                <div class="direction-draft-row" x-show="directionClarificationQuestions().length">
+                  <small class="muted">回答保存后，需要重新研究一次才会生效。</small>
+                  <button type="button" class="btn btn-secondary btn-sm"
+                          @click="saveDirectionClarificationAnswers()"
+                          :disabled="configModalTarget.clarifyBusy || configModalTarget.saving"
+                          >保存回答</button>
+                </div>
               </div>
               <div class="form-row">
                 <label>研究提示词

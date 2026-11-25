@@ -255,8 +255,9 @@ def _topup_prompt(snap: ArticleSnapshot, dropped: list[dict]) -> str:
 
 def _score_prompt(snap: ArticleSnapshot, evidence: list[dict], rb: Rubric) -> str:
     ev = _quote_lines(evidence)
+    reader = (rb.reader_perspective or "").strip() or "银行/支付数字化从业者"
     return (
-        "你是 moni 业务价值评分员。读者是银行/支付数字化从业者。\n"
+        f"你是 moni 业务价值评分员。读者是：{reader}。\n"
         "对下面十维各打 0-10 的整数分。每维必须给出 evidence_ids，且只能引用下面列出的 id。\n"
         "正文没写到的维度给 0，不要为了凑分牵强关联。0/3/6/10 是锚点，中间分允许。\n"
         "理由用一句中文，≤30 字，只写正文事实。禁止这些词：值得关注、赋能、闭环、抓手、"

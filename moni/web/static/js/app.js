@@ -1251,6 +1251,8 @@ function app() {
         id: direction.id,
         label: direction.label,
         brief: direction.brief,
+        reader_perspective: direction.reader_perspective || '',
+        clarification: direction.clarification || null,
         enabled: direction.enabled,
       });
     },
@@ -1259,6 +1261,7 @@ function app() {
       t.labelError = '';
       t.briefError = '';
       t.guidanceError = '';
+      t.perspectiveError = '';
       if (!t.label || !t.label.trim()) t.labelError = '方向名不能为空';
       if (t.label && t.label.trim().length > 6) t.labelError = '方向名不能超过 6 字';
       if (!t.brief || !t.brief.trim()) t.briefError = '方向说明不能为空';
@@ -1266,7 +1269,10 @@ function app() {
       if (t.research_guidance && t.research_guidance.trim().length > 800) {
         t.guidanceError = '研究提示词不能超过 800 字';
       }
-      return !t.labelError && !t.briefError && !t.guidanceError;
+      if (t.reader_perspective && t.reader_perspective.trim().length > 200) {
+        t.perspectiveError = '读者视角不能超过 200 字';
+      }
+      return !t.labelError && !t.briefError && !t.guidanceError && !t.perspectiveError;
     },
     async configSaveDirection(andResearch = false) {
       if (!this.validateDirectionForm()) return;
@@ -1274,34 +1280,8 @@ function app() {
       if (!form || form.draftBusy || form.saving) return;
       form.saving = true;
       const isEdit = !!this.configModalTargetOriginal;
-      const url = isEdit ? `/api/directions/${this.configModalTarget.id}` : '/api/directions';
-      const nextLabel = this.configModalTarget.label.trim();
-      const nextBrief = this.configModalTarget.brief.trim();
-      const nextGuidance = (this.configModalTarget.research_guidance || '').trim();
-      const body = isEdit
-        ? {
-            label: nextLabel,
-            brief: nextBrief,
-            research_guidance: nextGuidance,
-            enabled: this.configModalTarget.enabled,
-          }
-        : { label: nextLabel, brief: nextBrief, research_guidance: nextGuidance };
       try {
-        const response = await fetch(url, {
-          method: isEdit ? 'PATCH' : 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        if (!response.ok) {
-          let serverMessage = '';
-          try {
-            const errorBody = await response.json();
-            serverMessage = errorBody.message || (Array.isArray(errorBody.detail) && errorBody.detail[0]?.msg) || errorBody.detail || '';
-          } catch (_) { /* non-JSON error */ }
-          throw new Error(serverMessage || `HTTP ${response.status}`);
-        }
-        const saved = await response.json();
+        const saved = await this._persistDirection();
         this.closeConfigModal();
         this.loadDirections();
         if (andResearch) {
@@ -1315,6 +1295,43 @@ function app() {
       } finally {
         form.saving = false;
       }
+    },
+    async _persistDirection() {
+      const isEdit = !!this.configModalTargetOriginal;
+      const url = isEdit ? `/api/directions/${this.configModalTarget.id}` : '/api/directions';
+      const nextLabel = this.configModalTarget.label.trim();
+      const nextBrief = this.configModalTarget.brief.trim();
+      const nextGuidance = (this.configModalTarget.research_guidance || '').trim();
+      const nextPerspective = (this.configModalTarget.reader_perspective || '').trim();
+      const body = isEdit
+        ? {
+            label: nextLabel,
+            brief: nextBrief,
+            research_guidance: nextGuidance,
+            reader_perspective: nextPerspective,
+            enabled: this.configModalTarget.enabled,
+          }
+        : {
+            label: nextLabel,
+            brief: nextBrief,
+            research_guidance: nextGuidance,
+            reader_perspective: nextPerspective,
+          };
+      const response = await fetch(url, {
+        method: isEdit ? 'PATCH' : 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        let serverMessage = '';
+        try {
+          const errorBody = await response.json();
+          serverMessage = errorBody.message || (Array.isArray(errorBody.detail) && errorBody.detail[0]?.msg) || errorBody.detail || '';
+        } catch (_) { /* non-JSON error */ }
+        throw new Error(serverMessage || `HTTP ${response.status}`);
+      }
+      return await response.json();
     },
     async generateDirectionDraft() {
       const t = this.configModalTarget;
@@ -1374,6 +1391,127 @@ function app() {
       }
       return `当前不是 profile 模式，研究走设置里选中的模型，不走 profile「${profile}」的默认模型 ${model}。`;
     },
+    directionClarificationQuestions() {
+      return (this.configModalTarget?.clarificationQuestions) || [];
+    },
+    directionClarificationStatusText() {
+      const t = this.configModalTarget;
+      if (!t) return '';
+      if (t.clarifyBusy) return '正在生成澄清问题…';
+      const status = t.clarificationStatus;
+      if (!status) return '还没澄清过。模型会先问清这个视角具体是什么。';
+      if (status === 'running') return '正在生成澄清问题…';
+      if (status === 'failed') return '澄清失败：' + (t.clarificationError || '未知原因');
+      const questions = this.directionClarificationQuestions();
+      if (!questions.length) return '模型认为这个视角已经够具体，可以直接研究。';
+      return `第 ${t.clarificationVersion || 1} 轮：请回答下面的 ${questions.length} 个问题`;
+    },
+    async generateDirectionClarification() {
+      const t = this.configModalTarget;
+      if (!t || t.saving || t.clarifyBusy) return;
+      const perspective = (t.reader_perspective || '').trim();
+      if (!perspective) {
+        this._notify('error', '先写一句读者视角');
+        return;
+      }
+      t.clarifyBusy = true;
+      try {
+        if (!this.configModalTargetOriginal || (t.savedPerspective || '') !== perspective) {
+          // The clarification is built from the saved perspective, so an
+          // unsaved edit -- or a direction that only exists in the form --
+          // has to reach the server first.
+          const saved = await this._persistDirection();
+          t.savedPerspective = perspective;
+          t.id = saved.id;
+          this.configModalTargetOriginal = saved.id;
+        }
+        const response = await fetch(`/api/directions/${t.id}/clarification`, {
+          method: 'POST',
+          credentials: 'same-origin',
+        });
+        if (!response.ok) {
+          let serverMessage = '';
+          try {
+            const errorBody = await response.json();
+            serverMessage = errorBody.message || errorBody.detail || '';
+          } catch (_) { /* non-JSON error */ }
+          throw new Error(serverMessage || `HTTP ${response.status}`);
+        }
+        await this._pollDirectionClarification(t.id);
+      } catch (err) {
+        this._notify('error', '生成澄清问题失败: ' + err.message);
+      } finally {
+        t.clarifyBusy = false;
+      }
+    },
+    async _pollDirectionClarification(directionId) {
+      const t = this.configModalTarget;
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const response = await fetch(`/api/directions/${directionId}/clarification`, {
+          credentials: 'same-origin',
+        });
+        if (response.ok) {
+          const data = await response.json();
+          t.clarificationStatus = data.status;
+          t.clarificationVersion = data.clarification_version;
+          t.clarificationError = data.error || '';
+          if (data.status !== 'running') {
+            t.clarificationQuestions = data.questions || [];
+            const answers = data.answers || [];
+            t.clarificationAnswers = t.clarificationQuestions.map(
+              (question, index) => answers[index] || ''
+            );
+            if (data.status === 'passed' && t.clarificationQuestions.length) {
+              this._notify('success', `模型提了 ${t.clarificationQuestions.length} 个问题，答完保存就能研究`);
+            } else if (data.status === 'passed') {
+              this._notify('success', '这个视角已经够具体，可以直接研究');
+            } else {
+              this._notify('error', '澄清失败：' + (data.error || '未知原因'));
+            }
+            return;
+          }
+        }
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      this._notify('error', '澄清还在跑，刷新页面看状态');
+    },
+    async saveDirectionClarificationAnswers() {
+      const t = this.configModalTarget;
+      if (!t || t.saving || t.clarifyBusy) return;
+      const answers = this.directionClarificationQuestions().map(
+        (question, index) => (t.clarificationAnswers[index] || '').trim()
+      );
+      const missing = answers.filter(answer => !answer).length;
+      if (missing) {
+        this._notify('error', `还有 ${missing} 个问题没回答`);
+        return;
+      }
+      t.clarifyBusy = true;
+      try {
+        const response = await fetch(`/api/directions/${t.id}/clarification/answers`, {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ answers }),
+        });
+        if (!response.ok) {
+          let serverMessage = '';
+          try {
+            const errorBody = await response.json();
+            serverMessage = errorBody.message || errorBody.detail || '';
+          } catch (_) { /* non-JSON error */ }
+          throw new Error(serverMessage || `HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        t.clarificationAnswers = data.answers || answers;
+        this._notify('success', '回答已保存，重新研究后生效');
+        this.loadDirections();
+      } catch (err) {
+        this._notify('error', '保存回答失败: ' + err.message);
+      } finally {
+        t.clarifyBusy = false;
+      }
+    },
     async configDeleteDirection(direction) {
       const ok = await moniModal.confirm(`确定删除业务方向 “${direction.label}”？相关研究和打分会一并删除。`, {
         title: '删除业务方向', okLabel: '删除', danger: true,
@@ -1391,6 +1529,18 @@ function app() {
       }
     },
     async directionResearch(direction) {
+      const clarification = direction.clarification || null;
+      if (direction.reader_perspective) {
+        const questions = clarification?.questions || [];
+        const answers = clarification?.answers || [];
+        const unanswered = questions.filter(
+          (question, index) => !(answers[index] || '').trim()
+        ).length;
+        if (!clarification || clarification.status !== 'passed' || unanswered) {
+          this._notify('error', '先澄清读者视角、回答完问题，再研究');
+          return;
+        }
+      }
       try {
         const response = await fetch(`/api/directions/${direction.id}/research`, {
           method: 'POST', credentials: 'same-origin',
@@ -2097,25 +2247,46 @@ function app() {
         this.loadLlmGateway();
         if (target && target.id) {
           this.configModalTargetOriginal = target.id;
+          const clarification = target.clarification || null;
+          const questions = clarification?.questions || [];
           this.configModalTarget = {
             id: target.id,
             label: target.label || '',
             brief: target.brief || '',
             research_guidance: target.research_guidance || '',
+            reader_perspective: target.reader_perspective || '',
+            savedPerspective: target.reader_perspective || '',
             idea: '',
             enabled: !!target.enabled,
             labelError: '',
             briefError: '',
             guidanceError: '',
+            perspectiveError: '',
+            clarificationQuestions: questions,
+            clarificationAnswers: questions.map(
+              (question, index) => clarification?.answers?.[index] || ''
+            ),
+            clarificationStatus: clarification?.status || '',
+            clarificationVersion: clarification?.clarification_version || 0,
+            clarificationError: clarification?.error || '',
             draftBusy: false,
+            clarifyBusy: false,
             saving: false,
           };
         } else {
           this.configModalTargetOriginal = null;
           this.configModalTarget = {
             label: '', brief: '', research_guidance: '', idea: '',
+            reader_perspective: '', savedPerspective: '',
             enabled: true, labelError: '', briefError: '', guidanceError: '',
+            perspectiveError: '',
+            clarificationQuestions: [],
+            clarificationAnswers: [],
+            clarificationStatus: '',
+            clarificationVersion: 0,
+            clarificationError: '',
             draftBusy: false, saving: false,
+            clarifyBusy: false,
           };
         }
       } else if (type === 'source' && target && target.id) {
