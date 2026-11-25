@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -306,6 +306,39 @@ class TestCronLedgerBudgetAndRateLimit:
         assert r["budget_exhausted"] is True
         assert r["processed"] == 0
         assert called == []
+
+    def test_budget_gate_counts_local_day_even_in_early_morning(self, tmp_db: sqlite3.Connection):
+        """闸门按本地自然日结算，但记录存的是 UTC ISO。
+
+        本地 00:00-08:00 时 UTC 还是前一天，用 date('now','localtime')
+        去比会把当天已花掉的 token 整段漏算，闸门形同虚设。
+        """
+        from moni.cases.pipeline import _local_day_start_utc_iso
+
+        _seed_article(tmp_db, "art_x", title="预算文章")
+        tmp_db.execute(
+            "UPDATE app_settings SET value = '1000' WHERE key = 'case_extract_daily_input_token_budget'"
+        )
+        day_start = datetime.fromisoformat(_local_day_start_utc_iso())
+        tmp_db.execute(
+            """
+            INSERT INTO llm_jobs (id, task_type, article_id, status, attempts, created_at, input_tokens)
+            VALUES ('j_in', 'case_extract', 'art_x', 'done', 1, ?, 300)
+            """,
+            ((day_start + timedelta(seconds=1)).isoformat(),),
+        )
+        tmp_db.execute(
+            """
+            INSERT INTO llm_jobs (id, task_type, article_id, status, attempts, created_at, input_tokens)
+            VALUES ('j_out', 'case_extract', 'art_x', 'done', 1, ?, 900)
+            """,
+            ((day_start - timedelta(seconds=1)).isoformat(),),
+        )
+        tmp_db.commit()
+
+        allowed, used, _ = check_daily_token_budget(tmp_db)
+        assert used == 300  # 昨天那笔不算，今天的算
+        assert allowed is True
 
     def test_cron_extract_cases_pending_and_lock(self, tmp_db: sqlite3.Connection):
         import moni.cron.jobs as cron_jobs
