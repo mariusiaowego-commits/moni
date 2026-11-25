@@ -10,7 +10,7 @@
 - P3：`backfill_metrics.py` 存量指标回填（规则，0 次 LLM）。
 
 **实测**：生产库副本 `001→067` 迁移成功；`cases=432`，企业命中 217 / 未命中 215；FTS `小程序=2 / 支付=160 / C++=0`；指标回填 208 条有金额中命中 174；样本简报 16K。
-**测试**：受影响集 240 passed；全量 2871 passed / 2 skipped，另各出现 1 条不同的进程/信号类 flake（`test_llm_desens_wiring_share`、`test_worker_lock`），单独复跑均通过。
+**测试**：受影响集 307 passed；全量 2880 passed / 2 skipped，另各出现 1 条不同的进程/信号类 flake（`test_llm_desens_wiring_share`、`test_worker_lock`），单独复跑均通过。
 **未做**：生产库迁移、8900 部署、前端接入、Stage B LLM 回填、案例卡片 PNG、汇率表 068。
 
 ## 已发布: **v1.0.132 — 信息脱敏进主站入口** (2026-11-25 · PR #323 → `36495b7` · tag `v1.0.132` · Sprint 78)

@@ -150,6 +150,7 @@
 | P1-1 | `064_enterprises`（116 企业 / 154 别名）、`065_case_taxonomy`（8 类 + 10 场景） |
 | P1-2 | `backfill_taxonomy.py` 规则回填 + 四维聚合 + `GET /api/cases/stats` |
 | P2-1 | `066_case_insights`（建表）、`067_share_case_ids`、`CaseBriefPayload`、`case_brief.py` + 模板、`POST /api/share/cases`、worker 短路 |
+| P3-1 | `backfill_metrics.py`：存量 432 条规则回填 `case_metrics` 并语义化 `cases.amount`（0 次 LLM） |
 
 ### 5.2 复检数字（从生产库重新拷贝，001→065 全链迁移）
 
@@ -167,13 +168,48 @@ by_scenario: other 90 / ecny_stablecoin 76 / llm_agent 73 / cross_border_pay 50
 
 ### 5.3 测试基线
 
-- 受影响集合（cases / case_* / db / cron / cron_registry / migration_039）：**226 passed**。
-- 全量：**2855 passed, 2 skipped**（0 failed）。
+- 受影响集合（cases / case_* / share / db / cron / cron_registry / migration_039）：**307 passed**。
+- 全量（rebase 到 `5ba7a54` 后）：**2880 passed, 2 skipped**（0 failed）。详见 `docs/sprint-evidence/sprint-79/VERIFY.md`。
 - 迁移重跑类此前 27 红已清零：其中 7 个由本次修复（cron 断言 5→7；039 手写 v38 fixture 补上 v38 本就存在的 `cases` / `case_keywords`），其余随 P0 修复合入转绿。
 
 ### 5.4 仍未做
 
 - Stage B `case_insights` 的 LLM 回填、汇率表 068、案例卡片 PNG。
-- 旧案例 `case_metrics` 回填：副本上仍是 0 行，简报因此退回 `cases.amount`（小微仍显示“3000 万元”）。归一逻辑已修，缺的是对存量 432 条的确定性回填。
 - 前端入口：详情页「分享此案例」、列表多选「生成案例简报」尚未接 `POST /api/share/cases`；沉浸式详情目前只有 pixel 的原型，未进真实页面。
+
+## 6. 契约与回滚
+
+### 6.1 数据库
+
+- 迁移 `061`–`067` 全部为**增量**：新表 + 新列 + 索引 + 触发器重建，无 `DROP TABLE`、无列删除、无 CHECK 收紧。
+- main 侧最高迁移是 `060`，`061`–`067` 编号未占用。
+- 回滚：代码回退即可；新列与新表对旧代码无害，不需要 down migration。若必须回到干净 schema，用迁移前备份恢复 `data/news.db`。
+- 唯一有副作用的迁移是 `062`：重建 `cases_fts` 并回填；回滚代码后旧 `cases_fts` 结构需要由备份恢复或重跑旧迁移。
+
+### 6.2 公开 API
+
+- 新增 `GET /api/cases/stats`：四维聚合，纯读。
+- 新增 `POST /api/share/cases`：只入队 `share_tasks`，不直接发。
+- 新增分享格式 `case_brief_html`；现有 7 种格式的 payload、校验、worker 分支保持不变。
+- `POST /api/cases/{id}/keywords` 与 `DELETE .../keywords/{keyword}` 为既有路由，本轮只修前端调用路径（`/tags` → `/keywords`）。
+
+### 6.3 运行时
+
+- `config/schedule.yaml` 新增 `extract_cases_noon_post`（13:30）与 `extract_cases_night`（20:30）；都走 `case_extract_runs` 账本，可随时停用。
+- 日 token 预算闸：`app_settings.case_extract_daily_input_token_budget=300000`。
+- `scripts/default_worker.sh` 只为 `case_*` 格式加短路，article 分支未改。
+
+### 6.4 回滚步骤
+
+1. `git revert <merge commit>`（或回退到上一 tag）。
+2. 若已上生产：`launchctl kickstart -k gui/$(id -u)/com.moni.web`。
+3. `case_metrics` / `case_enterprises` / `case_scenario_links` / `case_insights` 可保留为空表；不需要删列。
+
+## 7. 文案约定（已确认）
+
+- 复杂度留给系统：界面不出现 `case_type` / `PI` / `facet` / “真实库” / “分层可追溯” / “形态 1 / 1:1” 这类内部或设计稿术语。
+- 参考价值统一写 `高价值` / `中价值` / `低价值`，保留三档与颜色区分。
+- 详情固定 6 个小节：主栏 `结论` / `做法` / `风险与前提` / `原文证据`；侧栏 `基本信息` / `相关案例`。`分享` 只留按钮组，不占标题。
+- 列表卡不显示 `MN-` 编号，行业只显示一级；按钮用 `生成分享` / `复制链接`。
+- 空状态只写结果与下一步：`暂无匹配案例，试试清除筛选条件`。
 - 生产库迁移与 8900 重启、commit / PR / tag，均未执行，等授权。
