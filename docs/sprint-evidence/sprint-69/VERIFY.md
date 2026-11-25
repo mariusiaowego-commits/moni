@@ -16,7 +16,11 @@
 ```bash
 /usr/local/bin/python3 -m pytest tests/test_desensitize_lab_api.py -p no:cacheprovider -q
 ```
-→ `15 passed in 5.20s`（初版 8 例；合并前审计后补 7 例：blocked 拦截 ×2、422 校验 ×4、模型失败 ×1）
+→ `16 passed in 5.06s`
+
+用例演进：初版 8 例 → 合并前审计后补 7 例（blocked 拦截 ×2、422 校验 ×4、模型失败 ×1）
+→ 二轮复核后补 1 例（fail-closed：遮蔽器抛异常 → typed 400 且不出网），
+并把「模型失败不写账本」改成「模型失败也写一行 `fallback_used='model_error'`」。
 
 ### 1.2 脱敏相关全套
 
@@ -32,12 +36,12 @@
 ```bash
 /usr/local/bin/python3 -m pytest tests/ -p no:cacheprovider -q
 ```
-→ `1 failed, 2786 passed, 2 skipped, 2 warnings in 467.32s (0:07:47)`
+→ `2788 passed, 2 skipped, 2 warnings in 465.09s (0:07:45)`（最终轮，0 failed）
 
 基线 `origin/main` @ `687f98b` 为 `2772 passed, 2 skipped` → 本轮 **+15**（演练台 API 测试）。
 
-唯一 failed：`tests/test_worker_lock.py::test_sigterm_kills_blocking_child_that_ignores_term`
-—— 与本轮改动**无交集**（worker lock / SIGTERM 子进程 vs 脱敏实验室），且**单独复跑通过**：
+> 中间一轮曾出现唯一 failed：`tests/test_worker_lock.py::test_sigterm_kills_blocking_child_that_ignores_term`
+> —— 与本轮改动**无交集**（worker lock / SIGTERM 子进程 vs 脱敏实验室），且**单独复跑通过**：
 
 ```bash
 /usr/local/bin/python3 -m pytest tests/test_worker_lock.py -p no:cacheprovider -q
@@ -45,7 +49,7 @@
 → `28 passed in 12.39s`
 
 判定：机器负载下的时序 flaky（该用例断言 SIGTERM 后子进程被回收的时限），非本次回归。
-审计前一轮全量（改动未落地时）同一文件也是全绿。
+最终轮全量该用例通过，**0 failed**。
 
 ### 1.4 真实模型端到端（Playwright 实测，非 mock）
 
@@ -58,8 +62,18 @@ preview c2 含占位符: True | 含机构名明文: False
 run status: 完成 · 策略 standard | err: （空）
 c3 含占位符: True | c3 含明文号码: False
 c4 含明文号码: True
-metrics: 遮蔽处数 5 还原处数 3 未还原 0 出站泄漏命中 0 残留占位符 0 遮蔽耗时 135 µs 还原耗时 91 µs 模型耗时 7050 ms
+metrics: 遮蔽处数 5 还原处数 5 未还原 0 出站泄漏命中 0 残留占位符 0 遮蔽耗时 136 µs 还原耗时 98 µs 模型耗时 8775 ms
 console errors: []
+```
+
+账本渲染实测（页面上原样可见）：
+
+```
+口径	调用	遮蔽	还原	未还原	泄漏命中	残留占位符	拦截	还原成功率
+生产（不含实验室）	0	0	0	0	0	0	0	—
+实验室	4	17	15	0	0	0	0	100.0%
+call_site	task_type	遮蔽	还原	未还原	泄漏	结果	时间
+desens_lab	standard	5	5	0	0	已出网	2026-11-25 01:18:04
 ```
 
 四栏实际内容（真实模型回包）：
@@ -71,9 +85,10 @@ console errors: []
 | ③ 模型回包（原始） | `{{ORG_jcwwdnrn}}客服电话 {{PHONE_pbn2bfug}}，联系人邮箱 {{EMAIL_colbtckw}}。其余内容按你的要求不展开。` |
 | ④ 本地还原后 | `招商银行客服电话 13800138000，联系人邮箱 analyst@bankcorp.cn。其余内容按你的要求不展开。` |
 
-> 「还原处数 3」少于「遮蔽处数 5」是**正常的**：模型只复述了它认为要复述的联系方式，
+> 「还原处数」可能小于「遮蔽处数」，这是**正常的**：模型只复述了它认为要复述的联系方式，
 > 没被复述的编码不产生还原动作 —— 这正是「未还原 = 0」的意义（模型没说的，不算漏还原）。
-> 另一轮实测（模型多复述一句）还原处数为 5，未还原仍为 0。
+> 实测两轮：一轮还原 3 处（模型只复述联系方式），一轮还原 5 处（模型多复述一句），
+> 两轮「未还原 / 出站泄漏命中 / 残留占位符」都是 0。
 
 ---
 
@@ -141,6 +156,11 @@ FROM desensitize_events WHERE call_site = 'desens_lab';
 | F7 | `extra_terms` 只限条数，单条无长度上限（可塞超长串进字典正则） | 同上（P2） | 单条 ≤64 字符校验，对齐 `rules.py` 的 `MAX_CUSTOM_PREFIX_LEN` |
 | F8 | 账本最近记录用 `innerHTML` 拼服务端字段；空账本时 `restore_success_rate` 返回 1.0（冒充 100%） | 同上（NIT ×2） | 改 DOM API + `textContent`；无样本时返回 `None`，页面显示 `—` |
 | F9 | 示例与测试用了真实格式手机号 `13812345678` | 同上（NIT） | 换成 `13800138000`（测试号段） |
+| F10 | 模型调用失败时**已出网但账本 0 行** —— 调用次数系统性少记 | 二轮复核（P2） | 失败也记账：`ctx.fallback_override='model_error'` + `record_event` |
+| F11 | `preview` 返回了 `blocked` 但页面不读，被拦截文本预览显示 200 | 二轮复核（P3） | 页面读 `blocked`：红色提示 + 状态行「已拦截（未出网）」 |
+| F12 | 被拦截的行在账本里与真调用行长得一样，且被算进 `calls` | 二轮复核（P3） | 聚合加 `blocked_calls` / `outbound_calls`；页面加「拦截」列与「结果」列 |
+| F13 | fail-closed 报错是裸 500，现场无法解释原因 | 二轮复核（P3） | 转 typed 400：「脱敏内核异常，已 fail-closed 拦截（未出网）」 |
+| F14 | 响应里的 `fallback_used` 页面不展示 | 二轮复核（NIT） | 状态行追加「降级：xxx」 |
 
 ### skipped
 
@@ -158,14 +178,14 @@ FROM desensitize_events WHERE call_site = 'desens_lab';
 | 口径 | 结果 |
 |---|---|
 | 基线 `origin/main` @ `687f98b` | `2772 passed, 2 skipped` |
-| 本分支（演练台 + 审计修复） | `2786 passed, 1 failed, 2 skipped`（467.32s） |
-| 增量 | +15（`tests/test_desensitize_lab_api.py` 15 例） |
+| 本分支（演练台 + 两轮审计修复） | `2788 passed, 2 skipped, 0 failed`（465.09s） |
+| 增量 | +16（`tests/test_desensitize_lab_api.py` 16 例） |
 | 脱敏专项 5 文件 | `96 passed` |
 
-failed：`test_worker_lock.py::test_sigterm_kills_blocking_child_that_ignores_term`（时序 flaky，
-单独复跑 `28 passed`，与本改动无交集）。
+中间轮 failed（已判定为时序 flaky，最终轮未复现）：
+`test_worker_lock.py::test_sigterm_kills_blocking_child_that_ignores_term`。
 
-审计修复后复跑：演练台专项 `15 passed`；脱敏专项 5 文件 `96 passed`。
+两轮审计修复后复跑：演练台专项 `16 passed`；脱敏专项 5 文件 `96 passed`。
 
 ## 6. 证据位置
 

@@ -195,7 +195,7 @@ async function loadStats() {
   $("ledger").innerHTML =
     "<table><thead><tr><th>口径</th><th class='num'>调用</th><th class='num'>遮蔽</th>"
     + "<th class='num'>还原</th><th class='num'>未还原</th><th class='num'>泄漏命中</th>"
-    + "<th class='num'>残留占位符</th><th class='num'>还原成功率</th></tr></thead><tbody>"
+    + "<th class='num'>残留占位符</th><th class='num'>拦截</th><th class='num'>还原成功率</th></tr></thead><tbody>"
     + row("生产（不含实验室）", t) + row("实验室", lab)
     + "</tbody></table>";
   renderRecent(d.recent || []);
@@ -206,6 +206,7 @@ function row(label, t) {
   return "<tr><td>" + label + "</td><td class='num'>" + t.calls + "</td><td class='num'>" + t.masked_total
     + "</td><td class='num'>" + t.restored_total + "</td><td class='num'>" + t.unrestored_count
     + "</td><td class='num'>" + t.leak_scan_hits + "</td><td class='num'>" + t.residual_placeholders
+    + "</td><td class='num'>" + (t.blocked_calls || 0)
     + "</td><td class='num'>"
     + (t.restore_success_rate === null || t.restore_success_rate === undefined
         ? "—" : (t.restore_success_rate * 100).toFixed(1) + "%")
@@ -218,7 +219,7 @@ function renderRecent(recent) {
   const table = document.createElement("table");
   table.innerHTML = "<thead><tr><th>call_site</th><th>task_type</th>"
     + "<th class='num'>遮蔽</th><th class='num'>还原</th><th class='num'>未还原</th>"
-    + "<th class='num'>泄漏</th><th>时间</th></tr></thead>";
+    + "<th class='num'>泄漏</th><th>结果</th><th>时间</th></tr></thead>";
   const tbody = document.createElement("tbody");
   for (const r of recent) {
     const tr = document.createElement("tr");
@@ -233,6 +234,9 @@ function renderRecent(recent) {
       td.textContent = String(v === null || v === undefined ? 0 : v);
       tr.appendChild(td);
     }
+    const tdOutcome = document.createElement("td");
+    tdOutcome.textContent = r.blocked ? "拦截（未出网）" : (r.fallback_used || "已出网");
+    tr.appendChild(tdOutcome);
     const tdTime = document.createElement("td");
     tdTime.textContent = r.created_at || "";
     tr.appendChild(tdTime);
@@ -257,6 +261,12 @@ async function preview() {
   $("c3").textContent = "—";
   $("c4").textContent = "—";
   renderMetrics(null);
+  if (d.blocked) {
+    setErr("已拦截（未出网）：" + (d.blocked_reason || "blocked")
+      + " —— 这段内容命中了拦截规则或出站泄漏扫描，点「真跑一次」也不会发出。");
+    setStatus("已拦截 · 遮蔽 " + d.masked_total + " 处 · 策略 " + d.policy_mode);
+    return;
+  }
   setStatus("遮蔽 " + d.masked_total + " 处 · 策略 " + d.policy_mode + " · " + d.latency_us + " µs");
 }
 
@@ -277,7 +287,8 @@ async function run() {
     $("c3").textContent = d.reply_raw;
     $("c4").textContent = d.restored;
     renderMetrics(d.stats);
-    setStatus("完成 · 策略 " + d.policy_mode);
+    setStatus("完成 · 策略 " + d.policy_mode
+      + (d.fallback_used ? " · 降级：" + d.fallback_used : ""));
     await loadStats();
   } catch (e) {
     setErr(String(e));

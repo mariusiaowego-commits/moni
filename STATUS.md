@@ -14,7 +14,7 @@
   `DesensSettings.rules_raw` + `load_settings` 无论开关都加载规则；
   `runner.py` 的 `CallRequest.desens_ctx` **公开化**（原 `_desens_ctx`），`call()` 在
   `desens_ctx` 非空时**跳过遮蔽也跳过还原**（实验室自己遮蔽自己还原，才能拿到模型原始回包）
-- 测试：`tests/test_desensitize_lab_api.py`（15 例）
+- 测试：`tests/test_desensitize_lab_api.py`（16 例）
 - 证据：`docs/sprint-evidence/sprint-69/VERIFY.md`；决赛物料与分镜脚本：
   `docs/plans/2026-11-25_llm-desens-lab-finals.md`
 
@@ -22,11 +22,11 @@
 
 | 项 | 值 |
 |---|---|
-| 遮蔽 / 还原处数 | 5 / 3（还原数随模型是否复述全部编码而变，未还原恒为 0） |
+| 遮蔽 / 还原处数 | 5 / 5（另一轮 5 / 3 —— 还原数随模型复述多少而变，未还原恒为 0） |
 | 未还原 / 出站泄漏命中 / 残留占位符 | 0 / 0 / 0 |
-| 遮蔽 / 还原 / 模型耗时 | 135 µs / 91 µs / 7050 ms |
+| 遮蔽 / 还原 / 模型耗时 | 136 µs / 98 µs / 8775 ms |
 | 响应式（Playwright 实测） | 1600/1280 → 4 列，1100 → 2 列，820/760/480 → 1 列，**6 断点均无横向溢出** |
-| 专项 / 脱敏全套 | `15 passed` / `96 passed` |
+| 专项 / 脱敏全套 | `16 passed` / `96 passed` |
 
 **范围外（明说不做）**
 
@@ -49,6 +49,16 @@
 | NIT | 重构遗留死代码 `_compile_rules_from_rows` | 删除 |
 | NIT | 空账本时 `restore_success_rate` 返回 1.0（冒充 100%） | 改为 `None`，页面显示 `—` |
 | NIT | 测试断言 `== 1` 对 bool 恒真；缺 422 / blocked / 模型失败用例 | 改 `is True`，补 7 例（15 例） |
+
+第二轮复核（子 agent，只读）结论 `APPROVE WITH NITS`，余下 4 条同 PR 内修完：
+
+| 级别 | 问题 | 处置 |
+|---|---|---|
+| P2 | 模型调用失败时这单已出网，但账本 0 行 —— 调用次数系统性少记 | 失败也记账：`fallback_used='model_error'` |
+| P3 | `preview` 返回了 `blocked` 但页面不读 —— 被拦截文本预览显示 200，跑一次才 400 | 页面读 `blocked`：红色提示 + 状态行「已拦截」 |
+| P3 | 被拦截的行在账本里与真调用行长得一样，且被算进 `calls` | 账本加「拦截」列与「结果」列，聚合加 `blocked_calls` / `outbound_calls` |
+| P3 | fail-closed 报错是裸 500，现场无法解释原因 | 转 typed 错误 400「脱敏内核异常，已 fail-closed 拦截（未出网）」 |
+| NIT | 响应里的 `fallback_used` 页面不展示 | 状态行追加「降级：xxx」 |
 
 ---
 

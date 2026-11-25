@@ -67,14 +67,18 @@ class LabRunRequest(LabTextRequest):
 
 def _ctx_for(req: LabTextRequest) -> OutboundContext:
     task_type = req.task_type if req.task_type in _ALLOWED_TASK_TYPES else "standard"
-    ctx = prepare_outbound(
-        req.text,
-        call_site=LAB_CALL_SITE,
-        task_type=task_type,
-        force=True,
-        inject_note=True,
-        extra_terms=req.extra_terms,
-    )
+    try:
+        ctx = prepare_outbound(
+            req.text,
+            call_site=LAB_CALL_SITE,
+            task_type=task_type,
+            force=True,
+            inject_note=True,
+            extra_terms=req.extra_terms,
+        )
+    except Exception as exc:
+        # force=True 是 fail-closed：遮蔽器异常时内核直接抛错，文本绝不会出网。
+        raise BadRequestError(message=f"脱敏内核异常，已 fail-closed 拦截（未出网）：{exc}") from exc
     if ctx is None:  # pragma: no cover — force=True always returns a context
         raise BadRequestError(message="脱敏内核未返回上下文")
     return ctx
@@ -136,6 +140,9 @@ def post_run(req: LabRunRequest = Body(...)) -> dict[str, Any]:
         )
     except Exception as exc:
         logger.warning("desensitize lab run failed: %s", exc)
+        # 出网过了但没拿到回包：这单也要进账本，否则「调用次数」会系统性少记。
+        ctx.fallback_override = "model_error"
+        record_event(ctx, blocked=False)
         raise BadRequestError(message=f"大模型调用失败：{exc}") from exc
 
     reply_raw = result.reply_text
@@ -198,6 +205,7 @@ def _aggregate(conn: sqlite3.Connection, *, exclude_lab: bool) -> dict[str, Any]
     row = conn.execute(
         f"""
         SELECT count(*) AS calls,
+               sum(blocked) AS blocked_calls,
                sum(masked_total) AS masked_total,
                sum(restored_total) AS restored_total,
                sum(unrestored_count) AS unrestored_count,
@@ -208,11 +216,14 @@ def _aggregate(conn: sqlite3.Connection, *, exclude_lab: bool) -> dict[str, Any]
         params,
     ).fetchone()
     calls = int(row["calls"] or 0)
+    blocked_calls = int(row["blocked_calls"] or 0)
     restored = int(row["restored_total"] or 0)
     unrestored = int(row["unrestored_count"] or 0)
     samples = restored + unrestored
     return {
         "calls": calls,
+        "blocked_calls": blocked_calls,
+        "outbound_calls": calls - blocked_calls,
         "masked_total": int(row["masked_total"] or 0),
         "restored_total": restored,
         "unrestored_count": unrestored,
@@ -228,7 +239,7 @@ def _recent_rows(conn: sqlite3.Connection, limit: int) -> list[dict[str, Any]]:
         """
         SELECT id, call_site, task_type, provider, model, policy_mode,
                masked_total, restored_total, unrestored_count,
-               leak_scan_hits, residual_placeholders, created_at
+               leak_scan_hits, residual_placeholders, blocked, fallback_used, created_at
         FROM desensitize_events
         ORDER BY id DESC
         LIMIT ?

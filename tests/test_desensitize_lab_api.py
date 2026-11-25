@@ -242,7 +242,8 @@ class TestValidation:
 
 
 class TestModelFailure:
-    def test_model_failure_returns_400_and_writes_no_ledger_row(self, client, monkeypatch):
+    def test_model_failure_returns_400_and_still_records_the_ledger_row(self, client, monkeypatch):
+        """出网过了但没拿到回包 —— 这一单必须进账本，否则调用次数会系统性少记。"""
         import moni.llm.runner as runner_mod
 
         def _boom(self, req):
@@ -252,5 +253,34 @@ class TestModelFailure:
 
         res = client.post("/api/desensitize/run", json={"text": SAMPLE_TEXT})
         assert res.status_code == 400
+        row = get_db().execute(
+            "SELECT call_site, fallback_used FROM desensitize_events"
+        ).fetchone()
+        assert row["call_site"] == "desens_lab"
+        assert row["fallback_used"] == "model_error"
+
+
+class TestFailClosed:
+    def test_masker_failure_is_typed_error_and_never_leaves_the_process(
+        self, client, monkeypatch
+    ):
+        """force=True 是 fail-closed：遮蔽器抛异常 → 400 提示，且文本不出网。"""
+        import moni.llm.desensitize.engine as engine_mod
+        import moni.llm.runner as runner_mod
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("MASK_BOOM")
+
+        def _never(self, req):  # pragma: no cover - must never run
+            raise AssertionError("failed masking must not reach the model")
+
+        monkeypatch.setattr(engine_mod, "mask_prompt", _boom)
+        monkeypatch.setattr(runner_mod.FailoverRunner, "call", _never)
+
+        for path in ("/api/desensitize/preview", "/api/desensitize/run"):
+            res = client.post(path, json={"text": SAMPLE_TEXT})
+            assert res.status_code == 400
+            assert "fail-closed" in res.json()["message"]
+
         rows = get_db().execute("SELECT count(*) AS n FROM desensitize_events").fetchone()
         assert rows["n"] == 0
