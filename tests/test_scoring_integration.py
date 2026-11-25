@@ -197,6 +197,72 @@ def test_budget_skip_persists_null_score_and_retries(fresh_db):
     assert row["business_value_error"] == "预算不足"
 
 
+def test_bv_skipped_while_an_on_demand_job_owns_the_article(fresh_db, monkeypatch):
+    """The brief must not spend a second model call on a live on-demand job."""
+    from moni.share import enrichment
+
+    _insert("inflight", body=_long_body())
+    conn = get_db()
+    conn.execute(
+        "UPDATE articles SET business_value_status='queued', business_value_at=? WHERE id='inflight'",
+        (datetime.now(timezone.utc).isoformat(),),
+    )
+    conn.commit()
+
+    def _no_llm(*args, **kwargs):  # pragma: no cover - must never run
+        raise AssertionError("brief path called the model for a live on-demand job")
+
+    monkeypatch.setattr(enrichment, "_invoke_hermes", _no_llm)
+    row = conn.execute("SELECT * FROM articles WHERE id='inflight'").fetchone()
+    ok = enrichment._ensure_business_value(conn, row, [], [120.0], article_budget=120.0)
+    assert ok is False
+    after = conn.execute(
+        "SELECT business_value_score, business_value_status FROM articles WHERE id='inflight'"
+    ).fetchone()
+    assert after["business_value_score"] is None
+    assert after["business_value_status"] == "queued"
+
+
+def test_brief_counts_a_failed_takeover_as_failed(fresh_db):
+    """A takeover that then fails must be counted as a failure, not pending."""
+    import json
+
+    from moni.share import enrichment
+
+    _insert("takeover", body=_long_body())
+    conn = get_db()
+    stale = (datetime.now(timezone.utc) - timedelta(seconds=900)).isoformat()
+    conn.execute(
+        "UPDATE articles SET business_value_status='queued', business_value_at=? "
+        "WHERE id='takeover'",
+        (stale,),
+    )
+    conn.commit()
+    close_db()
+
+    manifest = fresh_db.parent / "manifest.json"
+    manifest.write_text(json.dumps({"payload": {
+        "include_abstract": False,
+        "include_fact_check": False,
+        "include_business_value": True,
+        "include_quality_score": False,
+        "brief": False,
+    }}), encoding="utf-8")
+
+    def fake(prompt, timeout_sec, extra_args):
+        return "", 1
+
+    stats = enrichment.run_enrichment(
+        str(fresh_db), ["takeover"], manifest_path=str(manifest), invoke_hermes=fake
+    )
+    assert stats["business_value_pending"] == 0
+    assert stats["failed"] == ["business_value:takeover"]
+    row = get_db().execute(
+        "SELECT business_value_status FROM articles WHERE id='takeover'"
+    ).fetchone()
+    assert row["business_value_status"] == "failed"
+
+
 def test_crud_put_recomputes_pinned_quality(client):
     _insert("edit", body="短稿")
     client.post("/api/articles/edit/pin?on=true")

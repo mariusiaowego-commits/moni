@@ -5834,6 +5834,24 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
 
 /* 两个 chip 并排时允许换行，否则会压到「原文时间」列。 */
 .bv-cell { white-space: normal; }
+
+/* v1.0.130: 通用分缺分时给一个可点的入口，而不是一个看不出含义的「—」 */
+.bv-score-btn {
+  font-size: var(--font-12);
+  line-height: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--border-color, oklch(0 0 0 / 0.15));
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--fg-muted, var(--muted-fg));
+  cursor: pointer;
+}
+.bv-score-btn:hover {
+  color: var(--fg-strong);
+  border-color: var(--ink-faint, currentColor);
+}
+.bv-score-btn-rescore { margin-left: 4px; padding: 3px 6px; }
+.bv-busy { font-size: var(--font-12); color: var(--fg-muted, var(--muted-fg)); }
 .bv-chip-wrap { position: relative; display: inline-flex; margin: 2px 6px 2px 0; }
 .bv-chip {
   display: inline-flex; align-items: center;

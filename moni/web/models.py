@@ -908,3 +908,31 @@ class DirectionScoreQueued(BaseModel):
     queued: list[str]
     cached: list[str]
     rejected: list[dict]
+
+
+class BusinessValueState(BaseModel):
+    """One article's general ten-dimension score, as the Pin list shows it."""
+
+    article_id: str
+    status: str | None = None
+    score: int | None = None
+    note: str = ""
+    error: str | None = None
+    stale: bool = False
+    breakdown: dict | None = None
+    #: When the current job started (queued/running) or the score was
+    #: written.  The client uses it to tell a live job from a dead one.
+    at: str | None = None
+    #: The job looks alive but is past the liveness window: it is dead.
+    stuck: bool = False
+
+
+class BusinessValueQueued(BaseModel):
+    """Answer to "score this article": queued, cached, or already running."""
+
+    article_id: str
+    status: str
+    queued: bool = False
+    cached: bool = False
+    running: bool = False
+    reason: str | None = None

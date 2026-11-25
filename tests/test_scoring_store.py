@@ -1,7 +1,10 @@
 """Cache-hit rules for the two score families (design §4.4, §6.5)."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from moni.scoring import (
+    bv_inflight_fresh,
     content_hash,
     heuristic,
     needs_bv_rescore,
@@ -44,3 +47,24 @@ def test_bv_rescore_rejects_stale_rubric_and_hash():
     assert needs_bv_rescore({**row, "business_value_rubric": "bv_rubric_old"}, snap) is True
     assert needs_bv_rescore({**row, "business_value_hash": "old"}, snap) is True
     assert needs_bv_rescore({**row, "business_value_status": "budget_skipped"}, snap) is True
+
+
+def test_bv_rescore_waits_for_a_live_job_and_takes_over_a_dead_one():
+    snap = _snap()
+    now = datetime.now(timezone.utc)
+    base = {
+        "business_value_status": "queued",
+        "business_value_hash": content_hash(snap.body),
+        "business_value_at": now.isoformat(),
+    }
+    assert bv_inflight_fresh(base) is True
+    assert needs_bv_rescore(base, snap) is False
+
+    dead = {**base, "business_value_at": (now - timedelta(seconds=900)).isoformat()}
+    assert bv_inflight_fresh(dead) is False
+    assert needs_bv_rescore(dead, snap) is True
+
+    # A queued row without a timestamp belongs to a dead process.
+    assert bv_inflight_fresh({**base, "business_value_at": None}) is False
+    assert needs_bv_rescore({**base, "business_value_at": None}, snap) is True
+    assert bv_inflight_fresh({**base, "business_value_status": "ready"}) is False

@@ -128,13 +128,36 @@ def test_scoring_message_is_readable():
     )
 
 
-def test_empty_business_value_cell_says_so_on_hover():
-    """两个 chip 都没有时，格子要留占位并说明是「没算」而不是「不适用」。"""
+def test_empty_business_value_cell_offers_a_score_button():
+    """没有通用分时，格子给一个能点的「打分」按钮，而不是看不出含义的「—」。
+
+    v1.0.130 起通用分可以按需打，空态必须能解释自己并给出下一步动作。
+    """
     html = INDEX_HTML.read_text(encoding="utf-8")
-    assert ":title=\"bvEmptyTip(a)\"" in html, "空态单元格没有 title 提示"
-    assert ">—</span>" in html, "空态占位不是「—」"
+    assert ':title="generalBvButtonTip(a)"' in html, "空态单元格没有 title 提示"
+    assert 'x-show="!generalBvChip(a) && !generalBvBusy(a) && !generalBvStuck(a)"' in html, (
+        "空态没有「打分」按钮的显示条件"
+    )
+    assert "打分中…" in html, "打分中没有进度文案"
     app = APP_JS.read_text(encoding="utf-8")
-    assert "bvEmptyTip(a)" in app, "app.js 里没有 bvEmptyTip"
+    assert "scoreGeneralBv(a, force" in app, "app.js 里没有单篇打分方法"
+    assert "/business-value" in app, "app.js 没有调用打分接口"
+
+
+def test_stuck_general_score_offers_a_retry_and_short_text_is_not_blocked():
+    """服务重启会留下永远「打分中」的行：必须给重试口。
+
+    短正文以前在前端被直接拦掉，导入全文后也打不了分——服务端本来
+    就能按正文长度判「素材不足」，前端这道闸是多余的。
+    """
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    assert 'x-show="generalBvStuck(a)"' in html, "卡住的行没有重试按钮"
+    assert "重试" in html, "重试按钮没有文案"
+    app = APP_JS.read_text(encoding="utf-8")
+    assert "generalBvStuck(a)" in app, "app.js 里没有判断卡住的逻辑"
+    assert "bv.status === 'insufficient' && !force" not in app, (
+        "前端还在按 insufficient 状态拦短正文，导入全文后也打不了分"
+    )
 
 
 def test_score_column_headers_explain_themselves():

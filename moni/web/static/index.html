@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261125002">
+  <link rel="stylesheet" href="css/main.css?v=20261125005">
   <!-- v1.0.110: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
        放在 main.css 之后，同名选择器以它们为准，便于单独回滚。 -->
   <link rel="stylesheet" href="css/source-ops.css?v=20261120011">
@@ -332,7 +332,10 @@
                       <span class="bv-chip bv-chip-dir" :class="{ 'bv-chip-pending': bvDirPending(a), 'bv-chip-failed': bvDirFailed(a), 'bv-chip-insufficient': bvDirInsufficient(a) }" x-text="dirBvChip(a)"></span>
                       <span class="tip" x-text="dirBvTip(a)"></span>
                     </span>
-                    <span class="muted" x-show="!generalBvChip(a) && !dirBvChip(a)" :title="bvEmptyTip(a)">—</span>
+                    <button class="bv-score-btn" x-show="!generalBvChip(a) && !generalBvBusy(a) && !generalBvStuck(a)" @click="scoreGeneralBv(a)" :title="generalBvButtonTip(a)">打分</button>
+                    <button class="bv-score-btn bv-score-btn-rescore" x-show="generalBvStuck(a)" @click="scoreGeneralBv(a)" :title="generalBvButtonTip(a)">重试</button>
+                    <span class="bv-busy" x-show="generalBvBusy(a) && !generalBvStuck(a)">打分中…</span>
+                    <button class="bv-score-btn bv-score-btn-rescore" x-show="generalBvChip(a) && generalBvStale(a)" @click="scoreGeneralBv(a, true)" title="正文已变更，重新打分">重打</button>
                   </td>
                   <td class="tabular-nums nowrap" x-text="formatTime(a.published_at || a.fetched_at || a.created_at)"></td>
                   <td class="tabular-nums nowrap" x-text="formatTime(a.created_at)"></td>
@@ -5258,7 +5261,7 @@
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
-  <script src="js/app.js?v=20261125002"></script>
+  <script src="js/app.js?v=20261125005"></script>
   <script src="js/reader.js?v=20261123103"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
