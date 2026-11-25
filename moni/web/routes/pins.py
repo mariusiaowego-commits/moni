@@ -238,7 +238,7 @@ def list_pinned_articles(
                a.quality_input_hash, a.quality_score_at,
                a.business_value_score, a.business_value_note,
                a.business_value_status, a.business_value_breakdown_json,
-               a.business_value_error, a.business_value_hash,
+               a.business_value_error, a.business_value_hash, a.business_value_at,
                p.pinned_at AS pinned_at,
                EXISTS (SELECT 1 FROM reader_conversations rc
                        WHERE rc.article_id = a.id AND rc.unread = 1) AS reader_unread,
@@ -319,6 +319,12 @@ def business_value_payload(row: Any) -> dict[str, Any]:
         "error": row["business_value_error"],
         "stale": bool(stored_hash) and stored_hash != current_hash,
         "breakdown": breakdown,
+        # When the current job started (or the score was written).  The
+        # client uses it to tell a live job from one whose process died.
+        "at": row["business_value_at"],
+        # Length of the body as it is now: the score needs 200+ characters,
+        # so the client can say so without guessing from the stale status.
+        "content_chars": len(str(row["raw_content"] or "")),
     }
 
 

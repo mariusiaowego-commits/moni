@@ -332,8 +332,9 @@
                       <span class="bv-chip bv-chip-dir" :class="{ 'bv-chip-pending': bvDirPending(a), 'bv-chip-failed': bvDirFailed(a), 'bv-chip-insufficient': bvDirInsufficient(a) }" x-text="dirBvChip(a)"></span>
                       <span class="tip" x-text="dirBvTip(a)"></span>
                     </span>
-                    <button class="bv-score-btn" x-show="!generalBvChip(a) && !generalBvBusy(a)" @click="scoreGeneralBv(a)" :title="generalBvButtonTip(a)">打分</button>
-                    <span class="bv-busy" x-show="generalBvBusy(a)">打分中…</span>
+                    <button class="bv-score-btn" x-show="!generalBvChip(a) && !generalBvBusy(a) && !generalBvStuck(a)" @click="scoreGeneralBv(a)" :title="generalBvButtonTip(a)">打分</button>
+                    <button class="bv-score-btn bv-score-btn-rescore" x-show="generalBvStuck(a)" @click="scoreGeneralBv(a)" :title="generalBvButtonTip(a)">重试</button>
+                    <span class="bv-busy" x-show="generalBvBusy(a) && !generalBvStuck(a)">打分中…</span>
                     <button class="bv-score-btn bv-score-btn-rescore" x-show="generalBvChip(a) && generalBvStale(a)" @click="scoreGeneralBv(a, true)" title="正文已变更，重新打分">重打</button>
                   </td>
                   <td class="tabular-nums nowrap" x-text="formatTime(a.published_at || a.fetched_at || a.created_at)"></td>

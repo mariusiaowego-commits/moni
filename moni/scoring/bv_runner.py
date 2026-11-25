@@ -155,7 +155,14 @@ class GeneralBvRunner:
     def _run_queue(self) -> None:
         from moni.db.connection import close_db, get_db
 
-        conn = get_db()
+        try:
+            conn = get_db()
+        except Exception:  # noqa: BLE001 - no database, no work possible
+            log.exception("general bv queue could not open the database")
+            with self._lock:
+                self._queued.clear()
+                self._pending.clear()
+            return
         try:
             while True:
                 with self._lock:
@@ -174,6 +181,11 @@ class GeneralBvRunner:
                         self._queued.discard(article_id)
                         self._active = None
         finally:
+            with self._lock:
+                # A dead thread must not keep ids claimed forever; otherwise
+                # the same article can never be queued again.
+                self._queued.clear()
+                self._pending.clear()
             close_db()
 
     def _score(self, conn: sqlite3.Connection, article_id: str) -> None:
@@ -245,7 +257,7 @@ def _mark_crashed(conn: sqlite3.Connection, article_id: str) -> None:
             (article_id,),
         )
         conn.commit()
-    except sqlite3.OperationalError:
+    except Exception:  # noqa: BLE001 - the mark itself must never kill the thread
         log.exception("general bv crash mark failed: %s", article_id)
 
 

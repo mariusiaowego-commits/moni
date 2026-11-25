@@ -900,6 +900,9 @@ class BusinessValueState(BaseModel):
     error: str | None = None
     stale: bool = False
     breakdown: dict | None = None
+    #: When the current job started (queued/running) or the score was
+    #: written.  The client uses it to tell a live job from a dead one.
+    at: str | None = None
 
 
 class BusinessValueQueued(BaseModel):

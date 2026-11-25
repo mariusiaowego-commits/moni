@@ -2413,6 +2413,9 @@ function app() {
     bvPollTimer: null,
     // v1.0.130: 单篇通用分按文章 id 各开一个轮询计时器
     generalBvTimers: {},
+    // v1.0.130: 确认框防双击 + 轮询次数上限
+    generalBvConfirming: {},
+    generalBvPolls: {},
     get activeArticles() {
       return this.articlesSubTab === 'pinned' ? this.pinnedArticles : this.articles;
     },
@@ -5795,6 +5798,15 @@ function app() {
       // v1.0.5.10: listen for browser back/forward so the SPA follows.
       window.addEventListener('popstate', (e) => this.onPopState(e));
     },
+
+    // v1.0.130: 离开页面时停掉通用分的轮询，别在后台一直打接口。
+    destroy() {
+      Object.keys(this.generalBvTimers || {}).forEach((id) => {
+        clearTimeout(this.generalBvTimers[id]);
+      });
+      this.generalBvTimers = {};
+      this.generalBvPolls = {};
+    },
     
     // ── Article detail modal (v1.0.4 — BUG #7) ─────────────────
     articleDetail: null,
@@ -6345,28 +6357,44 @@ function app() {
       return !!bv.stale && !!this.generalBvChip(a);
     },
 
+    // 服务重启会把在飞的打分任务掐掉，行会永远停在「打分中」。
+    // 超过服务端的死线（600 秒）就说明没有活着的工作进程，给一个重试口。
+    generalBvStuck(a) {
+      const bv = a.business_value || {};
+      if (bv.status !== 'queued' && bv.status !== 'running') return false;
+      const at = Date.parse(bv.at || '');
+      if (!at) return true;
+      return Date.now() - at > 600000;
+    },
+
     generalBvButtonTip(a) {
       const bv = a.business_value || {};
+      if (this.generalBvStuck(a)) return '上次打分没跑完（服务可能重启过），点击重试';
       if (bv.status === 'failed') return (bv.error || '上次打分失败') + '\n点击重新打分';
-      if (bv.status === 'insufficient') return '正文过短，先把全文导入再打分';
       if (bv.status === 'budget_skipped') return '上次预算不足没算完，点击重新打分';
+      const chars = bv.content_chars;
+      if (chars != null && chars < 200) return '正文不足 200 字：服务端会直接判「素材不足」，不花模型额度';
       return '通用业务价值分：十维加权 0–100，单篇约 1–2 分钟，消耗模型额度';
     },
 
     async scoreGeneralBv(a, force = false) {
       const bv = a.business_value || {};
-      if (this.generalBvBusy(a)) return;
-      if (bv.status === 'insufficient' && !force) {
-        this.bvMessage = '正文不足 200 字，先把全文导入再打分';
-        return;
-      }
+      const busy = bv.status === 'queued' || bv.status === 'running';
+      if (busy && !this.generalBvStuck(a)) return;
+      if (this.generalBvConfirming[a.id]) return;
       const text = force
         ? '正文已变更，重新给这篇打通用业务价值分？单篇约 1–2 分钟，最多 5 次模型调用，会消耗模型额度。'
         : '给这篇打通用业务价值分？十维加权 0–100，单篇约 1–2 分钟，最多 5 次模型调用，会消耗模型额度。';
-      const ok = await moniModal.confirm(text, {
-        title: '通用业务价值打分',
-        okLabel: '开始打分',
-      });
+      this.generalBvConfirming[a.id] = true;
+      let ok = false;
+      try {
+        ok = await moniModal.confirm(text, {
+          title: '通用业务价值打分',
+          okLabel: '开始打分',
+        });
+      } finally {
+        delete this.generalBvConfirming[a.id];
+      }
       if (!ok) return;
       const previous = Object.assign({}, bv);
       a.business_value = Object.assign({}, bv, { status: 'queued', error: null });
@@ -6381,11 +6409,7 @@ function app() {
             this.bvMessage = '正文没变，沿用已有分数';
             return;
           }
-          if (data.running) {
-            this.bvMessage = '这篇已在打分中';
-            return;
-          }
-          this.bvMessage = '已开始打分，完成后自动刷新';
+          this.bvMessage = data.running ? '这篇已在打分中' : '已开始打分，完成后自动刷新';
           this.pollGeneralBv(a.id);
         })
         .catch(err => {
@@ -6396,6 +6420,7 @@ function app() {
 
     pollGeneralBv(articleId) {
       this.stopGeneralBvPolling(articleId);
+      this.generalBvPolls[articleId] = 0;
       const tick = () => {
         fetch(`/api/articles/${articleId}/business-value`, {
           credentials: 'same-origin',
@@ -6411,13 +6436,21 @@ function app() {
                 error: state.error,
                 stale: state.stale,
                 breakdown: state.breakdown,
+                at: state.at,
               });
             }
             if (state.status === 'queued' || state.status === 'running') {
+              this.generalBvPolls[articleId] = (this.generalBvPolls[articleId] || 0) + 1;
+              if (this.generalBvPolls[articleId] > 240) {
+                delete this.generalBvTimers[articleId];
+                this.bvMessage = '打分用时较长，稍后刷新页面看结果';
+                return;
+              }
               this.generalBvTimers[articleId] = setTimeout(tick, 2500);
               return;
             }
             delete this.generalBvTimers[articleId];
+            delete this.generalBvPolls[articleId];
             if (state.status === 'failed') {
               this.bvMessage = state.error || '通用分打分失败';
             } else {
@@ -6425,6 +6458,11 @@ function app() {
             }
           })
           .catch(() => {
+            this.generalBvPolls[articleId] = (this.generalBvPolls[articleId] || 0) + 1;
+            if (this.generalBvPolls[articleId] > 240) {
+              delete this.generalBvTimers[articleId];
+              return;
+            }
             this.generalBvTimers[articleId] = setTimeout(tick, 4000);
           });
       };
@@ -6437,6 +6475,7 @@ function app() {
         clearTimeout(timer);
         delete this.generalBvTimers[articleId];
       }
+      delete this.generalBvPolls[articleId];
     },
 
     generalBvChip(a) {

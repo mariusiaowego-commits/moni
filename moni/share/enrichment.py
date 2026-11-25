@@ -1357,6 +1357,7 @@ def run_enrichment(
         "summary": 0,
         "fact_check": 0,
         "business_value": 0,
+        "business_value_pending": 0,
         "quality": 0,
         "brief_summary": 0,
         "brief_body": 0,
@@ -1436,6 +1437,9 @@ def run_enrichment(
                   )
                   if ok:
                       stats["business_value"] += 1
+                  elif row["business_value_status"] in ("queued", "running"):
+                      # 另一条链路正在给这篇打分：不重复花额度，也不算失败。
+                      stats["business_value_pending"] += 1
                   else:
                       stats["failed"].append(f"business_value:{row['id']}")
 

@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from moni.share import artifacts as share_artifacts
+from moni.web.routes import bv_scores as bv_scores_route
 from moni.web.routes import directions as directions_route
 from moni.web.routes import direction_scores as direction_scores_route
 from moni.web.exceptions import register_exception_handlers
@@ -83,6 +84,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         directions_route._runner.wait_idle(timeout=2.0)
     if direction_scores_route._runner is not None:
         direction_scores_route._runner.wait_idle(timeout=2.0)
+    if bv_scores_route._runner is not None:
+        bv_scores_route._runner.wait_idle(timeout=2.0)
 
 
 def create_app() -> FastAPI:

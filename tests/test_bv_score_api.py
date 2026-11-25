@@ -1,7 +1,9 @@
 """API tests for on-demand general business-value scoring (v1.0.130)."""
 from __future__ import annotations
 
+import threading
 import time
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -27,9 +29,21 @@ def client(tmp_path, monkeypatch):
     migrate()
     from moni.web.server import create_app
 
-    monkeypatch.setattr(bv_route, "_llm_call", lambda article_id: make_llm(scores=_scores(7)))
+    calls = {"n": 0}
+
+    def _counting(article_id: str):
+        base = make_llm(scores=_scores(7))
+
+        def llm(prompt: str, timeout: float):
+            calls["n"] += 1
+            return base(prompt, timeout)
+
+        return llm
+
+    monkeypatch.setattr(bv_route, "_llm_call", _counting)
     with TestClient(create_app()) as test_client:
         bv_route._runner = None
+        test_client.llm_calls = calls
         yield test_client
         if bv_route._runner is not None:
             bv_route._runner.wait_idle(timeout=30)
@@ -129,7 +143,6 @@ def test_stale_queued_row_can_be_claimed_again(client):
 def test_live_row_is_reported_as_running_not_queued_twice(client):
     article_id = _add_article("a4")
     conn = get_db()
-    from datetime import datetime, timezone
 
     # 模拟本进程正在跑：状态 queued + 时间戳是现在。
     conn.execute(
@@ -137,8 +150,56 @@ def test_live_row_is_reported_as_running_not_queued_twice(client):
         (datetime.now(timezone.utc).isoformat(), article_id),
     )
     conn.commit()
-    # 不稳态不是 live（不在 runner.live_ids 里），会被 recover_stale 标失败再重新排队。
-    # 这里只断言不会出现「同一篇被提交两次」的表象。
     response = client.post(f"/api/articles/{article_id}/business-value")
     assert response.status_code == 202
-    _wait(client, article_id)
+    body = response.json()
+    assert body["running"] is True
+    assert body["queued"] is False
+    # 别人的活儿还在跑：一次模型调用都不该发生。
+    assert client.llm_calls["n"] == 0
+    state = client.get(f"/api/articles/{article_id}/business-value").json()
+    assert state["status"] == "queued"
+
+
+def test_get_recovers_an_orphan_row_left_by_a_dead_process(client):
+    """进程重启留下的行由轮询的 GET 回收，用户不用等别人 POST。"""
+    article_id = _add_article("a5")
+    conn = get_db()
+    stale = datetime.now(timezone.utc) - timedelta(seconds=bv_route.bv_runner.STALE_AFTER_SEC + 60)
+    conn.execute(
+        "UPDATE articles SET business_value_status='running', business_value_at=? WHERE id=?",
+        (stale.isoformat(), article_id),
+    )
+    conn.commit()
+
+    state = client.get(f"/api/articles/{article_id}/business-value").json()
+    assert state["status"] == "failed"
+    assert "中断" in (state["error"] or "")
+    assert client.llm_calls["n"] == 0
+
+    # 回收之后重新点一次就能真打分。
+    assert client.post(f"/api/articles/{article_id}/business-value").json()["queued"] is True
+    assert _wait(client, article_id)["status"] == "ready"
+
+
+def test_two_concurrent_posts_score_the_article_once(client):
+    article_id = _add_article("a6")
+    results: list[dict] = []
+    lock = threading.Lock()
+
+    def _post() -> None:
+        payload = client.post(f"/api/articles/{article_id}/business-value").json()
+        with lock:
+            results.append(payload)
+
+    threads = [threading.Thread(target=_post) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    # 最多只有一个请求真的排上队（另一个要么看到 running，要么看到缓存）。
+    assert sum(1 for payload in results if payload["queued"]) <= 1
+    assert _wait(client, article_id)["status"] == "ready"
+    # 一次完整打分 = 取证 + 评分 + 审核 = 3 次模型调用。
+    assert client.llm_calls["n"] == 3

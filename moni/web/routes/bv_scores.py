@@ -51,11 +51,11 @@ def _llm_call(article_id: str):
         from moni.llm.desensitize.audit import desensitize_scope
         from moni.llm.runner import read_model_mode
 
-        if read_model_mode() == "profile":
-            provider, model = "", ""
-        else:
-            provider, model = resolve_active_model()
         try:
+            if read_model_mode() == "profile":
+                provider, model = "", ""
+            else:
+                provider, model = resolve_active_model()
             with desensitize_scope(
                 task_type="business_value", article_id=article_id, json_output=True
             ):
@@ -101,6 +101,7 @@ def _state(row: Any) -> dict[str, Any]:
         "error": row["business_value_error"],
         "stale": bool(stored_hash) and stored_hash != current_hash,
         "breakdown": breakdown,
+        "at": row["business_value_at"],
     }
 
 
@@ -108,15 +109,21 @@ def _state_row(conn, article_id: str):
     return conn.execute(
         "SELECT id, raw_content, business_value_status, business_value_score, "
         "business_value_note, business_value_error, business_value_hash, "
-        "business_value_breakdown_json FROM articles WHERE id=?",
+        "business_value_breakdown_json, business_value_at FROM articles WHERE id=?",
         (article_id,),
     ).fetchone()
 
 
 @router.get("/{article_id}/business-value", response_model=BusinessValueState)
 def get_business_value(article_id: str) -> BusinessValueState:
-    _row_or_404(article_id)
     conn = get_db()
+    runner = _ensure_runner()
+    with _enqueue_lock:
+        # A job whose process died leaves the row queued/running.  The
+        # polling client is the one place that can notice, so recover here
+        # instead of waiting for an unrelated POST.
+        bv_runner.recover_stale(conn, live_ids=runner.live_ids)
+    _row_or_404(article_id)
     row = _state_row(conn, article_id)
     return BusinessValueState(**_state(row))
 

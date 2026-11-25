@@ -1,6 +1,7 @@
 """Claim / recovery semantics for the on-demand BV runner (v1.0.130)."""
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -83,3 +84,16 @@ def test_is_inflight_covers_both_states(conn):
     assert bv_runner.is_inflight(bv_runner.load_row(conn, "a1")) is True
     bv_runner.mark_running(conn, "a1")
     assert bv_runner.is_inflight(bv_runner.load_row(conn, "a1")) is True
+
+
+def test_crash_mark_never_kills_the_queue_thread():
+    """标记失败时连接已经坏了：不能把异常抛回工作线程。"""
+
+    class _Broken:
+        def execute(self, *args, **kwargs):
+            raise sqlite3.ProgrammingError("Cannot operate on a closed database.")
+
+        def commit(self):
+            raise sqlite3.ProgrammingError("Cannot operate on a closed database.")
+
+    bv_runner._mark_crashed(_Broken(), "a1")
