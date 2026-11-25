@@ -1,7 +1,7 @@
 # 量化看板 LLM 用量卡片修复 + verify-moni 验证 skill（Sprint 75）
 
 - 日期：2026-11-25
-- 分支：`feature/v1.0.129-llm-usage-state-fix`（基于 `origin/main` `f838ae0`）
+- 分支：`feature/v1.0.130-llm-usage-state-fix`（基于 `f838ae0`，已合入 main `11dc915`）
 - 类型：前端状态修复 + 验证基建，无 schema / 无 API 变更
 
 ## 1. 要修的是什么

@@ -1,8 +1,8 @@
 # Sprint 75 验收记录 — LLM 用量卡片修复 + verify-moni
 
 - 日期：2026-11-25
-- 分支：`feature/v1.0.129-llm-usage-state-fix`（base `origin/main` `f838ae0`）
-- 版本：待发 `v1.0.129`
+- 分支：`feature/v1.0.130-llm-usage-state-fix`（base `f838ae0`，已合入 main `11dc915`）
+- 版本：待发 `v1.0.130`
 
 ## 1. 命令与输出
 
