@@ -47,6 +47,8 @@ SETTING_FIELDS: tuple[str, ...] = (
     "level_l3",
     "strict_fail_closed",
 )
+#: 字段 → ``app_settings`` 键。读、写都走这一张表，别处不硬编码键名。
+SETTING_KEYS: dict[str, str] = dict(zip(SETTING_FIELDS, _SETTING_KEYS))
 
 _CACHE_LOCK = threading.Lock()
 _SETTINGS_CACHE: dict[str, tuple[float, DesensSettings]] = {}
@@ -239,32 +241,27 @@ def load_settings(db_path: str | os.PathLike[str] | None = None) -> DesensSettin
             _SETTING_KEYS,
         ).fetchall()
         cfg = {str(r["key"]): str(r["value"]).strip() for r in rows}
-        enabled = cfg.get("desensitize.enabled", "0") == "1"
-        level_l1 = cfg.get("desensitize.level_l1", "1") == "1"
-        level_l2 = cfg.get("desensitize.level_l2", "1") == "1"
-        level_l3 = cfg.get("desensitize.level_l3", "0") == "1"
-        strict_fail_closed = cfg.get("desensitize.strict_fail_closed", "0") == "1"
+        defaults = {"enabled": "0", "level_l1": "1", "level_l2": "1", "level_l3": "0",
+                    "strict_fail_closed": "0"}
+        flags = {
+            name: cfg.get(SETTING_KEYS[name], default) == "1"
+            for name, default in defaults.items()
+        }
 
-        rule_rows = conn.execute(
-            """
-            SELECT rule_type, kind, pattern, aliases_json, pseudonym, action, match_case
-            FROM desensitize_rules
-            WHERE is_active = 1
-            ORDER BY id ASC
-            """
-        ).fetchall()
-        rules_raw = _rules_from_rows(rule_rows)
-        user_rules = UserRules.from_rules(rules_raw) if rules_raw else None
-
-        settings = DesensSettings(
-            enabled=enabled,
-            level_l1=level_l1,
-            level_l2=level_l2,
-            level_l3=level_l3,
-            strict_fail_closed=strict_fail_closed,
-            rules=user_rules,
-            rules_raw=tuple(rules_raw),
-        )
+        # 规则表单独兜底：规则读不出来不该把脱敏整体关掉（那会让原文照发）。
+        try:
+            rule_rows = conn.execute(
+                """
+                SELECT rule_type, kind, pattern, aliases_json, pseudonym, action, match_case
+                FROM desensitize_rules
+                WHERE is_active = 1
+                ORDER BY id ASC
+                """
+            ).fetchall()
+            rules_raw = tuple(_rules_from_rows(rule_rows))
+        except Exception as exc:  # noqa: BLE001 — 规则不可读时按「没有用户规则」继续
+            logger.warning("desensitize rules unavailable (continuing without user rules): %s", exc)
+            rules_raw = ()
     except Exception as exc:  # noqa: BLE001 — fail-open when DB/tables unavailable
         logger.debug("desensitize load_settings failed (returning disabled): %s", exc)
         return _DISABLED_SETTINGS
@@ -274,6 +271,18 @@ def load_settings(db_path: str | os.PathLike[str] | None = None) -> DesensSettin
                 conn.close()
             except Exception:
                 pass
+
+    user_rules = UserRules.from_rules(rules_raw) if rules_raw else None
+
+    settings = DesensSettings(
+        enabled=flags["enabled"],
+        level_l1=flags["level_l1"],
+        level_l2=flags["level_l2"],
+        level_l3=flags["level_l3"],
+        strict_fail_closed=flags["strict_fail_closed"],
+        rules=user_rules,
+        rules_raw=rules_raw,
+    )
 
     with _CACHE_LOCK:
         # 读库期间有人写过配置就别把旧快照写回缓存，否则旧值会再活 30 秒。
@@ -295,11 +304,10 @@ def save_settings(**fields: bool | None) -> DesensSettings:
 
     只认布尔字段；``None`` 表示这次不改。写完立即让缓存失效。
     """
-    keys = dict(zip(SETTING_FIELDS, _SETTING_KEYS))
     now = datetime.now(timezone.utc).isoformat()
     conn = get_db()
     for field_name, value in fields.items():
-        if value is None or field_name not in keys:
+        if value is None or field_name not in SETTING_KEYS:
             continue
         conn.execute(
             """
@@ -307,7 +315,7 @@ def save_settings(**fields: bool | None) -> DesensSettings:
             ON CONFLICT(key) DO UPDATE
                SET value = excluded.value, updated_at = excluded.updated_at
             """,
-            (keys[field_name], "1" if value else "0", now),
+            (SETTING_KEYS[field_name], "1" if value else "0", now),
         )
     conn.commit()
     invalidate_settings_cache()

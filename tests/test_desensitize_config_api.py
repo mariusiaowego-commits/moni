@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from moni.db.connection import close_db, get_db, set_db_path
 from moni.db.migrate import migrate
-from moni.llm.desensitize.audit import _SETTING_KEYS
+from moni.llm.desensitize.audit import SETTING_KEYS, load_settings
 from moni.web.server import create_app
 
 
@@ -59,9 +59,9 @@ def test_put_config_writes_switch_and_levels(client):
     assert body["levels"]["level_l3"] is True
     # 没传的字段保持原值。
     assert body["levels"]["level_l1"] is True
-    assert _setting(_SETTING_KEYS[0]) == "1"
-    assert _setting(_SETTING_KEYS[3]) == "1"
-    assert _setting(_SETTING_KEYS[1]) == "1"
+    assert _setting(SETTING_KEYS["enabled"]) == "1"
+    assert _setting(SETTING_KEYS["level_l3"]) == "1"
+    assert _setting(SETTING_KEYS["level_l1"]) == "1"
 
 
 def test_put_config_takes_effect_without_restart(client):
@@ -109,11 +109,31 @@ def test_put_config_writes_each_field_to_its_own_key(client):
         "strict_fail_closed": False,
     }
     values = dict(get_db().execute("SELECT key, value FROM app_settings").fetchall())
-    assert values[_SETTING_KEYS[0]] == "1"
-    assert values[_SETTING_KEYS[1]] == "0"
-    assert values[_SETTING_KEYS[2]] == "1"
-    assert values[_SETTING_KEYS[3]] == "1"
-    assert values[_SETTING_KEYS[4]] == "0"
+    assert values[SETTING_KEYS["enabled"]] == "1"
+    assert values[SETTING_KEYS["level_l1"]] == "0"
+    assert values[SETTING_KEYS["level_l2"]] == "1"
+    assert values[SETTING_KEYS["level_l3"]] == "1"
+    assert values[SETTING_KEYS["strict_fail_closed"]] == "0"
+
+
+@pytest.mark.parametrize(
+    ("field", "expected"),
+    [
+        ("enabled", "1"),
+        ("level_l1", "0"),
+        ("level_l2", "0"),
+        ("level_l3", "1"),
+        ("strict_fail_closed", "1"),
+    ],
+)
+def test_each_field_writes_only_its_own_key(client, field, expected):
+    """一次只写一个字段：键互换、顺序错位都要被抓出来。"""
+    before = dict(get_db().execute("SELECT key, value FROM app_settings").fetchall())
+    res = client.put("/api/desensitize/config", json={field: expected == "1"})
+    assert res.status_code == 200
+    after = dict(get_db().execute("SELECT key, value FROM app_settings").fetchall())
+    assert [key for key in after if before.get(key) != after[key]] == [SETTING_KEYS[field]]
+    assert after[SETTING_KEYS[field]] == expected
 
 
 def test_get_config_without_rules_table_returns_400(client):
@@ -124,6 +144,25 @@ def test_get_config_without_rules_table_returns_400(client):
     assert res.status_code == 400
     res = client.put("/api/desensitize/config", json={"enabled": True})
     assert res.status_code == 400
+
+
+def test_config_with_missing_column_returns_400(client):
+    """列缺失时给 400，不 500。"""
+    conn = get_db()
+    conn.execute("ALTER TABLE app_settings RENAME TO app_settings_old")
+    conn.execute("CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    conn.commit()
+    assert client.get("/api/desensitize/config").status_code == 400
+    assert client.put("/api/desensitize/config", json={"enabled": True}).status_code == 400
+
+
+def test_rules_table_broken_does_not_disable_masking(client):
+    """规则表读不出来时，只丢用户规则；脱敏开关不能被顺手关掉。"""
+    client.put("/api/desensitize/config", json={"enabled": True})
+    get_db().execute("DROP TABLE desensitize_rules")
+    get_db().commit()
+    settings = load_settings()
+    assert settings.enabled is True
 
 
 def test_stats_and_config_agree_on_switch(client):

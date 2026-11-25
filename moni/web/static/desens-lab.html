@@ -350,8 +350,17 @@ let configSeq = 0;
 
 async function loadConfig() {
   const res = await fetch("/api/desensitize/config");
-  if (!res.ok) throw new Error("config " + res.status);
+  if (!res.ok) throw new Error(await errorMessage(res, "config " + res.status));
   renderConfig(await res.json());
+}
+
+async function errorMessage(res, fallback) {
+  try {
+    const body = await res.json();
+    return (body && (body.message || body.detail)) || fallback;
+  } catch (e) {
+    return fallback;
+  }
 }
 
 function renderConfig(d) {
@@ -361,12 +370,22 @@ function renderConfig(d) {
   btn.className = "toggle" + (d.enabled ? " on" : "");
   $("cfgEnabledHint").textContent = d.enabled
     ? "生产出站的提示词会先遮蔽，回包在本地还原（本进程立即生效；分享 worker 与定时任务最多 30 秒内跟上）。"
-    : "关闭时不脱敏：提示词原样发给大模型（实验室的「真跑一次」不受影响）。";
+    : "关闭时不脱敏：提示词原样发给大模型（实验室的「真跑一次」不受影响；worker 与定时任务最多 30 秒内跟上）。";
   $("cfgL1").checked = !!d.levels.level_l1;
   $("cfgL2").checked = !!d.levels.level_l2;
   $("cfgL3").checked = !!d.levels.level_l3;
   $("cfgStrict").checked = !!d.levels.strict_fail_closed;
+  renderPill(d);
   renderRules(d.rules || []);
+}
+
+// 页头总开关 pill：以当前配置为准，不等 /stats 回来。
+function renderPill(d) {
+  const mark = (v) => (v ? "✓" : "✗");
+  const pill = $("switchState");
+  pill.textContent = "总开关 " + (d.enabled ? "开" : "关") + "（L1" + mark(d.levels.level_l1)
+    + " L2" + mark(d.levels.level_l2) + " L3" + mark(d.levels.level_l3) + "）";
+  pill.className = "pill " + (d.enabled ? "on" : "off");
 }
 
 // 规则内容同样走 DOM API：服务端字段不拼进 innerHTML。
@@ -408,12 +427,13 @@ function renderRules(rules) {
 async function saveConfig(patch) {
   const seq = ++configSeq;
   $("cfgMsg").textContent = "保存中…";
+  setConfigDisabled(true);
   try {
     const res = await fetch("/api/desensitize/config", {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
     });
-    if (!res.ok) throw new Error("config " + res.status);
+    if (!res.ok) throw new Error(await errorMessage(res, "config " + res.status));
     const data = await res.json();
     if (seq !== configSeq) return;  // 旧响应不覆盖新状态
     renderConfig(data);
@@ -421,7 +441,14 @@ async function saveConfig(patch) {
     loadStats().catch(() => {});
   } catch (e) {
     $("cfgMsg").textContent = "保存失败：" + String(e);
+  } finally {
+    setConfigDisabled(false);
   }
+}
+
+function setConfigDisabled(disabled) {
+  $("cfgEnabled").disabled = disabled;
+  for (const id of ["cfgL1", "cfgL2", "cfgL3", "cfgStrict"]) $(id).disabled = disabled;
 }
 
 function showTab(which) {
@@ -539,7 +566,7 @@ $("input").value = SAMPLE;
 $("terms").value = DEFAULT_TERMS;
 $("sql").textContent = SQL_TEXT;
 showTab("config");
-loadConfig().catch(() => {});
+loadConfig().catch((e) => { $("cfgMsg").textContent = "读取配置失败：" + String(e); });
 loadStats().catch(() => {});
 </script>
 </body>

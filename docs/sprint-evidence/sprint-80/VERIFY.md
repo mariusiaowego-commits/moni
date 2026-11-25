@@ -19,15 +19,26 @@
 | P3 | 规则表无横向滚动容器；`.config-tabs` 第 8 个页签在窄屏撑破 | `#cfgRules` 加 `overflow-x:auto`；`.config-tabs` 改 `flex-wrap: wrap` |
 | P3 | `init()` 无条件拉配置；`saveConfig` 无请求序号 | 改成配置子页懒加载；写请求加序号，乱序响应丢弃 |
 
+## 0.1 复审发现与修正（第二轮审计，结论 APPROVE WITH NITS → 6 条 P3 全修）
+
+| 级别 | 问题 | 修正 |
+|---|---|---|
+| F1 | 字段→键是位置 zip，且读写三处真源；测试五个值只有两组，键互换仍有 12 种置换能过 | 新增 `SETTING_KEYS: dict[str, str]` 单一真源，读写都走它；新测试「一次只写一个字段，逐个断言只有那一个键变了」（5 个参数化用例） |
+| F2 | 缺列未覆盖：`app_settings` 少 `updated_at` → 500；`desensitize_rules` 少列 → 规则查询异常把脱敏整体 fail-open 成「关闭」（安全方向偏差） | 路由层用 `PRAGMA table_info` 校验列，缺表/缺列一律 400 并说明原因；`load_settings` 把规则查询单独兜底，规则读不出来只丢用户规则，**不关脱敏开关** |
+| F3 | 页头 pill 只靠 `/stats`，`/stats` 挂时按钮显示「已开启」但 pill 还是「总开关 …」 | pill 改由配置结果驱动（`renderPill`），不再等 `/stats` |
+| F4 | `loadConfig` 吞掉 400，页面只显示「…」，「请先跑数据库迁移」没上屏 | 读失败把接口 `message` 写进 `cfgMsg`；保存失败同样显示服务端原因 |
+| F5 | 写请求乱序只挡了 UI 覆盖，服务端处理顺序仍可能与显示不一致 | 保存期间禁用开关与勾选控件 |
+| F6 | 30 秒滞后提示只写在「已开启」分支 | 「已关闭」分支也写明 worker / 定时任务最多 30 秒内跟上 |
+
 ## 1. 命令与输出
 
 ```bash
 /usr/local/bin/python3 -m pytest tests/ -p no:cacheprovider -q
-# => 2925 passed, 2 skipped, 2 warnings in 461.99s (0:07:41)
+# => 2980 passed, 2 skipped, 2 warnings in 509.13s (0:08:29)
 
 /usr/local/bin/python3 -m pytest tests/test_desensitize_config_api.py \
   tests/test_desensitize_lab_api.py -p no:cacheprovider -q
-# => 29 passed in 8.34s（新增 13 个接口用例 + 既有 16 个实验室用例）
+# => 36 passed in 11.91s（新增 20 个接口用例 + 既有 16 个实验室用例）
 
 # 上轮 sprint-78 记为 failed/error 的两个顺序污染项，本轮全量即通过，单独复跑也通过
 /usr/local/bin/python3 -m pytest tests/test_migration_039_xbot_feed.py \

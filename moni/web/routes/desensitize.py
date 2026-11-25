@@ -260,6 +260,27 @@ def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
     return row is not None
 
 
+_REQUIRED_COLUMNS = {
+    "app_settings": ("key", "value", "updated_at"),
+    "desensitize_rules": (
+        "rule_type", "kind", "pattern", "aliases_json", "pseudonym", "action",
+        "match_case", "is_active",
+    ),
+}
+
+
+def _schema_problem(conn: sqlite3.Connection) -> str | None:
+    """表缺了或列缺了都不给 500 —— 给出能看懂的原因。"""
+    for table, required in _REQUIRED_COLUMNS.items():
+        if not _table_exists(conn, table):
+            return f"脱敏配置表 {table} 缺失，请先跑数据库迁移"
+        cols = {str(row["name"]) for row in conn.execute(f"PRAGMA table_info({table})")}
+        missing = [name for name in required if name not in cols]
+        if missing:
+            return f"脱敏配置表 {table} 缺列（{', '.join(missing)}），请先跑数据库迁移"
+    return None
+
+
 def _config_payload(settings: DesensSettings, rules: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "enabled": settings.enabled,
@@ -278,8 +299,9 @@ def _config_payload(settings: DesensSettings, rules: list[dict[str, Any]]) -> di
 def get_config() -> dict[str, Any]:
     """脱敏配置总览：总开关、三级级别、严格模式、用户规则。"""
     conn = get_db()
-    if not _table_exists(conn, "app_settings") or not _table_exists(conn, "desensitize_rules"):
-        raise BadRequestError(message="脱敏配置表缺失，请先跑数据库迁移")
+    problem = _schema_problem(conn)
+    if problem:
+        raise BadRequestError(message=problem)
     settings = load_settings()
     return _config_payload(settings, _active_rules(conn))
 
@@ -288,8 +310,9 @@ def get_config() -> dict[str, Any]:
 def put_config(payload: DesensConfigUpdate) -> dict[str, Any]:
     """写总开关/级别/严格模式（运行时生效，不发版）。"""
     conn = get_db()
-    if not _table_exists(conn, "app_settings") or not _table_exists(conn, "desensitize_rules"):
-        raise BadRequestError(message="脱敏配置表缺失，请先跑数据库迁移")
+    problem = _schema_problem(conn)
+    if problem:
+        raise BadRequestError(message=problem)
     settings = save_settings(
         enabled=payload.enabled,
         level_l1=payload.level_l1,
