@@ -80,3 +80,32 @@ share worker / 定时任务是独立进程，最多 30 秒内跟上（已在 UI 
 - 生产 8900 未部署（本轮只改仓库）
 - 总开关打开后的生产端到端验证（摘要 / 事实核查）未做：默认仍是关，等明确授权再开
 - `.topnav-right` 在 390px 下的 4px 横向溢出：既有问题，不在本轮范围
+
+## 4. pstack 合并前审计（interrogate：3 个独立 adversary + 逐条复跑）
+
+范围 `git diff c3968a6...c8659c0`（8 文件 / +673）。只有能被命令复现的 finding 计数。
+
+| # | 严重度 | finding | 复现命令 | 修复 |
+|---|---|---|---|---|
+| 1 | P2 | `/desens-lab.html` 无 `Cache-Control`，改版后旧页面可能被启发式缓存继续展示 | `curl -D - /desens-lab.html` 无 cache-control（`/` 有） | `server.py` 对 `.html` 统一 `no-cache` |
+| 2 | P3 | 配置 tab 在 `GET /config` 400 时静默空白，无错误无重试 | 空库启动后 `curl` 400，页面 `desensitizeConfig` 停在 `null` | `app.js` 记录错误 + 面板显示错误与「重试」 |
+| 3 | P3 | 保存失败后复选框不回滚，UI 与服务端不一致、重试语义反转 | PUT 注入 500 后 L3 仍为 `true` | `desens-lab.html` 失败时 `renderConfig(currentConfig)` 回滚 |
+| 4 | P3 | `_schema_problem` 漏检 `desensitize_rules.id`，缺列时 200 + 规则静默丢弃 | `probe6.py`：缺 id 列 → 200 / `rules_count=0` / 机构名原文出站 | `_REQUIRED_COLUMNS` 补 `id`；现返回 400 `缺列（id）` |
+| 5 | P3 | `test_rules_table_broken_does_not_disable_masking` 命中 30s 缓存，未覆盖兜底分支 | 删掉兜底代码后用例仍通过 | 用例加 `invalidate_settings_cache()`；变异后**失败** |
+| 6 | P3 | 键映射用例与写入共用 `SETTING_KEYS`，L1↔L2 互换仍全绿 | 源级互换后 20 用例全过 | 新增字面量键名用例；互换后**失败** |
+
+修复后复验：
+
+```
+$ uv run --quiet python -m pytest tests/test_desensitize_config_api.py \
+    tests/test_desensitize_lab_api.py tests/test_web_static_headers.py \
+    tests/test_web_csrf_guard.py -q -p no:cacheprovider
+43 passed
+
+$ uv run --quiet python -m pytest tests/ -q -p no:cacheprovider \
+    -k "desens or web or static or csrf or share or reader or summary"
+381 passed, 2604 deselected
+```
+
+Playwright 复验（8901）：400 时错误文案与「重试」可见；PUT 500 后 `#cfgL3` 回滚为 `false`、
+控件恢复可用；正常路径开关「关→开→关」与页面 pill 同步，账本 9 列 `x` 偏差全 0，390px 无溢出。

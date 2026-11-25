@@ -440,6 +440,8 @@ async function saveConfig(patch) {
     $("cfgMsg").textContent = "已保存，立即生效";
     loadStats().catch(() => {});
   } catch (e) {
+    if (seq !== configSeq) return;  // 旧响应不覆盖新状态
+    if (currentConfig) renderConfig(currentConfig);  // 失败回滚到已保存值
     $("cfgMsg").textContent = "保存失败：" + String(e);
   } finally {
     setConfigDisabled(false);

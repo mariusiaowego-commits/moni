@@ -5908,12 +5908,28 @@ function app() {
 
     // v1.0.134: 脱敏配置总览（总开关/级别/规则条数），失败不影响主流程。
     desensConfig: null,
+    desensConfigError: null,
     loadDesensConfig() {
       const self = this;
       fetch('/api/desensitize/config', { credentials: 'same-origin' })
-        .then(r => r.ok ? r.json() : null)
-        .then(d => { if (d) self.desensConfig = d; })
-        .catch(() => {});
+        .then(async (r) => {
+          if (!r.ok) {
+            let msg = '配置读取失败（' + r.status + '）';
+            try {
+              const body = await r.json();
+              if (body && (body.message || body.detail)) msg = body.message || String(body.detail);
+            } catch (e) { /* 非 JSON 错误体：保留状态码文案 */ }
+            self.desensConfigError = msg;
+            return null;
+          }
+          return r.json();
+        })
+        .then(d => {
+          if (!d) return;
+          self.desensConfig = d;
+          self.desensConfigError = null;
+        })
+        .catch(e => { self.desensConfigError = '配置读取失败：' + e; });
     },
 
     // v1.0.130: 离开页面时停掉通用分的轮询，别在后台一直打接口。

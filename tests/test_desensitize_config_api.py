@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from moni.db.connection import close_db, get_db, set_db_path
 from moni.db.migrate import migrate
-from moni.llm.desensitize.audit import SETTING_KEYS, load_settings
+from moni.llm.desensitize.audit import SETTING_KEYS, invalidate_settings_cache, load_settings
 from moni.web.server import create_app
 
 
@@ -161,8 +161,22 @@ def test_rules_table_broken_does_not_disable_masking(client):
     client.put("/api/desensitize/config", json={"enabled": True})
     get_db().execute("DROP TABLE desensitize_rules")
     get_db().commit()
+    invalidate_settings_cache()  # 清掉写入时缓存的快照，否则走不到兜底分支
     settings = load_settings()
     assert settings.enabled is True
+
+
+def test_setting_keys_are_stable_literals(client):
+    """键名写死在 app_settings 里：映射被互换时不能靠 SETTING_KEYS 自洽蒙混过关。"""
+    res = client.put("/api/desensitize/config", json={"level_l1": False, "level_l2": True})
+    assert res.status_code == 200
+    rows = dict(
+        get_db().execute(
+            "SELECT key, value FROM app_settings WHERE key LIKE 'desensitize.%'"
+        ).fetchall()
+    )
+    assert rows["desensitize.level_l1"] == "0"
+    assert rows["desensitize.level_l2"] == "1"
 
 
 def test_stats_and_config_agree_on_switch(client):

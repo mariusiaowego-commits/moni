@@ -263,7 +263,7 @@ def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
 _REQUIRED_COLUMNS = {
     "app_settings": ("key", "value", "updated_at"),
     "desensitize_rules": (
-        "rule_type", "kind", "pattern", "aliases_json", "pseudonym", "action",
+        "id", "rule_type", "kind", "pattern", "aliases_json", "pseudonym", "action",
         "match_case", "is_active",
     ),
 }

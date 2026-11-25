@@ -186,7 +186,10 @@ def create_app() -> FastAPI:
             # base) read any file on disk.
             candidate = resolve_static_path(STATIC_DIR, full_path)
             if candidate is not None:
-                return FileResponse(str(candidate))
+                # HTML 文档每次回源校验：页面改版后若被启发式缓存，用户点新
+                # 入口仍会看到改造前的界面（assets 的 ?v= 只能保护它自己）。
+                html_headers = index_headers if candidate.suffix.lower() == ".html" else None
+                return FileResponse(str(candidate), headers=html_headers)
             # Otherwise → SPA index.html (client-side router)
             return FileResponse(str(index_html), headers=index_headers)
     else:
