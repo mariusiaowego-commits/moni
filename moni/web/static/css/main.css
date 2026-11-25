@@ -2901,6 +2901,11 @@ label { font-size: var(--font-14); }
   margin-left: 4px; vertical-align: middle;
 }
 
+/* v1.0.132: 信息脱敏入口的状态徽章（开 = 绿，关 = 中性灰） */
+.nav-chip-state { font-weight: 600; }
+.nav-chip-on { background: var(--success); color: var(--success-fg); }
+.nav-chip-muted { background: var(--muted); color: var(--muted-fg); }
+
 /* ═══════════════════════════════════════════════════════════════
    Animations
    ═══════════════════════════════════════════════════════════════ */
