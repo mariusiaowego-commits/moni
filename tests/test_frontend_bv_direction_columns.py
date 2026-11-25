@@ -128,13 +128,20 @@ def test_scoring_message_is_readable():
     )
 
 
-def test_empty_business_value_cell_says_so_on_hover():
-    """两个 chip 都没有时，格子要留占位并说明是「没算」而不是「不适用」。"""
+def test_empty_business_value_cell_offers_a_score_button():
+    """没有通用分时，格子给一个能点的「打分」按钮，而不是看不出含义的「—」。
+
+    v1.0.130 起通用分可以按需打，空态必须能解释自己并给出下一步动作。
+    """
     html = INDEX_HTML.read_text(encoding="utf-8")
-    assert ":title=\"bvEmptyTip(a)\"" in html, "空态单元格没有 title 提示"
-    assert ">—</span>" in html, "空态占位不是「—」"
+    assert ':title="generalBvButtonTip(a)"' in html, "空态单元格没有 title 提示"
+    assert 'x-show="!generalBvChip(a) && !generalBvBusy(a)"' in html, (
+        "空态没有「打分」按钮的显示条件"
+    )
+    assert "打分中…" in html, "打分中没有进度文案"
     app = APP_JS.read_text(encoding="utf-8")
-    assert "bvEmptyTip(a)" in app, "app.js 里没有 bvEmptyTip"
+    assert "scoreGeneralBv(a, force" in app, "app.js 里没有单篇打分方法"
+    assert "/business-value" in app, "app.js 没有调用打分接口"
 
 
 def test_score_column_headers_explain_themselves():

@@ -888,3 +888,26 @@ class DirectionScoreQueued(BaseModel):
     queued: list[str]
     cached: list[str]
     rejected: list[dict]
+
+
+class BusinessValueState(BaseModel):
+    """One article's general ten-dimension score, as the Pin list shows it."""
+
+    article_id: str
+    status: str | None = None
+    score: int | None = None
+    note: str = ""
+    error: str | None = None
+    stale: bool = False
+    breakdown: dict | None = None
+
+
+class BusinessValueQueued(BaseModel):
+    """Answer to "score this article": queued, cached, or already running."""
+
+    article_id: str
+    status: str
+    queued: bool = False
+    cached: bool = False
+    running: bool = False
+    reason: str | None = None
