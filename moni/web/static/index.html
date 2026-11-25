@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261125002">
+  <link rel="stylesheet" href="css/main.css?v=20261125003">
   <!-- v1.0.110: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
        放在 main.css 之后，同名选择器以它们为准，便于单独回滚。 -->
   <link rel="stylesheet" href="css/source-ops.css?v=20261120011">
@@ -69,6 +69,12 @@
         <a href="/share"    @click.prevent="navigate('share')"    :class="{ active: currentView === 'share'    }">分享</a>
         <a href="/basket"   @click.prevent="navigate('basket')"   :class="{ active: currentView === 'basket'   }">菜篮子</a>
         <a href="/config"   @click.prevent="navigate('config')"   :class="{ active: currentView === 'config' || currentView === 'llmSettings' || currentView === 'cron' }">配置管理</a>
+        <a href="/desens-lab.html" title="信息脱敏：发给大模型前遮蔽，回包本地还原">
+          信息脱敏
+          <span class="nav-chip nav-chip-state"
+                :class="desensEnabled === true ? 'nav-chip-on' : 'nav-chip-muted'"
+                x-text="desensEnabled === null ? '…' : (desensEnabled ? '开' : '关')"></span>
+        </a>
       </div>
       <div class="topnav-right">
         <div class="svc-wrap" @mouseenter="loadServiceInfo()" @focusin="loadServiceInfo()">
@@ -5241,7 +5247,7 @@
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
-  <script src="js/app.js?v=20261125004"></script>
+  <script src="js/app.js?v=20261125005"></script>
   <script src="js/reader.js?v=20261123103"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
