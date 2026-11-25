@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>脱敏实验室 · moni</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1e222b;
+    --line: #2a2f3a;
+    --text: #e6e8ee;
+    --muted: #8b93a7;
+    --accent: #5b9dff;
+    --ok: #3ecf8e;
+    --warn: #ffb020;
+    --bad: #ff5c5c;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.6 -apple-system, "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+    padding: 18px 24px; border-bottom: 1px solid var(--line);
+  }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .spacer { flex: 1; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 999px; font-size: 12px;
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--muted);
+  }
+  .pill.on { color: var(--ok); border-color: rgba(62,207,142,.4); }
+  .pill.off { color: var(--muted); }
+  main { padding: 20px 24px 40px; display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .panel > h2 {
+    margin: 0; padding: 12px 16px; font-size: 13px; font-weight: 600;
+    color: var(--muted); border-bottom: 1px solid var(--line);
+  }
+  .pad { padding: 16px; }
+  textarea {
+    width: 100%; min-height: 108px; resize: vertical;
+    background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 12px; font-family: var(--mono); font-size: 13px;
+  }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  button {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #08111f; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: progress; }
+  select {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 7px 10px; font-size: 13px;
+  }
+  .cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; min-width: 0; }
+  @media (max-width: 1200px) { .cols { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 820px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+  .col { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+  .col h3 {
+    margin: 0; padding: 10px 14px; font-size: 12px; font-weight: 600; color: var(--muted);
+    border-bottom: 1px solid var(--line); background: var(--panel-2);
+  }
+  .col h3 .n { color: var(--accent); margin-right: 6px; }
+  .col pre {
+    margin: 0; padding: 14px; font-family: var(--mono); font-size: 12.5px; line-height: 1.65;
+    white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; min-height: 220px; max-height: 420px; overflow: auto;
+  }
+  .col.masked h3 { color: var(--warn); }
+  .col.raw h3 { color: var(--warn); }
+  .col.restored h3 { color: var(--ok); }
+  .metrics { display: flex; flex-wrap: wrap; gap: 10px; }
+  .metric { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; min-width: 132px; }
+  .metric .k { color: var(--muted); font-size: 11.5px; }
+  .metric .v { font-family: var(--mono); font-size: 19px; margin-top: 2px; }
+  .metric.good .v { color: var(--ok); }
+  .metric.bad .v { color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; }
+  td.num { font-family: var(--mono); text-align: right; }
+  pre.sql { margin: 0; padding: 12px 14px; font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: pre-wrap; }
+  .err { color: var(--bad); font-size: 13px; margin-top: 10px; }
+  .tag { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>脱敏实验室</h1>
+  <span class="sub">moni · 发给大模型之前遮蔽，回来之后本地还原</span>
+  <span class="spacer"></span>
+  <span class="pill" id="switchState">总开关 …</span>
+  <span class="pill" id="ledgerState">账本 …</span>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>输入</h2>
+    <div class="pad">
+      <textarea id="input" spellcheck="false"></textarea>
+      <div class="row">
+        <button id="sample">示例</button>
+        <select id="taskType">
+          <option value="standard">standard · 标准</option>
+          <option value="fact_check_plus">fact_check_plus · 联网核查（保留公开机构名）</option>
+        </select>
+        <input id="terms" placeholder="临时敏感词，逗号分隔" spellcheck="false"
+               style="flex:1;min-width:220px;background:var(--bg);color:var(--text);
+                      border:1px solid var(--line);border-radius:8px;padding:7px 10px;
+                      font-family:var(--mono);font-size:13px;">
+        <button id="preview">只预览（不出网）</button>
+        <button id="run" class="primary">真跑一次（真调大模型）</button>
+        <span class="sub" id="status"></span>
+      </div>
+      <div class="err" id="err"></div>
+    </div>
+  </section>
+
+  <section class="cols">
+    <div class="col"><h3><span class="n">①</span>原文</h3><pre id="c1">—</pre></div>
+    <div class="col masked"><h3><span class="n">②</span>发给模型的内容</h3><pre id="c2">—</pre></div>
+    <div class="col raw"><h3><span class="n">③</span>模型回包（原始）</h3><pre id="c3">—</pre></div>
+    <div class="col restored"><h3><span class="n">④</span>本地还原后</h3><pre id="c4">—</pre></div>
+  </section>
+
+  <section class="panel">
+    <h2>本次调用指标</h2>
+    <div class="pad metrics" id="metrics"></div>
+  </section>
+
+  <section class="panel">
+    <h2>审计账本（生产口径排除实验室调用）</h2>
+    <div class="pad" id="ledger"></div>
+    <pre class="sql" id="sql"></pre>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const DEFAULT_TERMS = "招商银行, 兴业银行";
+const SAMPLE = [
+  "招商银行与兴业银行同日发布公告：招商银行客服电话 13800138000，",
+  "联系人邮箱 analyst@bankcorp.cn。",
+  "请只复述上述联系方式，不要展开分析。"
+].join("\n");
+
+const SQL_TEXT = "SELECT count(*) AS calls, sum(masked_total) AS masked_total,\n"
+  + "       sum(restored_total) AS restored_total, sum(unrestored_count) AS unrestored_count,\n"
+  + "       sum(leak_scan_hits) AS leak_scan_hits, sum(residual_placeholders) AS residual_placeholders\n"
+  + "FROM desensitize_events WHERE call_site != 'desens_lab';";
+
+function setStatus(text) { $("status").textContent = text || ""; }
+function extraTerms() {
+  return $("terms").value.split(/[,，、\s]+/).map((t) => t.trim()).filter(Boolean);
+}
+function setErr(text) { $("err").textContent = text || ""; }
+
+function metric(k, v, cls) {
+  return '<div class="metric ' + (cls || "") + '"><div class="k">' + k + '</div><div class="v">' + v + "</div></div>";
+}
+
+function renderMetrics(s) {
+  if (!s) { $("metrics").innerHTML = '<span class="sub">尚未运行</span>'; return; }
+  const leak = s.leak_scan_hits, unrest = s.unrestored_count, resid = s.residual_placeholders;
+  $("metrics").innerHTML = [
+    metric("遮蔽处数", s.masked_total),
+    metric("还原处数", s.restored_total, "good"),
+    metric("未还原", unrest, unrest === 0 ? "good" : "bad"),
+    metric("出站泄漏命中", leak, leak === 0 ? "good" : "bad"),
+    metric("残留占位符", resid, resid === 0 ? "good" : "bad"),
+    metric("遮蔽耗时", s.mask_latency_us + " µs"),
+    metric("还原耗时", s.restore_latency_us + " µs"),
+    metric("模型耗时", s.model_duration_ms + " ms"),
+  ].join("");
+}
+
+async function loadStats() {
+  const res = await fetch("/api/desensitize/stats");
+  if (!res.ok) throw new Error("stats " + res.status);
+  const d = await res.json();
+  const pill = $("switchState");
+  pill.textContent = "总开关 " + (d.enabled ? "开" : "关") + "（L1/L2/L3 " +
+    [d.levels.level_l1, d.levels.level_l2, d.levels.level_l3].map((v) => (v ? "1" : "0")).join("") + "）";
+  pill.className = "pill " + (d.enabled ? "on" : "off");
+  const t = d.totals, lab = d.lab_totals;
+  $("ledgerState").textContent = "账本 生产 " + t.calls + " 次 / 实验室 " + lab.calls + " 次";
+  $("ledger").innerHTML =
+    "<table><thead><tr><th>口径</th><th class='num'>调用</th><th class='num'>遮蔽</th>"
+    + "<th class='num'>还原</th><th class='num'>未还原</th><th class='num'>泄漏命中</th>"
+    + "<th class='num'>残留占位符</th><th class='num'>拦截</th><th class='num'>还原成功率</th></tr></thead><tbody>"
+    + row("生产（不含实验室）", t) + row("实验室", lab)
+    + "</tbody></table>";
+  renderRecent(d.recent || []);
+  $("sql").textContent = SQL_TEXT;
+}
+
+function row(label, t) {
+  return "<tr><td>" + label + "</td><td class='num'>" + t.calls + "</td><td class='num'>" + t.masked_total
+    + "</td><td class='num'>" + t.restored_total + "</td><td class='num'>" + t.unrestored_count
+    + "</td><td class='num'>" + t.leak_scan_hits + "</td><td class='num'>" + t.residual_placeholders
+    + "</td><td class='num'>" + (t.blocked_calls || 0)
+    + "</td><td class='num'>"
+    + (t.restore_success_rate === null || t.restore_success_rate === undefined
+        ? "—" : (t.restore_success_rate * 100).toFixed(1) + "%")
+    + "</td></tr>";
+}
+
+// 账本最近记录走 DOM API + textContent：服务端字段不拼进 innerHTML。
+function renderRecent(recent) {
+  if (!recent.length) return;
+  const table = document.createElement("table");
+  table.innerHTML = "<thead><tr><th>call_site</th><th>task_type</th>"
+    + "<th class='num'>遮蔽</th><th class='num'>还原</th><th class='num'>未还原</th>"
+    + "<th class='num'>泄漏</th><th>结果</th><th>时间</th></tr></thead>";
+  const tbody = document.createElement("tbody");
+  for (const r of recent) {
+    const tr = document.createElement("tr");
+    for (const v of [r.call_site, r.task_type]) {
+      const td = document.createElement("td");
+      td.textContent = v === null || v === undefined ? "" : String(v);
+      tr.appendChild(td);
+    }
+    for (const v of [r.masked_total, r.restored_total, r.unrestored_count, r.leak_scan_hits]) {
+      const td = document.createElement("td");
+      td.className = "num";
+      td.textContent = String(v === null || v === undefined ? 0 : v);
+      tr.appendChild(td);
+    }
+    const tdOutcome = document.createElement("td");
+    tdOutcome.textContent = r.blocked ? "拦截（未出网）" : (r.fallback_used || "已出网");
+    tr.appendChild(tdOutcome);
+    const tdTime = document.createElement("td");
+    tdTime.textContent = r.created_at || "";
+    tr.appendChild(tdTime);
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  $("ledger").appendChild(table);
+}
+
+async function preview() {
+  setErr(""); setStatus("预览中…");
+  const res = await fetch("/api/desensitize/preview", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text: $("input").value, task_type: $("taskType").value, extra_terms: extraTerms(),
+    }),
+  });
+  const d = await res.json();
+  if (!res.ok) { setErr(d.message || d.detail || "预览失败"); setStatus(""); return; }
+  $("c1").textContent = $("input").value;
+  $("c2").textContent = d.masked_text;
+  $("c3").textContent = "—";
+  $("c4").textContent = "—";
+  renderMetrics(null);
+  if (d.blocked) {
+    setErr("已拦截（未出网）：" + (d.blocked_reason || "blocked")
+      + " —— 这段内容命中了拦截规则或出站泄漏扫描，点「真跑一次」也不会发出。");
+    setStatus("已拦截 · 遮蔽 " + d.masked_total + " 处 · 策略 " + d.policy_mode);
+    return;
+  }
+  setStatus("遮蔽 " + d.masked_total + " 处 · 策略 " + d.policy_mode + " · " + d.latency_us + " µs");
+}
+
+async function run() {
+  setErr(""); setStatus("正在调用大模型…（约 5–15 秒）");
+  $("run").disabled = true; $("preview").disabled = true;
+  try {
+    const res = await fetch("/api/desensitize/run", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: $("input").value, task_type: $("taskType").value, extra_terms: extraTerms(),
+      }),
+    });
+    const d = await res.json();
+    if (!res.ok) { setErr(d.message || d.detail || "运行失败"); setStatus(""); return; }
+    $("c1").textContent = d.original;
+    $("c2").textContent = d.masked;
+    $("c3").textContent = d.reply_raw;
+    $("c4").textContent = d.restored;
+    renderMetrics(d.stats);
+    setStatus("完成 · 策略 " + d.policy_mode
+      + (d.fallback_used ? " · 降级：" + d.fallback_used : ""));
+    await loadStats();
+  } catch (e) {
+    setErr(String(e));
+    setStatus("");
+  } finally {
+    $("run").disabled = false; $("preview").disabled = false;
+  }
+}
+
+$("sample").onclick = () => { $("input").value = SAMPLE; $("terms").value = DEFAULT_TERMS; };
+$("preview").onclick = preview;
+$("run").onclick = run;
+$("input").value = SAMPLE;
+$("terms").value = DEFAULT_TERMS;
+$("sql").textContent = SQL_TEXT;
+loadStats().catch(() => {});
+</script>
+</body>
+</html>
