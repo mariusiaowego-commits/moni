@@ -2411,6 +2411,11 @@ function app() {
     bvMessage: '',
     bvScoreError: '',
     bvPollTimer: null,
+    // v1.0.130: 单篇通用分按文章 id 各开一个轮询计时器
+    generalBvTimers: {},
+    // v1.0.130: 确认框防双击 + 轮询次数上限
+    generalBvConfirming: {},
+    generalBvPolls: {},
     get activeArticles() {
       return this.articlesSubTab === 'pinned' ? this.pinnedArticles : this.articles;
     },
@@ -5793,6 +5798,15 @@ function app() {
       // v1.0.5.10: listen for browser back/forward so the SPA follows.
       window.addEventListener('popstate', (e) => this.onPopState(e));
     },
+
+    // v1.0.130: 离开页面时停掉通用分的轮询，别在后台一直打接口。
+    destroy() {
+      Object.keys(this.generalBvTimers || {}).forEach((id) => {
+        clearTimeout(this.generalBvTimers[id]);
+      });
+      this.generalBvTimers = {};
+      this.generalBvPolls = {};
+    },
     
     // ── Article detail modal (v1.0.4 — BUG #7) ─────────────────
     articleDetail: null,
@@ -6330,6 +6344,148 @@ function app() {
       }
     },
 
+    // ── v1.0.130: 通用业务价值分按需打分 ───────────────────────
+    // 以前通用分只在生成简报时顺带算，Pin 列表里常常只有一个「—」，
+    // 用户看不出是没算还是算失败。现在缺分的位置直接给一个「打分」按钮。
+    generalBvBusy(a) {
+      const bv = a.business_value || {};
+      return bv.status === 'queued' || bv.status === 'running';
+    },
+
+    generalBvStale(a) {
+      const bv = a.business_value || {};
+      return !!bv.stale && !!this.generalBvChip(a);
+    },
+
+    // 服务重启会把在飞的打分任务掐掉，行会永远停在「打分中」。
+    // 超过服务端的死线（600 秒）就说明没有活着的工作进程，给一个重试口。
+    generalBvStuck(a) {
+      const bv = a.business_value || {};
+      if (bv.status !== 'queued' && bv.status !== 'running') return false;
+      // 服务端已经知道死线，优先用它；本地判断只是还没拿到服务端状态时的兜底。
+      if (bv.stuck !== undefined && bv.stuck !== null) return !!bv.stuck;
+      const at = Date.parse(bv.at || '');
+      if (!at) return false;
+      return Date.now() - at > 600000;
+    },
+
+    generalBvButtonTip(a) {
+      const bv = a.business_value || {};
+      if (this.generalBvStuck(a)) return '上次打分没跑完（服务可能重启过），点击重试';
+      if (bv.status === 'failed') return (bv.error || '上次打分失败') + '\n点击重新打分';
+      if (bv.status === 'budget_skipped') return '上次预算不足没算完，点击重新打分';
+      const chars = bv.content_chars;
+      if (chars != null && chars < 200) return '正文不足 200 字：服务端会直接判「素材不足」，不花模型额度';
+      return '通用业务价值分：十维加权 0–100，单篇约 1–2 分钟，消耗模型额度';
+    },
+
+    async scoreGeneralBv(a, force = false) {
+      const bv = a.business_value || {};
+      const busy = bv.status === 'queued' || bv.status === 'running';
+      if (busy && !this.generalBvStuck(a)) return;
+      if (this.generalBvConfirming[a.id]) return;
+      const text = force
+        ? '正文已变更，重新给这篇打通用业务价值分？单篇约 1–2 分钟，最多 5 次模型调用，会消耗模型额度。'
+        : '给这篇打通用业务价值分？十维加权 0–100，单篇约 1–2 分钟，最多 5 次模型调用，会消耗模型额度。';
+      this.generalBvConfirming[a.id] = true;
+      let ok = false;
+      try {
+        ok = await moniModal.confirm(text, {
+          title: '通用业务价值打分',
+          okLabel: '开始打分',
+        });
+      } finally {
+        delete this.generalBvConfirming[a.id];
+      }
+      if (!ok) return;
+      const previous = Object.assign({}, bv);
+      a.business_value = Object.assign({}, bv, {
+        status: 'queued',
+        error: null,
+        at: new Date().toISOString(),
+        stuck: false,
+      });
+      fetch(`/api/articles/${a.id}/business-value${force ? '?force=true' : ''}`, {
+        method: 'POST',
+        credentials: 'same-origin',
+      })
+        .then(r => r.json().then(d => (r.ok ? d : Promise.reject(d))))
+        .then(data => {
+          if (data.cached) {
+            a.business_value = previous;
+            this.bvMessage = '正文没变，沿用已有分数';
+            return;
+          }
+          this.bvMessage = data.running ? '这篇已在打分中' : '已开始打分，完成后自动刷新';
+          this.pollGeneralBv(a.id);
+        })
+        .catch(err => {
+          a.business_value = previous;
+          this.bvMessage = (err && err.message) || '打分请求失败';
+        });
+    },
+
+    pollGeneralBv(articleId) {
+      this.stopGeneralBvPolling(articleId);
+      this.generalBvPolls[articleId] = 0;
+      const tick = () => {
+        fetch(`/api/articles/${articleId}/business-value`, {
+          credentials: 'same-origin',
+        })
+          .then(r => r.json().then(d => (r.ok ? d : Promise.reject(d))))
+          .then(state => {
+            const row = (this.pinnedArticles || []).find(x => x.id === articleId);
+            if (row) {
+              row.business_value = Object.assign({}, row.business_value || {}, {
+                status: state.status,
+                score: state.score,
+                note: state.note,
+                error: state.error,
+                stale: state.stale,
+                breakdown: state.breakdown,
+                at: state.at,
+                stuck: state.stuck,
+              });
+            }
+            if (state.status === 'queued' || state.status === 'running') {
+              this.generalBvPolls[articleId] = (this.generalBvPolls[articleId] || 0) + 1;
+              if (this.generalBvPolls[articleId] > 240) {
+                delete this.generalBvTimers[articleId];
+                this.bvMessage = '打分用时较长，稍后刷新页面看结果';
+                return;
+              }
+              this.generalBvTimers[articleId] = setTimeout(tick, 2500);
+              return;
+            }
+            delete this.generalBvTimers[articleId];
+            delete this.generalBvPolls[articleId];
+            if (state.status === 'failed') {
+              this.bvMessage = state.error || '通用分打分失败';
+            } else {
+              this.bvMessage = '';
+            }
+          })
+          .catch(() => {
+            this.generalBvPolls[articleId] = (this.generalBvPolls[articleId] || 0) + 1;
+            if (this.generalBvPolls[articleId] > 240) {
+              delete this.generalBvTimers[articleId];
+              return;
+            }
+            this.generalBvTimers[articleId] = setTimeout(tick, 4000);
+          });
+      };
+      this.generalBvTimers[articleId] = setTimeout(tick, 1200);
+    },
+
+    stopGeneralBvPolling(articleId) {
+      const timer = this.generalBvTimers[articleId];
+      if (timer) {
+        clearTimeout(timer);
+        delete this.generalBvTimers[articleId];
+      }
+      delete this.generalBvPolls[articleId];
+    },
+
     generalBvChip(a) {
       const bv = a.business_value || {};
       if (bv.status !== 'ready' && bv.status !== 'needs_review') return '';
@@ -6378,19 +6534,6 @@ function app() {
     bvDirInsufficient(a) {
       const row = this.bvDirScores[a.id];
       return !!row && row.status === 'insufficient';
-    },
-
-    // 单元格里只有一个「-」时，用户看不出是通用分没算、还是这个方向
-    // 没打分，hover 说清楚。
-    bvEmptyTip(a) {
-      const bv = a.business_value || {};
-      const lines = [bv.status === 'failed'
-        ? (bv.error || '通用业务价值分计算失败')
-        : '通用业务价值分尚未计算'];
-      if (this.bvDirectionId) {
-        lines.push(`「${this.bvDirectionLabel()}」方向分尚未计算`);
-      }
-      return lines.join('\n');
     },
 
     dirBvTip(a) {

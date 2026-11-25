@@ -176,6 +176,12 @@ def needs_bv_rescore(row: Mapping[str, Any] | sqlite3.Row, snap: ArticleSnapshot
         stored_hash = row["business_value_hash"]
     except (KeyError, IndexError, TypeError):
         return True
+    from .bv_runner import INFLIGHT_STATUSES
+
+    if status in INFLIGHT_STATUSES:
+        # Somebody is already scoring this article.  A live job owns it;
+        # an abandoned one (dead process) may be taken over.
+        return not bv_inflight_fresh(row)
     try:
         stored_rubric = row["business_value_rubric"]
     except (KeyError, IndexError, TypeError):
@@ -188,3 +194,41 @@ def needs_bv_rescore(row: Mapping[str, Any] | sqlite3.Row, snap: ArticleSnapshot
     if stored_rubric and stored_rubric != RUBRIC_V1.id:
         return True
     return stored_hash != content_hash(snap.body)
+
+
+def bv_inflight_fresh(row: Mapping[str, Any] | sqlite3.Row) -> bool:
+    """True while another worker still owns the article for scoring."""
+    from .bv_runner import INFLIGHT_STATUSES, STALE_AFTER_SEC
+
+    try:
+        status = row["business_value_status"]
+    except (KeyError, IndexError, TypeError):
+        return False
+    if status not in INFLIGHT_STATUSES:
+        return False
+    try:
+        stamp = row["business_value_at"]
+    except (KeyError, IndexError, TypeError):
+        return False
+    if not stamp:
+        return False
+    try:
+        at = datetime.fromisoformat(str(stamp))
+    except (TypeError, ValueError):
+        return False
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - at).total_seconds() < STALE_AFTER_SEC
+
+
+def bv_inflight_stuck(row: Mapping[str, Any] | sqlite3.Row) -> bool:
+    """In flight, but older than the liveness window: that job is dead."""
+    from .bv_runner import INFLIGHT_STATUSES
+
+    try:
+        status = row["business_value_status"]
+    except (KeyError, IndexError, TypeError):
+        return False
+    if status not in INFLIGHT_STATUSES:
+        return False
+    return not bv_inflight_fresh(row)

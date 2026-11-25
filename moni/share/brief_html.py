@@ -596,6 +596,8 @@ def _bv_exclusion_reason(row: sqlite3.Row) -> str:
     status = _bv_status(row)
     if status == "insufficient":
         return "正文过短（不足 200 字）"
+    if status in ("queued", "running"):
+        return "业务价值打分中"
     if status in ("failed", "budget_skipped", "pending"):
         return "业务价值未完成"
     if _bv_hash_stale(row):

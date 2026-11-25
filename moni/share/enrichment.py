@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from moni.share.summary_gen import _invoke_hermes, generate_and_writeback
+import moni.share.enrichment as enrichment_module
 
 log = logging.getLogger(__name__)
 
@@ -769,6 +770,7 @@ def _article_rows(conn: sqlite3.Connection, article_ids: list[str]) -> list[sqli
                fact_check_conclusion, fact_check_note, has_fact_check,
                business_value_score, business_value_note,
                business_value_status, business_value_hash, business_value_rubric,
+               business_value_at,
                quality_score, quality_formula, bb_score, bb_summary, bb_one_sentence,
                brief_summary, brief_body_md, source, url, publisher, published_at
         FROM articles WHERE id IN ({ph})
@@ -784,6 +786,7 @@ def _article_rows(conn: sqlite3.Connection, article_ids: list[str]) -> list[sqli
                    business_value_score, business_value_note,
                    NULL as business_value_status, NULL as business_value_hash,
                    NULL as business_value_rubric,
+                   NULL as business_value_at,
                    quality_score, NULL as quality_formula, bb_score, bb_summary, NULL as bb_one_sentence,
                    NULL as brief_summary, NULL as brief_body_md,
                    source, url, publisher, published_at
@@ -798,6 +801,7 @@ def _article_rows(conn: sqlite3.Connection, article_ids: list[str]) -> list[sqli
                        NULL as business_value_score, NULL as business_value_note,
                        NULL as business_value_status, NULL as business_value_hash,
                        NULL as business_value_rubric,
+                       NULL as business_value_at,
                        NULL as quality_score, NULL as quality_formula, NULL as bb_score, NULL as bb_summary,
                        NULL as bb_one_sentence, NULL as brief_summary, NULL as brief_body_md,
                        source, url, publisher, published_at
@@ -839,7 +843,7 @@ def _ensure_fact_check(
     from moni.llm.desensitize.audit import desensitize_scope
 
     with desensitize_scope(task_type="fact_check", article_id=row["id"], json_output=True):
-        out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
+        out, code = enrichment_module._invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
     budget_left[0] -= timeout  # approximate
     if code != 0:
         log.warning("enrichment: fact_check hermes exit %s for %s", code, row["id"])
@@ -868,6 +872,7 @@ def _ensure_business_value(
     """Run the v1 harness.  Returns False only when the article must be retried."""
     from moni.scoring import (
         BvResult,
+        bv_inflight_fresh,
         content_hash,
         from_row,
         needs_bv_rescore,
@@ -877,6 +882,11 @@ def _ensure_business_value(
     from moni.scoring.bv_pipeline import STATUS_SKIPPED
 
     snap = from_row(row)
+    if bv_inflight_fresh(row):
+        # The on-demand runner is already scoring this article; scoring it
+        # again here would double the model spend and fight over the row.
+        log.info("enrichment: BV skipped, article %s is being scored", snap.id)
+        return False
     if not needs_bv_rescore(row, snap):
         return True
     alloc = budget_left[0] if article_budget is None else min(article_budget, budget_left[0])
@@ -898,16 +908,16 @@ def _ensure_business_value(
             log.error("enrichment: BV skip write failed (migration 045 missing?): %s", exc)
         return False
 
-    def llm(prompt: str, timeout: float) -> tuple[str, int]:
+    def llm(prompt: str, timeout: float) -> tuple[str, int, str]:
         from moni.llm.desensitize.audit import desensitize_scope
 
         started = time.monotonic()
         with desensitize_scope(task_type="business_value", article_id=row["id"], json_output=True):
-            out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
+            out, code = enrichment_module._invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
         # Charge actual wall time, not the requested timeout: a fast hermes
         # must not spend the whole run budget (§4.6).
         budget_left[0] -= max(time.monotonic() - started, 0.0)
-        return out, code
+        return out, code, out if code else ""
 
     elapsed = time.monotonic()
     result = score_general_bv(
@@ -1118,7 +1128,7 @@ def _ensure_brief_body(
     from moni.llm.desensitize.audit import desensitize_scope
 
     with desensitize_scope(task_type="brief_body", article_id=row["id"], json_output=False):
-        out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
+        out, code = enrichment_module._invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
     budget_left[0] -= timeout
     if code != 0:
         log.warning(
@@ -1281,7 +1291,7 @@ def _ensure_brief_summary(
     from moni.llm.desensitize.audit import desensitize_scope
 
     with desensitize_scope(task_type="brief_summary", article_id=row["id"], json_output=True):
-        out, code = _invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
+        out, code = enrichment_module._invoke_hermes(prompt, timeout_sec=timeout, extra_args=extra_args)
     budget_left[0] -= timeout
     if code != 0:
         log.warning("enrichment: compact summary hermes exit %s for %s", code, row["id"])
@@ -1328,9 +1338,9 @@ def run_enrichment(
 
     ``invoke_hermes`` injectable for tests: (prompt, timeout, extra) -> (stdout, code)
     """
-    global _invoke_hermes  # noqa: PLW0603 — test injection via param preferred
     if invoke_hermes is not None:
-        # Patch summary_gen + local references by temporary replace
+        # Both modules bind the name at import time, so patch the module
+        # attribute itself or the inner calls keep the original function.
         import moni.share.summary_gen as sg
         import moni.share.enrichment as self_mod
 
@@ -1348,6 +1358,7 @@ def run_enrichment(
         "summary": 0,
         "fact_check": 0,
         "business_value": 0,
+        "business_value_pending": 0,
         "quality": 0,
         "brief_summary": 0,
         "brief_body": 0,
@@ -1428,7 +1439,16 @@ def run_enrichment(
                   if ok:
                       stats["business_value"] += 1
                   else:
-                      stats["failed"].append(f"business_value:{row['id']}")
+                      # 看调用之后的真实状态：接管后打分失败要算失败，
+                      # 只有真的在跑（别人接手了）才算 pending。
+                      status_now = conn.execute(
+                          "SELECT business_value_status FROM articles WHERE id=?",
+                          (row["id"],),
+                      ).fetchone()
+                      if status_now and status_now[0] in ("queued", "running"):
+                          stats["business_value_pending"] += 1
+                      else:
+                          stats["failed"].append(f"business_value:{row['id']}")
 
           rows = _article_rows(conn, article_ids)
 
