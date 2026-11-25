@@ -164,11 +164,6 @@ def _open_conn(db_path: str | os.PathLike[str] | None) -> tuple[sqlite3.Connecti
     return get_db(), False
 
 
-def _compile_rules_from_rows(rows: list[sqlite3.Row]) -> UserRules | None:
-    compiled = _rules_from_rows(rows)
-    return UserRules.from_rules(compiled) if compiled else None
-
-
 def _rules_from_rows(rows: list[sqlite3.Row]) -> list[Rule]:
     compiled: list[Rule] = []
     for row in rows:
@@ -301,8 +296,11 @@ def prepare_outbound(
 
     ``force=True`` masks regardless of the global switch — the desensitize lab
     uses it so the demo always shows the shielded side even while the
-    production switch stays off.  ``extra_terms`` adds ad-hoc dictionary terms
-    (kind ``ORG``) on top of the stored user rules without touching the DB.
+    production switch stays off.  Forced calls are also **fail-closed**: the lab
+    must never put unmasked plaintext on the wire, so a masking failure raises
+    instead of falling back to the original text.  ``extra_terms`` adds
+    ad-hoc dictionary terms (kind ``ORG``) on top of the stored user rules
+    without touching the DB.
     """
     if not prompt:
         return None
@@ -314,6 +312,7 @@ def prepare_outbound(
     vault = RequestScopeVault()
     eff_l2 = settings.level_l2 if force_level_l2 is None else force_level_l2
     eff_l3 = settings.level_l3 if force_level_l3 is None else force_level_l3
+    eff_strict = settings.strict_fail_closed or force
     eff_db = str(db_path) if db_path is not None else None
     tokens_before = _estimate_tokens_local(prompt)
     user_rules = settings.rules
@@ -328,7 +327,7 @@ def prepare_outbound(
             level_l1=settings.level_l1,
             level_l2=eff_l2,
             level_l3=eff_l3,
-            strict_fail_closed=settings.strict_fail_closed,
+            strict_fail_closed=eff_strict,
         )
         eff_inject = inject_note and (policy.mode != PolicyMode.RASTER_GENERALIZE)
         mask_result = _engine.mask_prompt(
@@ -351,12 +350,12 @@ def prepare_outbound(
             json_output=json_output,
             started_ns=started_ns,
             db_path=eff_db,
-            strict_fail_closed=settings.strict_fail_closed,
+            strict_fail_closed=eff_strict,
             policy_mode=policy.mode.value,
             tokens_before=tokens_before,
         )
     except Exception as exc:
-        if settings.strict_fail_closed:
+        if eff_strict:
             raise
         logger.warning("desensitize prepare_outbound failed (fail-open): %s", exc)
         fallback_result = MaskResult(

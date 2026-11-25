@@ -147,7 +147,7 @@
 const $ = (id) => document.getElementById(id);
 const DEFAULT_TERMS = "招商银行, 兴业银行";
 const SAMPLE = [
-  "招商银行与兴业银行同日发布公告：招商银行客服电话 13812345678，",
+  "招商银行与兴业银行同日发布公告：招商银行客服电话 13800138000，",
   "联系人邮箱 analyst@bankcorp.cn。",
   "请只复述上述联系方式，不要展开分析。"
 ].join("\n");
@@ -198,15 +198,7 @@ async function loadStats() {
     + "<th class='num'>残留占位符</th><th class='num'>还原成功率</th></tr></thead><tbody>"
     + row("生产（不含实验室）", t) + row("实验室", lab)
     + "</tbody></table>";
-  const rows = (d.recent || []).map((r) => "<tr><td>" + r.call_site + "</td><td>" + r.task_type
-    + "</td><td class='num'>" + r.masked_total + "</td><td class='num'>" + r.restored_total
-    + "</td><td class='num'>" + r.unrestored_count + "</td><td class='num'>" + r.leak_scan_hits
-    + "</td><td>" + (r.created_at || "") + "</td></tr>").join("");
-  if (rows) {
-    $("ledger").innerHTML += "<table><thead><tr><th>call_site</th><th>task_type</th>"
-      + "<th class='num'>遮蔽</th><th class='num'>还原</th><th class='num'>未还原</th>"
-      + "<th class='num'>泄漏</th><th>时间</th></tr></thead><tbody>" + rows + "</tbody></table>";
-  }
+  renderRecent(d.recent || []);
   $("sql").textContent = SQL_TEXT;
 }
 
@@ -214,7 +206,40 @@ function row(label, t) {
   return "<tr><td>" + label + "</td><td class='num'>" + t.calls + "</td><td class='num'>" + t.masked_total
     + "</td><td class='num'>" + t.restored_total + "</td><td class='num'>" + t.unrestored_count
     + "</td><td class='num'>" + t.leak_scan_hits + "</td><td class='num'>" + t.residual_placeholders
-    + "</td><td class='num'>" + (t.restore_success_rate * 100).toFixed(1) + "%</td></tr>";
+    + "</td><td class='num'>"
+    + (t.restore_success_rate === null || t.restore_success_rate === undefined
+        ? "—" : (t.restore_success_rate * 100).toFixed(1) + "%")
+    + "</td></tr>";
+}
+
+// 账本最近记录走 DOM API + textContent：服务端字段不拼进 innerHTML。
+function renderRecent(recent) {
+  if (!recent.length) return;
+  const table = document.createElement("table");
+  table.innerHTML = "<thead><tr><th>call_site</th><th>task_type</th>"
+    + "<th class='num'>遮蔽</th><th class='num'>还原</th><th class='num'>未还原</th>"
+    + "<th class='num'>泄漏</th><th>时间</th></tr></thead>";
+  const tbody = document.createElement("tbody");
+  for (const r of recent) {
+    const tr = document.createElement("tr");
+    for (const v of [r.call_site, r.task_type]) {
+      const td = document.createElement("td");
+      td.textContent = v === null || v === undefined ? "" : String(v);
+      tr.appendChild(td);
+    }
+    for (const v of [r.masked_total, r.restored_total, r.unrestored_count, r.leak_scan_hits]) {
+      const td = document.createElement("td");
+      td.className = "num";
+      td.textContent = String(v === null || v === undefined ? 0 : v);
+      tr.appendChild(td);
+    }
+    const tdTime = document.createElement("td");
+    tdTime.textContent = r.created_at || "";
+    tr.appendChild(tdTime);
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  $("ledger").appendChild(table);
 }
 
 async function preview() {

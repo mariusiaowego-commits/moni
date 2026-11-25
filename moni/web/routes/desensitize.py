@@ -18,17 +18,17 @@ import sqlite3
 from typing import Any
 
 from fastapi import APIRouter, Body
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from moni.db.connection import get_db
 from moni.llm.client import _get_runner
 from moni.llm.desensitize.audit import (
     OutboundContext,
+    finalize_inbound,
     load_settings,
     prepare_outbound,
     record_event,
 )
-from moni.llm.desensitize.restorer import restore_text
 from moni.llm.runner import CallRequest
 from moni.web.exceptions import BadRequestError
 
@@ -43,6 +43,7 @@ LAB_CALL_SITE = "desens_lab"
 _ALLOWED_TASK_TYPES = ("standard", "fact_check_plus")
 
 _MAX_TEXT_CHARS = 8000
+_MAX_TERM_CHARS = 64
 
 
 class LabTextRequest(BaseModel):
@@ -50,6 +51,14 @@ class LabTextRequest(BaseModel):
     task_type: str = "standard"
     #: 临时敏感词（等价于用户规则里的机构名条目）—— 只在本次调用生效，不写库。
     extra_terms: list[str] = Field(default_factory=list, max_length=32)
+
+    @field_validator("extra_terms")
+    @classmethod
+    def _check_term_length(cls, terms: list[str]) -> list[str]:
+        for term in terms:
+            if len(term.strip()) > _MAX_TERM_CHARS:
+                raise ValueError(f"临时敏感词超过 {_MAX_TERM_CHARS} 字符上限")
+        return terms
 
 
 class LabRunRequest(LabTextRequest):
@@ -92,6 +101,8 @@ def post_preview(req: LabTextRequest = Body(...)) -> dict[str, Any]:
     return {
         "task_type": ctx.task_type,
         "policy_mode": ctx.policy_mode,
+        "blocked": ctx.mask_result.blocked,
+        "blocked_reason": ctx.mask_result.blocked_reason,
         "masked_text": ctx.masked_text,
         "masked_total": ctx.mask_result.masked_total,
         "masked_distinct": ctx.mask_result.masked_distinct,
@@ -105,6 +116,12 @@ def post_preview(req: LabTextRequest = Body(...)) -> dict[str, Any]:
 def post_run(req: LabRunRequest = Body(...)) -> dict[str, Any]:
     """四栏实跑：遮蔽 → 真调大模型 → 原始回包 → 本地还原。"""
     ctx = _ctx_for(req)
+    if ctx.mask_result.blocked:
+        # 内核判定「这单遮不干净」（规则 action=block 或出站泄漏扫描命中）→ 不出网。
+        record_event(ctx, blocked=True)
+        raise BadRequestError(
+            message=f"已拦截，未出网：{ctx.mask_result.blocked_reason or 'blocked'}"
+        )
     runner = _get_runner()
     try:
         result = runner.call(
@@ -122,7 +139,10 @@ def post_run(req: LabRunRequest = Body(...)) -> dict[str, Any]:
         raise BadRequestError(message=f"大模型调用失败：{exc}") from exc
 
     reply_raw = result.reply_text
-    restored = ctx.vault.finalize_restore(restore_text(reply_raw, ctx.vault), mode="plain")
+    # 入站还原走 fail-open：还原失败就把模型原包原样展示并记 restore_error，
+    # 不能因为还原器出错把这一单从账本里抹掉（出站仍是 fail-closed）。
+    ctx.strict_fail_closed = False
+    restored = finalize_inbound(ctx, reply_raw)
     record_event(ctx, provider=result.provider, model=result.model_id)
     stats = ctx.vault.stats
     return {
@@ -132,6 +152,7 @@ def post_run(req: LabRunRequest = Body(...)) -> dict[str, Any]:
         "masked": ctx.masked_text,
         "reply_raw": reply_raw,
         "restored": restored,
+        "fallback_used": ctx.fallback_override or ctx.mask_result.fallback_used,
         "items": _items(ctx),
         "stats": {
             "masked_total": ctx.mask_result.masked_total,
@@ -189,6 +210,7 @@ def _aggregate(conn: sqlite3.Connection, *, exclude_lab: bool) -> dict[str, Any]
     calls = int(row["calls"] or 0)
     restored = int(row["restored_total"] or 0)
     unrestored = int(row["unrestored_count"] or 0)
+    samples = restored + unrestored
     return {
         "calls": calls,
         "masked_total": int(row["masked_total"] or 0),
@@ -196,7 +218,8 @@ def _aggregate(conn: sqlite3.Connection, *, exclude_lab: bool) -> dict[str, Any]
         "unrestored_count": unrestored,
         "leak_scan_hits": int(row["leak_scan_hits"] or 0),
         "residual_placeholders": int(row["residual_placeholders"] or 0),
-        "restore_success_rate": (restored / (restored + unrestored)) if (restored + unrestored) else 1.0,
+        # 没有样本时给 None（页面显示 —），不用 1.0 冒充 100% 成功率。
+        "restore_success_rate": (restored / samples) if samples else None,
     }
 
 

@@ -9,12 +9,12 @@
 - 后端：`moni/web/routes/desensitize.py` —— `POST /api/desensitize/preview`（纯本地预览）、
   `POST /api/desensitize/run`（真调大模型，四栏回包）、`GET /api/desensitize/stats`（账本口径，
   生产统计**排除** `call_site='desens_lab'`）
-- 页面：`moni/web/static/desens-lab.html`（独立单文件页，Alpine.js，与主界面同源）
+- 页面：`moni/web/static/desens-lab.html`（独立单文件页，原生 JS，与主界面同源）
 - 内核向后兼容改动：`audit.py` 的 `prepare_outbound(..., force=False, extra_terms=())` +
   `DesensSettings.rules_raw` + `load_settings` 无论开关都加载规则；
   `runner.py` 的 `CallRequest.desens_ctx` **公开化**（原 `_desens_ctx`），`call()` 在
   `desens_ctx` 非空时**跳过遮蔽也跳过还原**（实验室自己遮蔽自己还原，才能拿到模型原始回包）
-- 测试：`tests/test_desensitize_lab_api.py`（8 例）
+- 测试：`tests/test_desensitize_lab_api.py`（15 例）
 - 证据：`docs/sprint-evidence/sprint-69/VERIFY.md`；决赛物料与分镜脚本：
   `docs/plans/2026-11-25_llm-desens-lab-finals.md`
 
@@ -22,11 +22,11 @@
 
 | 项 | 值 |
 |---|---|
-| 遮蔽 / 还原处数 | 5 / 5 |
+| 遮蔽 / 还原处数 | 5 / 3（还原数随模型是否复述全部编码而变，未还原恒为 0） |
 | 未还原 / 出站泄漏命中 / 残留占位符 | 0 / 0 / 0 |
-| 遮蔽 / 还原 / 模型耗时 | 128 µs / 256 µs / 11344 ms |
+| 遮蔽 / 还原 / 模型耗时 | 135 µs / 91 µs / 7050 ms |
 | 响应式（Playwright 实测） | 1600/1280 → 4 列，1100 → 2 列，820/760/480 → 1 列，**6 断点均无横向溢出** |
-| 专项 / 脱敏全套 / 全量 | `8 passed` / `96 passed` / `2780 passed, 2 skipped, 0 failed`（基线 2772 + 8） |
+| 专项 / 脱敏全套 | `15 passed` / `96 passed` |
 
 **范围外（明说不做）**
 
@@ -34,6 +34,21 @@
 - 脱敏总开关维持 `desensitize.enabled='0'`（默认关，用户已拍板）；实验室用 `force=True`
   不受总开关影响
 - 演练台只读 + 一次显式模型调用，不写业务数据
+
+**合并前独立审计（子 agent，只读）结论 `REQUEST CHANGES` → 已修**
+
+| 级别 | 问题 | 处置 |
+|---|---|---|
+| P1 | `/run` 忽略 `mask_result.blocked` —— 内核判定「遮不干净」（规则 `action=block` 或出站泄漏扫描命中）时仍会出网 | 出网前拦截 → 记一条 `blocked=1` 账本 + 返回 400「已拦截，未出网」；补测试 |
+| P2 | `/run` 还原裸调 `restore_text`，异常会 500 且丢审计行 | 改用 `finalize_inbound`（入站 fail-open，出站仍 fail-closed），账本不再漏记 |
+| P2 | `force=True` 只绕过总开关，遮蔽失败会 fail-open **静默发原文出网** | `force=True` 时强制 fail-closed：遮蔽失败直接报错，绝不出网 |
+| P2 | `extra_terms` 只限条数、单条无长度上限 | 加单条 ≤64 字符校验（对齐 `rules.py` 的 `MAX_CUSTOM_PREFIX_LEN`） |
+| NIT | 账本最近记录用 `innerHTML` 拼服务端字段 | 改 DOM API + `textContent` |
+| NIT | 示例用了真实格式手机号 | 换成 `13800138000`（测试号段） |
+| NIT | `STATUS.md` 写 Alpine.js，实际是原生 JS | 改正 |
+| NIT | 重构遗留死代码 `_compile_rules_from_rows` | 删除 |
+| NIT | 空账本时 `restore_success_rate` 返回 1.0（冒充 100%） | 改为 `None`，页面显示 `—` |
+| NIT | 测试断言 `== 1` 对 bool 恒真；缺 422 / blocked / 模型失败用例 | 改 `is True`，补 7 例（15 例） |
 
 ---
 

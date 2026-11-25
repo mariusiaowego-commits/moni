@@ -20,10 +20,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 FAKE_HERMES_SRC = REPO_ROOT / "tests" / "fake_hermes" / "hermes"
 
 SAMPLE_TEXT = (
-    "招商银行客服电话 13812345678，联系人邮箱 analyst@bankcorp.cn。"
+    "招商银行客服电话 13800138000，联系人邮箱 analyst@bankcorp.cn。"
     "请复述上述联系方式并判断风险。"
 )
-PHONE = "13812345678"
+PHONE = "13800138000"
 
 
 @pytest.fixture
@@ -168,5 +168,89 @@ class TestStats:
     def test_stats_shape(self, client):
         body = client.get("/api/desensitize/stats").json()
         assert set(body) == {"enabled", "levels", "totals", "lab_totals", "recent"}
-        assert body["totals"]["restore_success_rate"] == 1.0
-        assert body["levels"]["level_l1"] == 1
+        # 空账本没有样本：成功率必须是 None（页面显示 —），不能拿 1.0 冒充 100%
+        assert body["totals"]["restore_success_rate"] is None
+        assert body["levels"]["level_l1"] is True
+        assert body["levels"]["level_l3"] is False
+
+
+class TestBlocked:
+    def test_blocked_rule_never_reaches_the_model(self, client, monkeypatch):
+        """内核判定「遮不干净」时，实验室不得出网，且要留一条 blocked 账本。"""
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO desensitize_rules"
+            "(rule_type, kind, pattern, aliases_json, pseudonym, action, match_case,"
+            " is_active, created_at, updated_at)"
+            " VALUES('word','ORG','招商银行','[]',NULL,'block',0,1,'2026-11-25','2026-11-25')"
+        )
+        conn.commit()
+
+        import moni.llm.runner as runner_mod
+
+        def _boom(self, req):  # pragma: no cover - must never run
+            raise AssertionError("blocked content must not be sent to the model")
+
+        monkeypatch.setattr(runner_mod.FailoverRunner, "call", _boom)
+
+        res = client.post("/api/desensitize/run", json={"text": SAMPLE_TEXT})
+        assert res.status_code == 400
+        assert "拦截" in res.json()["message"]
+
+        row = get_db().execute(
+            "SELECT blocked, call_site FROM desensitize_events"
+        ).fetchone()
+        assert row["blocked"] == 1
+        assert row["call_site"] == "desens_lab"
+
+    def test_preview_reports_blocked_instead_of_silently_returning(self, client):
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO desensitize_rules"
+            "(rule_type, kind, pattern, aliases_json, pseudonym, action, match_case,"
+            " is_active, created_at, updated_at)"
+            " VALUES('word','ORG','招商银行','[]',NULL,'block',0,1,'2026-11-25','2026-11-25')"
+        )
+        conn.commit()
+
+        body = client.post("/api/desensitize/preview", json={"text": SAMPLE_TEXT}).json()
+        assert body["blocked"] is True
+        assert body["blocked_reason"]
+
+
+class TestValidation:
+    def test_empty_text_is_rejected(self, client):
+        assert client.post("/api/desensitize/preview", json={"text": ""}).status_code == 422
+
+    def test_oversized_text_is_rejected(self, client):
+        res = client.post("/api/desensitize/preview", json={"text": "x" * 9000})
+        assert res.status_code == 422
+
+    def test_too_many_extra_terms_is_rejected(self, client):
+        res = client.post(
+            "/api/desensitize/preview",
+            json={"text": SAMPLE_TEXT, "extra_terms": [f"机构{i}" for i in range(33)]},
+        )
+        assert res.status_code == 422
+
+    def test_overlong_extra_term_is_rejected(self, client):
+        res = client.post(
+            "/api/desensitize/preview",
+            json={"text": SAMPLE_TEXT, "extra_terms": ["机" * 65]},
+        )
+        assert res.status_code == 422
+
+
+class TestModelFailure:
+    def test_model_failure_returns_400_and_writes_no_ledger_row(self, client, monkeypatch):
+        import moni.llm.runner as runner_mod
+
+        def _boom(self, req):
+            raise RuntimeError("hermes exploded")
+
+        monkeypatch.setattr(runner_mod.FailoverRunner, "call", _boom)
+
+        res = client.post("/api/desensitize/run", json={"text": SAMPLE_TEXT})
+        assert res.status_code == 400
+        rows = get_db().execute("SELECT count(*) AS n FROM desensitize_events").fetchone()
+        assert rows["n"] == 0

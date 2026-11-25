@@ -16,7 +16,7 @@
 ```bash
 /usr/local/bin/python3 -m pytest tests/test_desensitize_lab_api.py -p no:cacheprovider -q
 ```
-→ `8 passed in 3.13s`
+→ `15 passed in 5.20s`（初版 8 例；合并前审计后补 7 例：blocked 拦截 ×2、422 校验 ×4、模型失败 ×1）
 
 ### 1.2 脱敏相关全套
 
@@ -32,10 +32,20 @@
 ```bash
 /usr/local/bin/python3 -m pytest tests/ -p no:cacheprovider -q
 ```
-→ `2780 passed, 2 skipped, 2 warnings in 455.04s (0:07:35)`
+→ `1 failed, 2786 passed, 2 skipped, 2 warnings in 467.32s (0:07:47)`
 
-基线 `origin/main` @ `687f98b` 为 `2772 passed, 2 skipped` → 本轮 **+8**（新增 API 测试），
-**0 failed**。
+基线 `origin/main` @ `687f98b` 为 `2772 passed, 2 skipped` → 本轮 **+15**（演练台 API 测试）。
+
+唯一 failed：`tests/test_worker_lock.py::test_sigterm_kills_blocking_child_that_ignores_term`
+—— 与本轮改动**无交集**（worker lock / SIGTERM 子进程 vs 脱敏实验室），且**单独复跑通过**：
+
+```bash
+/usr/local/bin/python3 -m pytest tests/test_worker_lock.py -p no:cacheprovider -q
+```
+→ `28 passed in 12.39s`
+
+判定：机器负载下的时序 flaky（该用例断言 SIGTERM 后子进程被回收的时限），非本次回归。
+审计前一轮全量（改动未落地时）同一文件也是全绿。
 
 ### 1.4 真实模型端到端（Playwright 实测，非 mock）
 
@@ -48,7 +58,7 @@ preview c2 含占位符: True | 含机构名明文: False
 run status: 完成 · 策略 standard | err: （空）
 c3 含占位符: True | c3 含明文号码: False
 c4 含明文号码: True
-metrics: 遮蔽处数 5 还原处数 5 未还原 0 出站泄漏命中 0 残留占位符 0 遮蔽耗时 128 µs 还原耗时 256 µs 模型耗时 11344 ms
+metrics: 遮蔽处数 5 还原处数 3 未还原 0 出站泄漏命中 0 残留占位符 0 遮蔽耗时 135 µs 还原耗时 91 µs 模型耗时 7050 ms
 console errors: []
 ```
 
@@ -56,10 +66,14 @@ console errors: []
 
 | 栏 | 内容 |
 |---|---|
-| ① 原文 | `招商银行与兴业银行同日发布公告：招商银行客服电话 13812345678，联系人邮箱 analyst@bankcorp.cn。请只复述上述联系方式，不要展开分析。` |
-| ② 发给模型的内容 | `[系统脱敏说明：形如 {{EXAMPLE_00000000}} …]\n\n{{ORG_jcwwdnrn}}与{{ORG_lq4cr2iu}}同日发布公告：{{ORG_jcwwdnrn}}客服电话 {{PHONE_n6rsxsij}}，联系人邮箱 {{EMAIL_colbtckw}}。…` |
-| ③ 模型回包（原始） | `{{ORG_jcwwdnrn}}客服电话 {{PHONE_n6rsxsij}}，联系人邮箱 {{EMAIL_colbtckw}}。补充一句：{{ORG_jcwwdnrn}} 与 {{ORG_lq4cr2iu}} 是同日发布的公告。` |
-| ④ 本地还原后 | `招商银行客服电话 13812345678，联系人邮箱 analyst@bankcorp.cn。补充一句：招商银行 与 兴业银行 是同日发布的公告。` |
+| ① 原文 | `招商银行与兴业银行同日发布公告：招商银行客服电话 13800138000，联系人邮箱 analyst@bankcorp.cn。请只复述上述联系方式，不要展开分析。` |
+| ② 发给模型的内容 | `[系统脱敏说明：形如 {{EXAMPLE_00000000}} …]\n\n{{ORG_jcwwdnrn}}与{{ORG_lq4cr2iu}}同日发布公告：{{ORG_jcwwdnrn}}客服电话 {{PHONE_pbn2bfug}}，联系人邮箱 {{EMAIL_colbtckw}}。…` |
+| ③ 模型回包（原始） | `{{ORG_jcwwdnrn}}客服电话 {{PHONE_pbn2bfug}}，联系人邮箱 {{EMAIL_colbtckw}}。其余内容按你的要求不展开。` |
+| ④ 本地还原后 | `招商银行客服电话 13800138000，联系人邮箱 analyst@bankcorp.cn。其余内容按你的要求不展开。` |
+
+> 「还原处数 3」少于「遮蔽处数 5」是**正常的**：模型只复述了它认为要复述的联系方式，
+> 没被复述的编码不产生还原动作 —— 这正是「未还原 = 0」的意义（模型没说的，不算漏还原）。
+> 另一轮实测（模型多复述一句）还原处数为 5，未还原仍为 0。
 
 ---
 
@@ -77,6 +91,9 @@ console errors: []
 | 480 | 432 | 1 列 | 否 |
 
 判据：`document.documentElement.scrollWidth <= window.innerWidth`（每个断点均为 `overflow=false`）。
+
+复测（审计修复后，2026-11-25 第二轮）：1600 → 4×379、1280 → 4×299、1100 → 2×520、
+820 → 1×772、760 → 1×712、480 → 1×432，**六个断点 `overflow=false`**。
 
 ### 2.2 截图（本地，不进仓库）
 
@@ -118,14 +135,21 @@ FROM desensitize_events WHERE call_site = 'desens_lab';
 | F1 | 临时敏感词输入框**初始为空** —— 预填代码被写进了「示例」按钮的回调里，页面加载时不执行 | Playwright 实测 `terms(prefill): ''` | 预填移到初始化处，`DEFAULT_TERMS` 常量 |
 | F2 | 首版示例文本让模型展开分析，**回包耗时 55 秒**，现场演示等太久 | 首次实测「模型耗时 54892 ms」 | 示例改成「只复述联系方式，不要展开分析」→ 实测 11.3 秒 |
 | F3 | 响应式断点 1180px 与实际栅格不符，且 `main` 栅格未设 `minmax(0,1fr)`，窄视口下内容可撑破 | 断点实测 + 截图 | `main` 改 `grid-template-columns: minmax(0,1fr)`，`.cols`/`.col` 补 `min-width: 0`，断点改 1200 / 820 |
+| F4 | **`/run` 忽略 `mask_result.blocked`** —— 内核判定「遮不干净」（规则 `action=block` 或出站泄漏扫描命中）时，实验室仍会把文本发给真实模型 | 合并前独立子 agent 审计（P1） | 出网前拦截：记 `blocked=1` 账本 + 400「已拦截，未出网」；补 2 例测试 |
+| F5 | `/run` 还原裸调 `restore_text`，异常会 500 且**丢审计行**（模型已调用、钱已花、账本里查不到） | 同上（P2） | 改用 `finalize_inbound`（入站 fail-open），还原失败仍记账 |
+| F6 | `force=True` 只绕过总开关，**不绕过 fail-open** —— 遮蔽器异常时会把未遮蔽原文发出去，页面也看不出来 | 同上（P2） | `force=True` 时强制 fail-closed：遮蔽失败直接报错，绝不出网 |
+| F7 | `extra_terms` 只限条数，单条无长度上限（可塞超长串进字典正则） | 同上（P2） | 单条 ≤64 字符校验，对齐 `rules.py` 的 `MAX_CUSTOM_PREFIX_LEN` |
+| F8 | 账本最近记录用 `innerHTML` 拼服务端字段；空账本时 `restore_success_rate` 返回 1.0（冒充 100%） | 同上（NIT ×2） | 改 DOM API + `textContent`；无样本时返回 `None`，页面显示 `—` |
+| F9 | 示例与测试用了真实格式手机号 `13812345678` | 同上（NIT） | 换成 `13800138000`（测试号段） |
 
 ### skipped
 
 | # | 项 | 原因 |
 |---|---|---|
 | S1 | 脱敏**开关面板**（用户自助配规则 CRUD） | 本轮范围只做演练台；面板未做，PPT 不提 |
-| S2 | 生产环境（8900）上的演练台 | 生产代码尚未合并本轮改动；生产库 `desensitize.enabled` 仍为 `0` |
+| S2 | 生产环境（8900）上的演练台 | 本轮 PR 尚未合并；生产库 `desensitize.enabled` 仍为 `0` |
 | S3 | 触屏适配 | 页面为桌面演示场景，未做触屏专项 |
+| S4 | 主界面入口链接 | 决赛脚本直开 `/static/desens-lab.html`，本期不加主界面入口（避免扩围改主界面） |
 
 ---
 
@@ -134,9 +158,14 @@ FROM desensitize_events WHERE call_site = 'desens_lab';
 | 口径 | 结果 |
 |---|---|
 | 基线 `origin/main` @ `687f98b` | `2772 passed, 2 skipped` |
-| 本分支（演练台） | `2780 passed, 2 skipped, 0 failed`（455.04s） |
-| 增量 | +8（`tests/test_desensitize_lab_api.py` 8 例） |
+| 本分支（演练台 + 审计修复） | `2786 passed, 1 failed, 2 skipped`（467.32s） |
+| 增量 | +15（`tests/test_desensitize_lab_api.py` 15 例） |
 | 脱敏专项 5 文件 | `96 passed` |
+
+failed：`test_worker_lock.py::test_sigterm_kills_blocking_child_that_ignores_term`（时序 flaky，
+单独复跑 `28 passed`，与本改动无交集）。
+
+审计修复后复跑：演练台专项 `15 passed`；脱敏专项 5 文件 `96 passed`。
 
 ## 6. 证据位置
 
