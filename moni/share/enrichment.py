@@ -769,6 +769,7 @@ def _article_rows(conn: sqlite3.Connection, article_ids: list[str]) -> list[sqli
                fact_check_conclusion, fact_check_note, has_fact_check,
                business_value_score, business_value_note,
                business_value_status, business_value_hash, business_value_rubric,
+               business_value_at,
                quality_score, quality_formula, bb_score, bb_summary, bb_one_sentence,
                brief_summary, brief_body_md, source, url, publisher, published_at
         FROM articles WHERE id IN ({ph})
@@ -784,6 +785,7 @@ def _article_rows(conn: sqlite3.Connection, article_ids: list[str]) -> list[sqli
                    business_value_score, business_value_note,
                    NULL as business_value_status, NULL as business_value_hash,
                    NULL as business_value_rubric,
+                   NULL as business_value_at,
                    quality_score, NULL as quality_formula, bb_score, bb_summary, NULL as bb_one_sentence,
                    NULL as brief_summary, NULL as brief_body_md,
                    source, url, publisher, published_at
@@ -798,6 +800,7 @@ def _article_rows(conn: sqlite3.Connection, article_ids: list[str]) -> list[sqli
                        NULL as business_value_score, NULL as business_value_note,
                        NULL as business_value_status, NULL as business_value_hash,
                        NULL as business_value_rubric,
+                       NULL as business_value_at,
                        NULL as quality_score, NULL as quality_formula, NULL as bb_score, NULL as bb_summary,
                        NULL as bb_one_sentence, NULL as brief_summary, NULL as brief_body_md,
                        source, url, publisher, published_at
@@ -868,6 +871,7 @@ def _ensure_business_value(
     """Run the v1 harness.  Returns False only when the article must be retried."""
     from moni.scoring import (
         BvResult,
+        bv_inflight_fresh,
         content_hash,
         from_row,
         needs_bv_rescore,
@@ -877,6 +881,11 @@ def _ensure_business_value(
     from moni.scoring.bv_pipeline import STATUS_SKIPPED
 
     snap = from_row(row)
+    if bv_inflight_fresh(row):
+        # The on-demand runner is already scoring this article; scoring it
+        # again here would double the model spend and fight over the row.
+        log.info("enrichment: BV skipped, article %s is being scored", snap.id)
+        return False
     if not needs_bv_rescore(row, snap):
         return True
     alloc = budget_left[0] if article_budget is None else min(article_budget, budget_left[0])

@@ -139,7 +139,9 @@ def start_business_value(
         row = bv_runner.load_row(conn, article_id)
         if row is None:
             raise NotFoundError(message=f"Article {article_id!r} not found")
-        if bv_runner.is_inflight(row) and article_id in runner.live_ids:
+        # ``recover_stale`` just ran, so any row still in flight is live:
+        # either this runner owns it or another process is scoring it.
+        if bv_runner.is_inflight(row):
             return BusinessValueQueued(
                 article_id=article_id,
                 status=row["business_value_status"],

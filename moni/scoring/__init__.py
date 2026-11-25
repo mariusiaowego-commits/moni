@@ -30,6 +30,7 @@ from .heuristic import (
 from .rubric import RUBRIC_ID, RUBRIC_V1, DIMENSIONS, WEIGHT_TOTAL, Rubric
 from .snapshot import ArticleSnapshot, from_row
 from .store import (
+    bv_inflight_fresh,
     ensure_quality,
     needs_bv_rescore,
     needs_quality_refresh,
@@ -53,6 +54,7 @@ __all__ = [
     "content_hash",
     "brief_reject_reason",
     "build_research_prompt",
+    "bv_inflight_fresh",
     "ensure_quality",
     "from_row",
     "is_quality_current",
