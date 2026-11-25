@@ -1,8 +1,8 @@
 # moni「对大模型信息脱敏」两版设计对比与合并取舍
 
 - 日期：2026-11-24
-- 方案 A（agy-Carbon，`w52:pR`）：`/private/tmp/moni-desens-design-agy.md`，615 行
-- 方案 B（codex）：`/private/tmp/moni-desens-design-codex.md`，3732 字
+- 方案 A（agy-Carbon，`w52:pR`）：`docs/sprint-evidence/sprint-68/design/design-agy.md`，615 行
+- 方案 B（codex）：`docs/sprint-evidence/sprint-68/design/design-codex.md`，3732 字
 - 合并版（实施规格）：`docs/plans/2026-11-24_llm-desens-shield-plan.md`（v1.0，§0–§16）
 - 实施记录：`docs/sprint-evidence/sprint-68/RUN.md`
 
