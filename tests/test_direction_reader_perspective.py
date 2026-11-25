@@ -137,9 +137,6 @@ def test_parse_clarification_rejects_broken_payloads():
     parsed, error = parse_clarification('{"sufficient": "yes", "questions": []}')
     assert parsed is None and error and "sufficient" in error
 
-    parsed, error = parse_clarification('{"sufficient": true, "questions": ["问句"]}')
-    assert parsed is None and error
-
     parsed, error = parse_clarification('{"sufficient": false, "questions": []}')
     assert parsed is None and error
 
@@ -147,6 +144,17 @@ def test_parse_clarification_rejects_broken_payloads():
         '{"sufficient": false, "questions": ["问句"], "questions": []}'
     )
     assert parsed is None and error
+
+
+def test_parse_clarification_keeps_questions_even_when_the_model_says_sufficient():
+    """A model that says "sufficient" but asks something is not a failure."""
+    parsed, error = parse_clarification(
+        '{"sufficient": true, "questions": ["他还关心风险提示吗？"]}'
+    )
+    assert error is None
+    assert parsed is not None
+    assert parsed.sufficient is True
+    assert parsed.questions == ("他还关心风险提示吗？",)
 
 
 def test_parse_clarification_rejects_too_many_or_too_long_questions():

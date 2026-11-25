@@ -230,10 +230,12 @@ def parse_clarification(
             return None, f"澄清问题超过 {CLARIFY_QUESTION_MAX_CHARS} 字"
         questions.append(question)
 
-    if sufficient and questions:
-        return None, "sufficient=true 时不该带问题"
     if not sufficient and not questions:
         return None, "模型说视角不清晰，但没有给出问题"
+    # A model that says "sufficient" but still asks something is not a
+    # contradiction worth failing over: the questions are kept, answered
+    # and become part of the research input.  Only "not sufficient but
+    # no questions" is unusable -- there is nothing for the user to do.
     return DirectionClarification(sufficient=sufficient, questions=tuple(questions)), None
 
 
