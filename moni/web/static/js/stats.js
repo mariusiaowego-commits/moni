@@ -47,7 +47,7 @@ function statsModule() {
     },
 
     // v1.0.32: Q4 LLM 用量 (token/cost by model)
-    llmUsage: {
+    statsLlmUsage: {
       period: '30d',
       period_start: null,
       totals: { calls: 0, input_tokens: 0, output_tokens: 0, cost_usd: 0 },
@@ -109,7 +109,7 @@ function statsModule() {
           this.loadTimeseries('fetch'),
           this.loadTimeseries('llm'),
           this.loadFactCheckMethod(),
-          this.loadLlmUsage(),
+          this.loadStatsLlmUsage(),
           this.loadCasesDashboard(),
           this.loadDataFunnel(),
         ]);
@@ -152,10 +152,10 @@ function statsModule() {
       this.factCheckMethod = await r.json();
     },
 
-    async loadLlmUsage() {
+    async loadStatsLlmUsage() {
       const r = await fetch(`/api/stats/llm-usage?period=${this.period}`);
       if (!r.ok) throw new Error(`llm-usage ${r.status}`);
-      this.llmUsage = await r.json();
+      this.statsLlmUsage = await r.json();
     },
 
     async loadCasesDashboard() {

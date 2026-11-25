@@ -439,14 +439,18 @@ def test_llm_usage_layer_stats_90d(client):
 
 
 def test_stats_js_has_llm_usage_module():
-    """stats.js 必须有 loadLlmUsage / llmUsage state (渲染入口)."""
+    """stats.js 必须有 loadStatsLlmUsage / statsLlmUsage state (渲染入口).
+
+    名字带 stats 前缀: /config 的用量页也用 llmUsage 这个名字,
+    但打的是 /api/llm/usage (summary/by_module 结构), 两者不能同键.
+    """
     from pathlib import Path
 
     src = Path(__file__).resolve().parents[1] / "moni" / "web" / "static" / "js" / "stats.js"
     text = src.read_text(encoding="utf-8")
-    assert "loadLlmUsage" in text
+    assert "loadStatsLlmUsage" in text
     assert "/api/stats/llm-usage" in text
-    assert "llmUsage" in text
+    assert "statsLlmUsage" in text
     assert "costFmt" in text
 
 

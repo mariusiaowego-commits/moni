@@ -1,3 +1,34 @@
+## 进行中: **v1.0.130 — 量化看板 LLM 用量卡片修复 + verify-moni 验证 skill** (2026-11-25 · Sprint 75)
+
+修一个既有前端 bug，并把本次临时端测固化成仓库内可复用的验证 skill。
+
+**修什么**：`/stats` 的「LLM 用量」卡片恒显示 0（接口实际 57 次调用），且任意页面停留即出
+9 条 console error。根因是 `llmUsage` / `loadLlmUsage` 在 `stats.js` 与 `app.js` 重名，
+`app.js` 的后定义覆盖了 `stats.js`（数据源从 `/api/stats/llm-usage` 变成 `/api/llm/usage`，
+后者没有 `totals` 字段）。改法：`stats.js` 一侧改名为 `statsLlmUsage` / `loadStatsLlmUsage`，
+模板 9 处改指向并补前置 `?.`，`app.js` 的 `/config` 用量页保持原样。
+
+**验证**：`pytest` 全绿；Playwright 12 路由 `console_real=0`、卡片「59 次调用」与接口一致；
+真模型三段各 1 次（摘要 15.6 s / 联网核查 238 s + 14 条证据 / 简报 145 s done）。
+生产 8900 对照仍是「0 次调用」+ 9 条报错。
+
+**新增**：`.codex/skills/verify-moni/`（SKILL.md + 3 个 feature + 2 个脚本），
+证据目录 `docs/moni-screenshots-verify-moni-<date>/`（已被 `.gitignore` 忽略）。
+
+**已知未修（既有，8900 同样复现）**：`/config → 用量统计` 7 条 `reading 'after'`；`/basket` 2 条 422。
+
+**在跑**：PR #312（`feature/v1.0.130-llm-usage-state-fix`，base `11dc915`）；合并 / 打 tag / 重启 8900 需 dad 当轮授权。
+## 已合并: **CI 性能预算基线修复** (2026-11-25 · PR #314 → `6800f08` · Sprint 76)
+
+main 上 4/4 次跑完的 CI 全红，失败固定为 `tests/test_desensitize_core.py` 的两条性能用例
+（`p95 < 2.5ms` / `p50 < 2.0ms`）。阈值取自本机（Mac）标定，GitHub runner 单核慢约 1.5 倍，
+`process_time_ns()` 只剥离调度等待、不消除 CPU 速度差。
+
+**改动**：抽出 `_PERF_P50_BUDGET_MS = 3.5` / `_PERF_P95_BUDGET_MS = 4.5` 共用；第一条用例补
+`masked_total >= 100` 防空跑；规格 §7.3 拆成「开发机基准 / CI 守卫」两档。无运行时代码改动。
+
+**验证**：本地 `pytest` 2818 passed / 2 skipped；**硬指标是本 PR 的 CI 首次变绿**。
+
 ## 已发布: **v1.0.129 — 业务方向「读者视角」+ 模型澄清追问** (2026-11-25 · PR #306 → `f838ae0` · tag `v1.0.129` · Sprint 26112574)
 
 方向研究提示词原来写死第二条「问题一律从银行或支付机构角度问」，读者视角被锁死成银行机构。
