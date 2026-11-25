@@ -168,10 +168,10 @@ DB: status=done；产物 6622 bytes
 
 | 产物 | 路径 |
 |---|---|
-| 分享简报 HTML 样本（5 案例，按机构分组） | `docs/sprint-evidence/sprint-79/artifacts/case_brief_sample.html` |
-| 分享简报截图 1440×1500 | `docs/sprint-evidence/sprint-79/artifacts/share-brief-sample-1440.png` |
-| 现网 `/cases` 旧页面截图（对照用，8900 未重启） | `docs/sprint-evidence/sprint-79/artifacts/live-cases-before-1440.png` |
-| 新原型列表页截图 1440 | `docs/sprint-evidence/sprint-79/artifacts/prototype-list-1440.png` |
+| 分享简报 HTML 样本（5 案例，按机构分组） | `docs/sprint-evidence/sprint-79/render/case_brief_sample.html` |
+| 分享简报截图 1440×1500 | `docs/sprint-evidence/sprint-79/render/share-brief-sample-1440.png` |
+| 现网 `/cases` 旧页面截图（对照用，8900 未重启） | `docs/sprint-evidence/sprint-79/render/live-cases-before-1440.png` |
+| 新原型列表页截图 1440 | `docs/sprint-evidence/sprint-79/render/prototype-list-1440.png` |
 
 旧页面截图里仍能看到「3000 万元」「AI 应用 / 产品创新」两个问题——因为 8900
 仍是旧进程、生产库 `schema_version=61` 未迁移；新口径要等迁移 + 重启才生效。
