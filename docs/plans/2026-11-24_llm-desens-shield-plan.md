@@ -240,6 +240,7 @@ def make_placeholder(kind: str, canonical_value: str, salt: bytes) -> str:
 | Token 净变化 | `sum(estimate_tokens(before) - estimate_tokens(after))`，口径沿用 `moni/llm/runner.py:38`，界面标「公式估算」（沿用 `moni/stats/savings.py:143` 的防质疑惯例） |
 | 延迟开销 | `(mask_latency_us + restore_latency_us)/1000` 的 P50 / P95，目标 **P95 ≤ 2.5 ms、P50 ≈ 1.7 ms**（6,000 字密集研报实测 1.8–2.1 ms；原 2.0 ms 口径在繁忙主机上会抖动，故放宽到 2.5 ms 并保留实测分布） |
 | **延迟口径（实施后修正）** | 上述 P50 / P95 一律取 **CPU 时间**（`time.process_time_ns()`），3 轮 × 60 样本 **pooled** 后取分位；**预算仍是 2.5 ms，未放宽**。理由：本机 load avg ≈ 22 时 wall-clock 尾部纯由 OS 调度抢占主导 —— 实测 wall-clock P95 **7/8 轮**越过 2.5 ms（峰值 15.18 ms），而 CPU-time P95 **8/8 轮**均在 2.5 ms 内（见 `docs/sprint-evidence/sprint-68/RUN.md` §3.3）。wall-clock 口径会把宿主负载算成 feature 开销。 |
+| **延迟口径（跨机器，2026-11-25）** | 上面的 **P95 ≤ 2.5 ms / P50 ≈ 1.7 ms 是开发机基准**；自动化守卫另用放宽档 **P95 < 4.5 ms、P50 < 3.5 ms**（常量在 `tests/test_desensitize_core.py` 顶部 `_PERF_P95_BUDGET_MS` / `_PERF_P50_BUDGET_MS`）。理由：同一份代码在 GitHub 共享 runner 上实测 p50 2.57–2.84 ms、p95 2.94–2.95 ms（约 1.5× 慢），把开发机数字硬编码成 CI 门禁会让 main 永久红（2026-11-24 #294 起 4/4 次全红）。4.5 ms 对 ReDoS / O(N²) 这类 50–500 ms 量级的退化仍有 100% 检出。后续改进：改用 `t(12000字)/t(6000字) ≤ 2.4` 的复杂度比例校验，并保留 `MONI_PERF_STRICT=1` 时的严格档。 |
 
 ---
 
