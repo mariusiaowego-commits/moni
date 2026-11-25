@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -41,6 +41,7 @@ class FormatEnum(str, Enum):
     RICH_TEXT = "rich_text"          # 🆕 v1.0.5.18
     REPORT_PNG = "report_png"        # 🆕 v1.0.5.18
     PDF = "pdf"                      # 🆕 v1.0.5.21
+    CASE_BRIEF_HTML = "case_brief_html"  # 🆕 P2-1 案例简报 HTML
 
 
 VALID_FORMATS: set[str] = {f.value for f in FormatEnum}
@@ -347,6 +348,31 @@ class ReportPngPayload(BaseModel):
 #     layout: str        # master layout name
 
 
+class CaseBriefPayload(BaseModel):
+    """P2-1: 案例库 HTML 简报 payload (方案 A 融合)."""
+
+    model_config = _extra_forbid
+
+    case_ids: list[str] = Field(..., min_length=1, description="Cases to include")
+    title: str | None = Field(default=None, description="Brief title")
+    include_insight: bool = Field(
+        default=True,
+        description="Include precomputed case_insights when present",
+    )
+    include_evidence: bool = Field(
+        default=True,
+        description="Include evidence_snippet and structured metrics",
+    )
+    group_by: Literal["enterprise", "scenario", "category"] | None = Field(
+        default=None,
+        description="Optional grouping: enterprise | scenario | category | None",
+    )
+    article_ids: list[str] = Field(
+        default_factory=list,
+        description="Derived deduplicated source article IDs",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Format → model mapping
 # ---------------------------------------------------------------------------
@@ -359,6 +385,7 @@ _FORMAT_MODELS: dict[str, type[BaseModel]] = {
     FormatEnum.RICH_TEXT.value: RichTextPayload,           # 🆕
     FormatEnum.REPORT_PNG.value: ReportPngPayload,         # 🆕
     FormatEnum.PDF.value: PdfPayload,                      # 🆕 v1.0.5.21
+    FormatEnum.CASE_BRIEF_HTML.value: CaseBriefPayload,    # 🆕 P2-1
 }
 
 

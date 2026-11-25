@@ -52,6 +52,8 @@ def _ext_for_format(fmt: str) -> str:
         "report_png": "png",        # 🆕 one-image content report
         # v1.0.5.21
         "pdf": "pdf",               # 🆕 PDF 日报
+        # P2-1
+        "case_brief_html": "html",  # 🆕 案例 HTML 简报
     }.get(fmt, "out")
 
 

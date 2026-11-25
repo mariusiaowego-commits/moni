@@ -128,27 +128,24 @@ _PAYLOADS_VALID: dict[str, dict[str, Any]] = {
         "article_ids": ["a1"],
         "title": "测试日报",
     },
+    "case_brief_html": {                        # 🆕 P2-1
+        "case_ids": ["MN-AI-2608-0001"],
+        "title": "案例简报",
+    },
 }
 
 
 # ===========================================================================
-# 1. Schema validation — each of the 10 formats accepts valid data
+# 1. Schema validation — each of the 8 formats accepts valid data
 # ===========================================================================
 
 
 class TestSchemaValidation:
-    """Each of the 6 v1.0.5.18 formats must validate correctly and reject bad input."""
+    """Each of the 8 formats must validate correctly and reject bad input."""
 
     def test_valid_formats_set_has_6(self) -> None:
-        """The registry must contain exactly 7 v1.0.5.21 formats.
-
-        v1.0.5.18: pruned 6 formats that had no real worker (ascii_art,
-        ascii_video, architecture_svg, knowledge_comic, pdf_bound,
-        ppt_slides) and added rich_text + report_png.  Frontend will
-        also drop the 6 chips; 6 is the new canonical count.
-        v1.0.5.21: added pdf format.
-        """
-        assert len(VALID_FORMATS) == 7
+        """The registry must contain 8 formats (7 article + case_brief_html)."""
+        assert len(VALID_FORMATS) == 8
         # No concept_video (removed in v1.0.5.15), no architecture_svg /
         # knowledge_comic / ascii_art / ascii_video / pdf_bound /
         # ppt_slides (removed in v1.0.5.18).
@@ -175,7 +172,10 @@ class TestSchemaValidation:
         )
         assert fmt_out == fmt_name
         assert isinstance(validated, dict)
-        assert validated["article_ids"] == ["a1"]
+        if fmt_name == "case_brief_html":
+            assert validated["case_ids"] == ["MN-AI-2608-0001"]
+        else:
+            assert validated["article_ids"] == ["a1"]
 
     @pytest.mark.parametrize("fmt_name", sorted(VALID_FORMATS))
     def test_unknown_format_rejected(self, fmt_name: str) -> None:
@@ -189,10 +189,10 @@ class TestSchemaValidation:
 
     @pytest.mark.parametrize("fmt_name", sorted(VALID_FORMATS))
     def test_missing_article_ids_rejected(self, fmt_name: str) -> None:
-        """Every format requires ``article_ids`` — omitting it must fail."""
-        # Strip article_ids; replace with a benign field if it was the only one.
+        """Every format requires its primary id list — omitting it must fail."""
+        id_key = "case_ids" if fmt_name == "case_brief_html" else "article_ids"
         bad_payload: dict[str, Any] = {
-            k: v for k, v in _PAYLOADS_VALID[fmt_name].items() if k != "article_ids"
+            k: v for k, v in _PAYLOADS_VALID[fmt_name].items() if k != id_key
         }
         # Some formats have only article_ids; we need at least one key for
         # Pydantic to attempt validation.  Add a junk key to trigger the

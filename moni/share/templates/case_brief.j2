@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ title }}</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --text: #162032;
+      --muted: #5b667a;
+      --border: #e1e7f0;
+      --accent: #1d4ed8;
+      --accent-soft: #eff6ff;
+      --high: #b91c1c;
+      --high-bg: #fef2f2;
+      --med: #b45309;
+      --med-bg: #fffbeb;
+      --low: #475569;
+      --low-bg: #f1f5f9;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 28px 18px 56px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.6;
+    }
+    .wrap { max-width: 960px; margin: 0 auto; }
+    .hero {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px 26px;
+      margin-bottom: 22px;
+    }
+    .hero h1 { margin: 0 0 8px; font-size: 24px; line-height: 1.3; }
+    .hero-meta { color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 14px; }
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .stat-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+    }
+    .stat-num { font-size: 20px; font-weight: 700; color: var(--accent); }
+    .stat-lbl { font-size: 12px; color: var(--muted); }
+    .group-title {
+      font-size: 17px;
+      font-weight: 700;
+      margin: 24px 0 12px;
+      padding-left: 10px;
+      border-left: 4px solid var(--accent);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .group-count { font-size: 12px; font-weight: 500; color: var(--muted); }
+    .case-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin-bottom: 14px;
+    }
+    .case-head {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .case-subject { font-size: 17px; font-weight: 700; }
+    .case-id { font-size: 12px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .badge {
+      display: inline-block;
+      font-size: 12px;
+      padding: 2px 9px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 500;
+    }
+    .badge-ref-high { background: var(--high-bg); color: var(--high); }
+    .badge-ref-medium { background: var(--med-bg); color: var(--med); }
+    .badge-ref-low { background: var(--low-bg); color: var(--low); }
+    .badge-muted { background: var(--low-bg); color: var(--low); }
+    .summary { margin: 0 0 10px; font-size: 15px; }
+    .metrics-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+    .metric-chip {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+    .metric-chip strong { color: var(--text); }
+    .insight-box {
+      background: #f8faff;
+      border: 1px solid #dbeafe;
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin: 10px 0;
+      font-size: 13px;
+    }
+    .insight-box h4 { margin: 0 0 6px; font-size: 13px; color: var(--accent); }
+    .insight-box p { margin: 4px 0; }
+    .insight-box ul { margin: 4px 0 4px 18px; padding: 0; }
+    .evidence-box {
+      background: #fafafa;
+      border-left: 3px solid #cbd5e1;
+      padding: 8px 12px;
+      margin: 10px 0;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .case-foot {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: space-between;
+    }
+    .case-foot a { color: var(--accent); text-decoration: none; }
+    .case-foot a:hover { text-decoration: underline; }
+    .footer-note {
+      margin-top: 28px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <h1>{{ title }}</h1>
+      <div class="hero-meta">
+        <span>生成时间：{{ generated_at }}</span>
+        <span>分组方式：{{ group_label }}</span>
+        <span>渲染模式：结构化直出（0 LLM）</span>
+      </div>
+      <div class="stats-bar">
+        <div class="stat-box">
+          <div class="stat-num">{{ total_cases }}</div>
+          <div class="stat-lbl">收录案例</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-num">{{ enterprise_count }}</div>
+          <div class="stat-lbl">涉及机构</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-num">{{ scenario_count }}</div>
+          <div class="stat-lbl">覆盖场景</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-num">{{ article_count }}</div>
+          <div class="stat-lbl">来源文章</div>
+        </div>
+      </div>
+    </header>
+
+    {% for group in groups %}
+      <section>
+        <div class="group-title">
+          <span>{{ group.name }}</span>
+          <span class="group-count">{{ group.cases | length }} 条案例</span>
+        </div>
+        {% for c in group.cases %}
+          <article class="case-card">
+            <div class="case-head">
+              <div>
+                <div class="case-subject">
+                  {{ c.enterprise_name or c.subject }}
+                  {% if c.counterparty %} · 对手方：{{ c.counterparty }}{% endif %}
+                </div>
+                <div class="case-id">{{ c.case_id }}{% if c.case_date %} · {{ c.case_date }}{% endif %}</div>
+              </div>
+              <span class="badge badge-ref-{{ c.reference_value }}">参考价值：{{ c.reference_value }}</span>
+            </div>
+
+            <div class="badges">
+              <span class="badge">{{ c.category_name }}</span>
+              <span class="badge badge-muted">{{ c.case_action }}</span>
+              {% if c.industry_l1 %}
+                <span class="badge badge-muted">{{ c.industry_l1 }}</span>
+              {% endif %}
+              {% if c.scenario_name %}
+                <span class="badge badge-muted">{{ c.scenario_name }}</span>
+              {% endif %}
+            </div>
+
+            {% if c.summary %}
+              <p class="summary">{{ c.summary }}</p>
+            {% endif %}
+
+            {% if include_evidence and c.metrics %}
+              <div class="metrics-row">
+                {% for m in c.metrics %}
+                  <span class="metric-chip">
+                    <strong>{{ m.metric_type }}</strong>: {{ m.value_raw }} ({{ m.unit }})
+                  </span>
+                {% endfor %}
+              </div>
+            {% elif include_evidence and c.amount %}
+              <div class="metrics-row">
+                <span class="metric-chip"><strong>规模/金额</strong>: {{ c.amount }}</span>
+              </div>
+            {% endif %}
+
+            {% if include_insight and c.insight %}
+              <div class="insight-box">
+                <h4>深度解读</h4>
+                {% if c.insight.one_liner %}<p><strong>一句话结论：</strong>{{ c.insight.one_liner }}</p>{% endif %}
+                {% if c.insight.why_it_matters %}<p><strong>为什么值得看：</strong>{{ c.insight.why_it_matters }}</p>{% endif %}
+                {% if c.insight.transferable_practices %}
+                  <p><strong>可迁移做法：</strong></p>
+                  <ul>
+                    {% for p in c.insight.transferable_practices %}
+                      <li>{{ p.practice }}{% if p.preconditions %}（前提：{{ p.preconditions }}）{% endif %}</li>
+                    {% endfor %}
+                  </ul>
+                {% endif %}
+                {% if c.insight.risks_prerequisites %}
+                  <p><strong>风险/前提：</strong>{{ c.insight.risks_prerequisites | join('；') }}</p>
+                {% endif %}
+              </div>
+            {% endif %}
+
+            {% if include_evidence and c.evidence_snippet %}
+              <blockquote class="evidence-box">
+                <strong>原文证据：</strong>{{ c.evidence_snippet }}
+              </blockquote>
+            {% endif %}
+
+            <div class="case-foot">
+              <span>
+                来源：
+                {% if c.article_url %}
+                  <a href="{{ c.article_url }}" target="_blank" rel="noopener noreferrer">{{ c.article_title or c.article_id }}</a>
+                {% else %}
+                  {{ c.article_title or c.article_id }}
+                {% endif %}
+                {% if c.article_source %}（{{ c.article_source }}）{% endif %}
+              </span>
+              {% if c.reference_rationale %}
+                <span>依据：{{ c.reference_rationale }}</span>
+              {% endif %}
+            </div>
+          </article>
+        {% endfor %}
+      </section>
+    {% endfor %}
+
+    <footer class="footer-note">
+      moni 同业案例库 2.0 · 自动生成简报
+    </footer>
+  </div>
+</body>
+</html>

@@ -15,7 +15,7 @@
    - exit：退出、下线、终止、关停
 4. 案例时间（case_date）：案例发生日期，格式 YYYY-MM-DD；只有月份写 YYYY-MM；模糊表述写 "relative"；完全无时间信息写 ""
 5. 对手方（counterparty）：案例涉及另一方时填（如并购方/合作方），否则为空
-6. 金额/规模（amount）：案例涉及金额/规模时填（如"5 亿元"、"1000 万用户"），否则为空
+6. 金额/规模（amount + metrics）：案例涉及金额/规模时必须带指标名（如"融资 5 亿元"、"互动日活 3000 万"、"覆盖 30 个场景"、"1000 万用户"），不要只写裸数字；同时可附结构化 `metrics` 数组 `[{"metric_type":"dau|funding|contract_value|deal_value|investment|revenue|user_count|coverage|other","value_raw":"互动日活 3000 万","unit_hint":"user|CNY|USD|...","evidence_quote":"原文片段"}]`；没有则为空
 7. 参考价值（reference_value）：高/中/低 — 评估这个案例对同业是否有借鉴意义
 8. 参考依据（reference_rationale）：为什么是这个等级，1 句话
 9. 案例摘要（summary）：一句话概括案例内容，不超过 80 字

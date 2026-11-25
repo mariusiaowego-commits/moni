@@ -1,3 +1,18 @@
+## 进行中: **案例库 2.0（/cases）后端** (2026-11-25 · 分支 `feature/v1.0.131-cases-library` · 待 PR)
+
+**目标**：详情页可“震撼”演示、案例可分享、企业/行业/场景聚合、搜索补齐、抽取升级。
+**计划与结论**：`docs/plans/2026-11-25-cases-library-v2.md`（六问结论 + P0–P2）。
+
+**本分支已完成**：
+- P0：标签 405 修复、归一（枚举/叠词/币种/万亿）、迁移 `061_case_metrics` / `062_cases_fts_v2` / `063_cron_extract_cases`。
+- P1：迁移 `064_enterprises`（116 企业 / 154 别名）、`065_case_taxonomy`（8 类 + 10 场景）、`backfill_taxonomy.py`、四维聚合 + `GET /api/cases/stats`。
+- P2：迁移 `066_case_insights`（建表）、`067_share_case_ids`、`CaseBriefPayload`、`case_brief.py` + 模板、`POST /api/share/cases`、worker 短路。
+- P3：`backfill_metrics.py` 存量指标回填（规则，0 次 LLM）。
+
+**实测**：生产库副本 `001→067` 迁移成功；`cases=432`，企业命中 217 / 未命中 215；FTS `小程序=2 / 支付=160 / C++=0`；指标回填 208 条有金额中命中 174；样本简报 16K。
+**测试**：受影响集 240 passed；全量 2871 passed / 2 skipped，另各出现 1 条不同的进程/信号类 flake（`test_llm_desens_wiring_share`、`test_worker_lock`），单独复跑均通过。
+**未做**：生产库迁移、8900 部署、前端接入、Stage B LLM 回填、案例卡片 PNG、汇率表 068。
+
 ## 已发布: **v1.0.132 — 信息脱敏进主站入口** (2026-11-25 · PR #323 → `36495b7` · tag `v1.0.132` · Sprint 78)
 
 顶部导航新增「信息脱敏」，右侧徽章读 `/api/desensitize/stats` 显示开/关（请求失败显示「…」）。
@@ -44,6 +59,7 @@ Pin 列表里，没有通用业务价值分的文章可以直接点「打分」�
 - 批量通用分打分没有入口
 - 文章详情弹窗没有入口，只有 Pin 列表
 - 真实模型端到端打分本轮未跑
+
 
 ## 已发布: **v1.0.130 — 量化看板 LLM 用量卡片修复 + verify-moni 验证 skill** (2026-11-25 · PR #312 → `e41a090` · tag `v1.0.130` · Sprint 77)
 
