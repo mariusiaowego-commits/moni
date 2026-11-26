@@ -224,3 +224,14 @@ FROM cases;
 - agy 审核：`design/zone-hierarchy-agy.md`（有条件接受，2×P0 / 3×P1 / 2×P2）
 - 融合截图：`render/prototype-zones-1440.png`、`prototype-zones-1024.png`
 - 筛选 mock：`render/filter-zones-1440.png`、`filter-zones-open-1440.png`、`filter-zones-1024.png`
+
+### 开发还原验收（逐条对截图）
+
+- A 区不得有底色、圆角、阴影；上下 1px `--border` 细线必须在。
+- B 区必须是 `--muted` 面 + 6px 圆角；展开面板 `--background`、选项 `--card`；
+  不得把 B 做成 12px 圆角的卡片。
+- C 区必须是 `--card` + 12px 圆角 + hover `--shadow`；列表卡不得出现 `MN-` 编号。
+- 1024：A 4 列、B 单行 3 组、C 2 列，页面不得横向滚动。
+- 只允许使用现有 token；不新增色板、渐变、发光、玻璃拟态。
+- 对照基线：`render/prototype-zones-1440.png` / `-1024.png`、
+  `render/filter-zones-1440.png` / `filter-zones-open-1440.png`。
