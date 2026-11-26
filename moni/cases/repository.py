@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Any, Sequence
 
 from ..db.connection import get_db
+from .evidence import build_context, locate_evidence
 
 logger = logging.getLogger(__name__)
 
@@ -111,13 +112,13 @@ class CaseRepository:
                          case_action_source,
                          counterparty, amount, raw_json,
                          reference_value, reference_rationale,
-                         summary, evidence_snippet,
+                         summary, evidence_snippet, evidence_verified, evidence_offset,
                          extraction_confidence, extraction_status, review_status,
                          case_lifecycle,
                          extraction_attempts, last_error, extracted_at,
                          normalize_version, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            ?, ?, ?, ?, ?, 'completed', ?, ?,
+                            ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?,
                             1, NULL, ?, ?, ?, ?)
                     """,
                     (
@@ -130,6 +131,7 @@ class CaseRepository:
                         cs.get("raw_json"),
                         cs.get("reference_value"), cs.get("reference_rationale"),
                         cs.get("summary"), cs.get("evidence_snippet"),
+                        cs.get("evidence_verified") or 0, cs.get("evidence_offset"),
                         cs.get("extraction_confidence"),
                         review_status, case_lifecycle,
                         now, normalize_version, now, now,
@@ -710,7 +712,8 @@ class CaseRepository:
         """单条案例."""
         sql = """
             SELECT c.*, a.title AS article_title,
-                   a.source AS article_source, a.url AS article_url
+                   a.source AS article_source, a.url AS article_url,
+                   a.raw_content AS article_raw_content
             FROM cases c
             LEFT JOIN articles a ON c.article_id = a.id
             WHERE c.case_id = ?
@@ -719,7 +722,14 @@ class CaseRepository:
         row = conn.execute(sql, (case_id,)).fetchone()
         if not row:
             return None
-        return CaseRepository._attach_metrics(conn, [dict(row)])[0]
+        item = dict(row)
+        raw_content = item.pop("article_raw_content", None)
+        if raw_content and item.get("evidence_verified"):
+            verified, offset, length = locate_evidence(item.get("evidence_snippet"), raw_content)
+            if verified:
+                item["evidence_offset"] = offset
+                item["evidence_context"] = build_context(raw_content, offset, length)
+        return CaseRepository._attach_metrics(conn, [item])[0]
 
     @staticmethod
     def get_by_article(article_id: str) -> list[dict[str, Any]]:

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>案例库三层区域 · 区分 mock</title>
+<style>
+/* ═══ token：沿用 sprint-79 prototype-v2.html，无第二套色板 ═══ */
+:root{
+  --background:oklch(0.963 0.013 97.4);   /* 纯衣 89.4 */
+  --foreground:oklch(0.218 0.000 89.9);   /* 玄色 */
+  --card:oklch(0.996 0.007 97.3);         /* 雪白 98.9 */
+  --card-fg:oklch(0.218 0.000 89.9);
+  --muted:oklch(0.928 0.034 84.6);        /* 荔肉白 79.9 */
+  --muted-fg:oklch(0.486 0.040 87.0);     /* 蟹壳灰 */
+  --accent:oklch(0.819 0.109 302.2);      /* 浅紫藤萝 */
+  --accent-fg:oklch(0.218 0.000 89.9);
+  --border:oklch(0.848 0.030 75.6);       /* 杏子灰 60.8 */
+  --link:#4a3a8c;
+  --shadow:0 1px 3px oklch(0.218 0.000 89.9 / 0.06);
+  --font:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --mono:'JetBrains Mono','SF Mono',Consolas,monospace;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-8:32px;
+  --radius-sm:6px; --radius-md:8px; --radius-lg:12px;
+  --font-12:12px; --font-13:13px; --font-14:14px; --font-16:16px; --font-22:22px; --font-28:28px;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--background); color:var(--foreground); font-family:var(--font); font-size:var(--font-14); line-height:1.6; -webkit-font-smoothing:antialiased}
+body.gray{filter:grayscale(1)}
+button{font-family:inherit; cursor:pointer}
+:where(a,button,input,select,textarea,summary,[tabindex]):focus-visible{outline:2px solid var(--muted-fg); outline-offset:2px; border-radius:inherit}
+
+/* ═══ 顶栏 ═══ */
+.topnav{display:flex; align-items:center; gap:var(--space-4); padding:var(--space-3) var(--space-6); background:var(--card); border-bottom:1px solid var(--border)}
+.brand{display:flex; align-items:center; gap:var(--space-2); text-decoration:none; color:var(--foreground)}
+.brand-mark{width:22px; height:22px; background:linear-gradient(to bottom right, var(--foreground) 0 50%, transparent 50% 100%); border-radius:2px}
+.brand-cn{font-weight:600; font-size:var(--font-16)}
+.brand-en{font-size:var(--font-12); color:var(--muted-fg); letter-spacing:.14em; margin-left:2px}
+.navlinks{display:flex; gap:var(--space-2); margin-left:var(--space-4)}
+.navlinks a{font-size:var(--font-13); color:var(--muted-fg); padding:6px 10px; border-radius:var(--radius-sm); text-decoration:none}
+.navlinks a.active{background:var(--muted); color:var(--card-fg); font-weight:600}
+.search{margin-left:auto; flex:1; max-width:420px; display:flex; gap:var(--space-2); align-items:center; background:var(--background); border:1px solid var(--border); border-radius:var(--radius-sm); padding:6px 10px}
+.search input{flex:1; min-width:0; border:0; background:transparent; font-size:var(--font-13); font-family:inherit; outline:none}
+.search .k{font-size:var(--font-12); color:var(--muted-fg); font-family:var(--mono)}
+
+.wrap{max-width:1280px; margin:0 auto; padding:var(--space-6)}
+
+/* ═══ A 概览：无框 + 上下 hairline + 圆角 0 ═══ */
+.kpi{
+  display:grid; grid-template-columns:repeat(4,1fr); gap:var(--space-3);
+  padding:var(--space-4) 0; margin-bottom:var(--space-6);
+  border-top:1px solid var(--border); border-bottom:1px solid var(--border);
+  border-radius:0; background:transparent; box-shadow:none;
+}
+.kpi__item{display:flex; flex-direction:column; gap:var(--space-1)}
+.kpi__n{font-size:var(--font-28); font-weight:600; letter-spacing:-.02em; line-height:1.1; font-variant-numeric:tabular-nums}
+.kpi__u{font-size:var(--font-13); font-weight:400; line-height:1.4; color:var(--muted-fg)}
+
+/* ═══ B 筛选：内凹（muted 底）+ 1px + 6px，胶囊 30px ═══ */
+.filterbar{
+  background:var(--muted); border:1px solid var(--border); border-radius:var(--radius-sm);
+  padding:var(--space-3) var(--space-4); margin-bottom:var(--space-6);
+}
+.filterbar__row{display:flex; align-items:center; gap:var(--space-2); overflow-x:auto; scrollbar-width:none}
+.filterbar__row::-webkit-scrollbar{display:none}
+.pill{
+  flex-shrink:0; height:30px; padding:0 12px; font-size:var(--font-13);
+  background:var(--card); color:var(--card-fg); border:1px solid var(--border); border-radius:999px;
+  display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+}
+.pill:hover{border-color:var(--muted-fg)}
+.pill[aria-expanded="true"]{background:var(--foreground); color:var(--background); border-color:var(--foreground)}
+.pill__n{font-family:var(--mono); font-size:var(--font-12); opacity:.6}
+.filterbar__panel{
+  margin-top:var(--space-3); background:var(--card); border:1px solid var(--border); border-radius:var(--radius-md);
+  padding:var(--space-3); max-height:240px; overflow-y:auto;
+}
+.filterbar__panel[hidden]{display:none}
+.filterbar__head{display:flex; gap:var(--space-2); font-size:var(--font-12); font-weight:600; color:var(--muted-fg); letter-spacing:.06em; margin-bottom:var(--space-2)}
+.filterbar__head .sel{margin-left:auto; letter-spacing:0; font-weight:500}
+.filterbar__opts{display:grid; grid-template-columns:repeat(auto-fill,minmax(132px,1fr)); gap:6px}
+.opt{
+  height:30px; padding:0 10px; font-size:var(--font-13); text-align:left;
+  background:var(--background); color:var(--card-fg); border:1px solid var(--border); border-radius:var(--radius-sm);
+  display:flex; align-items:center; gap:6px;
+}
+.opt:hover{border-color:var(--muted-fg)}
+.opt[aria-selected="true"]{background:var(--foreground); color:var(--background); border-color:var(--foreground)}
+.opt__n{margin-left:auto; font-family:var(--mono); font-size:var(--font-12); opacity:.65}
+
+/* ═══ C 案例卡：抬起（card 底）+ 1px + 12px + hover 阴影 ═══ */
+.cases{display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:var(--space-4)}
+.case-card{
+  background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg);
+  padding:var(--space-5); cursor:pointer; display:flex; flex-direction:column; gap:var(--space-3);
+  transition:transform 120ms ease-out, box-shadow 120ms ease-out, border-color 120ms ease-out;
+}
+@media (hover:hover){
+  .case-card:hover{transform:translateY(-1px); box-shadow:var(--shadow); border-color:var(--muted-fg)}
+}
+.case-card:active{transform:scale(.995)}
+.cc-top{display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap}
+.cc-id{font-family:var(--mono); font-size:var(--font-12); color:var(--muted-fg); background:var(--muted); padding:2px 8px; border-radius:var(--radius-sm)}
+.cc-ent{font-size:var(--font-13); font-weight:600}
+.cc-type{margin-left:auto; font-size:var(--font-12); padding:2px 8px; border-radius:var(--radius-sm); background:var(--accent); color:var(--accent-fg); font-weight:600}
+.cc-verdict{font-size:var(--font-16); font-weight:600; line-height:1.5}
+.cc-sum{font-size:var(--font-13); line-height:1.55; opacity:.85}
+.cc-metric{display:flex; align-items:baseline; gap:var(--space-2); flex-wrap:wrap; background:var(--background); border:1px solid var(--border); border-radius:var(--radius-md); padding:var(--space-3)}
+.cc-metric .mn{font-size:var(--font-12); color:var(--muted-fg)}
+.cc-metric .mv{font-size:var(--font-22); font-weight:600; letter-spacing:-.01em; font-variant-numeric:tabular-nums; line-height:1.1}
+.cc-metric .mu{font-size:var(--font-13); color:var(--muted-fg)}
+.cc-foot{display:flex; gap:var(--space-2); flex-wrap:wrap; margin-top:auto; padding-top:var(--space-2); border-top:1px dashed var(--border)}
+.tag{font-size:var(--font-12); color:var(--muted-fg); background:var(--muted); padding:2px 8px; border-radius:var(--radius-sm)}
+
+/* ═══ 1024 档：只改真实需要变的 ═══ */
+@media (max-width:1100px){
+  .wrap{padding:var(--space-4)}
+  .kpi{gap:var(--space-2); padding:14px 0; margin-bottom:var(--space-4)}
+  .filterbar{padding:10px 12px; margin-bottom:var(--space-4)}
+  .filterbar__panel{max-height:200px}
+  .filterbar__opts{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
+  .cases{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+  .case-card{padding:var(--space-4)}
+  .topnav{flex-wrap:wrap}
+  .search{order:3; flex-basis:100%; max-width:none}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none !important; animation:none !important}}
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <a class="brand" href="#"><span class="brand-mark" aria-hidden="true"></span><span class="brand-cn">瞭望</span><span class="brand-en">MONI</span></a>
+  <div class="navlinks">
+    <a href="#">信源管理</a><a href="#">文章查阅</a><a href="#">行业日历</a>
+    <a href="#" class="active">案例库</a><a href="#">量化看板</a>
+  </div>
+  <div class="search"><input type="text" placeholder="搜索机构、场景或关键词…" aria-label="搜索案例"><span class="k">⌘K</span></div>
+</nav>
+
+<div class="wrap">
+
+  <!-- A 概览：只读、无框、hairline -->
+  <section class="kpi" aria-label="案例概览">
+    <div class="kpi__item"><span class="kpi__n">432</span><span class="kpi__u">案例</span></div>
+    <div class="kpi__item"><span class="kpi__n">137</span><span class="kpi__u">高价值</span></div>
+    <div class="kpi__item"><span class="kpi__n">94</span><span class="kpi__u">覆盖企业</span></div>
+    <div class="kpi__item"><span class="kpi__n">10</span><span class="kpi__u">业务场景</span></div>
+  </section>
+
+  <!-- B 筛选：内凹控制面 -->
+  <section class="filterbar" aria-label="筛选">
+    <div class="filterbar__row">
+      <button type="button" class="pill" aria-expanded="false">企业</button>
+      <button type="button" class="pill" aria-expanded="false">行业</button>
+      <button type="button" class="pill" aria-expanded="true">场景<span class="pill__n">2</span></button>
+      <button type="button" class="pill" aria-expanded="false">类型</button>
+      <button type="button" class="pill" aria-expanded="false">价值</button>
+      <button type="button" class="pill" aria-expanded="false">时间</button>
+    </div>
+    <div class="filterbar__panel">
+      <div class="filterbar__head">场景<span class="sel">已选 2</span></div>
+      <div class="filterbar__opts">
+        <button type="button" class="opt" aria-selected="true">智能助理<span class="opt__n">41</span></button>
+        <button type="button" class="opt" aria-selected="true">内容分发<span class="opt__n">33</span></button>
+        <button type="button" class="opt" aria-selected="false">小程序导流<span class="opt__n">18</span></button>
+        <button type="button" class="opt" aria-selected="false">风控审核<span class="opt__n">12</span></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- C 案例卡：内容对象 -->
+  <section class="cases">
+    <article class="case-card" tabindex="0">
+      <div class="cc-top">
+        <span class="cc-id">MN-AI-2611-0004</span>
+        <span class="cc-ent">腾讯 · 微信</span>
+        <span class="cc-type">大模型应用</span>
+      </div>
+      <div class="cc-verdict">微信 AI 助理「小微」首次披露数据</div>
+      <div class="cc-sum">互动日活 3000 万，触点扩到朋友圈、公众号、视频号等 30 多个场景，并首次公开成本边界。</div>
+      <div class="cc-metric">
+        <span class="mn">互动日活</span><span class="mv">3000</span><span class="mu">万 / 日</span>
+        <span class="mn" style="margin-left:auto">覆盖场景</span><span class="mv">30+</span><span class="mu">个触点</span>
+      </div>
+      <div class="cc-foot">
+        <span class="tag">互联网</span><span class="tag">社交</span><span class="tag">智能助理</span>
+        <span class="tag">高价值</span><span class="tag">2026-11</span>
+      </div>
+    </article>
+
+    <article class="case-card" tabindex="0">
+      <div class="cc-top">
+        <span class="cc-id">MN-AI-2611-0031</span>
+        <span class="cc-ent">Visa · BioCatch</span>
+        <span class="cc-type">基础设施</span>
+      </div>
+      <div class="cc-verdict">Visa 收购 BioCatch，行为生物识别接入支付反欺诈</div>
+      <div class="cc-sum">用行为特征识别欺诈团伙，替代部分设备指纹与静态规则，覆盖线上支付授权链路。</div>
+      <div class="cc-metric">
+        <span class="mn">识别手法</span><span class="mv">行为</span><span class="mu">生物特征</span>
+        <span class="mn" style="margin-left:auto">替代</span><span class="mv">设备</span><span class="mu">指纹</span>
+      </div>
+      <div class="cc-foot">
+        <span class="tag">金融</span><span class="tag">支付</span><span class="tag">风控审核</span>
+        <span class="tag">高价值</span><span class="tag">2025-09</span>
+      </div>
+    </article>
+  </section>
+
+</div>
+
+<script>
+/* 灰度校验：?gray=1 → body.gray（仅用于验收截图，不影响正常视图） */
+if (location.search.indexOf('gray=1') !== -1) document.body.classList.add('gray');
+/* 横向溢出自检：写进 title，便于 headless 读数（正常视图不可见） */
+document.title = 'w' + document.documentElement.scrollWidth + '/' + document.documentElement.clientWidth;
+/* 胶囊开合（单开），仅演示控制面状态 */
+var pills = document.querySelectorAll('.pill');
+var panel = document.querySelector('.filterbar__panel');
+pills.forEach(function(p){
+  p.addEventListener('click', function(){
+    var on = p.getAttribute('aria-expanded') === 'true';
+    pills.forEach(function(x){ x.setAttribute('aria-expanded','false') });
+    p.setAttribute('aria-expanded', on ? 'false' : 'true');
+    panel.hidden = on;
+  });
+});
+</script>
+</body>
+</html>

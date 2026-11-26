@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>案例库筛选 · 静态 mock</title>
+<style>
+/* ═══ token：沿用 sprint-79 prototype-v2.html，未新增体系 ═══ */
+:root{
+  --background:oklch(0.963 0.013 97.4);
+  --foreground:oklch(0.218 0.000 89.9);
+  --card:oklch(0.996 0.007 97.3);
+  --surface-modal:oklch(0.974 0.018 92);
+  --card-fg:oklch(0.218 0.000 89.9);
+  --muted:oklch(0.928 0.034 84.6);
+  --muted-fg:oklch(0.486 0.040 87.0);
+  --accent:oklch(0.819 0.109 302.2);
+  --accent-fg:oklch(0.218 0.000 89.9);
+  --destructive:oklch(0.542 0.208 19.5);
+  --border:oklch(0.848 0.030 75.6);
+  --link:#4a3a8c;
+  --shadow:0 1px 3px oklch(0.218 0.000 89.9 / 0.06);
+  --font:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --mono:'JetBrains Mono','SF Mono',Consolas,monospace;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-8:32px;
+  --radius-sm:6px; --radius-md:8px; --radius-lg:12px;
+  --font-12:12px; --font-13:13px; --font-14:14px; --font-16:16px; --font-22:22px; --font-28:28px;
+}
+
+/* 暗色：与生产 main.css:158 的 .dark 同一组值，仅用于换 theme 实渲染验证 */
+.dark{
+  --background:oklch(0.170 0.004 164.5);
+  --foreground:oklch(0.928 0.034 84.6);
+  --card:oklch(0.218 0.000 89.9);
+  --surface-modal:oklch(0.238 0.006 89.9);
+  --card-fg:oklch(0.928 0.034 84.6);
+  --muted:oklch(0.257 0.030 61.5);
+  --muted-fg:oklch(0.633 0.000 89.9);
+  --accent:oklch(0.819 0.109 302.2);
+  --accent-fg:oklch(0.170 0.004 164.5);
+  --destructive:oklch(0.542 0.208 19.5);
+  --border:oklch(0.337 0.007 84.6);
+  --link:#D1B3FF;
+  --shadow:0 1px 3px oklch(0 0 0 / 0.2);
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--background); color:var(--foreground); font-family:var(--font); font-size:var(--font-14); line-height:1.6; -webkit-font-smoothing:antialiased}
+button{font-family:inherit; cursor:pointer}
+:where(a,button,input,select,textarea,summary,[tabindex]):focus-visible{outline:2px solid var(--muted-fg); outline-offset:2px; border-radius:inherit}
+
+/* ═══ 顶栏（沿用原型 .topnav） ═══ */
+.topnav{position:sticky; top:0; z-index:200; display:flex; align-items:center; gap:var(--space-4); padding:var(--space-3) var(--space-6); background:var(--card); border-bottom:1px solid var(--border)}
+.brand{display:flex; align-items:center; gap:var(--space-2); color:var(--foreground); text-decoration:none}
+.brand-mark{width:22px; height:22px; flex-shrink:0; background:linear-gradient(to bottom right, var(--foreground) 0 50%, transparent 50% 100%); border-radius:2px}
+.brand-cn{font-weight:600; font-size:var(--font-16); letter-spacing:.02em}
+.brand-en{font-size:var(--font-12); color:var(--muted-fg); letter-spacing:.14em; margin-left:2px}
+.navlinks{display:flex; gap:var(--space-2); margin-left:var(--space-4)}
+.navlinks a{font-size:var(--font-13); color:var(--muted-fg); padding:6px 10px; border-radius:var(--radius-sm); text-decoration:none}
+.navlinks a.active{background:var(--muted); color:var(--card-fg); font-weight:600}
+
+/* ═══ 筛选条 ═══ */
+.filters{background:var(--muted); border-top:1px solid var(--border); border-bottom:1px solid var(--border)}
+.filters__row{position:sticky; top:56px; z-index:190; background:var(--muted); max-width:1280px; margin:0 auto; display:flex; align-items:center; gap:var(--space-3); padding:8px 24px; flex-wrap:wrap}
+.search{display:flex; align-items:center; gap:var(--space-2); flex:1; max-width:420px; background:var(--card); border:1px solid var(--border); border-radius:var(--radius-sm); padding:6px 10px}
+.search input{flex:1; min-width:0; border:0; background:transparent; color:var(--foreground); font-size:var(--font-13); outline:none; font-family:inherit}
+.search .k{font-size:var(--font-12); color:var(--muted-fg); font-family:var(--mono)}
+
+.fchips{display:flex; gap:var(--space-2); row-gap:6px; align-items:center; flex-wrap:wrap; flex:1; min-width:0}
+.fchip{
+  flex-shrink:0; height:30px; padding:0 12px; font-size:var(--font-13);
+  background:var(--card); color:var(--card-fg); border:1px solid var(--border);
+  border-radius:999px; display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+}
+.fchip:hover{border-color:var(--muted-fg)}
+.fchip[aria-expanded="true"]{background:var(--foreground); color:var(--background); border-color:var(--foreground)}
+.fchip__n{font-family:var(--mono); font-size:var(--font-12); opacity:.6}
+
+.fhit{margin-left:auto; font-size:var(--font-13); color:var(--muted-fg); font-variant-numeric:tabular-nums; white-space:nowrap}
+.fhit b{color:var(--card-fg); font-weight:600}
+.fclear{
+  flex-shrink:0; height:30px; padding:0 12px; font-size:var(--font-13);
+  background:transparent; color:var(--muted-fg); border:1px solid transparent; border-radius:var(--radius-sm);
+}
+.fclear:hover:not([disabled]){color:var(--foreground); border-color:var(--border)}
+.fclear[disabled]{opacity:.45; cursor:default}
+
+/* 已选 token 行 */
+.ftokens{max-width:1280px; margin:0 auto; display:flex; flex-wrap:wrap; gap:var(--space-2); align-items:center; padding:0 24px var(--space-3)}
+.ftokens[hidden]{display:none}
+.ftoken{
+  height:26px; padding:0 6px 0 10px; font-size:var(--font-13);
+  background:var(--card); color:var(--card-fg); border:1px solid var(--border); border-radius:var(--radius-sm);
+  display:inline-flex; align-items:center; gap:4px;
+}
+.ftoken__x{width:16px; height:16px; font-size:12px; line-height:1; color:var(--muted-fg); display:grid; place-items:center}
+.ftoken:hover .ftoken__x{color:var(--foreground)}
+
+/* 展开面板（in-flow，不遮挡列表） */
+.fpanel{max-width:1280px; margin:0 auto var(--space-4); background:var(--background); border:1px solid var(--border); border-radius:var(--radius-md); padding:var(--space-3) var(--space-4); max-height:240px; overflow-y:auto}
+.fpanel[hidden]{display:none}
+.fpanel__head{display:flex; align-items:center; gap:var(--space-2); font-size:var(--font-12); font-weight:600; color:var(--muted-fg); letter-spacing:.06em; margin-bottom:var(--space-2)}
+.fpanel__sel{margin-left:auto; letter-spacing:0; font-weight:500}
+.fpanel__body{display:grid; grid-template-columns:repeat(auto-fill,minmax(132px,1fr)); gap:6px; outline:none}
+.fopt{
+  height:30px; padding:0 10px; font-size:var(--font-13); text-align:left;
+  background:var(--card); color:var(--card-fg); border:1px solid var(--border); border-radius:var(--radius-sm);
+  display:flex; align-items:center; gap:6px;
+}
+.fopt:hover{border-color:var(--muted-fg)}
+.fopt[aria-selected="true"]{background:var(--foreground); color:var(--background); border-color:var(--foreground)}
+.fopt__n{margin-left:auto; font-family:var(--mono); font-size:var(--font-12); opacity:.65}
+.fmore{grid-column:1/-1; font-size:var(--font-12); color:var(--muted-fg); padding:6px 2px}
+.fempty{grid-column:1/-1; font-size:var(--font-13); color:var(--muted-fg); padding:var(--space-2) 0}
+
+/* A 概览：无框 + 上下细线；上层 4 格 KPI + 下层 3 列结构分布，与原型同一份规格 */
+.dash{width:calc(100% - 48px); max-width:1280px; margin:24px auto; border-top:1px solid var(--border); border-bottom:1px solid var(--border)}
+.dash-kpis{display:grid; grid-template-columns:repeat(4,1fr); gap:var(--space-3); padding:16px 0}
+.stat .n{font-size:var(--font-28); font-weight:600; letter-spacing:-.02em; line-height:1.1; font-variant-numeric:tabular-nums}
+.stat .u{font-size:var(--font-13); color:var(--muted-fg); margin-top:4px}
+.dash-bars{display:grid; grid-template-columns:repeat(3,1fr); border-top:1px solid var(--border)}
+.dbar{padding:12px 20px 14px; min-width:0}
+.dbar + .dbar{border-left:1px solid var(--border)}
+.dbar h4{margin:0 0 6px; font-size:var(--font-12); font-weight:600; color:var(--muted-fg)}
+.drow{display:grid; grid-template-columns:136px minmax(0,1fr) 40px; align-items:center; gap:10px; height:24px; font-size:var(--font-13); color:var(--muted-fg)}
+.drow .dl{white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.drow .db{height:6px; border-radius:2px; background:var(--muted); overflow:hidden}
+.drow .db i{display:block; height:100%; border-radius:2px; background:var(--foreground)}
+.drow .dn{font-family:var(--mono); font-size:var(--font-12); text-align:right; color:var(--muted-fg)}
+
+/* ═══ 列表（沿用原型 .case-grid / .case-card 语言） ═══ */
+.wrap{max-width:1280px; margin:0 auto; padding:var(--space-6)}
+.case-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:var(--space-4)}
+.case-card{background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-5); display:flex; flex-direction:column; gap:var(--space-3)}
+.cc-ent{font-size:var(--font-13); font-weight:600}
+.cc-verdict{font-size:var(--font-16); font-weight:600; line-height:1.5}
+.cc-sum{font-size:var(--font-13); opacity:.85; line-height:1.55}
+/* 标签语言（unslop）：只读元信息走著录行，不再用药丸；药丸只留给可点控件（B 区筛选）。 */
+.c-meta{display:flex; flex-wrap:wrap; align-items:center; gap:0 var(--space-2); margin-top:auto; padding-top:var(--space-2); font-size:var(--font-12); line-height:16px; color:var(--muted-fg)}
+.c-meta .sep{color:var(--border)}
+.c-flag{font-size:var(--font-12); font-weight:500; line-height:16px; padding:0 6px; border-radius:4px; background:var(--muted); color:var(--card-fg)}
+.case-empty{grid-column:1/-1; text-align:center; padding:var(--space-8) var(--space-4); color:var(--muted-fg); font-size:var(--font-13); background:var(--card); border:1px dashed var(--border); border-radius:var(--radius-lg)}
+.case-empty .btn{margin-top:var(--space-3)}
+.btn{display:inline-block; padding:6px 14px; font-size:var(--font-13); background:var(--foreground); color:var(--background); border:1px solid var(--foreground); border-radius:var(--radius-sm); font-weight:600}
+[aria-busy="true"]{opacity:.55}
+
+/* ═══ 分档：1024 ═══ */
+@media (max-width:1100px){
+  .dash{width:calc(100% - 32px)}
+  .dash-kpis{gap:var(--space-2); padding:14px 0}
+  .dbar{padding:10px 12px 12px}
+  .drow{grid-template-columns:124px minmax(0,1fr) 34px; gap:8px}
+  .filters__row{padding:8px 16px; gap:var(--space-2)}
+  .fchips{flex:1; min-width:0}
+  .search{flex:0 1 260px}
+  .fpanel{max-height:200px; padding:var(--space-2) var(--space-3)}
+  .fpanel__body{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
+  .ftokens{padding:0 16px var(--space-3)}
+  .wrap{padding:var(--space-4)}
+  .case-grid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+}
+@media (max-width:800px){
+  .dash-kpis{grid-template-columns:repeat(2,1fr)}
+  .dash-bars{grid-template-columns:1fr}
+  .dbar + .dbar{border-left:0; border-top:1px solid var(--border)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none !important; animation:none !important}}
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <a class="brand" href="#"><span class="brand-mark" aria-hidden="true"></span><span class="brand-cn">瞭望</span><span class="brand-en">MONI</span></a>
+  <div class="navlinks">
+    <a href="#">信源管理</a><a href="#">文章查阅</a><a href="#">行业日历</a>
+    <a href="#" class="active">案例库</a><a href="#">量化看板</a>
+  </div>
+</nav>
+
+<div class="dash" aria-label="案例库概览（全库截面，不随筛选重算）">
+  <div class="dash-kpis">
+    <div class="stat"><div class="n">432</div><div class="u">案例</div></div>
+    <div class="stat"><div class="n">137</div><div class="u">高价值</div></div>
+    <div class="stat"><div class="n">305</div><div class="u">机构</div></div>
+    <div class="stat"><div class="n">10</div><div class="u">业务场景</div></div>
+  </div>
+  <div class="dash-bars">
+    <div class="dbar">
+      <h4>类型</h4>
+      <div class="drow"><span class="dl">产品与服务创新</span><span class="db"><i style="width:100%"></i></span><span class="dn">144</span></div>
+      <div class="drow"><span class="dl">AI 与大模型应用</span><span class="db"><i style="width:50%"></i></span><span class="dn">72</span></div>
+      <div class="drow"><span class="dl">融资与资本运作</span><span class="db"><i style="width:45%"></i></span><span class="dn">65</span></div>
+      <div class="drow"><span class="dl">生态合作与联名</span><span class="db"><i style="width:42%"></i></span><span class="dn">61</span></div>
+    </div>
+    <div class="dbar">
+      <h4>行业</h4>
+      <div class="drow"><span class="dl">其他</span><span class="db"><i style="width:100%"></i></span><span class="dn">224</span></div>
+      <div class="drow"><span class="dl">银行</span><span class="db"><i style="width:54%"></i></span><span class="dn">121</span></div>
+      <div class="drow"><span class="dl">互联网</span><span class="db"><i style="width:37%"></i></span><span class="dn">83</span></div>
+      <div class="drow"><span class="dl">保险 / 证券</span><span class="db"><i style="width:2%"></i></span><span class="dn">4</span></div>
+    </div>
+    <div class="dbar">
+      <h4>场景</h4>
+      <div class="drow"><span class="dl">其他业务场景</span><span class="db"><i style="width:100%"></i></span><span class="dn">90</span></div>
+      <div class="drow"><span class="dl">数字人民币与稳定币</span><span class="db"><i style="width:84%"></i></span><span class="dn">76</span></div>
+      <div class="drow"><span class="dl">大模型与智能体</span><span class="db"><i style="width:81%"></i></span><span class="dn">73</span></div>
+      <div class="drow"><span class="dl">跨境支付与清算</span><span class="db"><i style="width:56%"></i></span><span class="dn">50</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="filters" id="filters">
+  <div class="filters__row">
+    <div class="search">
+      <input type="text" id="q" placeholder="搜索机构、场景或关键词…" aria-label="搜索案例">
+      <span class="k">⌘K</span>
+    </div>
+    <div class="fchips" id="fchips" role="group" aria-label="筛选维度"></div>
+    <output class="fhit" id="fhit" aria-live="polite">—</output>
+    <button type="button" class="fclear" id="fclear" disabled>清空</button>
+  </div>
+
+  <div class="ftokens" id="ftokens" hidden></div>
+
+  <div class="fpanel" id="fpanel" hidden>
+    <div class="fpanel__head"><span id="fp-title"></span><span class="fpanel__sel" id="fp-sel"></span></div>
+    <div class="fpanel__body" id="fp-body" role="listbox" aria-multiselectable="true" aria-labelledby="fp-title"></div>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="case-grid" id="case-grid"></div>
+</div>
+
+<script>
+/* ═══ 示例子集（24 条）：计数与命中数由同一数组计算，保证自洽 ═══
+   真实环境计数由 GET /api/cases/facets 返回，列表走 GET /api/cases?... */
+var ENTS = ['腾讯','字节跳动','阿里巴巴','百度','美团','京东','小米','华为'];
+var INDS = ['互联网 / 社交','互联网 / 电商','互联网 / 内容','金融 / 银行','金融 / 保险','零售 / 连锁','制造 / 汽车','医疗 / 医药'];
+var SCENES = ['智能助理','内容分发','小程序导流','智能客服','搜索推荐','风控审核','营销投放','数据分析','代码生成','多模态生成'];
+var TYPES = ['大模型应用','智能体','内容生成','智能客服','数据洞察','流程自动化','多模态','基础设施'];
+var REFS = ['高','中','低'];
+var ACTIONS = ['上线','发布','试点','合作'];
+var MONTHS = ['2026-11','2026-10','2026-09','2026-08'];
+
+var CASES = [];
+for (var i = 0; i < 24; i++) {
+  var s1 = SCENES[i % SCENES.length];
+  var s2 = SCENES[(i * 3 + 1) % SCENES.length];
+  CASES.push({
+    id: 'MN-AI-2611-' + ('000' + (i + 1)).slice(-4),
+    ent: ENTS[i % ENTS.length],
+    ind: INDS[i % INDS.length],
+    scenes: s1 === s2 ? [s1] : [s1, s2],
+    type: TYPES[i % TYPES.length],
+    ref: REFS[i % REFS.length],
+    action: ACTIONS[i % ACTIONS.length],
+    month: MONTHS[i % MONTHS.length]
+  });
+}
+
+var DIMS = [
+  {key:'ent',   label:'企业', opts:ENTS},
+  {key:'ind',   label:'行业', opts:INDS},
+  {key:'scene', label:'场景', opts:SCENES},
+  {key:'type',  label:'类型', opts:TYPES},
+  {key:'ref',   label:'价值', opts:REFS},
+  {key:'month', label:'时间', opts:MONTHS}
+];
+
+var state = {ent:new Set(), ind:new Set(), scene:new Set(), type:new Set(), ref:new Set(), month:new Set()};
+var openDim = null;
+
+/* ═══ 过滤 ═══ */
+function match(c, skip) {
+  var i, v;
+  for (i = 0; i < DIMS.length; i++) {
+    var k = DIMS[i].key;
+    if (k === skip || state[k].size === 0) continue;
+    if (k === 'scene') {
+      var hit = false;
+      state.scene.forEach(function(s){ if (c.scenes.indexOf(s) !== -1) hit = true; });
+      if (!hit) return false;
+    } else {
+      v = c[k];
+      if (!state[k].has(v)) return false;
+    }
+  }
+  var q = (document.getElementById('q').value || '').trim().toLowerCase();
+  if (q) {
+    var hay = (c.id + ' ' + c.ent + ' ' + c.ind + ' ' + c.scenes.join(' ') + ' ' + c.type + ' ' + c.ref).toLowerCase();
+    if (hay.indexOf(q) === -1) return false;
+  }
+  return true;
+}
+function filtered(skip) {
+  return CASES.filter(function(c){ return match(c, skip) });
+}
+
+/* ═══ 渲染：胶囊 ═══ */
+function renderChips() {
+  var box = document.getElementById('fchips');
+  box.innerHTML = '';
+  DIMS.forEach(function(d) {
+    var n = state[d.key].size;
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'fchip';
+    b.setAttribute('data-dim', d.key);
+    b.setAttribute('aria-expanded', openDim === d.key ? 'true' : 'false');
+    b.setAttribute('aria-controls', 'fpanel');
+    b.innerHTML = d.label + (n ? '<span class="fchip__n">' + n + '</span>' : '');
+    b.addEventListener('click', function(){ toggleDim(d.key) });
+    box.appendChild(b);
+  });
+}
+
+/* ═══ 渲染：面板 ═══ */
+function renderPanel() {
+  var panel = document.getElementById('fpanel');
+  var body = document.getElementById('fp-body');
+  var title = document.getElementById('fp-title');
+  var sel = document.getElementById('fp-sel');
+  if (!openDim) { panel.hidden = true; body.innerHTML = ''; return; }
+  var dim = DIMS.filter(function(d){ return d.key === openDim })[0];
+  panel.hidden = false;
+  title.textContent = dim.label;
+  sel.textContent = '已选 ' + state[openDim].size;
+  body.innerHTML = '';
+  var counts = {};
+  filtered(openDim).forEach(function(c) {
+    var vals = openDim === 'scene' ? c.scenes : [c[openDim]];
+    vals.forEach(function(v){ counts[v] = (counts[v] || 0) + 1 });
+  });
+  var opts = dim.opts.filter(function(o){ return counts[o] || state[openDim].has(o) });
+  opts.sort(function(a,b){ return (counts[b]||0)-(counts[a]||0) });
+  var totalOpts = opts.length;
+  if (openDim === 'ent' && opts.length > 18) opts = opts.slice(0, 18);
+  if (!opts.length) {
+    var e = document.createElement('div');
+    e.className = 'fempty';
+    e.textContent = '暂无';
+    body.appendChild(e);
+    return;
+  }
+  if (totalOpts > opts.length) {
+    var more = document.createElement('div');
+    more.className = 'fmore';
+    more.textContent = '共 ' + totalOpts + ' 家 · 用搜索框继续找';
+    body.appendChild(more);
+  }
+  opts.forEach(function(o, idx) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'fopt';
+    b.setAttribute('role', 'option');
+    b.setAttribute('data-val', o);
+    b.setAttribute('aria-selected', state[openDim].has(o) ? 'true' : 'false');
+    b.tabIndex = idx === 0 ? 0 : -1;
+    b.innerHTML = o + '<span class="fopt__n">' + (counts[o] || 0) + '</span>';
+    b.addEventListener('click', function(){ toggleVal(openDim, o) });
+    b.addEventListener('keydown', panelKeys);
+    body.appendChild(b);
+  });
+}
+
+/* ═══ 渲染：token 行 ═══ */
+function renderTokens() {
+  var box = document.getElementById('ftokens');
+  var chips = [];
+  DIMS.forEach(function(d) {
+    state[d.key].forEach(function(v) {
+      chips.push({dim:d.key, label:d.label, val:v});
+    });
+  });
+  box.innerHTML = '';
+  if (!chips.length) { box.hidden = true; return; }
+  box.hidden = false;
+  chips.forEach(function(c) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ftoken';
+    b.setAttribute('data-dim', c.dim);
+    b.setAttribute('data-val', c.val);
+    b.setAttribute('aria-label', '移除筛选 ' + c.label + ' ' + c.val);
+    b.innerHTML = c.val + '<span class="ftoken__x" aria-hidden="true">×</span>';
+    b.addEventListener('click', function(){ toggleVal(c.dim, c.val) });
+    b.addEventListener('keydown', function(e){
+      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); toggleVal(c.dim, c.val) }
+    });
+    box.appendChild(b);
+  });
+}
+
+/* ═══ 渲染：列表 + 命中数 + URL ═══ */
+function renderList() {
+  var list = filtered(null);
+  var grid = document.getElementById('case-grid');
+  var hit = document.getElementById('fhit');
+  grid.innerHTML = '';
+  hit.innerHTML = '<b>' + list.length + '</b> 条';
+  document.getElementById('fclear').disabled = DIMS.every(function(d){ return state[d.key].size === 0 }) && !document.getElementById('q').value;
+  if (!list.length) {
+    var e = document.createElement('div');
+    e.className = 'case-empty';
+    e.innerHTML = '无匹配<button type="button" class="btn" id="btn-reset">清除筛选</button>';
+    grid.appendChild(e);
+    document.getElementById('btn-reset').addEventListener('click', clearAll);
+    return;
+  }
+  list.forEach(function(c) {
+    var card = document.createElement('article');
+    card.className = 'case-card';
+    card.innerHTML =
+      '<div class="cc-ent">' + c.ent + '</div>' +
+      '<div class="cc-verdict">' + c.ind.split(' / ')[0] + ' · ' + c.scenes[0] + '</div>' +
+      '<div class="cc-sum">' + c.ent + '在「' + c.scenes.join('、') + '」场景落地 ' + c.type + '，参考价值 ' + c.ref + '。</div>' +
+      '<div class="c-meta">' +
+        '<span>' + c.ind.split(' / ')[0] + '</span>' +
+        '<span class="sep">·</span><span>' + c.action + '</span>' +
+        '<span class="sep">·</span><span>' + c.month + '</span>' +
+        (c.ref === '高'
+          ? '<span class="c-flag">高价值</span>'
+          : '<span class="sep">·</span><span>' + c.ref + '价值</span>') +
+      '</div>';
+    grid.appendChild(card);
+  });
+}
+
+function syncURL() {
+  var parts = [];
+  DIMS.forEach(function(d) {
+    if (state[d.key].size) parts.push(d.key + '=' + Array.from(state[d.key]).join(','));
+  });
+  var q = (document.getElementById('q').value || '').trim();
+  if (q) parts.push('q=' + encodeURIComponent(q));
+  var hash = parts.length ? '#' + parts.join('&') : '';
+  try { history.replaceState(null, '', location.pathname + hash) } catch (e) { location.hash = hash }
+}
+
+function render() {
+  renderChips();
+  renderPanel();
+  renderTokens();
+  renderList();
+  syncURL();
+}
+
+/* ═══ 交互 ═══ */
+function toggleDim(key) {
+  openDim = openDim === key ? null : key;
+  renderChips();
+  renderPanel();
+  if (openDim) {
+    var first = document.querySelector('.fopt');
+    if (first) first.focus();
+  } else {
+    var chip = document.querySelector('.fchip[data-dim="' + key + '"]');
+    if (chip) chip.focus();
+  }
+}
+function toggleVal(dim, val) {
+  if (state[dim].has(val)) state[dim].delete(val); else state[dim].add(val);
+  render();
+  var chip = document.querySelector('.fchip[data-dim="' + dim + '"]');
+  if (chip) chip.focus();
+}
+function clearAll() {
+  DIMS.forEach(function(d){ state[d.key].clear() });
+  document.getElementById('q').value = '';
+  render();
+}
+function panelKeys(e) {
+  var opts = Array.prototype.slice.call(document.querySelectorAll('.fopt'));
+  var i = opts.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown') { e.preventDefault(); opts[Math.min(i + 1, opts.length - 1)].focus() }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); opts[Math.max(i - 1, 0)].focus() }
+  else if (e.key === 'Home') { e.preventDefault(); opts[0].focus() }
+  else if (e.key === 'End') { e.preventDefault(); opts[opts.length - 1].focus() }
+  else if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); document.activeElement.click() }
+  else if (e.key === 'Escape') { e.preventDefault(); openDim = null; renderChips(); renderPanel(); var c = document.querySelector('.fchip[aria-expanded="false"]'); if (c) c.focus() }
+}
+
+document.getElementById('fclear').addEventListener('click', clearAll);
+document.getElementById('q').addEventListener('input', function(){ renderList(); syncURL(); document.getElementById('fclear').disabled = DIMS.every(function(d){ return state[d.key].size === 0 }) && !this.value });
+document.addEventListener('keydown', function(e){
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); document.getElementById('q').focus() }
+  if (e.key === 'Escape' && openDim) { openDim = null; renderChips(); renderPanel() }
+});
+
+/* ═══ 解析 URL 回填 ═══ */
+(function restore() {
+  if(new URLSearchParams(location.search).get('theme') === 'dark') document.documentElement.classList.add('dark');
+  var h = location.hash.replace(/^#/, '');
+  var openParam = new URLSearchParams(location.search).get('open');
+  if (openParam) openDim = openParam;
+  if (!h) return;
+  h.split('&').forEach(function(pair) {
+    var kv = pair.split('=');
+    var k = kv[0], v = decodeURIComponent((kv[1] || '').replace(/\+/g, ' '));
+    if (k === 'q') { document.getElementById('q').value = v; return }
+    if (!state[k]) return;
+    v.split(',').filter(Boolean).forEach(function(x){ state[k].add(x) });
+  });
+})();
+
+render();
+</script>
+</body>
+</html>

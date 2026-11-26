@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>标签语言走查 · 旧 / 新</title>
+<style>
+/* ═══ token：沿用 sprint-79 prototype-v2 / filter-mock，无第二套色板 ═══ */
+:root{
+  --background:oklch(0.963 0.013 97.4);
+  --foreground:oklch(0.218 0.000 89.9);
+  --card:oklch(0.996 0.007 97.3);
+  --card-fg:oklch(0.218 0.000 89.9);
+  --muted:oklch(0.928 0.034 84.6);
+  --muted-fg:oklch(0.486 0.040 87.0);
+  --accent:oklch(0.819 0.109 302.2);
+  --accent-fg:oklch(0.218 0.000 89.9);
+  --border:oklch(0.848 0.030 75.6);
+  --shadow:0 1px 3px oklch(0.218 0.000 89.9 / 0.06);
+  --font:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --mono:'JetBrains Mono','SF Mono',Consolas,monospace;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px;
+  --radius-sm:6px; --radius-md:8px; --radius-lg:12px;
+  --font-12:12px; --font-13:13px; --font-14:14px; --font-16:16px; --font-22:22px; --font-28:28px;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--background); color:var(--foreground); font-family:var(--font); font-size:var(--font-14); line-height:1.6; -webkit-font-smoothing:antialiased}
+button{font-family:inherit; cursor:pointer}
+:where(a,button,input,[tabindex]):focus-visible{outline:2px solid var(--muted-fg); outline-offset:2px; border-radius:inherit}
+
+.wrap{max-width:1280px; margin:0 auto; padding:var(--space-6)}
+.cmp{margin-bottom:var(--space-6)}
+.cmp__tag{display:inline-block; font-size:var(--font-12); color:var(--muted-fg); border:1px solid var(--border); border-radius:4px; padding:2px 8px; margin-bottom:var(--space-3)}
+.cmp__row{display:grid; grid-template-columns:1fr 1fr; gap:var(--space-4)}
+
+/* ═══ 共用：筛选条外壳（三层表面 B：muted + 6px） ═══ */
+.filterbar{background:var(--muted); border:1px solid var(--border); border-radius:var(--radius-sm); padding:var(--space-3) var(--space-4); margin-bottom:var(--space-4)}
+.filterbar__row{display:flex; gap:var(--space-2); align-items:center; overflow-x:auto; scrollbar-width:none; flex-wrap:wrap}
+.filterbar__row::-webkit-scrollbar{display:none}
+.fhit{margin-left:auto; font-size:var(--font-13); color:var(--muted-fg); font-variant-numeric:tabular-nums; white-space:nowrap}
+.fhit b{color:var(--card-fg); font-weight:600}
+.fclear{height:30px; padding:0 12px; font-size:var(--font-13); background:transparent; color:var(--muted-fg); border:1px solid transparent; border-radius:var(--radius-sm)}
+.fclear:hover{color:var(--foreground); border-color:var(--border)}
+
+/* ═══ 旧：999px 药丸 + 计数在药丸里 ═══ */
+.old .fchip{
+  flex-shrink:0; height:30px; padding:0 12px; font-size:var(--font-13);
+  background:var(--card); color:var(--card-fg); border:1px solid var(--border);
+  border-radius:999px; display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+}
+.old .fchip[aria-expanded="true"]{background:var(--foreground); color:var(--background); border-color:var(--foreground)}
+.old .fchip__n{font-family:var(--mono); font-size:var(--font-12); opacity:.6}
+
+/* ═══ 新：6px 圆角（tokens：control 8–10，此处取 6 与 B 层一致） ═══ */
+.new .fchip{
+  flex-shrink:0; height:30px; padding:0 12px; font-size:var(--font-13);
+  background:var(--card); color:var(--card-fg); border:1px solid var(--border);
+  border-radius:var(--radius-sm); display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+}
+.new .fchip[aria-expanded="true"]{background:var(--foreground); color:var(--background); border-color:var(--foreground)}
+.new .fchip__n{font-family:var(--mono); font-size:var(--font-12); color:var(--muted-fg)}
+
+/* ═══ 案例卡（三层表面 C：card + 12px + hover 阴影） ═══ */
+.case-card{
+  background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg);
+  padding:var(--space-5); display:flex; flex-direction:column; gap:var(--space-3); min-width:0;
+  transition:transform 120ms cubic-bezier(0.22,1,0.36,1), box-shadow 120ms cubic-bezier(0.22,1,0.36,1), border-color 120ms cubic-bezier(0.22,1,0.36,1);
+}
+@media (hover:hover){.case-card:hover{transform:translateY(-1px); box-shadow:var(--shadow); border-color:var(--muted-fg)}}
+.cc-top{display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap; min-height:22px}
+.cc-id{font-family:var(--mono); font-size:var(--font-12); color:var(--muted-fg); background:var(--muted); padding:2px 8px; border-radius:var(--radius-sm)}
+.cc-ent{font-size:var(--font-13); font-weight:600}
+.cc-type{margin-left:auto; font-size:var(--font-12); padding:2px 8px; border-radius:var(--radius-sm); background:var(--accent); color:var(--accent-fg); font-weight:600}
+.cc-verdict{font-size:var(--font-16); font-weight:600; line-height:1.5}
+.cc-sum{font-size:var(--font-13); line-height:1.55; opacity:.85}
+.cc-metric{display:flex; align-items:baseline; gap:var(--space-2); flex-wrap:wrap; background:var(--background); border:1px solid var(--border); border-radius:var(--radius-md); padding:var(--space-3)}
+.cc-metric .mn{font-size:var(--font-12); color:var(--muted-fg)}
+.cc-metric .mv{font-size:var(--font-22); font-weight:600; letter-spacing:-.01em; font-variant-numeric:tabular-nums; line-height:1.1}
+.cc-metric .mu{font-size:var(--font-13); color:var(--muted-fg)}
+
+/* 旧卡底：药丸墙 + dashed */
+.cc-foot{display:flex; gap:var(--space-2); flex-wrap:wrap; margin-top:auto; padding-top:var(--space-2); border-top:1px dashed var(--border)}
+.tag{font-size:var(--font-12); color:var(--muted-fg); background:var(--muted); padding:2px 8px; border-radius:var(--radius-sm)}
+
+/* 新卡底：著录行 + 实线 + 1 个锚点 */
+.c-meta{display:flex; flex-wrap:wrap; align-items:center; gap:0 var(--space-2); margin-top:auto; padding-top:var(--space-2); border-top:1px solid var(--border); font-size:var(--font-12); line-height:16px; color:var(--muted-fg)}
+.c-meta .sep{color:var(--border)}
+.c-meta .k{color:var(--card-fg)}
+.c-flag{font-size:var(--font-12); font-weight:500; line-height:16px; padding:0 6px; border-radius:4px; background:var(--muted); color:var(--card-fg)}
+
+@media (max-width:1100px){
+  .wrap{padding:var(--space-4)}
+  .cmp__row{grid-template-columns:1fr}
+  .case-card{padding:var(--space-4)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ═══ 旧 ═══ -->
+  <section class="cmp old">
+    <span class="cmp__tag">旧</span>
+    <div class="filterbar">
+      <div class="filterbar__row">
+        <button type="button" class="fchip" aria-expanded="false">企业</button>
+        <button type="button" class="fchip" aria-expanded="false">行业</button>
+        <button type="button" class="fchip" aria-expanded="true">场景<span class="fchip__n">2</span></button>
+        <button type="button" class="fchip" aria-expanded="false">类型</button>
+        <button type="button" class="fchip" aria-expanded="false">价值</button>
+        <button type="button" class="fchip" aria-expanded="false">时间</button>
+        <span class="fhit"><b>24</b> 条</span>
+        <button type="button" class="fclear">清空</button>
+      </div>
+    </div>
+    <div class="cmp__row">
+      <article class="case-card">
+        <div class="cc-top">
+          <span class="cc-id">MN-AI-2611-0004</span>
+          <span class="cc-ent">腾讯 · 微信</span>
+          <span class="cc-type">AI 应用</span>
+        </div>
+        <div class="cc-verdict">微信 AI 助理「小微」首次披露数据</div>
+        <div class="cc-sum">互动日活 3000 万，触点扩到朋友圈、公众号、视频号等 30 多个场景。</div>
+        <div class="cc-metric">
+          <span class="mn">互动日活</span><span class="mv">3000</span><span class="mu">万 / 日</span>
+        </div>
+        <div class="cc-foot">
+          <span class="tag">互联网 / 社交</span><span class="tag">智能助理</span><span class="tag">内容分发</span>
+          <span class="tag">上线</span><span class="tag">2026-11</span><span class="tag">参考价值 高</span>
+        </div>
+      </article>
+      <article class="case-card">
+        <div class="cc-top">
+          <span class="cc-id">MN-AI-2611-0031</span>
+          <span class="cc-ent">Visa · BioCatch</span>
+          <span class="cc-type">产品创新</span>
+        </div>
+        <div class="cc-verdict">Visa 收购 BioCatch，行为识别接入反欺诈</div>
+        <div class="cc-sum">用行为特征识别欺诈团伙，替代部分设备指纹与静态规则。</div>
+        <div class="cc-metric">
+          <span class="mn">识别手法</span><span class="mv">行为</span><span class="mu">生物特征</span>
+        </div>
+        <div class="cc-foot">
+          <span class="tag">金融 / 支付</span><span class="tag">风控审核</span><span class="tag">规模化</span>
+          <span class="tag">2025-09</span><span class="tag">参考价值 高</span>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ═══ 新 ═══ -->
+  <section class="cmp new">
+    <span class="cmp__tag">新</span>
+    <div class="filterbar">
+      <div class="filterbar__row">
+        <button type="button" class="fchip" aria-expanded="false">企业</button>
+        <button type="button" class="fchip" aria-expanded="false">行业</button>
+        <button type="button" class="fchip" aria-expanded="true">场景<span class="fchip__n">2</span></button>
+        <button type="button" class="fchip" aria-expanded="false">类型</button>
+        <button type="button" class="fchip" aria-expanded="false">价值</button>
+        <button type="button" class="fchip" aria-expanded="false">时间</button>
+        <span class="fhit"><b>24</b> 条</span>
+        <button type="button" class="fclear">清空</button>
+      </div>
+    </div>
+    <div class="cmp__row">
+      <article class="case-card">
+        <div class="cc-top">
+          <span class="cc-ent">腾讯 · 微信</span>
+        </div>
+        <div class="cc-verdict">微信 AI 助理「小微」首次披露数据</div>
+        <div class="cc-sum">互动日活 3000 万，触点扩到朋友圈、公众号、视频号等 30 多个场景。</div>
+        <div class="cc-metric">
+          <span class="mn">互动日活</span><span class="mv">3000</span><span class="mu">万 / 日</span>
+          <span class="mn" style="margin-left:auto">覆盖场景</span><span class="mv">30+</span><span class="mu">个触点</span>
+        </div>
+        <div class="c-meta">
+          <span>互联网</span><span class="sep">·</span>
+          <span>社交</span><span class="sep">·</span>
+          <span>上线</span><span class="sep">·</span>
+          <span>2026-11</span>
+          <span class="c-flag" style="margin-left:auto">高价值</span>
+        </div>
+      </article>
+      <article class="case-card">
+        <div class="cc-top">
+          <span class="cc-ent">Visa · BioCatch</span>
+        </div>
+        <div class="cc-verdict">Visa 收购 BioCatch，行为识别接入反欺诈</div>
+        <div class="cc-sum">用行为特征识别欺诈团伙，替代部分设备指纹与静态规则。</div>
+        <div class="cc-metric">
+          <span class="mn">识别手法</span><span class="mv">行为</span><span class="mu">生物特征</span>
+          <span class="mn" style="margin-left:auto">替代</span><span class="mv">设备</span><span class="mu">指纹</span>
+        </div>
+        <div class="c-meta">
+          <span>金融</span><span class="sep">·</span>
+          <span>支付</span><span class="sep">·</span>
+          <span>规模化</span><span class="sep">·</span>
+          <span>2025-09</span>
+          <span class="c-flag" style="margin-left:auto">高价值</span>
+        </div>
+      </article>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

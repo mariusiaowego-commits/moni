@@ -248,59 +248,91 @@ def _esc(value: Any) -> str:
 
 _CSS = """
     :root {
-      --bg: #f6f8fb;
-      --card: #ffffff;
-      --text: #162032;
-      --muted: #5b667a;
-      --border: #e1e7f0;
-      --accent: #1d4ed8;
-      --accent-soft: #eff6ff;
+      --bg: #f5f2eb;
+      --card: #fffcf7;
+      --text: #1c1917;
+      --muted: #78716c;
+      --border: #e7e0d4;
+      --navy: #1a365d;
+      --accent: #b45309;
+      --accent-soft: #fdf2e3;
       --high: #b91c1c;
-      --high-bg: #fef2f2;
+      --high-bg: #fdf0ee;
       --med: #b45309;
-      --med-bg: #fffbeb;
-      --low: #475569;
-      --low-bg: #f1f5f9;
+      --med-bg: #fdf3e3;
+      --low: #57534e;
+      --low-bg: #f2ece3;
+      --panel: #f8f4ee;
+      --panel-border: #e8d9c4;
+      --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC",
+               "Noto Serif CJK SC", "Source Han Serif SC", "STSong", Georgia, serif;
+      --sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      padding: 28px 18px 56px;
+      padding: 0;
       background: var(--bg);
       color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-      line-height: 1.6;
+      font-family: var(--serif);
+      font-size: 16.5px;
+      line-height: 1.75;
+      -webkit-font-smoothing: antialiased;
     }
-    .wrap { max-width: 960px; margin: 0 auto; }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 48px 36px 80px; }
     .hero {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 14px;
-      padding: 24px 26px;
-      margin-bottom: 22px;
+      padding: 28px 28px 24px;
+      margin-bottom: 28px;
     }
-    .hero h1 { margin: 0 0 8px; font-size: 24px; line-height: 1.3; }
-    .hero-meta { color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 14px; }
+    .hero h1 {
+      margin: 0 0 10px;
+      font-family: var(--serif);
+      font-size: 2rem;
+      font-weight: 700;
+      line-height: 1.25;
+      letter-spacing: -0.02em;
+    }
+    .hero-meta {
+      color: var(--muted);
+      font-family: var(--sans);
+      font-size: 13px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
     .stats-bar {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 10px;
-      margin-top: 16px;
+      margin-top: 18px;
     }
     .stat-box {
-      background: var(--bg);
+      background: var(--panel);
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 10px 14px;
     }
-    .stat-num { font-size: 20px; font-weight: 700; color: var(--accent); }
-    .stat-lbl { font-size: 12px; color: var(--muted); }
-    .group-title {
-      font-size: 17px;
+    .stat-num {
+      font-family: var(--sans);
+      font-size: 24px;
       font-weight: 700;
-      margin: 24px 0 12px;
-      padding-left: 10px;
-      border-left: 4px solid var(--accent);
+      color: var(--navy);
+      line-height: 1.1;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-lbl { font-family: var(--sans); font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .group-title {
+      font-family: var(--sans);
+      font-size: 15px;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+      color: var(--navy);
+      margin: 28px 0 12px;
+      padding-left: 12px;
+      border-left: 3px solid var(--accent);
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -310,8 +342,8 @@ _CSS = """
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 18px 20px;
-      margin-bottom: 14px;
+      padding: 22px 24px;
+      margin-bottom: 16px;
     }
     .case-head {
       display: flex;
@@ -321,11 +353,12 @@ _CSS = """
       gap: 10px;
       margin-bottom: 8px;
     }
-    .case-subject { font-size: 17px; font-weight: 700; }
+    .case-subject { font-family: var(--serif); font-size: 17px; font-weight: 700; }
     .case-id { font-size: 12px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
     .badge {
       display: inline-block;
+      font-family: var(--sans);
       font-size: 12px;
       padding: 2px 9px;
       border-radius: 999px;
@@ -337,37 +370,52 @@ _CSS = """
     .badge-ref-medium { background: var(--med-bg); color: var(--med); }
     .badge-ref-low { background: var(--low-bg); color: var(--low); }
     .badge-muted { background: var(--low-bg); color: var(--low); }
-    .summary { margin: 0 0 10px; font-size: 15px; }
+    .summary { margin: 0 0 12px; font-family: var(--serif); font-size: 16px; line-height: 1.75; }
     .metrics-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
     .metric-chip {
-      background: #f8fafc;
+      background: var(--panel);
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 4px 10px;
+      font-family: var(--sans);
       font-size: 12px;
     }
     .metric-chip strong { color: var(--text); }
     .insight-box {
-      background: #f8faff;
-      border: 1px solid #dbeafe;
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
       border-radius: 10px;
-      padding: 12px 14px;
-      margin: 10px 0;
-      font-size: 13px;
+      padding: 14px 16px;
+      margin: 14px 0;
+      font-family: var(--serif);
+      font-size: 15px;
+      line-height: 1.75;
     }
-    .insight-box h4 { margin: 0 0 6px; font-size: 13px; color: var(--accent); }
+    .insight-box h4 {
+      margin: 0 0 6px;
+      font-family: var(--sans);
+      font-size: 12px;
+      font-weight: 650;
+      letter-spacing: 0.04em;
+      color: var(--navy);
+    }
     .insight-box p { margin: 4px 0; }
     .insight-box ul { margin: 4px 0 4px 18px; padding: 0; }
     .evidence-box {
-      background: #fafafa;
-      border-left: 3px solid #cbd5e1;
-      padding: 8px 12px;
-      margin: 10px 0;
-      font-size: 13px;
+      background: var(--panel);
+      border-left: 3px solid var(--panel-border);
+      padding: 10px 14px;
+      margin: 12px 0;
+      font-family: var(--serif);
+      font-size: 14.5px;
+      line-height: 1.7;
       color: var(--muted);
+      margin-left: 0;
+      margin-right: 0;
     }
     .case-foot {
       margin-top: 10px;
+      font-family: var(--sans);
       font-size: 12px;
       color: var(--muted);
       display: flex;
@@ -380,8 +428,15 @@ _CSS = """
     .footer-note {
       margin-top: 28px;
       text-align: center;
+      font-family: var(--sans);
       font-size: 12px;
       color: var(--muted);
+    }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .wrap { max-width: none; padding: 0; }
+      .hero, .case-card { break-inside: avoid; }
+      .case-card { box-shadow: none; }
     }
 """
 
