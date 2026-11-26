@@ -1,3 +1,30 @@
+## 已发布: **v1.0.140 — 脱敏规则表横向滚动条修复** (2026-11-26 · PR #340 → `4fab0f5` · tag `v1.0.140` · Sprint 81)
+
+**目标**：配置管理 → 脱敏的「用户规则」表不再挂无意义横向滚动条。该表沿用了配置表统一的
+`min-width:1198px`，而桌面内容区实测 1156px，恒定溢出 42px；系统设为「始终显示滚动条」时，
+就是截图上那条压在表格下沿的粗黑横条，内容本身完全放得下。
+
+**改动**
+
+- 规则表改 `min-width:640px`（固定列 490px + 匹配模式 ≥150px），匹配模式列允许任意位置换行。
+- 横向滚动条降噪：Chromium 121+ / Firefox 用 `scrollbar-width:thin` + `scrollbar-color:var(--border) transparent`；
+  老 WebKit 用 `::-webkit-scrollbar` 6px。`main.css?v=20261126006`。
+
+**实测**
+
+- Playwright 8900：1440 / 1280 / 1024 / 767 溢出 **0**（无滚动条）；390 溢出 374px，保留横向滑动但条宽 `thin`。
+- 改前 8900 同条件：1440 / 1280 溢出 42px、1024 298px、390 932px。
+- 定向 `test_frontend_render_hygiene.py` + `test_frontend_motion.py` + `test_web_static_headers.py`
+  → 47 passed；`test_frontend_render_hygiene.py` + `test_web_static_headers.py` 合入案例库后 → 38 passed。
+- CI `pytest · py3.12` run `45769397230` → success（12m13s）。
+- 部署：生产 checkout `4fab0f5`，8900 重启 pid `67089` → `72280`；`/`、`/config`、`/cases`、`/articles`、
+  `/stats`、`/share`、`/health` 全 200；线上 `main.css?v=20261126006` 生效；脱敏 `enabled=false` 未变。
+
+**冲突管理**：分支基于 `8a96875`；合入前先 merge `origin/main`（案例库已到 `445d381`，其把 `main.css?v=`
+提到 005），本分支再 bump 到 006，避免缓存键守卫把「注释改动未换键」判红。
+
+**未做 / 待授权**：生产库 `schema_version=61`，迁移 062–069 未应用（属案例库 session 范围），本轮未触碰。
+
 ## 已合并待部署: **案例库 UI V3（概览带 / 六维筛选 / 沉浸详情）** (2026-11-26 · PR #337 → `c93270d` · Sprint 81)
 
 **目标**：把 `/cases` 从 V2 的 dashboard + 表格改成四块——概览带（4 KPI + 3 列 Top4 分布）→
