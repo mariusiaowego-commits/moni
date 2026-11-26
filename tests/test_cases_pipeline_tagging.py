@@ -186,6 +186,36 @@ class TestManualUserNotOverwritten:
             f"manual_user 被 auto_llm 覆盖! source_type={kw['source_type']}"
         )
 
+    def test_restore_manual_keywords_skips_archived(self, fresh_db):
+        """重抽贴回人工词时不落到已归档案例上."""
+        from moni.cases.normalize import normalize_case
+        from moni.cases.repository import CaseRepository
+
+        _seed_article(fresh_db, "art_arch")
+        cs = normalize_case({
+            "subject": "招商银行",
+            "case_type": "AI",
+            "case_action": "launch",
+            "summary": "招行案例",
+            "evidence_snippet": "",
+            "keywords": [],
+        })
+        with fresh_db:
+            CaseRepository.insert_cases(fresh_db, "art_arch", [cs])
+        case_id = fresh_db.execute("SELECT case_id FROM cases").fetchone()[0]
+        assert CaseRepository.soft_delete_case(case_id) is True
+
+        restored = CaseRepository.restore_manual_keywords(
+            fresh_db,
+            "art_arch",
+            [{
+                "subject": "招商银行", "case_type": "AI", "case_action": "launch",
+                "keyword": "智能投顾", "weight": 3,
+            }],
+        )
+        assert restored == 0
+        assert fresh_db.execute("SELECT COUNT(*) FROM case_keywords").fetchone()[0] == 0
+
 
 class TestKeywordsNormalizePipeline:
     """关键词别名归一在 pipeline 层生效 (跨境清算 → 跨境支付)."""
