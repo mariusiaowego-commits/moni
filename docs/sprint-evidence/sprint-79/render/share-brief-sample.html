@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>案例简报 · 支付与 AI（样例）</title>
+  <style>
+    :root {
+      --bg: #f5f2eb;
+      --card: #fffcf7;
+      --text: #1c1917;
+      --muted: #78716c;
+      --border: #e7e0d4;
+      --navy: #1a365d;
+      --accent: #b45309;
+      --accent-soft: #fdf2e3;
+      --high: #b91c1c;
+      --high-bg: #fdf0ee;
+      --med: #b45309;
+      --med-bg: #fdf3e3;
+      --low: #57534e;
+      --low-bg: #f2ece3;
+      --panel: #f8f4ee;
+      --panel-border: #e8d9c4;
+      --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC",
+               "Noto Serif CJK SC", "Source Han Serif SC", "STSong", Georgia, serif;
+      --sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--serif);
+      font-size: 16.5px;
+      line-height: 1.75;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 48px 36px 80px; }
+    .hero {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 28px 28px 24px;
+      margin-bottom: 28px;
+    }
+    .hero h1 {
+      margin: 0 0 10px;
+      font-family: var(--serif);
+      font-size: 2rem;
+      font-weight: 700;
+      line-height: 1.25;
+      letter-spacing: -0.02em;
+    }
+    .hero-meta {
+      color: var(--muted);
+      font-family: var(--sans);
+      font-size: 13px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .stat-box {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+    }
+    .stat-num {
+      font-family: var(--sans);
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--navy);
+      line-height: 1.1;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-lbl { font-family: var(--sans); font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .group-title {
+      font-family: var(--sans);
+      font-size: 15px;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+      color: var(--navy);
+      margin: 28px 0 12px;
+      padding-left: 12px;
+      border-left: 3px solid var(--accent);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .group-count { font-size: 12px; font-weight: 500; color: var(--muted); }
+    .case-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 22px 24px;
+      margin-bottom: 16px;
+    }
+    .case-head {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .case-subject { font-family: var(--serif); font-size: 17px; font-weight: 700; }
+    .case-id { font-size: 12px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .badge {
+      display: inline-block;
+      font-family: var(--sans);
+      font-size: 12px;
+      padding: 2px 9px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 500;
+    }
+    .badge-ref-high { background: var(--high-bg); color: var(--high); }
+    .badge-ref-medium { background: var(--med-bg); color: var(--med); }
+    .badge-ref-low { background: var(--low-bg); color: var(--low); }
+    .badge-muted { background: var(--low-bg); color: var(--low); }
+    .summary { margin: 0 0 12px; font-family: var(--serif); font-size: 16px; line-height: 1.75; }
+    .metrics-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+    .metric-chip {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-family: var(--sans);
+      font-size: 12px;
+    }
+    .metric-chip strong { color: var(--text); }
+    .insight-box {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin: 14px 0;
+      font-family: var(--serif);
+      font-size: 15px;
+      line-height: 1.75;
+    }
+    .insight-box h4 {
+      margin: 0 0 6px;
+      font-family: var(--sans);
+      font-size: 12px;
+      font-weight: 650;
+      letter-spacing: 0.04em;
+      color: var(--navy);
+    }
+    .insight-box p { margin: 4px 0; }
+    .insight-box ul { margin: 4px 0 4px 18px; padding: 0; }
+    .evidence-box {
+      background: var(--panel);
+      border-left: 3px solid var(--panel-border);
+      padding: 10px 14px;
+      margin: 12px 0;
+      font-family: var(--serif);
+      font-size: 14.5px;
+      line-height: 1.7;
+      color: var(--muted);
+      margin-left: 0;
+      margin-right: 0;
+    }
+    .case-foot {
+      margin-top: 10px;
+      font-family: var(--sans);
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: space-between;
+    }
+    .case-foot a { color: var(--accent); text-decoration: none; }
+    .case-foot a:hover { text-decoration: underline; }
+    .footer-note {
+      margin-top: 28px;
+      text-align: center;
+      font-family: var(--sans);
+      font-size: 12px;
+      color: var(--muted);
+    }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .wrap { max-width: none; padding: 0; }
+      .hero, .case-card { break-inside: avoid; }
+      .case-card { box-shadow: none; }
+    }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <h1>案例简报 · 支付与 AI（样例）</h1>
+      <div class="hero-meta">
+        <span>生成时间：2026-11-26 01:00 UTC</span>
+        <span>分组方式：按收录顺序</span>
+        <span>渲染模式：结构化直出（0 LLM）</span>
+      </div>
+      <div class="stats-bar"><div class="stat-box"><div class="stat-num">4</div><div class="stat-lbl">收录案例</div></div><div class="stat-box"><div class="stat-num">3</div><div class="stat-lbl">涉及机构</div></div><div class="stat-box"><div class="stat-num">4</div><div class="stat-lbl">覆盖场景</div></div><div class="stat-box"><div class="stat-num">3</div><div class="stat-lbl">来源文章</div></div></div>
+    </header>
+    <section><div class="group-title"><span>全部案例</span><span class="group-count">4 条案例</span></div><article class="case-card"><div class="case-head"><div><div class="case-subject">腾讯</div><div class="case-id">MN-AI-2611-0004 · 2026-11</div></div><span class="badge badge-ref-high">高价值</span></div><div class="badges"><span class="badge">AI与大模型应用</span><span class="badge badge-muted">上线</span><span class="badge badge-muted">互联网</span><span class="badge badge-muted">数字化信贷与供应链</span></div><p class="summary">微信 AI 助理小微首次披露互动日活 3000 万，触点扩展至 30 多个场景</p><div class="metrics-row"><span class="metric-chip"><strong>日活用户</strong>: 互动日活3000万</span></div><blockquote class="evidence-box"><strong>原文证据：</strong>小微第一次披露数据：互动日活3000万，触点扩展到朋友圈、公众号、视频号等30多个。</blockquote><div class="case-foot"><span>来源：<a href="https://www.huxiu.com/article/4906747.html?f=rss" target="_blank" rel="noopener noreferrer">小微日活3000万：腾讯Q3财报电话会的12条观察与思考</a>（huxiu）</span><span>依据：国民级 App 内嵌个人助理并披露日活与全量成本边界，对同业入口型 AI 落地有强参考</span></div></article><article class="case-card"><div class="case-head"><div><div class="case-subject">腾讯</div><div class="case-id">MN-AI-2603-0013 · 2026-03</div></div><span class="badge badge-ref-high">高价值</span></div><div class="badges"><span class="badge">AI与大模型应用</span><span class="badge badge-muted">上线</span><span class="badge badge-muted">互联网</span><span class="badge badge-muted">大模型与智能体</span></div><p class="summary">腾讯 WorkBuddy 3 月上线后首次披露数据，日活超 1000 万、年化收入超 5 亿美元</p><div class="metrics-row"><span class="metric-chip"><strong>效率提升</strong>: 5倍</span></div><blockquote class="evidence-box"><strong>原文证据：</strong>日活超1000万，日均Token消耗超100万亿，Q3收入是Q2的5倍以上，中国前100强企业里60%成了它的客户。WorkBuddy过去七天的年化总收入已超过5亿美元</blockquote><div class="case-foot"><span>来源：<a href="https://www.huxiu.com/article/4906747.html?f=rss" target="_blank" rel="noopener noreferrer">小微日活3000万：腾讯Q3财报电话会的12条观察与思考</a>（huxiu）</span><span>依据：企业级 AI 助手 8 个月做到腾讯会议两倍体量，是 AI 原生 To B 商业化的可对标样本</span></div></article><article class="case-card"><div class="case-head"><div><div class="case-subject">Visa · 对手方：BioCatch</div><div class="case-id">MN-AI-2608-0004 · 2026-08-03</div></div><span class="badge badge-ref-high">高价值</span></div><div class="badges"><span class="badge">融资与资本运作</span><span class="badge badge-muted">上线</span><span class="badge badge-muted">互联网</span><span class="badge badge-muted">跨境支付与清算</span></div><p class="summary">Visa签署最终协议以24亿美元现金收购行为反欺诈AI企业BioCatch</p><div class="metrics-row"><span class="metric-chip"><strong>交易金额</strong>: 24亿美元</span></div><blockquote class="evidence-box"><strong>原文证据：</strong>Visa宣布已签署最终协议，将以24亿美元（约162亿元人民币）现金收购行为反欺诈智能领域领先企业BioCatch</blockquote><div class="case-foot"><span>来源：<a href="https://www.mpaypass.com.cn/news/202608/10090508.html" target="_blank" rel="noopener noreferrer">【这一周】央行下半年工作会召开、多家支付机构高管调整、港元稳定币或延迟发布</a>（mpaypass）</span><span>依据：卡组织重金收购行为反欺诈AI企业，对国内支付风控AI化有标杆意义</span></div></article><article class="case-card"><div class="case-head"><div><div class="case-subject">汇丰控股</div><div class="case-id">MN-AI-2501-0003 · 2025-01-01</div></div><span class="badge badge-ref-high">高价值</span></div><div class="badges"><span class="badge">组织与战略调整</span><span class="badge badge-muted">上线</span><span class="badge badge-muted">银行</span><span class="badge badge-muted">财富管理与投顾</span></div><p class="summary">汇丰控股重组全球业务为四大板块，目标于2026年底前减少约15亿美元年化成本。</p><div class="metrics-row"><span class="metric-chip"><strong>降本</strong>: 约15亿美元</span></div><blockquote class="evidence-box"><strong>原文证据：</strong>2025年1月1日起，汇丰控股对组织架构进行重组，调整之后，其将全球业务精简为香港、英国、企业及机构理财业务、国际财富管理及卓越理财业务四大核心板块。</blockquote><div class="case-foot"><span>来源：<a href="https://www.mpaypass.com.cn/news/202607/29112305.html" target="_blank" rel="noopener noreferrer">汇丰香港及恒生银行整合7个职能部门，涉信息科技部、恒生银行信息科技总监将出任</a>（mpaypass）</span><span>依据：全球业务重组覆盖四大板块，并设定量化降本目标，对大型银行组织转型具有参考价值。</span></div></article></section>
+    <footer class="footer-note">
+      moni 同业案例库 2.0 · 自动生成简报
+    </footer>
+  </div>
+</body>
+</html>
