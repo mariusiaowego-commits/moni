@@ -777,6 +777,7 @@ function app() {
       const wantsReduced = !!(window.matchMedia
         && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
       const canTransition = !wantsReduced
+        && document.readyState === 'complete'
         && typeof document.startViewTransition === 'function';
       const apply = () => { this._navigateNow(view); };
       if (canTransition) {
