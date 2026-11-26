@@ -150,6 +150,11 @@ def _seeded_fetcher(data_dir, fetch_config=None):
     _seed_tags(conn)
     cfg = {
         "bypass_keyword_filters": True,
+        # t119u: 本文件测的是**门槛**语义，不测回复/转推过滤 —— 显式关掉
+        # 那两道形态过滤，否则冻结的 BASELINE_INGESTED_URLS 会因为少收
+        # 纯回复/纯转推而漂移，掩盖真正要验证的门槛行为。
+        "exclude_replies": False,
+        "exclude_retweets": False,
         "repo_url": "https://example.invalid/xbot-feed.git",
         "max_days": 30,
     }

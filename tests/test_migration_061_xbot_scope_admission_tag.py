@@ -40,11 +40,18 @@ def test_current_version_at_least_61():
 
 
 def test_scope_tag_exists_and_is_active(fresh_db):
+    """061 建出 ``xbot-scope`` 行；**071 起它被停用**（t119u 新契约）。
+
+    工程 tag 只做归属追溯：既不是业务 tag，也不参与准入。停用而不是删行，
+    是为了保住历史 ``article_tags`` 外键与筛选追溯。
+    """
     row = get_db().execute(
         "SELECT name, description, color, is_active, keywords, display_name "
         "FROM tag_definitions WHERE name = ?", (_TAG,)).fetchone()
     assert row is not None, "migration 061 没有建出 xbot-scope tag"
-    assert row["is_active"] == 1
+    assert row["is_active"] == 0, (
+        "t119u / migration 071：工程 tag 必须停用，不得再出现在勾选列表里"
+    )
     assert row["display_name"] == "X-bot 范围"
     assert row["color"] == "#0EA5E9"
     assert "准入" in row["description"]

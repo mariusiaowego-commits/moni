@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261126014">
+  <link rel="stylesheet" href="css/main.css?v=20261127001">
   <!-- v1.0.110: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
        放在 main.css 之后，同名选择器以它们为准，便于单独回滚。 -->
   <link rel="stylesheet" href="css/source-ops.css?v=20261120011">
@@ -5063,22 +5063,37 @@
                       <span class="badge-source" x-text="fetchConfigScopeSourceLabel()"></span>
                     </label>
                     <p class="fetch-config-hint muted">
-                      <strong>这两项决定 moni 的入库准入</strong>：wechat 话题按下面的正则匹配标题+正文（大小写不敏感），
-                      xcircle 话题按上面的固定账号匹配作者；命中即准入，与领域关键词表是 <strong>OR</strong> 关系。
+                      <strong>入库由业务 tag 决定</strong>：一条推文必须命中「标签设置」里勾选的
+                      业务 tag（或 topic 映射里的业务 tag）之一才可能入库；勾选全空 / 词表全空 =
+                      一条都不收（不会全放通）。源级关键词黑名单已生效；
+                      作者屏蔽 / 粉丝点赞门槛 / 跨源 URL 去重仍在最前面，业务 tag 命中也不能绕过。
+                      下面这两项（scope）默认<strong>只作上游范围参考、不参与准入</strong>；
+                      打开下面的围栏开关后，才变成「命中业务 tag <strong>且</strong> 命中范围」的双条件。
                       它<strong>不会改变 X-bot 的搜索范围</strong>（采集在上游）。
-                      作者屏蔽 / 入库门槛 / 跨源 URL 去重优先级更高，scope 命中不能绕过；
                       上游自 2026-11-12 起自带 wechat 门槛（5000 粉 / 5 赞）；moni 门槛是<strong>第二道串联闸门</strong>：只能更严，捞不回上游已丢的条目。
                     </p>
                     <p class="fetch-config-hint muted" x-text="fetchConfigScopeStatus()"></p>
 
-                    <!-- t114u (pV P1-2): 恢复默认展示 = 删除已存的 scope（停用准入）。
-                         文字在前、按钮在后：先说清后果，再让用户点。
-                         只用于展示的兜底快照不会被写进准入。 -->
+                    <label class="fetch-config-label" style="margin-top:var(--space-2);">
+                      <input type="checkbox"
+                             x-model="fetchConfigData.merged.scope_fence_enabled">
+                      <span class="fetch-config-zh">把 scope 作为必须同时满足的围栏（AND）</span>
+                      <code class="fetch-config-key">scope_fence_enabled</code>
+                    </label>
+                    <p class="fetch-config-hint muted">
+                      默认<strong>关闭</strong> = scope 只展示。打开后：命中业务 tag <strong>且</strong>
+                      命中 wechat 正则 / xcircle 固定账号 才入库。已填的 scope 不会因为你保存别的字段就被自动启用。
+                    </p>
+
+                    <!-- t114u (pV P1-2): 恢复默认展示 = 删除已存的 scope。
+                         t119u (pV P0-2): 同时**停用 scope 围栏**，避免留下
+                         「围栏开着 + scope 空」= 整源 0 入库的陷阱。 -->
                     <div class="fetch-config-scope-restore">
                       <p class="fetch-config-hint muted">
                         点「恢复默认展示」会<strong>删除</strong>已保存的 scope，展示回落到兜底快照；
-                        这会<strong>停用</strong> scope 准入（不再按正则 / 固定账号救回条目）。
-                        兜底名单与正则只用于展示，<strong>不会</strong>被写入准入；已入库文章不受影响。
+                        同时会<strong>关闭「scope 围栏」</strong>（不再拿 scope 参与准入）。
+                        <strong>入库本身仍然由业务 tag 决定</strong>；兜底名单与正则只用于展示，
+                        <strong>不会</strong>被写入准入；已入库文章不受影响。
                       </p>
                       <button type="button"
                               class="btn"
@@ -5468,7 +5483,7 @@
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
   <script src="js/desens-lab.js?v=20261126003"></script>
-  <script src="js/app.js?v=20261126006"></script>
+  <script src="js/app.js?v=20261127001"></script>
   <script src="js/reader.js?v=20261123103"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
