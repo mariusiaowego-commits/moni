@@ -20,7 +20,7 @@
 **口径变更**：`GET /api/desensitize/stats` 的 `lab_totals` 从全表累计改为仅 `call_site='desens_lab'`，
 与 `totals`（生产，排除实验室）互斥；仓内唯一消费方已同步。
 
-**部署**：`main` 快进到 `b0e36c7`；8900 尚未重启（待授权），线上仍是 v1.0.137 的旧入口。
+**部署**：`main` 快进（`b0e36c7` → docs `a980c49`）；8900 由 launchd `com.moni.web` 重启，pid `28438` → `29303`，cwd `/Users/mt16/dev/moni`。前端静态从磁盘直读（合并即生效），重启只为让后端口径与文案生效。重启后端点全 200：`/`、`/config?tab=desens`、`/api/desensitize/config`、`/api/desensitize/stats`、`/api/service/status`、`/desens-lab.html`；`enabled=false` 未变，`totals.calls=0`、`lab_totals.calls=3`（仅实验室）。
 **未做**：用户规则 CRUD（`docs/plans/2026-11-25_desens-config-panel-plan.md`，下一 sprint）；生产总开关保持关闭。
 
 ## 已发布: **v1.0.137 — 脱敏配置管理（配置区 + 实验室分区）** (2026-11-26 · PR #327 → `d1c8c1c` · tag `v1.0.137` · Sprint 80)
