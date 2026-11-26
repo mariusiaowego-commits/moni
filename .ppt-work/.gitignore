@@ -2,8 +2,10 @@
 !.gitignore
 !build_deck7.py
 !build_deck8.py
+!build_deck9.py
 !scan_deck.py
 !scan_deck8.py
 !make_script_v16.py
 !make_script_v17.py
+!make_script_v18.py
 !fit_check.py
