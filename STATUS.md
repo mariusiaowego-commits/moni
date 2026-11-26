@@ -1,3 +1,28 @@
+## 已发布: **v1.0.138 — 脱敏配置与实验室内联（零跳转）** (2026-11-26 · PR #334 → `b0e36c7` · tag `v1.0.138` · Sprint 81)
+
+**目标**：把脱敏配置与脱敏实验室合并进「配置管理 → 脱敏」同一个页签，去掉进入脱敏前的那次跳转；
+`/desens-lab.html` 降级为重定向桩。实验室文案重写，按钮改为「载入示例 / 本地预览 / 模型实测」，
+默认值与长解释下沉 tooltip。
+
+**实测**
+
+- 定向 `tests/test_desensitize_lab_api.py` + `test_web_static_headers.py` → 18 passed；
+  受影响面 `-k "desens or web or static or csrf or share or reader or summary or config"` → 473 passed；
+  `test_frontend_motion.py` → 9 passed。
+- CI `pytest · py3.12` on `aac1b2a` → success（2985 passed / 2 skipped）。
+- Playwright（8901 隔离库）：`/config?tab=desens` 直达；配置 + 实验室同页，页面内 0 个指向
+  `desens-lab.html` 的链接；旧链接重定向；5 张开关卡就地写库；规则表枚举中文；预览后指标不再「待运行」；
+  账本两行互斥；切页签同步 `?tab=`、刷新停在原页签；1280/1024/768/390 布局溢出 0。
+- 拦截路径（隔离库临时 block 规则）：`已拦截，未出网：命中拦截规则`，页面无 `policy_block`。
+- 两条独立只读复审：后端 APPROVE WITH NITS（0 必须修）、前端 1×P2 已修；
+  `moni/llm`、`moni/share`、`moni/cron` 零改动。
+
+**口径变更**：`GET /api/desensitize/stats` 的 `lab_totals` 从全表累计改为仅 `call_site='desens_lab'`，
+与 `totals`（生产，排除实验室）互斥；仓内唯一消费方已同步。
+
+**部署**：`main` 快进到 `b0e36c7`；8900 尚未重启（待授权），线上仍是 v1.0.137 的旧入口。
+**未做**：用户规则 CRUD（`docs/plans/2026-11-25_desens-config-panel-plan.md`，下一 sprint）；生产总开关保持关闭。
+
 ## 已发布: **v1.0.137 — 脱敏配置管理（配置区 + 实验室分区）** (2026-11-26 · PR #327 → `d1c8c1c` · tag `v1.0.137` · Sprint 80)
 
 **目标**：脱敏入口从顶栏归位到「配置管理」第 8 个子页；`/desens-lab.html` 拆成「配置」（总开关 / L1·L2·L3 /
