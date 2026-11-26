@@ -27,6 +27,7 @@ from typing import Any
 
 from ..db.connection import get_db
 from ..llm.client import call_llm
+from .evidence import locate_evidence
 from .normalize import normalize_case
 from .repository import CaseRepository
 
@@ -347,9 +348,13 @@ def extract_cases_for_article(
         # 归一化 + 插入 (同一事务)
         # country 字段经 json.loads 留在 raw 上, normalize_case → geography 列表
         normalized = []
+        raw_content = str(article.get("raw_content") or "")
         for raw in raw_cases:
             cs = normalize_case(raw)
             if cs is not None:
+                verified, offset, _ = locate_evidence(cs.get("evidence_snippet"), raw_content)
+                cs["evidence_verified"] = 1 if verified else 0
+                cs["evidence_offset"] = offset
                 normalized.append(cs)
 
         if not normalized:

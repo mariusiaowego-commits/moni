@@ -18,7 +18,7 @@ from .connection import get_db, get_db_path
 logger = logging.getLogger(__name__)
 
 
-_CURRENT_VERSION = 68  # + 058-060 其他, + 061 xbot_scope_admission_tag, + 062-064 P0, + 065-066 P1-1, + 067 case_insights, + 068 share_case_ids
+_CURRENT_VERSION = 69  # + 061 xbot_scope, + 062-064 P0, + 065-066 P1-1, + 067 case_insights, + 068 share_case_ids, + 069 case_evidence
 
 # Migrations <= this version were applied by the old "max(schema_version)"
 # rule, which did not record every intermediate row.  Never re-run them.
