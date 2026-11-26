@@ -78,4 +78,5 @@ $ curl -s :8900/api/cases/stats | jq '.total'
   `base_where` 与 `pending_after` 都排 archived，新增 `test_verify_all_skips_archived`。
 - P2 6 处手写口径（相关案例 + 4 个 aggregate）→ 全部改用 `active_case_clause()`。
 - P2 测试缺口 → 补 2 字短词 LIKE 分支、`total_institutions` 断言。
-- P2 回填脚本未排 archived → taxonomy / metrics / evidence 三条 SELECT 加 `case_lifecycle != 'archived'`。
+- P2 回填脚本未排 archived → taxonomy / metrics / evidence 三条 SELECT 加 `case_lifecycle != 'archived'`；
+  `tests/test_cases_taxonomy.py` 期望同步改为「archived 不参与回填」（matched 3 → 2）。
