@@ -42,7 +42,7 @@ agy 出 3 案、pixel 给规格，融合后选「一卡一指标、只留两级�
   `10` 是 `case_scenario_links` 的 10 个场景（9 个业务场景 + `other`）。
 
 原始建议归档：`design/stats-strip-agy.md`、`design/stats-strip-pixel.md`。
-截图：`render/prototype-stats-1440.png`、`render/prototype-stats-1024.png`。
+截图：`render/prototype-zones-1440.png`、`render/prototype-zones-1024.png`（三档表面融合后）。
 
 复算（生产库副本，迁移到 069 并跑完 `backfill_taxonomy`）：
 
@@ -189,3 +189,38 @@ FROM cases;
 1. §2 证据三层：做（校验 + 上下文已落地；原文定位随详情页 UI 一起做）。
 2. §3 筛选方案：按上表落地（含砍行业二级、砍关键词维度），等 mock 样式确认后进前端。
 3. §4 案例简报：按「同一骨架、两种渲染器」统一，排版层已落地。
+
+## 6. 三层区域 UI 区分（pixel 设计 → agy 审核 → 融合）
+
+**问题**：概览、筛选、案例卡三层都用 `--card` + 1px 边框 + 12px 圆角 + 相近内距，
+用户读起来是「同一种卡片」。
+
+**融合结论：三档表面 + 圆角 + 边界三重编码**（不靠区域标题）
+
+| 区域 | 表面 | 圆角 | 边框 | 内距 | 交互 |
+|---|---|---|---|---|---|
+| A 概览 KPI | 透明（页面 `--background`） | 0 | 上下各 1px `--border` | 16px 0 | 无（只读） |
+| B 筛选控制 | `--muted`（内凹） | 6px | 1px `--border` | 12px 16px | 胶囊 hover / 选中黑底 |
+| C 案例卡 | `--card`（抬起） | 12px | 1px `--border` | 20px | hover `--shadow` + 上移 1px |
+
+- 灰度明度：A 89.4 / B 79.9 / C 98.9；圆角 0 / 6 / 12；边界「有 / 有 / 全框」，
+  打印灰度与色盲下都不丢层级。
+- 展开面板：`--background` 底 + `--card` 选项，避免与 C 区案例卡同明度。
+- 1024：A 仍 4 列（gap 8 / padding 14 0），B 仍 3 列单行（不横滚），C 2 列；
+  <800px 才把 A 折 2×2、B 折单列。
+- agy 的 P0 两条已处理：mock 的旧 `.cc-metric` 不进入融合版；1024 不做隐藏横滚。
+  P1「搜索 / 命中数 / 清空 / token 行」以 `filter-mock.html` 为准，原型里的三组 facet
+  只是同一表面的简化态。
+
+**单一事实来源（后续开发照这个还原）**
+
+- 页面级视觉与三档表面：`design/prototype-v2.html`
+- 筛选条交互（搜索 / 计数 / 清空 / token / 面板）：`design/filter-mock.html`
+- 最终 `/cases` = 原型的 A/C + filter-mock 的 B 条，表面语言两处一致（`--muted` + 6px）。
+
+**证据**
+
+- pixel 原始方案：`design/zone-hierarchy-pixel.md`、`design/zone-hierarchy-pixel.html`
+- agy 审核：`design/zone-hierarchy-agy.md`（有条件接受，2×P0 / 3×P1 / 2×P2）
+- 融合截图：`render/prototype-zones-1440.png`、`prototype-zones-1024.png`
+- 筛选 mock：`render/filter-zones-1440.png`、`filter-zones-open-1440.png`、`filter-zones-1024.png`

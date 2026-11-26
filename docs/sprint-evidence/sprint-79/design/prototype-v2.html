@@ -60,17 +60,19 @@ button{font-family:inherit; cursor:pointer}
 .state.is-active{display:block}
 
 /* ═══ A 聚合页 ═══ */
-.stats-strip{display:grid; grid-template-columns:repeat(4,1fr); gap:var(--space-3); margin-bottom:var(--space-6)}
+/* 三档表面：A 概览无框（页面底 + 上下细线），B 筛选内凹（--muted + 6px），C 案例卡抬起（--card + 12px）。
+   不靠区域标题，靠明度 / 圆角 / 边界三重编码分层，灰度下也能分开。 */
+.stats-strip{display:grid; grid-template-columns:repeat(4,1fr); gap:var(--space-3); margin:0 0 var(--space-6); padding:16px 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border)}
 /* 一卡一指标：只允许「数字 / ≤4 字标签」两级，DOM 不留第三行，避免再塞高·中·低第二口径。 */
-.stat{background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:14px 20px}
+.stat{background:transparent; border:0; border-radius:0; padding:0}
 .stat .n{font-size:var(--font-28); font-weight:600; letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1.1}
 .stat .u{font-size:var(--font-13); color:var(--muted-fg); margin-top:4px; line-height:1.4}
 
-.facets{display:grid; grid-template-columns:repeat(3,1fr); gap:var(--space-3); margin-bottom:var(--space-6)}
-.facet{background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-4)}
+.facets{display:grid; grid-template-columns:repeat(3,1fr); gap:var(--space-4) var(--space-6); margin:0 0 var(--space-6); padding:12px 16px; background:var(--muted); border:1px solid var(--border); border-radius:var(--radius-sm)}
+.facet{background:transparent; border:0; border-radius:0; padding:0}
 .facet h4{margin:0 0 var(--space-3); font-size:var(--font-12); font-weight:600; color:var(--muted-fg); letter-spacing:.06em}
 .facet .row{display:flex; flex-wrap:wrap; gap:var(--space-2)}
-.chip-facet{font-size:var(--font-13); padding:5px 10px; background:var(--background); color:var(--card-fg); border:1px solid var(--border); border-radius:999px; display:inline-flex; align-items:center; gap:6px}
+.chip-facet{font-size:var(--font-13); padding:5px 10px; background:var(--card); color:var(--card-fg); border:1px solid var(--border); border-radius:999px; display:inline-flex; align-items:center; gap:6px}
 .chip-facet .c{font-family:var(--mono); font-size:var(--font-12); color:var(--muted-fg)}
 .chip-facet[aria-pressed="true"]{background:var(--foreground); color:var(--background); border-color:var(--foreground)}
 .chip-facet[aria-pressed="true"] .c{color:var(--background); opacity:.7}
@@ -203,9 +205,8 @@ button{font-family:inherit; cursor:pointer}
 
 /* ═══ 响应式 ═══ */
 @media (max-width:1100px){
-  .stats-strip{gap:var(--space-2)}
-  .stat{padding:12px 16px}
-  .facets{grid-template-columns:1fr}
+  .stats-strip{gap:var(--space-2); padding:14px 0}
+  .facets{gap:var(--space-3) var(--space-4); padding:10px 12px}
   .sheet{display:block; overflow-y:auto; height:92vh}
   .sheet-main,.sheet-side{overflow:visible; height:auto}
   .sheet-side{border-left:0; border-top:1px solid var(--border)}
@@ -213,6 +214,7 @@ button{font-family:inherit; cursor:pointer}
 }
 @media (max-width:800px){
   .stats-strip{grid-template-columns:repeat(2,1fr)}
+  .facets{grid-template-columns:1fr}
 }
 @media (max-width:720px){
   .wrap,.sheet-main,.sheet-side{padding:var(--space-4)}

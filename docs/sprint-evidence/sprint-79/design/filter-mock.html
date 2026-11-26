@@ -43,8 +43,8 @@ button{font-family:inherit; cursor:pointer}
 .navlinks a.active{background:var(--muted); color:var(--card-fg); font-weight:600}
 
 /* ═══ 筛选条 ═══ */
-.filters{background:var(--background); border-bottom:1px solid var(--border)}
-.filters__row{position:sticky; top:56px; z-index:190; background:var(--background); max-width:1280px; margin:0 auto; display:flex; align-items:center; gap:var(--space-3); padding:8px 24px; flex-wrap:wrap}
+.filters{background:var(--muted); border-top:1px solid var(--border); border-bottom:1px solid var(--border)}
+.filters__row{position:sticky; top:56px; z-index:190; background:var(--muted); max-width:1280px; margin:0 auto; display:flex; align-items:center; gap:var(--space-3); padding:8px 24px; flex-wrap:wrap}
 .search{display:flex; align-items:center; gap:var(--space-2); flex:1; max-width:420px; background:var(--card); border:1px solid var(--border); border-radius:var(--radius-sm); padding:6px 10px}
 .search input{flex:1; min-width:0; border:0; background:transparent; color:var(--foreground); font-size:var(--font-13); outline:none; font-family:inherit}
 .search .k{font-size:var(--font-12); color:var(--muted-fg); font-family:var(--mono)}
@@ -73,21 +73,21 @@ button{font-family:inherit; cursor:pointer}
 .ftokens[hidden]{display:none}
 .ftoken{
   height:26px; padding:0 6px 0 10px; font-size:var(--font-13);
-  background:var(--muted); color:var(--card-fg); border:0; border-radius:var(--radius-sm);
+  background:var(--card); color:var(--card-fg); border:1px solid var(--border); border-radius:var(--radius-sm);
   display:inline-flex; align-items:center; gap:4px;
 }
 .ftoken__x{width:16px; height:16px; font-size:12px; line-height:1; color:var(--muted-fg); display:grid; place-items:center}
 .ftoken:hover .ftoken__x{color:var(--foreground)}
 
 /* 展开面板（in-flow，不遮挡列表） */
-.fpanel{max-width:1280px; margin:0 auto var(--space-4); background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-3) var(--space-4); max-height:240px; overflow-y:auto}
+.fpanel{max-width:1280px; margin:0 auto var(--space-4); background:var(--background); border:1px solid var(--border); border-radius:var(--radius-md); padding:var(--space-3) var(--space-4); max-height:240px; overflow-y:auto}
 .fpanel[hidden]{display:none}
 .fpanel__head{display:flex; align-items:center; gap:var(--space-2); font-size:var(--font-12); font-weight:600; color:var(--muted-fg); letter-spacing:.06em; margin-bottom:var(--space-2)}
 .fpanel__sel{margin-left:auto; letter-spacing:0; font-weight:500}
 .fpanel__body{display:grid; grid-template-columns:repeat(auto-fill,minmax(132px,1fr)); gap:6px; outline:none}
 .fopt{
   height:30px; padding:0 10px; font-size:var(--font-13); text-align:left;
-  background:var(--background); color:var(--card-fg); border:1px solid var(--border); border-radius:var(--radius-sm);
+  background:var(--card); color:var(--card-fg); border:1px solid var(--border); border-radius:var(--radius-sm);
   display:flex; align-items:center; gap:6px;
 }
 .fopt:hover{border-color:var(--muted-fg)}
@@ -418,6 +418,8 @@ document.addEventListener('keydown', function(e){
 /* ═══ 解析 URL 回填 ═══ */
 (function restore() {
   var h = location.hash.replace(/^#/, '');
+  var openParam = new URLSearchParams(location.search).get('open');
+  if (openParam) openDim = openParam;
   if (!h) return;
   h.split('&').forEach(function(pair) {
     var kv = pair.split('=');
