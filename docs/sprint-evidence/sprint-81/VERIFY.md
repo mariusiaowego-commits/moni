@@ -1,7 +1,7 @@
 ---
 type: sprint
 sprint: 26112601
-status: 进行中
+status: 已完成
 ---
 
 # Sprint 81 · 验收记录
@@ -126,6 +126,9 @@ Operation not permitted
 ```
 
 该用例要在主 checkout 的 `.git` 下建 worktree，当前沙箱只读；CI 在可写 clone 中执行。
+
+CI 最终全量（`pytest · py3.12`，run `45764984619`，head `4009644`）→ `success`，
+**3013 passed / 2 skipped**；合并 commit `c93270d`（PR #337 squash）。
 
 首轮全量曾出现 4 个前端契约 failed（hover 守卫 / overlay 覆盖 / `safeHref`），
 已在本 PR 修复并定向复跑：
