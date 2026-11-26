@@ -12,6 +12,8 @@ IMGDIR = sys.argv[2]          # 相对 vault 根的路径，如 55-workstuff/...
 OUT = sys.argv[3]
 
 VAULT_REL = "55-workstuff/AI技术应用与创新实践劳动竞赛/决赛/PPT"
+VERSION = sys.argv[4] if len(sys.argv) > 4 else "v18"
+SCRIPT_REL = sys.argv[5] if len(sys.argv) > 5 else "23-终稿-v18-15页讲稿.md"
 
 # 每页一句话：这一页在整场汇报里承担什么（不是复述标题）
 ROLE = {
@@ -40,14 +42,15 @@ out = []
 out.append("---")
 out.append("type: draft")
 out.append("contest: 决赛汇报PPT")
-out.append("version: v18-逐页预览")
+out.append("version: %s-逐页预览" % VERSION)
 out.append("duration_min: 6")
 out.append("date: 2026-11-26")
 out.append("---")
 out.append("")
-out.append("# 决赛汇报 v18 · 逐页预览（15 页）")
+out.append("# 决赛汇报 %s · 逐页预览（15 页）" % VERSION)
 out.append("")
-out.append("> 源文件：`决赛汇报-v18.pptx`（Obsidian 同目录）　渲染：`%s/L-01…15.png`" % IMGDIR)
+out.append("> 源文件：`决赛汇报-%s.pptx`（Obsidian 同目录）　渲染：`%s/L-01…15.png`"
+           % (VERSION, IMGDIR))
 out.append("")
 
 total_sec = 0.0
@@ -119,8 +122,8 @@ for i, s in enumerate(prs.slides, 1):
 
 out.append("---")
 out.append("")
-out.append("相关：[[%s/决赛汇报-v18.pptx]]　[[%s/23-终稿-v18-15页讲稿.md]]"
-           % (VAULT_REL, VAULT_REL))
+out.append("相关：[[%s/决赛汇报-%s.pptx]]　[[%s/%s]]"
+           % (VAULT_REL, VERSION, VAULT_REL, SCRIPT_REL))
 out.append("")
 
 with open(OUT, "w", encoding="utf-8") as f:
