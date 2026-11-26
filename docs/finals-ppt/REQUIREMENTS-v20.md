@@ -50,8 +50,10 @@ speech 961 chars = 288.3s (4:48) + 57s demo = 345s ≈ 5:45
 
 ## 4. Agent 参与（已核对产物，非自报）
 
-- **agy**（herdr `w52:p0`）：`/private/tmp/v20/agy-v20-copy.md`（A–G 全部文案）。其环境无 `/grill-me`、`/boost` 技能，改用 `ask_question` 多轮追问等价完成 P06/P08 架构澄清。
-- **pixel**（hermes `-p pixel`）：`/private/tmp/v20/pixel-v20-ui.md`（11281 bytes，16:45 产出）。给出 P11 结果块、P13 双环、P03 截图卡 + 引线、P10 合并页、P02-b/c 元素清单；v20 吸收其中 P11「闭起来的结果块」、P13 双环样式、P03 截图编号标记三项。
+- **agy**（herdr `w52:p0`）：`agy-v20-copy.md`（A–G 全部文案）。其环境无 `/grill-me`、`/boost` 技能，改用 `ask_question` 多轮追问等价完成 P06/P08 架构澄清。
+- **pixel**（hermes `-p pixel`）：`pixel-v20-ui.md`（11281 bytes，16:45 产出）。给出 P11 结果块、P13 双环、P03 截图卡 + 引线、P10 合并页、P02-b/c 元素清单；v20 吸收其中 P11「闭起来的结果块」、P13 双环样式、P03 截图编号标记三项。
+
+> agent 产出原文已固化到 Obsidian `决赛/PPT/v20/源码/agent产出/`（agy-v20-copy.md / pixel-v20-ui.md 及两份 brief）。
 
 ## 5. 新增交付物
 
