@@ -72,9 +72,12 @@ def _dedupe_case_article_ids(conn: Any, case_ids: list[str]) -> list[str]:
     """从 cases 表查询 case_ids 对应的去重来源 article_id 列表 (保序)."""
     if not case_ids:
         return []
+    from moni.cases.repository import active_case_clause
+
     ph = ",".join("?" * len(case_ids))
     rows = conn.execute(
-        f"SELECT case_id, article_id FROM cases WHERE case_id IN ({ph})",
+        f"""SELECT case_id, article_id FROM cases
+            WHERE case_id IN ({ph}) AND {active_case_clause()}""",
         case_ids,
     ).fetchall()
     by_case = {str(r[0]): str(r[1]) for r in rows if r[1]}

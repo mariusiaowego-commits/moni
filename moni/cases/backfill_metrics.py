@@ -16,13 +16,13 @@ from __future__ import annotations
 
 import argparse
 import re
-import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from moni.cases.normalize import parse_metric
+from moni.cases.backfill_common import backup_database, connect
 
 _METRIC_LABEL_CN: dict[str, str] = {
     "dau": "日活",
@@ -140,8 +140,7 @@ def _extract_verbatim_quote(
 
 def run_backfill_metrics(db_path: Path, *, apply: bool = False) -> dict[str, Any]:
     """回填存量案例 case_metrics 并更新 cases.amount 展示串."""
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) if not apply else sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
+    conn = connect(db_path, apply=apply)
     try:
         rows = conn.execute(
             """
@@ -269,12 +268,16 @@ def main(argv: list[str] | None = None) -> int:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="仅统计不写库 (默认)")
     mode.add_argument("--apply", action="store_true", help="写入 DB")
+    parser.add_argument("--no-backup", action="store_true", help="apply 前不自动备份")
     args = parser.parse_args(argv)
 
     db_path = Path(args.db)
     if not db_path.exists():
         print(f"DB not found: {db_path}", file=sys.stderr)
         return 2
+
+    if args.apply and not args.no_backup:
+        print(f"backup: {backup_database(db_path, tag='backfill-metrics')}")
 
     res = run_backfill_metrics(db_path, apply=bool(args.apply))
     print(

@@ -56,23 +56,26 @@ jobs:
     func_kwargs:
       batch_size: 20
 
-  # ── 同业案例抽取 (工作日午后/晚间补漏, fetch 后另有链式触发) ──
+  # ── 同业案例抽取 (每天一次, 默认暂停; 前端「立即抽取」按需触发) ──
   - id: extract_cases_noon_post
     name: "同业案例抽取-午后"
     trigger_type: cron
     hour: 13
     minute: 30
-    day_of_week: "mon-fri"
+    day_of_week: "*"
     func_path: moni.cron.jobs:extract_cases_pending
+    is_active: false
     func_kwargs:
-      batch_size: 30
+      batch_size: 12
 
-  - id: extract_cases_night
-    name: "同业案例抽取-晚间"
-    trigger_type: cron
-    hour: 20
-    minute: 30
-    day_of_week: "mon-fri"
-    func_path: moni.cron.jobs:extract_cases_pending
+  # 手动演示任务：不在调度器注册，仅供案例库页「立即抽取」按钮入队
+  - id: extract_cases_demo
+    name: "案例抽取-立即演示"
+    trigger_type: manual
+    hour: 0
+    minute: 0
+    day_of_week: "*"
+    func_path: moni.cron.jobs:extract_cases_demo
+    is_active: false
     func_kwargs:
-      batch_size: 30
+      batch_size: 10
