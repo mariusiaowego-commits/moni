@@ -19,6 +19,19 @@ from .evidence import build_context, locate_evidence
 logger = logging.getLogger(__name__)
 
 
+def active_case_clause(alias: str = "", *, include_archived: bool = False) -> str:
+    """案例「在用」口径：排除 ``__processing__`` 占位行，默认再排除 archived 软删行。
+
+    列表 / facets / FTS 搜索 / 统计看板 / 漏斗共用，避免各写一份 where 造成口径分叉。
+    ``alias`` 传表别名（如 ``"c"``）时输出 ``c.subject`` 形式。
+    """
+    prefix = f"{alias}." if alias else ""
+    clause = f"{prefix}subject != '__processing__'"
+    if not include_archived:
+        clause += f" AND {prefix}case_lifecycle != 'archived'"
+    return clause
+
+
 def _generate_case_id(case_type: str, case_date: str | None) -> str:
     """生成 case_id = MN-<2字母>-<YYMM>-<4位序号>.
 
@@ -84,9 +97,7 @@ def _case_filters(
     调用方负责 FROM: cases c LEFT JOIN articles a LEFT JOIN enterprises e。
     ``skip`` 用于 facets：计算某维度时排除该维度自身条件。
     """
-    clauses = ["c.subject != '__processing__'"]
-    if not case_lifecycle:
-        clauses.append("c.case_lifecycle != 'archived'")
+    clauses = [active_case_clause("c", include_archived=bool(case_lifecycle))]
     params: list[Any] = []
 
     def add(dim: str, clause: str, values: Sequence[Any]) -> None:
@@ -1088,7 +1099,7 @@ class CaseRepository:
                 JOIN cases c ON cases_fts.case_id = c.case_id
                 LEFT JOIN articles a ON c.article_id = a.id
                 WHERE cases_fts MATCH ?
-                  AND c.subject != '__processing__'
+                  AND {active_case_clause("c")}
                   {where_extra}
                 ORDER BY rank LIMIT ?
             """
@@ -1099,7 +1110,7 @@ class CaseRepository:
                 {select_cols}
                 FROM cases c
                 LEFT JOIN articles a ON c.article_id = a.id
-                WHERE c.subject != '__processing__'
+                WHERE {active_case_clause("c")}
                   AND {where_sql}
                 ORDER BY c.created_at DESC LIMIT ?
             """
