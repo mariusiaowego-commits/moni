@@ -144,6 +144,16 @@ class TestRun:
         assert stats["lab_totals"]["leak_scan_hits"] == 0
         assert stats["enabled"] is False
 
+        # 两行口径必须互斥：生产调用只进 totals，不能又被 lab_totals 重复计入。
+        conn.execute(
+            "INSERT INTO desensitize_events(call_id, call_site, task_type, created_at) "
+            "VALUES('prod-1', 'summary_gen', 'standard', '2026-11-26 10:00:00')"
+        )
+        conn.commit()
+        stats = client.get("/api/desensitize/stats").json()
+        assert stats["totals"]["calls"] == 1
+        assert stats["lab_totals"]["calls"] == 1
+
     def test_run_with_global_switch_on_does_not_mask_twice(self, client, fake_hermes):
         conn = get_db()
         conn.execute(

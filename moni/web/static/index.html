@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261126001">
+  <link rel="stylesheet" href="css/main.css?v=20261126002">
   <!-- v1.0.110: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
        放在 main.css 之后，同名选择器以它们为准，便于单独回滚。 -->
   <link rel="stylesheet" href="css/source-ops.css?v=20261120011">
@@ -3677,7 +3677,8 @@
           <div class="surface-muted" style="display: flex; flex-direction: column; gap: var(--space-4);">
             <div class="panel-title-row">
               <h3>信息脱敏</h3>
-              <p class="panel-title-hint" title="在发往大模型前于本机完成敏感信息遮蔽，收到模型回包后再于本机还原">发给模型的内容先遮蔽，模型回包本地还原</p>
+              <p class="panel-title-hint"
+                 title="在发往大模型前于本机遮蔽敏感信息，收到回包后再于本机还原；保存后本进程立即生效，后台与分享任务最多 30 秒同步">本机遮蔽敏感信息，模型回包本地还原</p>
             </div>
 
             <div class="switch-cards-grid switch-cards-single">
@@ -3687,7 +3688,8 @@
                       @click="toggleDesens('enabled')">
                 <span class="switch-card-info">
                   <span class="switch-card-title">脱敏总开关</span>
-                  <span class="switch-card-desc" title="开启后所有发给模型的内容先本机遮蔽、模型回包本地还原；默认关闭">发给模型的内容先遮蔽，默认关闭</span>
+                  <span class="switch-card-desc"
+                        title="默认关闭。开启后按策略与分级遮蔽发给模型的内容，并在本机还原回包；未开严格模式且引擎异常时原样放行">启用出站遮蔽与入站本地还原</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': desensConfig && desensConfig.enabled }"></span>
               </button>
@@ -3700,7 +3702,8 @@
                       @click="toggleDesens('level_l1')">
                 <span class="switch-card-info">
                   <span class="switch-card-title">L1 凭据</span>
-                  <span class="switch-card-desc" title="API Key、令牌、私钥与数据库口令等高危凭据">密钥、令牌、密码</span>
+                  <span class="switch-card-desc"
+                        title="涵盖 API Key、Token、JWT、Bearer、私钥与数据库口令等高危凭据">密钥、令牌、口令与私钥</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': desensConfig && desensConfig.levels.level_l1 }"></span>
               </button>
@@ -3709,8 +3712,9 @@
                       :disabled="!desensConfig || desensSaving"
                       @click="toggleDesens('level_l2')">
                 <span class="switch-card-info">
-                  <span class="switch-card-title">L2 个人信息</span>
-                  <span class="switch-card-desc" title="个人身份信息及投研关注的机构、项目名称">手机、证件、卡号、邮箱、机构</span>
+                  <span class="switch-card-title">L2 个人信息与业务语义</span>
+                  <span class="switch-card-desc"
+                        title="涵盖个人隐私，以及投研关注的机构、内部项目与敏感评估口径">手机、证件、卡号、邮箱、机构与项目</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': desensConfig && desensConfig.levels.level_l2 }"></span>
               </button>
@@ -3720,7 +3724,8 @@
                       @click="toggleDesens('level_l3')">
                 <span class="switch-card-info">
                   <span class="switch-card-title">L3 基础设施</span>
-                  <span class="switch-card-desc" title="内网域名、公网 IP 与信源发布方名称">内网主机、公网 IP、发布方</span>
+                  <span class="switch-card-desc"
+                        title="涵盖本机用户路径（默认启用）、内网域名、公网 IP 与信源发布方">路径、内网域名、公网 IP、发布方</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': desensConfig && desensConfig.levels.level_l3 }"></span>
               </button>
@@ -3730,7 +3735,8 @@
                       @click="toggleDesens('strict_fail_closed')">
                 <span class="switch-card-info">
                   <span class="switch-card-title">严格模式</span>
-                  <span class="switch-card-desc" title="开启后脱敏引擎异常直接阻断不出网；默认关闭（降级擦除后放行）">异常时阻断不出网，默认放行</span>
+                  <span class="switch-card-desc"
+                        title="默认关闭（引擎异常时原样放行或保留原始回包）。开启后出站遮蔽或入站还原异常均直接报错中断">引擎异常时阻断出站与入站回写</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': desensConfig && desensConfig.levels.strict_fail_closed }"></span>
               </button>
@@ -3738,9 +3744,8 @@
 
             <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
               <span class="muted" style="font-size: var(--font-13);"
-                    title="自定义遮蔽词与正则规则（在线编辑后续支持）"
-                    x-text="desensConfig ? ('自定义规则 ' + desensConfig.rules_count + ' 条') : '自定义规则 …'"></span>
-              <a class="btn btn-secondary btn-sm" href="/desens-lab.html" title="前往脱敏实验室测试遮蔽与还原效果">脱敏实验室 →</a>
+                    title="用户规则：遮蔽词、正则与白名单；在线增删改将在后续版本支持"
+                    x-text="desensConfig ? ('用户规则 ' + desensConfig.rules_count + ' 条') : '用户规则 …'"></span>
               <span class="hint" x-show="desensSaveMsg" x-text="desensSaveMsg"></span>
               <span class="hint" x-show="desensConfigError" x-text="desensConfigError"></span>
               <button type="button" class="btn btn-ghost btn-sm"
@@ -3751,9 +3756,9 @@
               <table style="table-layout: fixed; width: 100%;">
                 <thead>
                   <tr>
-                    <th style="width: 110px;">类型</th>
-                    <th style="width: 110px;">类别</th>
-                    <th>模式</th>
+                    <th style="width: 110px;">规则类型</th>
+                    <th style="width: 110px;">分类</th>
+                    <th>匹配模式</th>
                     <th style="width: 180px;">别名</th>
                     <th style="width: 90px;">动作</th>
                   </tr>
@@ -3761,19 +3766,68 @@
                 <tbody>
                   <template x-for="r in (desensConfig ? desensConfig.rules : [])" :key="r.rule_type + '|' + r.pattern">
                     <tr>
-                      <td x-text="r.rule_type"></td>
-                      <td x-text="r.kind"></td>
+                      <td :title="r.rule_type" x-text="desensRuleType(r.rule_type)"></td>
+                      <td :title="r.kind" x-text="desensRuleKind(r.kind)"></td>
                       <td class="nowrap" :title="r.pattern" x-text="r.pattern"></td>
                       <td x-text="(r.aliases || []).join('、')"></td>
-                      <td x-text="r.action"></td>
+                      <td :title="r.action" x-text="desensRuleAction(r.action)"></td>
                     </tr>
                   </template>
                   <tr x-show="!desensConfig || !(desensConfig.rules || []).length">
-                    <td colspan="5" class="muted" title="在线增删改规则将在后续版本支持">暂无自定义规则</td>
+                    <td colspan="5" class="muted"
+                        title="当前仅支持只读查看已生效规则，页面新增或编辑将在后续版本支持">暂无用户规则</td>
                   </tr>
                 </tbody>
               </table>
             </div>
+          </div>
+
+          <!-- ── 脱敏实验室（v1.0.139：就地运行，不再跳独立页） ── -->
+          <div class="panel-title-row desens-lab-head">
+            <h3>脱敏实验室</h3>
+            <p class="panel-title-hint"
+               title="同一段文本在本机遮蔽后发给大模型，再把回包还原，逐栏对比每一步结果">逐栏对比遮蔽与还原</p>
+            <span class="pill" id="lab-ledger-state" title="账本累计：生产调用与实验室调用">账本 …</span>
+          </div>
+          <div class="desens-lab" id="labRoot">
+            <section class="panel">
+              <h2 title="输入要测试的文本，选择策略后运行">测试输入</h2>
+              <div class="pad">
+                <textarea id="lab-input" spellcheck="false"></textarea>
+                <div class="row">
+                  <button type="button" id="lab-sample" title="填入含机构名、手机号与邮箱的示例文本">载入示例</button>
+                  <select id="lab-task-type" title="标准策略遮蔽全部已启用类别；联网核查保留公开机构名">
+                    <option value="standard">标准策略（standard）</option>
+                    <option value="fact_check_plus">联网核查（fact_check_plus）</option>
+                  </select>
+                  <input id="lab-terms" placeholder="临时遮蔽词（逗号分隔）"
+                         title="仅本次测试生效的临时遮蔽词，多个词用逗号分隔" spellcheck="false"
+                         style="flex:1;min-width:220px;">
+                  <button type="button" id="lab-preview" title="只在本机执行遮蔽检查，不调用大模型">本地预览</button>
+                  <button type="button" id="lab-run" class="primary" title="把遮蔽后的内容发给大模型，再在本机还原">模型实测</button>
+                  <span class="sub" id="lab-status"></span>
+                </div>
+                <div class="err" id="lab-err"></div>
+              </div>
+            </section>
+
+            <section class="cols">
+              <div class="col"><h3 title="未做任何处理的原始输入"><span class="n">①</span>原文</h3><pre id="lab-c1">—</pre></div>
+              <div class="col masked"><h3 title="本机遮蔽后实际发往大模型的内容"><span class="n">②</span>发给模型的内容</h3><pre id="lab-c2">—</pre></div>
+              <div class="col raw"><h3 title="大模型返回的原始文本，仍含占位符"><span class="n">③</span>模型回包</h3><pre id="lab-c3">—</pre></div>
+              <div class="col restored"><h3 title="按本机映射表还原占位符后的文本"><span class="n">④</span>本地还原后</h3><pre id="lab-c4">—</pre></div>
+            </section>
+
+            <section class="panel">
+              <h2>本次指标</h2>
+              <div class="pad metrics" id="lab-metrics"></div>
+            </section>
+
+            <section class="panel">
+              <h2 title="只记录脱敏元数据与计数，不落盘敏感原文；生产口径已排除实验室调用">审计账本</h2>
+              <div class="pad" id="lab-ledger"></div>
+              <pre class="sql" id="lab-sql" title="生产口径复算 SQL（已排除 desens_lab 调用）"></pre>
+            </section>
           </div>
         </div>
       </section>
@@ -5367,7 +5421,8 @@
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
-  <script src="js/app.js?v=20261126001"></script>
+  <script src="js/desens-lab.js?v=20261126002"></script>
+  <script src="js/app.js?v=20261126002"></script>
   <script src="js/reader.js?v=20261123103"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind

@@ -182,10 +182,10 @@ def post_run(req: LabRunRequest = Body(...)) -> dict[str, Any]:
 
 @router.get("/stats")
 def get_stats(limit: int = 20) -> dict[str, Any]:
-    """审计账本汇总：生产口径（排除实验室调用）+ 实验室自己的最近若干条。"""
+    """审计账本汇总：生产口径（排除实验室）与实验室口径各一行，互斥不重复计数。"""
     conn = get_db()
-    totals = _aggregate(conn, exclude_lab=True)
-    lab = _aggregate(conn, exclude_lab=False)
+    totals = _aggregate(conn, scope="production")
+    lab = _aggregate(conn, scope="lab")
     recent = _recent_rows(conn, limit)
     settings = load_settings()
     return {
@@ -323,9 +323,17 @@ def put_config(payload: DesensConfigUpdate) -> dict[str, Any]:
     return _config_payload(settings, _active_rules(conn))
 
 
-def _aggregate(conn: sqlite3.Connection, *, exclude_lab: bool) -> dict[str, Any]:
-    where = "WHERE call_site != ?" if exclude_lab else ""
-    params: tuple[Any, ...] = (LAB_CALL_SITE,) if exclude_lab else ()
+def _aggregate(conn: sqlite3.Connection, *, scope: str) -> dict[str, Any]:
+    """按口径汇总：production 排除实验室调用，lab 只算实验室调用。
+
+    两行必须互斥，否则表里「生产 / 实验室」并排却重复计数，数字无法复算。
+    """
+    if scope == "production":
+        where, params = "WHERE call_site != ?", (LAB_CALL_SITE,)
+    elif scope == "lab":
+        where, params = "WHERE call_site = ?", (LAB_CALL_SITE,)
+    else:
+        raise ValueError(f"unknown aggregate scope: {scope}")
     row = conn.execute(
         f"""
         SELECT count(*) AS calls,
