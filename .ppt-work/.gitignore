@@ -1,0 +1,5 @@
+*
+!.gitignore
+!build_deck7.py
+!scan_deck.py
+!make_script_v16.py
