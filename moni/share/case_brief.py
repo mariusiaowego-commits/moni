@@ -101,6 +101,8 @@ def load_case_brief_items(
     include_evidence: bool = True,
 ) -> list[dict[str, Any]]:
     """从 SQLite 读取待渲染案例及关联实体/指标/场景/解读."""
+    from moni.cases.repository import active_case_clause
+
     clean_ids = [str(cid).strip() for cid in case_ids if str(cid).strip()]
     if not clean_ids:
         return []
@@ -166,8 +168,7 @@ def load_case_brief_items(
             {cat_join}
             {scn_join}
             WHERE c.case_id IN ({ph})
-              AND c.subject != '__processing__'
-              AND c.case_lifecycle != 'archived'
+              AND {active_case_clause("c")}
               AND c.review_status != 'rejected'
             """,
             clean_ids,

@@ -2144,6 +2144,10 @@
               </div>
               <output class="cv-hit" aria-live="polite"><b x-text="cvTotal"></b> 条</output>
               <button type="button" class="cv-clear" :disabled="!cvHasFilters()" @click="cvClear()">清空</button>
+              <button type="button" class="cv-extract" :disabled="cvExtractBusy" @click="cvExtractRun()"
+                      title="按需抽取最新文章，单次最多 10 条（演示用）">
+                <span x-text="cvExtractBusy ? '抽取中…' : '立即抽取 10 条'"></span>
+              </button>
             </div>
 
             <div class="cv-tokens" x-show="cvTokens().length">
@@ -5418,7 +5422,7 @@
        所以 window.safeHref / window.isSafeUrl 在 Alpine 求值表达式时已就位。 -->
   <script src="js/safe_url.js?v=20261023001"></script>
   <script src="js/calendar.js?v=20260810001"></script>
-  <script src="js/cases.js?v=20261126004"></script>
+  <script src="js/cases.js?v=20261126006"></script>
   <script src="js/stats.js?v=20261126001"></script>
   <script src="js/theme.js?v=20260813019"></script>
   <script src="vendor/marked-16.4.2.umd.js?v=20261116001"></script>

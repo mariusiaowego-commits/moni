@@ -27,6 +27,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
+from moni.cases.repository import active_case_clause
 from moni.db.connection import get_db, get_db_path
 from moni.share.artifacts import ensure_artifact
 from moni.share.brief_html import find_unready_articles
@@ -647,8 +648,7 @@ def create_case_share(body: CaseBriefCreateRequest) -> CaseBriefCreateResponse:
             SELECT case_id, article_id
             FROM cases
             WHERE case_id IN ({ph})
-              AND subject != '__processing__'
-              AND case_lifecycle != 'archived'
+              AND {active_case_clause()}
               AND review_status != 'rejected'
             """,
             raw_ids,
@@ -657,12 +657,11 @@ def create_case_share(body: CaseBriefCreateRequest) -> CaseBriefCreateResponse:
         case_ids = [cid for cid in raw_ids if cid in found_map]
         article_ids = list(dict.fromkeys(found_map[cid] for cid in case_ids if found_map.get(cid)))
     else:
-        sql = """
+        sql = f"""
             SELECT DISTINCT c.case_id, c.article_id
             FROM cases c
             LEFT JOIN case_scenario_links l ON l.case_id = c.case_id
-            WHERE c.subject != '__processing__'
-              AND c.case_lifecycle != 'archived'
+            WHERE {active_case_clause("c")}
               AND c.review_status != 'rejected'
         """
         params: list[Any] = []

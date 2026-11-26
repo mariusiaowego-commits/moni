@@ -25,12 +25,28 @@ def fresh_db(tmp_path: Path):
     mig_mod._CON = None
 
 
+_BODY = (
+    "招商银行今日宣布上线面向零售客户的 AI 投顾服务，并在深圳设立金融科技实验室，"
+    "首批接入智能投顾与财富管理场景。该行表示，新服务将覆盖手机银行与线下网点，"
+    "后续还将与多家头部大模型厂商合作，探索智能客服、风控与合规审查等应用。"
+    "业内人士认为，这一动作标志着银行在数字人民币与跨境支付之外，开始把大模型能力"
+    "落到具体业务流程，预计年内完成试点扩容。"
+)
+
+
 def _seed_article(conn, article_id: str = "art_geo") -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         "INSERT INTO articles (id, title, url, source, fetched_at, raw_content) "
         "VALUES (?, ?, ?, ?, ?, ?)",
-        (article_id, "t", "u", "test", now, "raw"),
+        (
+            article_id,
+            "招商银行上线AI投顾并设立金融科技实验室",
+            "u",
+            "test",
+            now,
+            _BODY,
+        ),
     )
     conn.commit()
 
@@ -50,10 +66,10 @@ def _case(**kw):
         "case_action": "launch",
         "case_date": "2026-08-07",
         "reference_value": "high",
-        "summary": "s",
+        "summary": "某科技公司上线跨境智能投顾服务",
         "evidence_snippet": "",
         "extraction_confidence": 90,
-        "keywords": ["智能投顾"],
+        "keywords": ["智能投顾", "跨境支付"],
     }
     base.update(kw)
     return base

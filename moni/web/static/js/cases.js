@@ -44,6 +44,7 @@ function casesModule() {
     cvPanel: null,
     cvDetail: null,
     cvDetailLoading: false,
+    cvExtractBusy: false,
     _cvLoadSeq: 0,
     _cvFacetSeq: 0,
     _cvDetailSeq: 0,
@@ -230,6 +231,71 @@ function casesModule() {
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
         .then((data) => { this.cvStats = data; })
         .catch((e) => console.error('加载案例统计失败:', e));
+    },
+
+    // ── 按需抽取（演示：单次最多 10 条）──────────────────────
+    async cvExtractRun() {
+      if (this.cvExtractBusy) return;
+      this.cvExtractBusy = true;
+      const notify = (kind, msg) => {
+        if (typeof this._notify === 'function') this._notify(kind, msg);
+        else console.log('[案例抽取]', kind, msg);
+      };
+      try {
+        const baseline = await this._cvLatestExtractRunId();
+        const r = await fetch('/api/cron/jobs/extract_cases_demo/run', {
+          method: 'POST',
+          credentials: 'same-origin',
+        });
+        const body = await r.json().catch(() => ({}));
+        if (r.status === 409) { notify('info', '抽取任务已在队列中，请稍候'); return; }
+        if (!r.ok) throw new Error(this._casesApiError(body, r.status));
+        notify('info', '已提交抽取，单次最多 10 条');
+        const state = await this._cvWaitExtract(baseline);
+        if (state === 'queued') notify('info', '仍在运行，稍后刷新查看结果');
+      } catch (e) {
+        notify('error', '抽取失败: ' + e.message);
+      } finally {
+        this.cvExtractBusy = false;
+      }
+    },
+
+    async _cvLatestExtractRunId() {
+      try {
+        const r = await fetch('/api/cron/runs?job_id=extract_cases_demo&page_size=1', {
+          credentials: 'same-origin',
+        });
+        if (!r.ok) return 0;
+        const runs = await r.json();
+        return Array.isArray(runs) && runs.length ? Number(runs[0].id) || 0 : 0;
+      } catch (e) {
+        return 0;
+      }
+    },
+
+    async _cvWaitExtract(baseline) {
+      // 调度器 15s tick + 单篇 LLM 实测 20–60s，10 篇串行通常 2–5 分钟。
+      for (let i = 0; i < 100; i += 1) {
+        await new Promise((res) => setTimeout(res, 3000));
+        const r = await fetch('/api/cron/runs?job_id=extract_cases_demo&page_size=1', {
+          credentials: 'same-origin',
+        });
+        if (!r.ok) continue;
+        const runs = await r.json();
+        const run = Array.isArray(runs) ? runs[0] : null;
+        if (!run || Number(run.id) <= baseline) continue;
+        if (run.status === 'running') continue;
+        if (run.status === 'success') {
+          await Promise.all([this.cvLoad(), this.cvLoadStats(), this.cvLoadFacets()]);
+          if (typeof this._notify === 'function') {
+            const added = Number(run.new_articles) || 0;
+            this._notify('success', `抽取完成：新增 ${added} 条案例`);
+          }
+          return 'done';
+        }
+        throw new Error(run.error_message || '抽取任务失败');
+      }
+      return 'queued';
     },
 
     cvLoadFacets() {

@@ -522,6 +522,7 @@ class CaseRepository:
                 SELECT case_id FROM cases
                 WHERE article_id = ? AND subject = ? AND case_type = ?
                   AND case_action = ? AND subject != '__processing__'
+                  AND case_lifecycle != 'archived'
                 """,
                 (article_id, subject, case_type, case_action),
             ).fetchone()
@@ -703,6 +704,15 @@ class CaseRepository:
               AND c.article_id IS NULL
               AND a.raw_content IS NOT NULL
               AND length(a.raw_content) >= ?
+              -- xbot_feed 里只有 xbot-scope 归属 tag 的条目是个人推文，
+              -- 不构成同业案例；带业务 tag 的仍然放行。
+              AND NOT (
+                    a.source = 'xbot_feed'
+                AND NOT EXISTS (
+                        SELECT 1 FROM article_tags t
+                        WHERE t.article_id = a.id AND t.tag_name != 'xbot-scope'
+                    )
+              )
         """
         params: list[Any] = [prompt_version, min_content_len]
         if source:
@@ -877,6 +887,7 @@ class CaseRepository:
             LEFT JOIN enterprises e ON e.enterprise_id = c.subject_enterprise_id
             LEFT JOIN case_categories cat ON cat.code = c.case_category
             WHERE c.case_id = ?
+              AND c.subject != '__processing__'
         """
         conn = get_db()
         row = conn.execute(sql, (case_id,)).fetchone()

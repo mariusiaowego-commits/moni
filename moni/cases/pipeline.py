@@ -27,7 +27,9 @@ from typing import Any
 
 from ..db.connection import get_db
 from ..llm.client import call_llm
+from .backfill_taxonomy import apply_taxonomy_for_case_ids, load_enterprise_alias_map
 from .evidence import locate_evidence
+from .gate import pre_gate, validate_case
 from .normalize import normalize_case
 from .repository import CaseRepository
 
@@ -321,12 +323,8 @@ def extract_cases_for_article(
             # 无法判定 → 批量提取会重复烧 LLM)
             conn.execute("BEGIN")
             try:
-                CaseRepository.mark_processing(conn, article_id)
-                CaseRepository.set_extraction_status(
-                    conn, article_id, "skipped",
-                    error="no cases extracted",
-                    attempts_increment=1,
-                )
+                # 不写 cases 占位行：账本已能表达「抽过且无案例」，
+                # subject='__processing__' 垃圾行会污染列表与统计。
                 CaseRepository.upsert_extract_run(
                     conn, article_id,
                     prompt_version=prompt_version,
@@ -349,30 +347,38 @@ def extract_cases_for_article(
         # country 字段经 json.loads 留在 raw 上, normalize_case → geography 列表
         normalized = []
         raw_content = str(article.get("raw_content") or "")
+        dropped_low_quality = 0
         for raw in raw_cases:
             cs = normalize_case(raw)
-            if cs is not None:
-                verified, offset, _ = locate_evidence(cs.get("evidence_snippet"), raw_content)
-                cs["evidence_verified"] = 1 if verified else 0
-                cs["evidence_offset"] = offset
-                normalized.append(cs)
+            if cs is None:
+                continue
+            reason = validate_case(cs)
+            if reason:
+                dropped_low_quality += 1
+                logger.info(
+                    "[case] drop low-quality case on %s: %s", article_id, reason,
+                )
+                continue
+            verified, offset, _ = locate_evidence(cs.get("evidence_snippet"), raw_content)
+            cs["evidence_verified"] = 1 if verified else 0
+            cs["evidence_offset"] = offset
+            normalized.append(cs)
 
         if not normalized:
-            # 全部被 normalize 过滤 (主体为空/无法判定) — 同样落 skipped 占位
+            # 全部被 normalize / 质量校验过滤 — 只记账本，不落占位行
             conn.execute("BEGIN")
             try:
-                CaseRepository.mark_processing(conn, article_id)
-                CaseRepository.set_extraction_status(
-                    conn, article_id, "skipped",
-                    error="all cases filtered by normalize",
-                    attempts_increment=1,
-                )
                 CaseRepository.upsert_extract_run(
                     conn, article_id,
                     prompt_version=prompt_version,
                     input_hash=input_hash,
                     status="no_cases",
                     case_count=0,
+                    error=(
+                        f"all cases filtered (normalize/quality, dropped={dropped_low_quality})"
+                        if dropped_low_quality
+                        else None
+                    ),
                 )
                 if usage_info is not None:
                     _record_case_llm_job(
@@ -401,15 +407,26 @@ def extract_cases_for_article(
 
         # 事务开始
         with conn:
-            CaseRepository.mark_processing(conn, article_id)
-            # 清理该 article 的旧案例 (重试场景) + 占位行
+            # 清理该 article 的旧案例 (重试场景)；不再写 __processing__ 占位行
             conn.execute(
                 "DELETE FROM cases WHERE article_id = ?",
                 (article_id,),
             )
             inserted = CaseRepository.insert_cases(conn, article_id, normalized)
-            CaseRepository.clear_processing_placeholder(conn, article_id)
             CaseRepository.restore_manual_keywords(conn, article_id, manual_rows)
+            apply_taxonomy_for_case_ids(
+                conn,
+                [
+                    row[0]
+                    for row in conn.execute(
+                        """
+                        SELECT case_id FROM cases
+                        WHERE article_id = ? AND subject != '__processing__'
+                        """,
+                        (article_id,),
+                    ).fetchall()
+                ],
+            )
             CaseRepository.upsert_extract_run(
                 conn, article_id,
                 prompt_version=prompt_version,
@@ -516,21 +533,50 @@ def extract_cases_batch(
                 "succeeded": 0,
                 "failed": 0,
                 "skipped": 0,
+                "gated": 0,
                 "cases_extracted": 0,
                 "budget_exhausted": True,
                 "rate_limited": False,
             }
 
-    articles = CaseRepository.get_pending_articles(
-        batch_size=batch_size,
+    # batch_size 指「送进 LLM 的有效篇数」。前置闸挡掉的条目只写账本，
+    # 不占配额；否则最新队列里连续几条闲聊就会让「抽 10 条」抽到 0 条。
+    window = min(max(batch_size * 20, 100), 500)
+    candidates = CaseRepository.get_pending_articles(
+        batch_size=window,
         prompt_version=prompt_version,
     )
+    alias_map = load_enterprise_alias_map(conn)
+    articles: list[dict[str, Any]] = []
+    gated = 0
+    for art in candidates:
+        reason = pre_gate(art, alias_map)
+        if reason:
+            CaseRepository.upsert_extract_run(
+                conn,
+                art["id"],
+                prompt_version=prompt_version,
+                input_hash=_compute_input_hash(art),
+                status="skipped_gate",
+                case_count=0,
+                error=reason,
+                increment_attempts=False,
+            )
+            gated += 1
+            continue
+        articles.append(art)
+        if len(articles) >= batch_size:
+            break
+    if gated:
+        conn.commit()
+
     if not articles:
         return {
             "processed": 0,
             "succeeded": 0,
             "failed": 0,
             "skipped": 0,
+            "gated": gated,
             "cases_extracted": 0,
             "budget_exhausted": False,
             "rate_limited": False,
@@ -545,12 +591,21 @@ def extract_cases_batch(
         "succeeded": 0,
         "failed": 0,
         "skipped": 0,
+        "gated": gated,
         "cases_extracted": 0,
         "budget_exhausted": False,
         "rate_limited": False,
     }
 
     for art in articles:
+        if check_budget:
+            allowed, used, budget = check_daily_token_budget(conn)
+            if not allowed:
+                logger.warning(
+                    "案例抽取日预算已耗尽 (used=%d >= budget=%d), 中止本批", used, budget
+                )
+                results["budget_exhausted"] = True
+                break
         res = extract_cases_for_article(
             dict(art),
             provider=provider,
