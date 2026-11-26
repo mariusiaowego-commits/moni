@@ -2176,8 +2176,8 @@
           <div class="cv-grid">
             <template x-for="cs in cvItems" :key="cs.case_id">
               <article class="cv-card" tabindex="0" role="button" @click="cvOpenDetail(cs)"
-                       @keydown.enter.prevent="$event.target === $event.currentTarget && cvOpenDetail(cs)"
-                       @keydown.space.prevent="$event.target === $event.currentTarget && cvOpenDetail(cs)"
+                       @keydown.self.enter.prevent="cvOpenDetail(cs)"
+                       @keydown.self.space.prevent="cvOpenDetail(cs)"
                        :aria-label="'打开案例 ' + cs.case_id">
                 <div class="cv-ent">
                   <span x-text="cvEnt(cs)"></span>
@@ -2228,7 +2228,7 @@
         <div x-show="cvDetail" x-cloak class="cv-overlay modal-backdrop modal-backdrop-dim"
              @click.self="cvCloseDetail()" @keydown.escape.window="cvDetail && cvCloseDetail()"
              x-transition.opacity.duration.150ms>
-          <div class="cv-sheet" @click.stop role="dialog" aria-modal="true" aria-label="案例详情">
+          <div class="cv-sheet" x-ref="cvSheet" tabindex="-1" @click.stop role="dialog" aria-modal="true" aria-label="案例详情">
             <template x-if="cvDetail">
               <div class="cv-sheet-grid">
                 <div class="cv-sheet-main">
@@ -2238,6 +2238,7 @@
                       <div class="cv-dent" x-text="cvEnt(cvDetail)"></div>
                       <h3 class="cv-dtitle" x-show="!casesEditing" x-text="cvDetail.summary || '(无摘要)'"></h3>
                       <input x-show="casesEditing" type="text" class="cv-input" x-model="casesEditForm.subject" placeholder="主体">
+                      <div class="cv-dloading" x-show="cvDetailLoading">正在补全证据与关联…</div>
                     </div>
                     <div class="cv-dhead-actions">
                       <button type="button" class="btn btn-secondary btn-sm" x-show="!casesEditing" @click="casesStartEdit()">编辑</button>

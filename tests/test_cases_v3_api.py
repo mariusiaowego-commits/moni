@@ -154,3 +154,21 @@ class TestDetail:
     def test_missing_case_is_404(self, seeded):
         client, _, _ = seeded
         assert client.get("/api/cases/MN-XX-0000-0000").status_code == 404
+
+
+class TestEdit:
+    def test_patch_rejects_null_on_not_null_fields(self, seeded):
+        client, _, ids = seeded
+        for field in ("case_action", "subject", "reference_value"):
+            resp = client.patch(f"/api/cases/{ids['art_v3_1']}", json={field: None})
+            assert resp.status_code == 422, (field, resp.text)
+
+    def test_patch_clears_nullable_counterparty(self, seeded):
+        client, conn, ids = seeded
+        conn.execute(
+            "UPDATE cases SET counterparty = '华为' WHERE case_id = ?", (ids["art_v3_1"],)
+        )
+        conn.commit()
+        resp = client.patch(f"/api/cases/{ids['art_v3_1']}", json={"counterparty": None})
+        assert resp.status_code == 200, resp.text
+        assert client.get(f"/api/cases/{ids['art_v3_1']}").json()["counterparty"] is None

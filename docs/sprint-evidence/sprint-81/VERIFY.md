@@ -16,12 +16,12 @@ status: 进行中
 $ /usr/local/bin/python3 -m pytest tests/test_cases.py tests/test_cases_taxonomy.py \
     tests/test_cases_evidence.py tests/test_cases_frontend_contract.py \
     tests/test_cases_p0_v2.py tests/test_cases_v3_api.py -p no:cacheprovider -q
-128 passed in 16.29s
+132 passed in 18.98s
 ```
 
-新增 `tests/test_cases_v3_api.py`（9 用例）覆盖：stats 同口径、单/多选筛选、q 命中
-keyword+evidence、脏日期月份、limit/offset 无重复、facets 排除自身维度、详情
-enterprise/industry/scenarios/related、404。
+新增 `tests/test_cases_v3_api.py`（13 用例）覆盖：stats 同口径、单/多选筛选、q 命中
+keyword+evidence、脏日期月份、limit/offset 无重复、facets 排除自身维度、value 别名、
+other 空值桶、archived 显式、详情 enterprise/industry/scenarios/related、404、PATCH 空值边界。
 
 ### 全量测试
 
@@ -110,7 +110,7 @@ enterprise 只返回 `ent_cmb`。
 
 ## 5. 全量测试与 CI
 
-本地全量（`/usr/local/bin/python3 -m pytest -q -p no:cacheprovider`）：
+本地全量（`14cf8ab`，`/usr/local/bin/python3 -m pytest -q -p no:cacheprovider`）：
 
 ```text
 1 failed, 3008 passed, 2 skipped, 2 warnings in 516.53s (0:08:36)
@@ -136,7 +136,8 @@ tests/test_frontend_safe_href_and_vendor.py -> 53 passed
 tests/test_frontend_motion.py tests/test_web_static_headers.py -> 11 passed
 ```
 
-CI 结果：合并前回填 run id 与结论。
+审计修复后的 head（`9fa7290` / `6098823` / 空值边界补丁）用定向 132 passed + 前端契约 66 passed
+复检；最终全量以 CI `pytest · py3.12` 为准。
 
 ## 6. 独立审计与修复
 
@@ -158,3 +159,12 @@ CI 结果：合并前回填 run id 与结论。
 - P3 卡片内删除按钮 Enter 冒泡 → keydown 仅 `$event.target === $event.currentTarget` 时打开。
 - P3 `is-set` 无样式 → 补 chip 边框；`cvDetailLoading` 仍保留但未加占位（不影响功能）。
 - P3 测试表演型断言 → `scenario_count` 改字面量 3，新增 value 别名、other 桶、archived 三组用例。
+
+二次复审又抓到一个由 `exclude_unset` 引入的回归，已修：
+
+- P2 `PATCH {"case_action": null}` / `{"subject": null}` 会 500 → 非空字段显式判 422；
+  `counterparty: null` 仍可清空。实测 422/422/200。
+- P3 卡片内删除按钮 Enter 被 `.prevent` 吃掉 → 改用 `@keydown.self`；实测删除键打开确认框、
+  不打开详情。
+- P3 浮层焦点 → 打开聚焦 `.cv-sheet`，关闭归还触发卡片；`cvDetailLoading` 接上「正在补全证据与关联…」。
+  焦点陷阱仍未做（P3，记录为已知缺口）。

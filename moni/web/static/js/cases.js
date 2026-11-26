@@ -47,6 +47,7 @@ function casesModule() {
     _cvLoadSeq: 0,
     _cvFacetSeq: 0,
     _cvDetailSeq: 0,
+    _cvFocusReturn: null,
 
     // ── 保留的编辑 / 标签状态 ────────────────────────────────
     casesReviewBusy: false,
@@ -312,12 +313,17 @@ function casesModule() {
       if (!cs || !cs.case_id) return;
       const seq = ++this._cvDetailSeq;
       const id = cs.case_id;
+      this._cvFocusReturn = document.activeElement;
       this.casesEditing = false;
       this.casesTagInput = '';
       this.casesTags = [];
       this.cvDetail = cs;
       this.cvDetailLoading = true;
       this.cvSyncURL();
+      this.$nextTick(() => {
+        const el = this.$refs && this.$refs.cvSheet;
+        if (el && typeof el.focus === 'function') el.focus();
+      });
       this.loadCaseTags(id);
       fetch(`/api/cases/${encodeURIComponent(id)}`, { credentials: 'same-origin' })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
@@ -331,11 +337,16 @@ function casesModule() {
     },
     cvCloseDetail() {
       this._cvDetailSeq += 1;
+      const back = this._cvFocusReturn;
+      this._cvFocusReturn = null;
       this.cvDetail = null;
       this.casesEditing = false;
       this.casesTags = [];
       this.casesTagInput = '';
       this.cvSyncURL();
+      this.$nextTick(() => {
+        if (back && typeof back.focus === 'function') back.focus();
+      });
     },
     cvEvidenceBadge(detail) {
       return detail && detail.evidence_verified ? '原文引用' : '模型转述';

@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from moni.db.connection import get_db
@@ -333,10 +333,22 @@ class CaseUpdateBody(BaseModel):
     case_date_precision: str | None = None
 
 
+_NOT_NULL_CASE_FIELDS = {
+    "subject",
+    "case_type",
+    "case_action",
+    "reference_value",
+    "case_date_precision",
+}
+
+
 @router.patch("/{case_id}")
 def update_case(case_id: str, body: CaseUpdateBody) -> dict[str, Any]:
     """编辑案例字段 (v1.0.35.19 agy v3 需求1)."""
     updates = body.model_dump(exclude_unset=True)
+    bad = [k for k, v in updates.items() if v is None and k in _NOT_NULL_CASE_FIELDS]
+    if bad:
+        raise HTTPException(status_code=422, detail=f"字段不可为空: {', '.join(sorted(bad))}")
     ok = CaseRepository.update_case(case_id, updates)
     if not ok:
         raise NotFoundError(message=f"Case {case_id!r} not found or no editable field")
