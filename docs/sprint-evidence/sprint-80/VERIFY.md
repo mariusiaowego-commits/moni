@@ -109,3 +109,24 @@ $ uv run --quiet python -m pytest tests/ -q -p no:cacheprovider \
 
 Playwright 复验（8901）：400 时错误文案与「重试」可见；PUT 500 后 `#cfgL3` 回滚为 `false`、
 控件恢复可用；正常路径开关「关→开→关」与页面 pill 同步，账本 9 列 `x` 偏差全 0，390px 无溢出。
+
+## 5. 生产部署验收清单（8900，2026-11-26）
+
+| # | 检查项 | 判据 | 结果 |
+|---|---|---|---|
+| 1 | 进程 | launchd `com.moni.web` 重启成功 | ✅ pid 28438 |
+| 2 | 首页 | `GET /` → 200 | ✅ 200 |
+| 3 | 配置接口 | `GET /api/desensitize/config` → 200 且 `enabled=false` | ✅ 200 / `false` |
+| 4 | 默认级别 | `L1✓ L2✓ L3✗ strict✗` | ✅ 一致 |
+| 5 | HTML 缓存 | `/`、`/desens-lab.html` 均 `Cache-Control: no-cache` | ✅ 两处均 no-cache |
+| 6 | 顶栏 | 11 条链接，无「信息脱敏」 | ✅ 11 / 无 |
+| 7 | 配置管理 | 8 个页签，含「脱敏」；面板可见 | ✅ 8 页签 / 可见 |
+| 8 | 面板归位 | 切到「信源」页签时脱敏面板隐藏 | ✅ `is_visible=false` |
+| 9 | 实验室分区 | 默认配置区可见、实验室区隐藏；互相切换 | ✅ |
+| 10 | 总开关状态 | 页头 pill「总开关 关（L1✓ L2✓ L3✗）」 | ✅ |
+| 11 | 账本对齐 | 表头与数据行逐列 `x` 偏差 | ✅ 表0 9/9、表1 8/8，偏差 0 |
+| 12 | 窄屏 | 390px `scrollWidth - clientWidth` | ✅ 0 |
+| 13 | 大模型通道 | 实验室「真跑一次」→ HTTP 200，手机号遮蔽、回包还原 | ✅ 200 / `{{PHONE_…}}` / 7.2s |
+| 14 | 前端报错 | console `pageerror` | ⚠️ `Transition was skipped`，与改造前生产基线一致（既有问题） |
+
+未跑项（skipped）：用户规则 CRUD（下一 sprint）；生产总开关打开态验证（保持默认关）。
