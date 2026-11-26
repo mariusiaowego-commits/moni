@@ -10,7 +10,7 @@ status: 进行中
 
 ```text
 $ /usr/local/bin/python3 -m pytest tests/test_cases_insights.py -q
-16 passed in 3.65s
+19 passed in 4.38s
 ```
 
 ```text
@@ -76,3 +76,24 @@ $ python -m moni.cases.backfill_insights --db /private/tmp/insights-verify.db \
 ```
 
 432 vs 429 证明去重已按 `input_hash` 生效：不带原文与带原文是两套输入，互不遮蔽。
+
+## 7. 第二轮独立审计（agy / w52:pY）
+
+结论：需修（无 P0、无 SQL 注入）。P1 全部已修：
+
+- `--refresh` 失败覆盖已有 `done` 行 → `record_failure` 的 DO UPDATE 加
+  `WHERE case_insights.status <> 'done'`。
+- SIGINT 打断 `call_llm` 时当前条被误记 failed → `except` 先判 `stop["flag"]` 直接跳出，
+  归入 remaining 不写库。
+- `--max-article-chars` 死参数（`build_prompt` 内硬编码 1200）→ 透传到
+  `build_prompt(..., max_article_chars=)`，hash 随实际输入变化。
+- 跨 `prompt_version` 旧 done 行不标 stale → stale 条件改为
+  `NOT (prompt_version = ? AND input_hash = ?)`。
+- 429/配额不早停、token 不落库 → 命中 429/quota 立即停止并返回 2；
+  `call_llm(usage=True)` 回写 `input_tokens/output_tokens`。
+
+P2 已修：CLI 加 `PRAGMA busy_timeout=5000`；补 3 个失败路径测试
+（refresh 失败不破坏 done、空回复落 failed、配额早停）。
+
+未采纳：`parse_insight` 对只有 `what` 的极简 JSON 仍视为 done —— 详情页可展示
+单句结论，强行 insufficient 会让该条永远重试。

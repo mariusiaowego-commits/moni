@@ -53,7 +53,7 @@ def _text(value: Any, limit: int) -> str:
     return _clean(value, limit) if isinstance(value, str) else ""
 
 
-def build_prompt(case: dict[str, Any]) -> str:
+def build_prompt(case: dict[str, Any], *, max_article_chars: int = 1200) -> str:
     """结构化字段 → prompt；截断防长文超预算。"""
     metrics = case.get("metrics") or []
     metric_text = "; ".join(
@@ -70,7 +70,7 @@ def build_prompt(case: dict[str, Any]) -> str:
         summary=_clean(case.get("summary"), 600),
         evidence=_clean(case.get("evidence_snippet"), 400),
         metrics=metric_text or "无",
-        article=_clean(case.get("article_text"), 1200) or "无",
+        article=_clean(case.get("article_text"), max_article_chars) or "无",
     )
 
 
@@ -122,11 +122,15 @@ def generate_insight(
     model: str,
     *,
     timeout: int = 300,
-) -> dict[str, Any]:
+    max_article_chars: int = 1200,
+    with_usage: bool = False,
+) -> dict[str, Any] | tuple[dict[str, Any], dict[str, Any]]:
     """单条生成；返回解析后的 body（可能带 insufficient）。"""
-    prompt = build_prompt(case)
-    raw = call_llm(provider, model, prompt, timeout=timeout)
-    return parse_insight(raw)
+    prompt = build_prompt(case, max_article_chars=max_article_chars)
+    if not with_usage:
+        return parse_insight(call_llm(provider, model, prompt, timeout=timeout))
+    raw, usage = call_llm(provider, model, prompt, timeout=timeout, usage=True)
+    return parse_insight(raw), usage
 
 
 def save_insight(
@@ -138,6 +142,8 @@ def save_insight(
     model: str | None,
     prompt_hash: str,
     prompt_version: str = PROMPT_VERSION,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
 ) -> int:
     """写入并回填 cases.insight_id；同 (case, version, hash) 幂等覆盖."""
     if not body:
@@ -148,19 +154,22 @@ def save_insight(
         conn.execute(
             """INSERT INTO case_insights
                    (case_id, prompt_version, input_hash, provider, model,
-                    status, body_json, created_at)
-               VALUES (?, ?, ?, ?, ?, 'done', ?, ?)
+                    status, body_json, created_at, input_tokens, output_tokens)
+               VALUES (?, ?, ?, ?, ?, 'done', ?, ?, ?, ?)
                ON CONFLICT(case_id, prompt_version, input_hash)
                DO UPDATE SET body_json = excluded.body_json,
                              provider = excluded.provider,
                              model = excluded.model,
                              status = 'done',
-                             error = NULL""",
-            (case_id, prompt_version, prompt_hash, provider, model, payload, now),
+                             error = NULL,
+                             input_tokens = excluded.input_tokens,
+                             output_tokens = excluded.output_tokens""",
+            (case_id, prompt_version, prompt_hash, provider, model, payload, now,
+             input_tokens, output_tokens),
         )
         conn.execute(
             """UPDATE case_insights SET status = 'stale'
-                WHERE case_id = ? AND prompt_version = ? AND input_hash <> ?
+                WHERE case_id = ? AND NOT (prompt_version = ? AND input_hash = ?)
                   AND status = 'done'""",
             (case_id, prompt_version, prompt_hash),
         )
@@ -201,6 +210,7 @@ def record_failure(
                DO UPDATE SET status = 'failed',
                              error = excluded.error,
                              provider = excluded.provider,
-                             model = excluded.model""",
+                             model = excluded.model
+               WHERE case_insights.status <> 'done'""",
             (case_id, prompt_version, prompt_hash, provider, model, error[:500], now),
         )

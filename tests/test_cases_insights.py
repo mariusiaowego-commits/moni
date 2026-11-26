@@ -13,6 +13,7 @@ from moni.cases.insights import (
     build_prompt,
     input_hash,
     parse_insight,
+    record_failure,
     save_insight,
 )
 from moni.db.connection import set_db_path, get_db, close_db
@@ -149,6 +150,17 @@ class TestSaveInsight:
         with pytest.raises(ValueError):
             save_insight(conn, "MN-AI-2601-0001", {}, provider="p", model="m", prompt_hash="h")
 
+    def test_failure_does_not_clobber_done_row(self, tmp_db):
+        conn, _ = tmp_db
+        _seed_case(conn)
+        save_insight(conn, "MN-AI-2601-0001", {"what": "A"}, provider="p", model="m", prompt_hash="h")
+        record_failure(
+            conn, "MN-AI-2601-0001", provider="p", model="m",
+            prompt_hash="h", error="late timeout",
+        )
+        row = conn.execute("SELECT status, error FROM case_insights").fetchone()
+        assert row["status"] == "done" and row["error"] is None
+
 
 class TestCli:
     def test_dry_run_excludes_archived_and_existing(self, tmp_db, capsys):
@@ -164,10 +176,20 @@ class TestCli:
         conn, db_file = tmp_db
         _seed_case(conn)
         import moni.cases.backfill_insights as cli
-        monkeypatch.setattr(cli, "generate_insight", lambda *a, **k: {"what": "W", "how": [], "risks": [], "reusable": [], "fit": ""})
+        monkeypatch.setattr(
+            cli, "generate_insight",
+            lambda *a, **k: (
+                {"what": "W", "how": [], "risks": [], "reusable": [], "fit": ""},
+                {"input_tokens": 120, "output_tokens": 30},
+            ),
+        )
         monkeypatch.setattr("moni.llm.client.resolve_active_model", lambda: ("p", "m"))
         assert cli.main(["--db", str(db_file), "--apply"]) == 0
         assert conn.execute("SELECT COUNT(*) FROM case_insights").fetchone()[0] == 1
+        tokens = conn.execute(
+            "SELECT input_tokens, output_tokens FROM case_insights"
+        ).fetchone()
+        assert (tokens["input_tokens"], tokens["output_tokens"]) == (120, 30)
         assert "apply" in capsys.readouterr().out
 
     def test_dry_run_excludes_processing_placeholder(self, tmp_db, capsys):
@@ -184,7 +206,7 @@ class TestCli:
         import moni.cases.backfill_insights as cli
         monkeypatch.setattr("moni.llm.client.resolve_active_model", lambda: ("p", "m"))
         body = {"what": "W", "how": [], "risks": [], "reusable": [], "fit": ""}
-        monkeypatch.setattr(cli, "generate_insight", lambda *a, **k: body)
+        monkeypatch.setattr(cli, "generate_insight", lambda *a, **k: (body, {}))
         assert cli.main(["--db", str(db_file), "--apply"]) == 0
         assert cli.main(["--db", str(db_file), "--apply"]) == 0
         assert conn.execute("SELECT COUNT(*) FROM case_insights").fetchone()[0] == 1
@@ -208,7 +230,7 @@ class TestCli:
 
         monkeypatch.setattr(
             cli, "generate_insight",
-            lambda *a, **k: {"what": "W", "how": [], "risks": [], "reusable": [], "fit": ""},
+            lambda *a, **k: ({"what": "W", "how": [], "risks": [], "reusable": [], "fit": ""}, {}),
         )
         assert cli.main(["--db", str(db_file), "--apply"]) == 0
         row = conn.execute("SELECT status, error FROM case_insights").fetchone()
@@ -225,3 +247,28 @@ class TestCli:
         from moni.cases.backfill_insights import main
         assert main(["--db", str(db_file), "--ids", "NOPE-1"]) == 0
         assert "未匹配到候选" in capsys.readouterr().out
+
+    def test_empty_reply_recorded_as_failed(self, tmp_db, monkeypatch):
+        conn, db_file = tmp_db
+        _seed_case(conn)
+        import moni.cases.backfill_insights as cli
+        monkeypatch.setattr("moni.llm.client.resolve_active_model", lambda: ("p", "m"))
+        monkeypatch.setattr(cli, "generate_insight", lambda *a, **k: ({}, {}))
+        assert cli.main(["--db", str(db_file), "--apply"]) == 1
+        row = conn.execute("SELECT status, error FROM case_insights").fetchone()
+        assert row["status"] == "failed" and "empty/invalid" in row["error"]
+
+    def test_quota_error_stops_batch(self, tmp_db, monkeypatch, capsys):
+        conn, db_file = tmp_db
+        _seed_case(conn, "MN-AI-2601-0001")
+        _seed_case(conn, "MN-AI-2601-0002")
+        import moni.cases.backfill_insights as cli
+        monkeypatch.setattr("moni.llm.client.resolve_active_model", lambda: ("p", "m"))
+
+        def quota(*_a, **_k):
+            raise RuntimeError("hermes failed (failover exhausted): 429 quota exceeded")
+
+        monkeypatch.setattr(cli, "generate_insight", quota)
+        assert cli.main(["--db", str(db_file), "--apply"]) == 2
+        assert conn.execute("SELECT COUNT(*) FROM case_insights").fetchone()[0] == 0
+        assert "配额阻断" in capsys.readouterr().out

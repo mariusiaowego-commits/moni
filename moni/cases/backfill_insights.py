@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import signal
 import sqlite3
 import time
@@ -25,6 +26,7 @@ from moni.cases.insights import (
 )
 
 _LLM_GAP_SEC = 0.3
+_QUOTA_RE = re.compile(r"\b429\b|quota|配额|rate.?limit", re.IGNORECASE)
 
 
 def _candidates(
@@ -97,13 +99,14 @@ def main(argv: list[str] | None = None) -> int:
     conn = sqlite3.connect(args.db)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 5000")
     try:
         ids = [x.strip() for x in args.ids.split(",") if x.strip()] if args.ids else None
         rows = _candidates(
             conn, ids=ids,
             with_article=args.with_article, max_article_chars=args.max_article_chars,
         )
-        prompts = [build_prompt(row) for row in rows]
+        prompts = [build_prompt(row, max_article_chars=args.max_article_chars) for row in rows]
         hashes = [input_hash(p) for p in prompts]
 
         if not args.refresh:
@@ -146,6 +149,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[apply] provider={provider} model={model} candidates={len(rows)}")
         stats = {"ok": 0, "failed": 0, "insufficient": 0, "remaining": 0}
         stop = {"flag": False}
+        quota_blocked = False
 
         def _sigint(_sig, _frame):
             stop["flag"] = True
@@ -158,13 +162,20 @@ def main(argv: list[str] | None = None) -> int:
                 break
             case_id = row["case_id"]
             try:
-                body = generate_insight(row, provider, model, timeout=args.timeout)
+                body, usage = generate_insight(
+                    row, provider, model,
+                    timeout=args.timeout,
+                    max_article_chars=args.max_article_chars,
+                    with_usage=True,
+                )
                 if not body:
                     raise ValueError("empty/invalid JSON reply")
                 save_insight(
                     conn, case_id, body,
                     provider=provider, model=model,
                     prompt_hash=hashes[i - 1],
+                    input_tokens=usage.get("input_tokens"),
+                    output_tokens=usage.get("output_tokens"),
                 )
                 if body.get("insufficient"):
                     stats["insufficient"] += 1
@@ -172,6 +183,13 @@ def main(argv: list[str] | None = None) -> int:
                 if args.show:
                     print(f"  {case_id} {json.dumps(body, ensure_ascii=False)}", flush=True)
             except Exception as exc:
+                if stop["flag"]:
+                    # Ctrl-C 打断 call_llm：当前条不算失败，留给重跑
+                    break
+                if _QUOTA_RE.search(str(exc)):
+                    quota_blocked = True
+                    print(f"  [{i}] 上游 429/配额耗尽，提前停止: {exc}", flush=True)
+                    break
                 stats["failed"] += 1
                 print(f"  [{i}] failed {case_id}: {exc}", flush=True)
                 try:
@@ -192,6 +210,9 @@ def main(argv: list[str] | None = None) -> int:
             time.sleep(_LLM_GAP_SEC)
         stats["remaining"] = len(rows) - stats["ok"] - stats["failed"]
         print(f"[apply] done {json.dumps(stats, ensure_ascii=False)}")
+        if quota_blocked:
+            print(f"[apply] 配额阻断：还有 {stats['remaining']} 条未处理（恢复配额后重跑本命令）")
+            return 2
         if stop["flag"]:
             print(f"[apply] 已中断：还有 {stats['remaining']} 条未处理（重跑本命令会续跑）")
             return 130
