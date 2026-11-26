@@ -975,6 +975,7 @@ def extract_cases_pending(
                 error=None,
                 new_articles=0,
                 sources_run=0,
+                extra={"in_progress": True},
             )
         except Exception as exc:
             logger.error("[%s] Failed to create cron_runs row: %s", job_id, exc)
@@ -986,7 +987,8 @@ def extract_cases_pending(
                 try:
                     conn = get_db()
                     conn.execute(
-                        "UPDATE cron_runs SET finished_at=?, success=0, error=? WHERE id=?",
+                        "UPDATE cron_runs SET finished_at=?, success=0, error=?, "
+                        "extra='{\"in_progress\": false}' WHERE id=?",
                         (_cst_now().isoformat(), error, cron_run_rowid),
                     )
                     conn.commit()
@@ -1011,7 +1013,8 @@ def extract_cases_pending(
                 try:
                     conn = get_db()
                     conn.execute(
-                        "UPDATE cron_runs SET finished_at=?, success=0, error=? WHERE id=?",
+                        "UPDATE cron_runs SET finished_at=?, success=0, error=?, "
+                        "extra='{\"in_progress\": false}' WHERE id=?",
                         (_cst_now().isoformat(), error, cron_run_rowid),
                     )
                     conn.commit()
@@ -1033,7 +1036,7 @@ def extract_cases_pending(
         elif result["failed"]:
             err_msg = f"{result['failed']} failed"
 
-        extra_payload: dict[str, Any] = {}
+        extra_payload: dict[str, Any] = {"in_progress": False}
         if result.get("budget_exhausted"):
             extra_payload["budget_exhausted"] = True
         if triggered_by:
@@ -1047,7 +1050,7 @@ def extract_cases_pending(
                     UPDATE cron_runs
                     SET finished_at=?, success=?, error=?,
                         new_articles=?, sources_run=?,
-                        extra=CASE WHEN ? != '{}' THEN ? ELSE extra END
+                        extra=?
                     WHERE id=?
                     """,
                     (
@@ -1056,7 +1059,6 @@ def extract_cases_pending(
                         err_msg,
                         result["cases_extracted"],
                         result["processed"],
-                        json.dumps(extra_payload),
                         json.dumps(extra_payload),
                         cron_run_rowid,
                     ),
