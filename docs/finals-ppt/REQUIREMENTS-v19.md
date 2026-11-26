@@ -53,7 +53,7 @@
 
 ```
 python3 .ppt-work/make_preview_doc.py 决赛汇报-v19.pptx \
-  "55-workstuff/AI技术应用与创新实践劳动竞赛/决赛/PPT/预览-v19" \
+  "55-workstuff/AI技术应用与创新实践劳动竞赛/决赛/PPT/v19/预览" \
   <输出.md> v19 "24-终稿-v19-15页讲稿.md"
 ```
 
@@ -70,12 +70,35 @@ python3 .ppt-work/scan_deck8.py 决赛汇报-v19.pptx    → 禁词 0 / 厂商�
 
 口播 978 字 + 现场演示 55 秒 = **5:48**，仍在 6 分钟内。
 
-## 5. 归档（Obsidian `…/决赛/PPT/`）
+## 5. 归档（Obsidian `…/决赛/PPT/v19/`）
 
 ```
-决赛汇报-v19.pptx / 决赛汇报-v19.pdf
-24-终稿-v19-15页讲稿.md        讲稿 + 时长表
-25-逐页预览-v19.md              15 页图文预览（本次新增）
-预览-v19/L-01…15.png            15 张渲染图
+v19/决赛汇报-v19.pptx / .pdf
+v19/24-终稿-v19-15页讲稿.md     讲稿 + 时长表
+v19/25-逐页预览-v19.md           15 页图文预览
+v19/预览/L-01…15.png             15 张渲染图
+v19/源码/                        build_deck10.py / make_script_v19.py / make_preview_doc.py / assets
 ```
+
+## 6. Obsidian 目录重构：每版本一个大文件夹（2026-11-26）
+
+原来是扁平结构：顶层 34 个 md + 20 个 pptx/pdf + `预览-v1…v19` + `源码-v10…v15` 散放在一起。
+现改为按版本分目录：
+
+```
+PPT/
+  决赛PPT-索引.md        版本一览 + 定稿入口
+  00-筹备/                v1 之前的 7 份过程稿（说明书、四家大纲、四稿对照）
+  v01/ … v19/
+    决赛汇报-vNN.pptx / .pdf
+    预览/                 L-01…NN.png
+    源码/                 v10 起：构建脚本、讲稿/预览生成脚本、自检脚本、assets
+    <该版本的讲稿、逐页预览、UI 提案、文案终审等 .md>
+```
+
+配套处理：
+
+- 文档内 `预览-vNN/`、`源码-vNN/` 的引用统一改为 `vNN/预览/`、`vNN/源码/`
+- v16–v19 新增 `源码/`（v16=`build_deck7.py`、v17=`build_deck8.py`、v18=`build_deck9.py`、v19=`build_deck10.py`，各自带 `make_script_vNN.py` 与自检脚本、所用截图素材）
+- 校验：全目录 30 处 `![[…]]` embed 全部指向真实文件（broken 0）；移动前后文件无丢失（436 → 502，增量 = 4 份 README + 44 张素材 + 18 个脚本）
 
