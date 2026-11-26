@@ -246,10 +246,13 @@ FROM cases;
 **问题**：案例卡右上紫底「AI 应用」类型药丸 + 底部一排米色药丸（行业/场景/动作/时间/价值），
 同一药丸形状同时充当「分类」「状态」「时间」，所以读起来是「标签+标签」。
 
-**Skill 事实**：本机没有 `better-ui` / `anti-ui-slop` / `anti-slop` / `waza-ui` 这四个 skill
-（`/Users/mt16/.agents/skills` 与 `~/.codex/skills` 均无）。等价走查用 `unslop`（主流程）
-+ `polish`（细节收口）+ `critique`（层级复核），三者在 `/Users/mt16/.agents/skills/`。
-上一轮 pixel 未走 skill，本轮按 unslop 九步重做，结论：**Light slop**，只收口标签层。
+**Skill 事实**：`better-ui` / `waza-ui` 等装在 hermes 的 pixel profile 下
+（`~/.hermes/profiles/pixel/skills/`：`frontend/better-ui`、`frontend/better-interface`
+（聚合 better-*）、`software-development/waza-ui`、`visual-systems-review`（只读 P0/P1/P2 审查）、
+`improve-ui`、`ui-glowup`），共享根 `/Users/mt16/.agents/skills` 与 `~/.codex/skills` 里没有，
+按共享根查会误判为"不存在"。本轮 pixel 实际用的是 `unslop` + `polish` + `critique`，
+未调用 profile 内的 `better-ui` / `waza-ui` / `visual-systems-review`；
+下一轮 pixel 审查固定按 profile skill 清单派活。结论：**Light slop**，只收口标签层。
 
 **融合方案：著录行（方案 A）**。药丸 5→0，只保留 1 个弱底强调项：
 
@@ -303,3 +306,30 @@ FROM cases;
 
 **证据**：`render/prototype-zones-1440.png` / `-1024.png`、
 `render/filter-zones-1440.png` / `-1024.png`；agy 原文 `design/dashboard-agy.md`。
+
+## 9. 换 theme 的参数化现状（只读盘点）
+
+**结论：组件层不需要"参数化"，只要保证只消费 token；现在有 4 个漏点会半跟随。**
+换 theme = 换一份 token（`:root` + `.dark`），不动组件结构。
+
+- 主链路已参数化：`moni/web/static/css/main.css:62` `:root` + `:158` `.dark`；
+  `moni/web/static/js/theme.js` 负责 apply / import（与 `DEFAULT_THEME` merge，缺 key 补齐）；
+  `main.css` 内有 1205 处 `var(--…)`。
+- 新设计已用同一套 token（`prototype-v2.html:10-23`、`filter-mock.html:9-24`）：
+  分布条 `--muted` 槽 / `--foreground` 填充，`.c-flag` `--muted` 底 / `--card-fg` 字，
+  三层表面 `--background` / `--muted` / `--card`。换主题不需要改这些组件。
+- 漏点 1：`moni/web/static/js/cases.js:29-49` 的类型 / 价值颜色是硬编码 hex，
+  `index.html:2155/2158` 还写 `color:'#fff'`；暗色或自定义主题下对比度不受控。
+  新设计已把列表里的类型 / 价值药丸删掉，只剩详情徽章仍需迁 token。
+- 漏点 2：分享物两套渲染器自带 hex 调色板（`moni/share/case_brief.py:250-260`、
+  `moni/share/brief_html.py:1094+`），导出 HTML / PDF 不跟随 app 主题。
+  建议分享物固定 light（跨环境稳定），但调色板要抽成共享常量，避免和 app 漂移。
+- 漏点 3：历史语义色是 slate / hex（`main.css:141-150`：`--link #4a3a8c`、
+  `--fg-strong #0f172a`、`--surface-2 #f1f5f9` 等），与 oklch 传统色系不同源，换主题不会跟随。
+- 漏点 4：原型自身 15 处色值 = 14 个 token + 1 个 overlay 半透明遮罩
+  （`prototype-v2.html:120`）。遮罩是固定层，可不随主题；但若做浅色 / 深色两套需显式给值。
+
+**P0（下一轮实现顺手做）**：`caseTypeColor` / `caseReferenceColor` 改返回 CSS 变量，
+补 `--on-solid` 替掉 `#fff`；详情徽章停止内联色。
+**P1**：分享渲染器从一份共享调色板常量取色；slate 历史色收口到 oklch 语义 token。
+**不做**：不给组件加 theme props、不在组件里逐个传色值——参数化只到 token 层。
