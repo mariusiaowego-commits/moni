@@ -44,6 +44,17 @@ agy 出 3 案、pixel 给规格，融合后选「一卡一指标、只留两级�
 原始建议归档：`design/stats-strip-agy.md`、`design/stats-strip-pixel.md`。
 截图：`render/prototype-stats-1440.png`、`render/prototype-stats-1024.png`。
 
+复算（生产库副本，迁移到 069 并跑完 `backfill_taxonomy`）：
+
+```bash
+sqlite3 /private/tmp/ev/news.db "
+  select count(*) from cases;
+  select count(*) from cases where reference_value='high';
+  select count(distinct enterprise_id) from case_enterprises;
+  select count(distinct scenario_code) from case_scenario_links;"
+# 432 | 137 | 94 | 10
+```
+
 ## 2. 「原文证据」为什么只有一行
 
 **实测（生产库 432 条案例）**
@@ -95,6 +106,9 @@ FROM cases;
 - 测试：`tests/test_cases_evidence.py` 15 passed；受影响集 144 passed。
 - 原型：详情页「✓ 原文引用」徽章 + 上下文高亮 + 判定方式说明，
   截图 `render/prototype-detail-evidence-1440.png`。
+
+复算：`PYTHONPATH=. python3 -m moni.cases.backfill_evidence --db /private/tmp/ev/news.db`
+→ `total=432 verified=265 not_found=167 missing_article=0`。
 
 ## 3. 筛选交互（pixel 出方案 → agy 审核 → 我融合）
 
