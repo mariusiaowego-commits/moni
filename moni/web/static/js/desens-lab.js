@@ -13,9 +13,12 @@
   ].join("\n");
 
   const SQL_TEXT =
-    "SELECT count(*) AS calls, sum(masked_total) AS masked_total,\n"
-    + "       sum(restored_total) AS restored_total, sum(unrestored_count) AS unrestored_count,\n"
-    + "       sum(leak_scan_hits) AS leak_scan_hits, sum(residual_placeholders) AS residual_placeholders\n"
+    "SELECT count(*) AS calls, sum(blocked) AS blocked_calls,\n"
+    + "       sum(masked_total) AS masked_total, sum(restored_total) AS restored_total,\n"
+    + "       sum(unrestored_count) AS unrestored_count, sum(leak_scan_hits) AS leak_scan_hits,\n"
+    + "       sum(residual_placeholders) AS residual_placeholders,\n"
+    + "       round(100.0 * sum(restored_total)\n"
+    + "             / nullif(sum(restored_total) + sum(unrestored_count), 0), 1) AS restore_success_pct\n"
     + "FROM desensitize_events WHERE call_site != 'desens_lab';";
 
   const POLICY_LABEL = { standard: "标准策略", web_search_safe: "联网核查策略" };
@@ -34,31 +37,6 @@
     desens_lab: "实验室",
   };
   const TASK_TYPE_LABEL = { standard: "标准策略", fact_check_plus: "联网核查" };
-  const RULE_TYPE_LABEL = { word: "遮蔽词", regex: "正则", allowlist: "白名单" };
-  const ACTION_LABEL = { mask: "遮蔽", warn: "警告", block: "拦截" };
-  const KIND_LABEL = {
-    PRIVATE_KEY: "私钥",
-    API_KEY: "API 密钥",
-    URL_TOKEN: "URL 令牌",
-    JWT: "JWT",
-    BEARER: "Bearer 令牌",
-    PASSWORD: "密码",
-    SECRET: "密钥串",
-    PHONE: "手机号",
-    ID_CARD: "身份证号",
-    BANK_CARD: "银行卡号",
-    EMAIL: "邮箱",
-    ORG: "机构名",
-    SELF_ORG: "本机构",
-    PROJECT: "项目名",
-    WATCHLIST: "关注标的",
-    SENSITIVE_VIEW: "内部评级口径",
-    PATH_USER: "用户目录",
-    INTERNAL_HOST: "内网域名",
-    PUBLIC_IP: "公网 IP",
-    PUBLISHER: "发布方",
-  };
-
   const label = (map, value, fallback) => map[value] || fallback || value || "—";
   const $ = (id) => document.getElementById(id);
   let started = false;
@@ -245,7 +223,8 @@
       renderMetrics(d.stats);
       setStatus("完成 · " + label(POLICY_LABEL, d.policy_mode, d.policy_mode)
         + (d.fallback_used ? " · " + label(FALLBACK_LABEL, d.fallback_used, "异常放行") : ""));
-      await loadStats();
+      // 账本刷新失败不能把「完成」态抹掉：单独兜一下。
+      await loadStats().catch(() => {});
     } catch (e) {
       setErr(String(e));
       setStatus("");

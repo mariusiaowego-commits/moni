@@ -5998,7 +5998,7 @@ function app() {
         this.desensConfigError = null;
         this.desensSaveMsg = '已保存（分享 worker 最多 30 秒内生效）';
       } catch (e) {
-        this.desensSaveMsg = '保存失败：' + e;
+        this.desensSaveMsg = '保存失败：' + (e && e.message ? e.message : e);
         // 回滚到服务端真实值，避免界面显示"改了"但其实没生效。
         this.loadDesensConfig(false);
       } finally {

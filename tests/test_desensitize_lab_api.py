@@ -153,6 +153,7 @@ class TestRun:
         stats = client.get("/api/desensitize/stats").json()
         assert stats["totals"]["calls"] == 1
         assert stats["lab_totals"]["calls"] == 1
+        assert stats["totals"]["calls"] + stats["lab_totals"]["calls"] == 2
 
     def test_run_with_global_switch_on_does_not_mask_twice(self, client, fake_hermes):
         conn = get_db()
@@ -205,7 +206,11 @@ class TestBlocked:
 
         res = client.post("/api/desensitize/run", json={"text": SAMPLE_TEXT})
         assert res.status_code == 400
-        assert "拦截" in res.json()["message"]
+        message = res.json()["message"]
+        assert "拦截" in message
+        # 机读码只留在 blocked_reason 里，错误文案不能把 policy_block 露给用户。
+        assert "命中拦截规则" in message
+        assert "policy_block" not in message
 
         row = get_db().execute(
             "SELECT blocked, call_site FROM desensitize_events"

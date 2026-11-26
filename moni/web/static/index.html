@@ -3689,7 +3689,7 @@
                 <span class="switch-card-info">
                   <span class="switch-card-title">脱敏总开关</span>
                   <span class="switch-card-desc"
-                        title="默认关闭。开启后按策略与分级遮蔽发给模型的内容，并在本机还原回包；未开严格模式且引擎异常时原样放行">启用出站遮蔽与入站本地还原</span>
+                        title="默认关闭。开启后按策略与分级遮蔽发给模型的内容，并在本机还原回包；未开严格模式且引擎异常时，原样放行或仅擦除凭据后放行">启用出站遮蔽与入站本地还原</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': desensConfig && desensConfig.enabled }"></span>
               </button>
@@ -3714,7 +3714,7 @@
                 <span class="switch-card-info">
                   <span class="switch-card-title">L2 个人信息与业务语义</span>
                   <span class="switch-card-desc"
-                        title="涵盖个人隐私，以及投研关注的机构、内部项目与敏感评估口径">手机、证件、卡号、邮箱、机构与项目</span>
+                        title="涵盖个人隐私，以及投研关注的机构、关注标的、内部项目与评级口径">手机、证件、卡号、邮箱、机构与项目</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': desensConfig && desensConfig.levels.level_l2 }"></span>
               </button>
@@ -3725,7 +3725,7 @@
                 <span class="switch-card-info">
                   <span class="switch-card-title">L3 基础设施</span>
                   <span class="switch-card-desc"
-                        title="涵盖本机用户路径（默认启用）、内网域名、公网 IP 与信源发布方">路径、内网域名、公网 IP、发布方</span>
+                        title="涵盖本机用户路径（随 L2 或 L3 开启生效）、内网域名、公网 IP 与信源发布方">路径、内网域名、公网 IP、发布方</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': desensConfig && desensConfig.levels.level_l3 }"></span>
               </button>
@@ -3789,14 +3789,14 @@
                title="同一段文本在本机遮蔽后发给大模型，再把回包还原，逐栏对比每一步结果">逐栏对比遮蔽与还原</p>
             <span class="pill" id="lab-ledger-state" title="账本累计：生产调用与实验室调用">账本 …</span>
           </div>
-          <div class="desens-lab" id="labRoot">
+          <div class="desens-lab">
             <section class="panel">
               <h2 title="输入要测试的文本，选择策略后运行">测试输入</h2>
               <div class="pad">
                 <textarea id="lab-input" spellcheck="false"></textarea>
                 <div class="row">
                   <button type="button" id="lab-sample" title="填入含机构名、手机号与邮箱的示例文本">载入示例</button>
-                  <select id="lab-task-type" title="标准策略遮蔽全部已启用类别；联网核查保留公开机构名">
+                  <select id="lab-task-type" title="标准策略遮蔽全部已启用类别；联网核查保留公开机构名与发布方">
                     <option value="standard">标准策略（standard）</option>
                     <option value="fact_check_plus">联网核查（fact_check_plus）</option>
                   </select>
@@ -5421,8 +5421,8 @@
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
-  <script src="js/desens-lab.js?v=20261126002"></script>
-  <script src="js/app.js?v=20261126002"></script>
+  <script src="js/desens-lab.js?v=20261126003"></script>
+  <script src="js/app.js?v=20261126003"></script>
   <script src="js/reader.js?v=20261123103"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
