@@ -41,7 +41,7 @@ def _now() -> str:
 
 
 def _seed_case(conn: sqlite3.Connection, case_id: str = "MN-AI-2601-0001",
-               *, lifecycle: str = "verified") -> None:
+               *, lifecycle: str = "verified", subject: str = "招商银行") -> None:
     article_id = f"art_{case_id}"
     conn.execute(
         "INSERT OR IGNORE INTO articles (id, title, url, source, fetched_at) VALUES (?,?,?,?,?)",
@@ -55,6 +55,7 @@ def _seed_case(conn: sqlite3.Connection, case_id: str = "MN-AI-2601-0001",
         "'completed', 'confirmed', ?, 1, 1, ?, ?, ?, ?, ?)",
         (case_id, article_id, lifecycle, "招行上线智能投顾", "招行公告上线智能投顾", _now(), _now(), _now()),
     )
+    conn.execute("UPDATE cases SET subject = ? WHERE case_id = ?", (subject, case_id))
     conn.commit()
 
 
@@ -95,6 +96,15 @@ class TestPromptAndParse:
         body = parse_insight('{"what":"上线智能投顾"}\n\ntq-s-select · 2% · ~')
         assert body["what"] == "上线智能投顾"
 
+    def test_parse_rejects_wrong_types(self):
+        assert parse_insight({"what": {"a": 1}}) == {}
+        assert parse_insight({"insufficient": "false", "what": "A"})["what"] == "A"
+        assert parse_insight({"insufficient": "TRUE", "reason": "r"}) == {
+            "insufficient": True, "reason": "r",
+        }
+        assert parse_insight('["x"]') == {}
+        assert parse_insight("null") == {}
+
 
 class TestSaveInsight:
     def test_idempotent_and_links_case(self, tmp_db):
@@ -112,6 +122,32 @@ class TestSaveInsight:
             "SELECT insight_id FROM cases WHERE case_id = ?", ("MN-AI-2601-0001",)
         ).fetchone()[0]
         assert linked == first
+
+    def test_new_hash_marks_old_row_stale_and_moves_pointer(self, tmp_db):
+        conn, _ = tmp_db
+        _seed_case(conn)
+        first = save_insight(conn, "MN-AI-2601-0001", {"what": "A"}, provider="p", model="m", prompt_hash="h1")
+        second = save_insight(conn, "MN-AI-2601-0001", {"what": "B"}, provider="p", model="m", prompt_hash="h2")
+        rows = conn.execute(
+            "SELECT id, status FROM case_insights WHERE case_id = ? ORDER BY id", ("MN-AI-2601-0001",)
+        ).fetchall()
+        assert [r["status"] for r in rows] == ["stale", "done"]
+        linked = conn.execute(
+            "SELECT insight_id FROM cases WHERE case_id = ?", ("MN-AI-2601-0001",)
+        ).fetchone()[0]
+        assert first != second and linked == second
+
+    def test_unknown_case_raises_and_writes_nothing(self, tmp_db):
+        conn, _ = tmp_db
+        with pytest.raises(ValueError):
+            save_insight(conn, "NOPE-1", {"what": "A"}, provider="p", model="m", prompt_hash="h")
+        assert conn.execute("SELECT COUNT(*) FROM case_insights").fetchone()[0] == 0
+
+    def test_empty_body_rejected(self, tmp_db):
+        conn, _ = tmp_db
+        _seed_case(conn)
+        with pytest.raises(ValueError):
+            save_insight(conn, "MN-AI-2601-0001", {}, provider="p", model="m", prompt_hash="h")
 
 
 class TestCli:
@@ -133,3 +169,59 @@ class TestCli:
         assert cli.main(["--db", str(db_file), "--apply"]) == 0
         assert conn.execute("SELECT COUNT(*) FROM case_insights").fetchone()[0] == 1
         assert "apply" in capsys.readouterr().out
+
+    def test_dry_run_excludes_processing_placeholder(self, tmp_db, capsys):
+        conn, db_file = tmp_db
+        _seed_case(conn, "MN-AI-2601-0001")
+        _seed_case(conn, "MN-AI-2601-0003", subject="__processing__")
+        from moni.cases.backfill_insights import main
+        assert main(["--db", str(db_file)]) == 0
+        assert "候选 1 条" in capsys.readouterr().out
+
+    def test_with_article_reruns_only_new_hash(self, tmp_db, monkeypatch):
+        conn, db_file = tmp_db
+        _seed_case(conn)
+        import moni.cases.backfill_insights as cli
+        monkeypatch.setattr("moni.llm.client.resolve_active_model", lambda: ("p", "m"))
+        body = {"what": "W", "how": [], "risks": [], "reusable": [], "fit": ""}
+        monkeypatch.setattr(cli, "generate_insight", lambda *a, **k: body)
+        assert cli.main(["--db", str(db_file), "--apply"]) == 0
+        assert cli.main(["--db", str(db_file), "--apply"]) == 0
+        assert conn.execute("SELECT COUNT(*) FROM case_insights").fetchone()[0] == 1
+        assert cli.main(["--db", str(db_file), "--apply", "--with-article"]) == 0
+        rows = conn.execute("SELECT id, status FROM case_insights ORDER BY id").fetchall()
+        assert [r["status"] for r in rows] == ["stale", "done"]
+
+    def test_failure_records_row_and_retries(self, tmp_db, monkeypatch, capsys):
+        conn, db_file = tmp_db
+        _seed_case(conn)
+        import moni.cases.backfill_insights as cli
+        monkeypatch.setattr("moni.llm.client.resolve_active_model", lambda: ("p", "m"))
+
+        def boom(*_a, **_k):
+            raise RuntimeError("timeout boom")
+
+        monkeypatch.setattr(cli, "generate_insight", boom)
+        assert cli.main(["--db", str(db_file), "--apply"]) == 1
+        row = conn.execute("SELECT status, error FROM case_insights").fetchone()
+        assert row["status"] == "failed" and "timeout boom" in row["error"]
+
+        monkeypatch.setattr(
+            cli, "generate_insight",
+            lambda *a, **k: {"what": "W", "how": [], "risks": [], "reusable": [], "fit": ""},
+        )
+        assert cli.main(["--db", str(db_file), "--apply"]) == 0
+        row = conn.execute("SELECT status, error FROM case_insights").fetchone()
+        assert row["status"] == "done" and row["error"] is None
+
+    def test_limit_must_be_positive(self, tmp_db):
+        _, db_file = tmp_db
+        from moni.cases.backfill_insights import main
+        with pytest.raises(SystemExit):
+            main(["--db", str(db_file), "--limit", "0"])
+
+    def test_unknown_ids_message(self, tmp_db, capsys):
+        _, db_file = tmp_db
+        from moni.cases.backfill_insights import main
+        assert main(["--db", str(db_file), "--ids", "NOPE-1"]) == 0
+        assert "未匹配到候选" in capsys.readouterr().out

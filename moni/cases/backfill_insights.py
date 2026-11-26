@@ -12,14 +12,15 @@ import argparse
 import json
 import signal
 import sqlite3
-import sys
 import time
+from pathlib import Path
 
 from moni.cases.insights import (
     PROMPT_VERSION,
     build_prompt,
     generate_insight,
     input_hash,
+    record_failure,
     save_insight,
 )
 
@@ -29,12 +30,11 @@ _LLM_GAP_SEC = 0.3
 def _candidates(
     conn: sqlite3.Connection,
     *,
-    limit: int | None,
     ids: list[str] | None,
-    refresh: bool,
     with_article: bool,
     max_article_chars: int,
 ) -> list[dict]:
+    """取全部候选（不按 limit / 已有 insight 过滤，交由调用方按 hash 判定）."""
     conn.row_factory = sqlite3.Row
     sql = """
         SELECT c.case_id, c.subject, c.counterparty, c.amount,
@@ -55,15 +55,7 @@ def _candidates(
     if ids:
         sql += f" AND c.case_id IN ({','.join('?' * len(ids))})"
         params.extend(ids)
-    if not refresh:
-        sql += (
-            " AND NOT EXISTS (SELECT 1 FROM case_insights i"
-            " WHERE i.case_id = c.case_id AND i.prompt_version = ? AND i.status = 'done')"
-        )
-        params.append(PROMPT_VERSION)
     sql += " ORDER BY c.extracted_at DESC, c.case_id DESC"
-    if limit:
-        sql += f" LIMIT {int(limit)}"
     rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
     for row in rows:
         if with_article:
@@ -89,25 +81,57 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--refresh", action="store_true", help="已有 insight 也重跑")
     parser.add_argument("--with-article", action="store_true", help="把文章原文节选喂给模型")
     parser.add_argument("--max-article-chars", type=int, default=1200)
+    parser.add_argument("--timeout", type=int, default=300, help="单条 LLM 超时秒数")
     parser.add_argument("--show", action="store_true", help="打印每条生成的 JSON")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="仅统计不调用 LLM (默认)")
     mode.add_argument("--apply", action="store_true", help="真实调用 LLM 并写库")
     args = parser.parse_args(argv)
+    if args.limit is not None and args.limit <= 0:
+        parser.error("--limit 必须 > 0")
 
+    # 让 resolve_active_model / get_db 读的就是 --db 指向的库
+    from moni.db.connection import set_db_path
+
+    set_db_path(Path(args.db).expanduser().resolve())
     conn = sqlite3.connect(args.db)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     try:
         ids = [x.strip() for x in args.ids.split(",") if x.strip()] if args.ids else None
         rows = _candidates(
-            conn, limit=args.limit, ids=ids, refresh=args.refresh,
+            conn, ids=ids,
             with_article=args.with_article, max_article_chars=args.max_article_chars,
         )
+        prompts = [build_prompt(row) for row in rows]
+        hashes = [input_hash(p) for p in prompts]
+
+        if not args.refresh:
+            done = {
+                (r["case_id"], r["input_hash"])
+                for r in conn.execute(
+                    "SELECT case_id, input_hash FROM case_insights"
+                    " WHERE prompt_version = ? AND status = 'done'",
+                    (PROMPT_VERSION,),
+                )
+            }
+            keep = [
+                i for i, row in enumerate(rows)
+                if (row["case_id"], hashes[i]) not in done
+            ]
+            rows = [rows[i] for i in keep]
+            prompts = [prompts[i] for i in keep]
+            hashes = [hashes[i] for i in keep]
+        if args.limit:
+            rows, prompts, hashes = rows[: args.limit], prompts[: args.limit], hashes[: args.limit]
+
         if not rows:
-            print("[insights] 无候选（都已有 insight；需要重跑加 --refresh）")
+            if ids:
+                print("[insights] 指定 case_id 未匹配到候选（不存在 / 已归档 / 同输入已有 insight；重跑加 --refresh）")
+            else:
+                print("[insights] 无候选（都已有同输入 insight；需要重跑加 --refresh）")
             return 0
 
-        prompts = [build_prompt(row) for row in rows]
         approx_tokens = sum(len(p) // 2 for p in prompts)
         if not args.apply:
             print(
@@ -120,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
 
         provider, model = resolve_active_model()
         print(f"[apply] provider={provider} model={model} candidates={len(rows)}")
-        stats = {"ok": 0, "failed": 0, "insufficient": 0}
+        stats = {"ok": 0, "failed": 0, "insufficient": 0, "remaining": 0}
         stop = {"flag": False}
 
         def _sigint(_sig, _frame):
@@ -134,13 +158,13 @@ def main(argv: list[str] | None = None) -> int:
                 break
             case_id = row["case_id"]
             try:
-                body = generate_insight(row, provider, model)
+                body = generate_insight(row, provider, model, timeout=args.timeout)
                 if not body:
                     raise ValueError("empty/invalid JSON reply")
                 save_insight(
                     conn, case_id, body,
                     provider=provider, model=model,
-                    prompt_hash=input_hash(prompts[i - 1]),
+                    prompt_hash=hashes[i - 1],
                 )
                 if body.get("insufficient"):
                     stats["insufficient"] += 1
@@ -150,6 +174,14 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as exc:
                 stats["failed"] += 1
                 print(f"  [{i}] failed {case_id}: {exc}", flush=True)
+                try:
+                    record_failure(
+                        conn, case_id,
+                        provider=provider, model=model,
+                        prompt_hash=hashes[i - 1], error=str(exc),
+                    )
+                except sqlite3.Error as db_exc:
+                    print(f"  [{i}] 失败记录也未写库: {db_exc}", flush=True)
             if i % 5 == 0 or i == len(rows):
                 el = time.time() - t0
                 print(
@@ -158,7 +190,11 @@ def main(argv: list[str] | None = None) -> int:
                     flush=True,
                 )
             time.sleep(_LLM_GAP_SEC)
+        stats["remaining"] = len(rows) - stats["ok"] - stats["failed"]
         print(f"[apply] done {json.dumps(stats, ensure_ascii=False)}")
+        if stop["flag"]:
+            print(f"[apply] 已中断：还有 {stats['remaining']} 条未处理（重跑本命令会续跑）")
+            return 130
         return 0 if stats["failed"] == 0 else 1
     finally:
         conn.close()

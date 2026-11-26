@@ -10,7 +10,12 @@ status: 进行中
 
 ```text
 $ /usr/local/bin/python3 -m pytest tests/test_cases_insights.py -q
-7 passed in 1.28s
+16 passed in 3.65s
+```
+
+```text
+$ /usr/local/bin/python3 -m pytest tests/ -q -k case
+236 passed, 2801 deselected in 29.59s
 ```
 
 ## 2. 真实试跑（副本库 `/private/tmp/insights-sample.db`，provider=ark / ark-code-latest）
@@ -38,4 +43,36 @@ ok=3 failed=0 insufficient=1  130s
 
 ## 5. CI
 
-（合并后回填。）
+见 PR #350 的 `pytest · py3.12` check（合并前确认）。
+
+## 6. 独立审计修复（commit 待补）
+
+只读子 agent 审计结论「需修（无 critical / 无 SQL 注入）」，本轮已修：
+
+- High：候选去重改为按 `(case_id, prompt_version, input_hash)`，`--with-article`
+  与摘要更新后能真正触发重算；旧行标 `stale`，`cases.insight_id` 指向新行。
+- Medium：SIGINT 中断返回 130 并打印剩余条数；`--limit` 必须 > 0；
+  单条超时默认 300s 并可 `--timeout`；`--db` 先 `set_db_path` 再读模型配置；
+  新增失败路径测试（异常→failed 行→重跑自愈）。
+- Low：CLI 开 `PRAGMA foreign_keys=ON`；`save_insight` 拒绝空 body 与不存在的
+  case；`parse_insight` 只接受字符串字段、拒绝顶层数组/`null`、
+  `insufficient:"false"` 不再误判；失败落 `status='failed'` + `error`；
+  重跑不覆盖 `created_at`；未知 `--ids` 单独提示。
+
+### 6.1 修复后真实冒烟（副本 `/private/tmp/insights-verify.db`）
+
+```text
+$ python -m moni.cases.backfill_insights --db /private/tmp/insights-verify.db
+[dry-run] 候选 432 条 | 输入约 113312 tokens
+
+$ python -m moni.cases.backfill_insights --db /private/tmp/insights-verify.db --with-article
+[dry-run] 候选 429 条 | 输入约 296549 tokens      # 3 条已有同 hash 的 insight
+
+$ python -m moni.cases.backfill_insights --db /private/tmp/insights-verify.db \
+    --ids MN-AI-2812-0001 --with-article --refresh --apply --show
+[apply] provider=ark model=ark-code-latest candidates=1
+  进度 1/1 ok=1 failed=0 insufficient=0 26s
+[apply] done {"ok": 1, "failed": 0, "insufficient": 0, "remaining": 0}
+```
+
+432 vs 429 证明去重已按 `input_hash` 生效：不带原文与带原文是两套输入，互不遮蔽。

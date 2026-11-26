@@ -48,6 +48,11 @@ def _clean(value: Any, limit: int) -> str:
     return text[:limit]
 
 
+def _text(value: Any, limit: int) -> str:
+    """只接受字符串，避免 dict/list 被 str() 成脏文本存库."""
+    return _clean(value, limit) if isinstance(value, str) else ""
+
+
 def build_prompt(case: dict[str, Any]) -> str:
     """结构化字段 → prompt；截断防长文超预算。"""
     metrics = case.get("metrics") or []
@@ -77,10 +82,12 @@ def parse_insight(raw: str | dict[str, Any]) -> dict[str, Any]:
     """解析模型回复；非法/空 → {}，保留 insufficient 标记。"""
     if isinstance(raw, dict):
         body = raw
-    else:
+    elif isinstance(raw, str):
         text = _FENCE_RE.sub("", (raw or "").strip())
         # Hermes CLI 会在 JSON 后追加进度行（如 "tq-s-select · 2% · ~"），
         # 只取第一个完整 JSON 对象，忽略尾部噪声。
+        if text.lstrip().startswith("["):
+            return {}
         start = text.find("{")
         if start < 0:
             return {}
@@ -88,21 +95,24 @@ def parse_insight(raw: str | dict[str, Any]) -> dict[str, Any]:
             body, _ = json.JSONDecoder().raw_decode(text[start:])
         except (json.JSONDecodeError, ValueError):
             return {}
+    else:
+        return {}
     if not isinstance(body, dict):
         return {}
-    if body.get("insufficient"):
-        return {"insufficient": True, "reason": _clean(body.get("reason"), 120)}
-    what = _clean(body.get("what"), 120)
+    flag = body.get("insufficient")
+    if flag is True or (isinstance(flag, str) and flag.strip().lower() in {"true", "1", "yes"}):
+        return {"insufficient": True, "reason": _text(body.get("reason"), 120)}
+    what = _text(body.get("what"), 120)
     if not what:
         return {}
     cleaned: dict[str, Any] = {"what": what}
     for key in ("how", "risks", "reusable"):
         values = body.get(key)
         if isinstance(values, list):
-            cleaned[key] = [_clean(v, 120) for v in values[:5] if _clean(v, 120)]
+            cleaned[key] = [v for v in (_text(x, 120) for x in values[:5]) if v]
         else:
             cleaned[key] = []
-    cleaned["fit"] = _clean(body.get("fit"), 120)
+    cleaned["fit"] = _text(body.get("fit"), 120)
     return cleaned
 
 
@@ -111,7 +121,7 @@ def generate_insight(
     provider: str,
     model: str,
     *,
-    timeout: int = 120,
+    timeout: int = 300,
 ) -> dict[str, Any]:
     """单条生成；返回解析后的 body（可能带 insufficient）。"""
     prompt = build_prompt(case)
@@ -130,6 +140,8 @@ def save_insight(
     prompt_version: str = PROMPT_VERSION,
 ) -> int:
     """写入并回填 cases.insight_id；同 (case, version, hash) 幂等覆盖."""
+    if not body:
+        raise ValueError("refusing to save empty insight body")
     now = datetime.now(timezone.utc).isoformat()
     payload = json.dumps(body, ensure_ascii=False)
     with conn:
@@ -143,9 +155,14 @@ def save_insight(
                              provider = excluded.provider,
                              model = excluded.model,
                              status = 'done',
-                             error = NULL,
-                             created_at = excluded.created_at""",
+                             error = NULL""",
             (case_id, prompt_version, prompt_hash, provider, model, payload, now),
+        )
+        conn.execute(
+            """UPDATE case_insights SET status = 'stale'
+                WHERE case_id = ? AND prompt_version = ? AND input_hash <> ?
+                  AND status = 'done'""",
+            (case_id, prompt_version, prompt_hash),
         )
         row = conn.execute(
             "SELECT id FROM case_insights WHERE case_id = ? AND prompt_version = ? AND input_hash = ?",
@@ -153,8 +170,37 @@ def save_insight(
         ).fetchone()
         insight_id = int(row[0]) if row else 0
         if insight_id:
-            conn.execute(
+            cur = conn.execute(
                 "UPDATE cases SET insight_id = ?, updated_at = ? WHERE case_id = ?",
                 (insight_id, now, case_id),
             )
+            if cur.rowcount == 0:
+                raise ValueError(f"case not found: {case_id}")
     return insight_id
+
+
+def record_failure(
+    conn: sqlite3.Connection,
+    case_id: str,
+    *,
+    provider: str | None,
+    model: str | None,
+    prompt_hash: str,
+    error: str,
+    prompt_version: str = PROMPT_VERSION,
+) -> None:
+    """把失败落成 status='failed'，便于事后回溯；下次非 refresh 运行会重试."""
+    now = datetime.now(timezone.utc).isoformat()
+    with conn:
+        conn.execute(
+            """INSERT INTO case_insights
+                   (case_id, prompt_version, input_hash, provider, model,
+                    status, error, created_at)
+               VALUES (?, ?, ?, ?, ?, 'failed', ?, ?)
+               ON CONFLICT(case_id, prompt_version, input_hash)
+               DO UPDATE SET status = 'failed',
+                             error = excluded.error,
+                             provider = excluded.provider,
+                             model = excluded.model""",
+            (case_id, prompt_version, prompt_hash, provider, model, error[:500], now),
+        )
