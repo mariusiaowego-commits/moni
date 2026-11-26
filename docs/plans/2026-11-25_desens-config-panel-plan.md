@@ -1,8 +1,8 @@
 # 信息脱敏「配置面板 + 规则 CRUD」规划（下一 sprint，本轮不开发）
 
 - 日期：2026-11-25
-- 状态：待排期（planning only，无代码改动）
-- 前置：v1.0.132 已把「信息脱敏」入口与状态徽章接进主站
+- 状态：**部分已交付** —— 开关/分级/严格模式 + 配置读写在 v1.0.137 上线；规则 CRUD 待排期
+- 前置：v1.0.132 把「信息脱敏」入口与状态徽章接进主站；v1.0.137 把入口归位「配置管理 → 脱敏」，并交付配置区与 `GET/PUT /api/desensitize/config`
 - 相关：`docs/plans/2026-11-24_llm-desens-shield-plan.md` §11（UI 契约）、`docs/plans/2026-11-25_llm-desens-lab-finals.md` §5（未就绪清单）
 
 ## 1. 为什么现在做不了、以后要做什么
@@ -11,8 +11,8 @@
 
 | 能力 | 今天怎么改 | 缺什么 |
 |---|---|---|
-| 总开关 / L1·L2·L3 / 严格模式 | `UPDATE app_settings` | 设置读写接口 + 面板 |
-| 自定义规则 | `INSERT INTO desensitize_rules` | 规则 CRUD + 正则校验 |
+| 总开关 / L1·L2·L3 / 严格模式 | **已在「配置管理 → 脱敏 → 配置」里改（v1.0.137）** | ✅ 已交付 |
+| 自定义规则 | `INSERT INTO desensitize_rules` | 规则 CRUD + 正则校验（下一 sprint） |
 | 清空内存本本 | 重启进程 | 进程内操作接口（多 worker 需广播） |
 | 轮换 salt | 手工换文件 | 受控接口 + 在途任务保护 |
 | 查看账本 | `/api/desensitize/stats`、演练台 | `/stats` 第 8 块（可选） |

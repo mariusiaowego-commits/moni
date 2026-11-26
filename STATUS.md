@@ -1,3 +1,26 @@
+## 已发布: **v1.0.137 — 脱敏配置管理（配置区 + 实验室分区）** (2026-11-26 · PR #327 → `d1c8c1c` · tag `v1.0.137` · Sprint 80)
+
+**目标**：脱敏入口从顶栏归位到「配置管理」第 8 个子页；`/desens-lab.html` 拆成「配置」（总开关 / L1·L2·L3 /
+严格模式 / 用户规则集中一区，可保存）与「脱敏实验室」（原演示内容）两块；新增 `GET/PUT /api/desensitize/config`。
+生产默认仍为关。
+
+**实测**
+
+- pstack 合并前审计（3 个独立 adversary + 逐条复跑）：6 条已验证 finding 全修（1×P2 + 5×P3）。
+- 定向 4 文件 43 passed；受影响面（desens/web/share/reader/summary）合并 main 前 381 passed、合并后 296 passed。
+- 变异复检：删掉规则表兜底 / 互换 L1↔L2 键映射后，新用例均**失败**（用例确实守住不变量）。
+- CI `pytest · py3.12` run `45723058978` → success（head `a996ce3`，base `e40e973`）。
+- 8900 生产 UI：11 条导航无「信息脱敏」；配置管理 8 页签含「脱敏」且面板可见（切到「信源」隐藏）；
+  实验室默认配置区、切换互斥；账本两张表 9/9、8/8 列 `x` 偏差 0；390px 横向溢出 0。
+- 大模型通道：实验室「真跑一次」生产实测 HTTP 200，手机号出站前遮蔽为 `{{PHONE_…}}`、回包还原正常
+  （model 7.2s）；默认关闭路径的出站提示词与回包与 base 逐字节一致。
+
+**部署**：`main` 快进到 `d1c8c1c`；8900 由 launchd `com.moni.web` 重启（pid 28438），
+`GET /api/desensitize/config` 200 且 `enabled=false`；HTML 页面统一 `Cache-Control: no-cache`。
+
+**未做**：用户规则 CRUD（规划 `docs/plans/2026-11-25_desens-config-panel-plan.md`，下一 sprint）；
+生产总开关保持关闭。
+
 ## 已发布: **v1.0.135 — 案例库 2.0 后端** (2026-11-25 · PR #326 → `6d141c8` · tag `v1.0.135` · Sprint 79)
 
 **目标**：详情页可“震撼”演示、案例可分享、企业/行业/场景聚合、搜索补齐、抽取升级。
