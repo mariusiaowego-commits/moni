@@ -1,3 +1,39 @@
+## 已部署: **案例在用口径统一 + 生产库迁移 062–069 与规则回填** (2026-11-26 · PR #343 → `c257f47` · Sprint 82)
+
+**目标**：把「什么算一个案例」收敛成一条 SQL 口径，5 处统计 / 搜索 / 漏斗共用；同时补上
+生产库一直缺的迁移与回填，让 8900 的 `/cases` 真正可用。
+
+**生产库**
+
+- 迁移：`schema_version 61 → 69`（062 case_metrics / 063 FTS v2 / 064 cron 抽取 / 065 enterprises /
+  066 taxonomy / 067 insights / 068 share case_ids / 069 evidence）。备份：`data/news.db.bak-20261126-151805`。
+- 回填（`--apply`，0 次 LLM）：taxonomy 432 条中企业命中 217 / 未归类 215；8 类与 10 场景全覆盖；
+  metrics 写入 175 条结构化指标；evidence 265 条通过逐字校验、167 条保持未验证。
+  回填前备份：`data/news.db.bak-20261126-163035`。
+
+**口径**
+
+- 新增 `active_case_clause(alias, include_archived=False)`（`moni/cases/repository.py`），
+  `/cases`、facets、`/api/cases/stats`、`search_fts`、`cases-dashboard`、榜单、地理分布、
+  `extract_layer_stats`、`data_funnel_stats`、`get_by_article`、4 个 aggregate 全部复用。
+- `cases-dashboard` 新增 `archived_total`；`/stats` 只在 `>0` 时显示「· 归档 N」。
+- `moni cases verify-all` 不再把归档案例写回 `verified`。
+
+**实测（8900）**
+
+- `432 / 137 / 305 / 10 / 8 / 73`（total / 高价值 / 企业 / 场景 / 类型 / 待审）；`archived=0`；
+  dashboard `total_cases=432`、`archived_total=0`；`q=小程序 2`。
+- 端点全 200：`/`、`/cases`、`/stats`、`/api/cases`、`/api/cases/search`、`/api/cases/stats`、
+  `/api/stats/cases-dashboard`、`/api/stats/data-funnel`、`/api/stats/extract`。
+- 部署：生产 checkout `445d381 → c257f47`，8900 pid `77810 → 42138`。
+
+**测试**：CI `pytest · py3.12` run `45786534359` success（3017 passed / 2 skipped）；定向 202 passed。
+独立只读审计（agy）APPROVE WITH NITS，2×P1（`get_by_article` 漏排归档、`verify-all` 复活归档）与
+全部 P2 已修，详见 `docs/sprint-evidence/sprint-82/VERIFY.md` §6。
+
+**未做**：未打 tag；`case_insights`（做法 / 风险）LLM 回填未做；`_geo_distribution` 的归档过滤
+无独立单测（靠共用口径覆盖）。
+
 ## 已发布: **v1.0.140 — 脱敏规则表横向滚动条修复** (2026-11-26 · PR #340 → `4fab0f5` · tag `v1.0.140` · Sprint 81)
 
 **目标**：配置管理 → 脱敏的「用户规则」表不再挂无意义横向滚动条。该表沿用了配置表统一的
