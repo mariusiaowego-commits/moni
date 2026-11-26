@@ -181,10 +181,27 @@ class CronScheduler:
         from . import registry
 
         conn = get_db()
+        job_row = conn.execute(
+            "SELECT job_id FROM cron_run_requests WHERE id = ?", (request_id,)
+        ).fetchone()
+        job_id = job_row["job_id"] if job_row else f"request:{request_id}"
         try:
             _resolve_func(func_path)(**func_kwargs)
         except Exception as exc:
             logger.exception("run request %s failed", request_id)
+            # 执行函数之前/本身的失败不会写 cron_runs；补一行，前端才能看到，
+            # 而不是空等后误以为「已入队」。
+            try:
+                from .run_history import CronRunHistory
+
+                CronRunHistory().log_run(
+                    job_id,
+                    success=False,
+                    error=str(exc)[:500],
+                    extra={"in_progress": False},
+                )
+            except Exception:
+                logger.exception("failed to log run for request %s", request_id)
             registry.finish_request(conn, request_id, error=str(exc)[:500])
         else:
             registry.finish_request(conn, request_id)
@@ -263,6 +280,11 @@ class CronScheduler:
             data = yaml.safe_load(self.config_path.read_text(encoding="utf-8")) or {}
             jobs = data.get("jobs", []) if isinstance(data, dict) else []
             for job_cfg in jobs:
+                if not job_cfg.get("is_active", True):
+                    continue
+                # 只有 registry 专属的 manual 任务跳过；interval/date 仍按 YAML 注册。
+                if job_cfg.get("trigger_type") == "manual":
+                    continue
                 self._register_job(job_cfg)
             logger.debug("Loaded %d job(s) from %s", len(jobs), self.config_path)
             return

@@ -589,6 +589,11 @@ def timeseries(
     q = _TIMESERIES_QUERIES[metric]
     fmt = _granularity_format(granularity)
     since = _period_iso(period)
+    where_extra = ""
+    if metric == "cases":
+        from moni.cases.repository import active_case_clause
+
+        where_extra = f"AND {active_case_clause()}"
 
     rows = get_db().execute(
         f"""
@@ -597,6 +602,7 @@ def timeseries(
                {q['extra_col']} AS extra
         FROM {q['table']}
         WHERE {q['time_col']} >= ?
+              {where_extra}
         GROUP BY bucket
         ORDER BY bucket ASC
         """,
@@ -816,9 +822,10 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
 
     keyword_options = [
         str(r[0]) for r in conn.execute(
-            "SELECT DISTINCT keyword FROM case_keywords "
-            "WHERE keyword IS NOT NULL AND keyword != '' "
-            "ORDER BY keyword"
+            "SELECT DISTINCT ck.keyword FROM case_keywords ck "
+            "JOIN cases c ON c.case_id = ck.case_id "
+            f"WHERE ck.keyword IS NOT NULL AND ck.keyword != '' AND {active_case_clause('c')} "
+            "ORDER BY ck.keyword"
         ).fetchall()
     ]
 
