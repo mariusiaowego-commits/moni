@@ -1166,6 +1166,17 @@ function app() {
         this._startCronPoll();
       } else if (this.configTab === 'desens') {
         this.loadDesensConfig();
+        if (window.moniDesensLab) window.moniDesensLab.ensure();
+      }
+      // v1.0.139: 页签切换同步地址栏，刷新后停在同一个页签（原先只在深链
+      // 进入时读一次 ?tab=，切走再刷新会弹回默认页签）。
+      if (this.currentView === 'config' && window.location.pathname === '/config') {
+        const query = this.configTab === 'sources' ? '' : '?tab=' + encodeURIComponent(this.configTab);
+        try {
+          window.history.replaceState(
+            { view: 'config', configTab: this.configTab }, '', '/config' + query,
+          );
+        } catch (e) { /* 老浏览器：不同步 URL，不影响功能 */ }
       }
     },
 
@@ -5889,6 +5900,11 @@ function app() {
       // the CRUD tab directly.  Falls back to /articles for unknown paths.
       // v1.0.25: /cron /llmSettings redirect into 配置管理 subtabs via navigate().
       const view = this._pathToView[window.location.pathname] || 'articles';
+      // v1.0.138: 深链到指定配置页签（/config?tab=desens）。
+      const tabParam = new URLSearchParams(window.location.search).get('tab');
+      if (tabParam && ['sources', 'tags', 'filters', 'directions', 'llm', 'jobs', 'cron', 'desens'].includes(tabParam)) {
+        this.configTab = tabParam;
+      }
       // Warm article filters at boot (cheap)
       this.loadArticlesFilters();
       // Use navigate() so loaders + legacy redirects stay in one place
@@ -5909,7 +5925,28 @@ function app() {
     // v1.0.134: 脱敏配置总览（总开关/级别/规则条数），失败不影响主流程。
     desensConfig: null,
     desensConfigError: null,
-    loadDesensConfig() {
+    desensSaving: false,
+    desensSaveMsg: '',
+    // v1.0.139: 规则表把机读枚举翻成中文，机读值只留在 title。
+    desensRuleType(v) {
+      return { word: '关键词', regex: '正则', allowlist: '白名单' }[v] || v || '';
+    },
+    desensRuleAction(v) {
+      return { mask: '遮蔽', warn: '告警', block: '拦截' }[v] || v || '';
+    },
+    desensRuleKind(v) {
+      return {
+        PRIVATE_KEY: '私钥', API_KEY: 'API 密钥', URL_TOKEN: 'URL 令牌', JWT: 'JWT',
+        BEARER: 'Bearer 令牌', PASSWORD: '密码', SECRET: '密钥串',
+        PHONE: '手机号', ID_CARD: '身份证号', BANK_CARD: '银行卡号', EMAIL: '邮箱',
+        ORG: '机构名', SELF_ORG: '本机构', PROJECT: '项目名',
+        WATCHLIST: '关注标的', SENSITIVE_VIEW: '内部评级口径',
+        PATH_USER: '用户路径', INTERNAL_HOST: '内网域名',
+        PUBLIC_IP: '公网 IP', PUBLISHER: '发布方',
+      }[v] || v || '';
+    },
+    // clearMsg=false 用于保存失败后的回滚：那时要保留失败提示，不能被重读清掉。
+    loadDesensConfig(clearMsg = true) {
       const self = this;
       fetch('/api/desensitize/config', { credentials: 'same-origin' })
         .then(async (r) => {
@@ -5928,8 +5965,45 @@ function app() {
           if (!d) return;
           self.desensConfig = d;
           self.desensConfigError = null;
+          if (clearMsg) self.desensSaveMsg = '';
         })
         .catch(e => { self.desensConfigError = '配置读取失败：' + e; });
+    },
+
+    // v1.0.138: 脱敏开关就地改，不用跳去实验室页。
+    toggleDesens(field) {
+      if (!this.desensConfig || this.desensSaving) return;
+      const current = field === 'enabled'
+        ? this.desensConfig.enabled
+        : this.desensConfig.levels[field];
+      this.saveDesensConfig({ [field]: !current });
+    },
+
+    async saveDesensConfig(patch) {
+      this.desensSaving = true;
+      this.desensSaveMsg = '保存中…';
+      try {
+        const res = await fetch('/api/desensitize/config', {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          const msg = (body && (body.message || body.detail)) || ('HTTP ' + res.status);
+          throw new Error(msg);
+        }
+        this.desensConfig = await res.json();
+        this.desensConfigError = null;
+        this.desensSaveMsg = '已保存（分享 worker 最多 30 秒内生效）';
+      } catch (e) {
+        this.desensSaveMsg = '保存失败：' + (e && e.message ? e.message : e);
+        // 回滚到服务端真实值，避免界面显示"改了"但其实没生效。
+        this.loadDesensConfig(false);
+      } finally {
+        this.desensSaving = false;
+      }
     },
 
     // v1.0.130: 离开页面时停掉通用分的轮询，别在后台一直打接口。
