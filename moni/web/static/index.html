@@ -2224,7 +2224,9 @@
         </div>
 
         <!-- B 沉浸详情 -->
-        <div x-show="cvDetail" x-cloak class="cv-overlay modal-backdrop modal-backdrop-dim" @click.self="cvCloseDetail()" x-transition.opacity.duration.150ms>
+        <div x-show="cvDetail" x-cloak class="cv-overlay modal-backdrop modal-backdrop-dim"
+             @click.self="cvCloseDetail()" @keydown.escape.window="cvDetail && cvCloseDetail()"
+             x-transition.opacity.duration.150ms>
           <div class="cv-sheet" @click.stop>
             <template x-if="cvDetail">
               <div class="cv-sheet-grid">
