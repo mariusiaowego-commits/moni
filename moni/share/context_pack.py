@@ -83,10 +83,7 @@ def format_lines(items: list[dict[str, Any]], *, budget: int) -> list[str]:
         label = KIND_LABELS.get(str(item.get("kind") or ""), "上下文")
         title = (item.get("title") or "").strip()
         prefix = f"- [{label}]"
-        body_head = body.lstrip()
-        title_repeated = bool(title) and (
-            body_head.startswith(f"{title}：") or body_head.startswith(f"{title}:")
-        )
+        title_repeated = _title_is_body_prefix(title, body)
         if title and not title_repeated:
             prefix += f" {title}:"
         line = f"{prefix} {body}"
@@ -98,6 +95,25 @@ def format_lines(items: list[dict[str, Any]], *, budget: int) -> list[str]:
         lines.append(line)
         used += len(line)
     return lines
+
+
+def _title_is_body_prefix(title: str, body: str) -> bool:
+    """True when the stored title is just the head of the body.
+
+    Titles are auto-derived from the first line and truncated to 40 chars
+    with an ellipsis, so an exact ``title + '：'`` comparison missed them
+    and produced ``- [AI 对话] 结论：…: 结论：…``.  Compare the untruncated
+    prefix instead.
+    """
+    if not title:
+        return False
+    head = body.lstrip()
+    stem = title[:-1].strip() if title.endswith("…") else title
+    if not stem:
+        return False
+    if head.startswith(f"{stem}：") or head.startswith(f"{stem}:"):
+        return True
+    return len(stem) >= 16 and head.startswith(stem)
 
 
 def markdown_section(
@@ -144,7 +160,14 @@ def html_block(items: list[dict[str, Any]]) -> str:
         body = html.escape(str(item.get("body") or "").strip())
         if not body:
             continue
-        title_html = f'<span class="ctx-title">{title}</span>' if title else ""
+        title_html = (
+            f'<span class="ctx-title">{title}</span>'
+            if title and not _title_is_body_prefix(
+                str(item.get("title") or "").strip(),
+                str(item.get("body") or "").strip(),
+            )
+            else ""
+        )
         lis.append(
             '<li class="ctx-item">'
             f'<div class="ctx-meta"><span class="ctx-kind">{html.escape(label)}</span>{title_html}</div>'
@@ -188,49 +211,143 @@ def standalone_html_section(
     *,
     heading: str = "用户上下文",
 ) -> str:
-    """Self-contained section for LLM-generated HTML with no moni CSS."""
+    """Self-contained section for LLM-generated HTML with no moni CSS.
+
+    Design (approved 2026-11-26): the kind badge leads every item, article
+    titles are not repeated, and the block lives inside the content column
+    (not as a separate 860px document after the footer).
+    """
     contexts = load_contexts_db(db_path, article_ids)
     if not contexts:
         return ""
-    titles = _article_titles(db_path, article_ids)
-    budget = article_budget(len(contexts))
-    blocks: list[str] = []
-    shown = 0
+    items_html: list[str] = []
+    count = 0
+    used = 0
     for aid in article_ids:
         items = contexts.get(str(aid)) or []
-        if not items:
-            continue
-        lines = format_lines(items, budget=budget)
-        if not lines:
-            continue
-        shown += 1
-        body = html.escape("\n".join(lines))
-        title = html.escape(titles.get(str(aid), ""))
-        blocks.append(
-            '<article style="margin:0 0 24px;">'
-            f'<h3 style="margin:0 0 8px;font-size:1rem;">文章 {shown}: {title}</h3>'
-            '<pre style="margin:0;padding:12px 14px;background:#faf7f2;'
-            'border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere;'
-            f'font:inherit;line-height:1.7;">{body}</pre>'
-            "</article>"
-        )
-    if not blocks:
+        for item in items:
+            body = str(item.get("body") or "").strip()
+            if not body:
+                continue
+            remaining = TOTAL_CHARS - used
+            if remaining <= 0:
+                break
+            budget = min(PER_ARTICLE_CHARS, remaining)
+            count += 1
+            truncated = len(body) > budget
+            text = body[:budget]
+            used += len(text)
+            label = KIND_LABELS.get(str(item.get("kind") or ""), "上下文")
+            title = str(item.get("title") or "").strip()
+            title_html = ""
+            if title and not _title_is_body_prefix(title, body):
+                title_html = (
+                    '<div style="margin:0 0 4px;font-size:13px;'
+                    f'color:#78716c;">{html.escape(title)}</div>'
+                )
+            items_html.append(
+                '<div style="border:1px solid #e2e8f0;border-radius:10px;'
+                'padding:12px 14px;background:#ffffff;">'
+                f'<span style="display:inline-block;font-size:11px;font-weight:600;'
+                'color:#3730a3;background:#e0e7ff;border-radius:4px;'
+                f'padding:1px 6px;">{html.escape(label)}</span>'
+                f'{title_html}'
+                '<div style="margin:6px 0 0;font-size:14px;line-height:1.75;'
+                'color:#44403c;white-space:pre-wrap;overflow-wrap:anywhere;">'
+                f"{html.escape(text)}{'…' if truncated else ''}"
+                "</div></div>"
+            )
+    if not items_html:
         return ""
     return (
-        '<section class="moni-user-contexts" '
-        'style="max-width:860px;margin:56px auto 0;padding:0 24px;'
+        '<section id="moni-user-contexts" class="moni-user-contexts" '
+        'style="margin:48px 0 0;padding-top:24px;border-top:1px solid #e2e8f0;'
         'font-family:system-ui,-apple-system,\'PingFang SC\',sans-serif;color:#292524;">'
-        f'<h2 style="margin:0 0 8px;font-size:1.2rem;">{html.escape(heading)}</h2>'
-        '<p style="margin:0 0 20px;font-size:0.85rem;color:#78716c;">'
-        "用户整理，未经事实核查，不代表本简报结论。</p>"
-        f'{"".join(blocks)}'
+        '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
+        f'<h2 style="margin:0;font-size:1.15rem;color:#1a365d;">{html.escape(heading)}</h2>'
+        f'<span style="font-size:12px;color:#78716c;">{count} 条 · 用户整理，未经事实核查</span>'
+        "</div>"
+        '<div style="display:grid;gap:10px;margin-top:14px;">'
+        f'{"".join(items_html)}'
+        "</div>"
+        '<p style="margin:10px 0 0;font-size:12px;color:#a8a29e;">'
+        "这些内容由用户在阅读时保存，不代表本简报结论。</p>"
         "</section>"
     )
 
 
-def inject_html_section(html_text: str, section: str) -> str:
+def anchor_banner(count: int) -> str:
+    """In-content entry point so the contexts are discoverable on screen one."""
+    if count <= 0:
+        return ""
+    return (
+        '<a class="moni-ctx-anchor" href="#moni-user-contexts" '
+        'style="display:block;margin:16px 0 0;'
+        "padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;"
+        "background:#f8fafc;color:#334155;font-size:13px;text-decoration:none;"
+        'font-family:system-ui,-apple-system,\'PingFang SC\',sans-serif;">'
+        f"本文含 {count} 条用户整理上下文 · 查看文末 ↓</a>"
+    )
+
+
+def _inject_after_header(html_text: str, anchor: str) -> str:
+    if not anchor:
+        return html_text
+    match = re.search(r"</header\s*>", html_text, flags=re.IGNORECASE)
+    if match:
+        idx = match.end()
+        return html_text[:idx] + anchor + html_text[idx:]
+    match = re.search(r"<body\b[^>]*>", html_text, flags=re.IGNORECASE)
+    if match:
+        idx = match.end()
+        return (
+            html_text[:idx]
+            + '<div class="moni-ctx-anchor-wrap" '
+            'style="max-width:720px;margin:0 auto;padding:0 24px;">'
+            + anchor
+            + "</div>"
+            + html_text[idx:]
+        )
+    return anchor + html_text
+
+
+def inject_html_section(html_text: str, section: str, *, anchor: str = "") -> str:
+    """Insert the context section before the page footer (inside .wrap).
+
+    Before v1.0.141 the section was appended after ``</div></body>`` — i.e.
+    after the footer, outside the 720px column, so users never saw it.
+    Re-injection is idempotent: a previous ``moni-user-contexts`` section is
+    dropped first, so retrying a task cannot stack two appendices.
+    """
     if not section:
         return html_text
+    # Drop a previous run's anchor and section so a resumed task cannot stack
+    # two entry banners or two appendices.
+    html_text = re.sub(
+        r'<div[^>]*class="moni-ctx-anchor-wrap"[^>]*>.*?</div>\s*',
+        "",
+        html_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    html_text = re.sub(
+        r'<a[^>]*class="moni-ctx-anchor"[^>]*>.*?</a>\s*',
+        "",
+        html_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    html_text = re.sub(
+        r'<section[^>]*class="[^"]*moni-user-contexts[^"]*"[^>]*>.*?</section>\s*',
+        "",
+        html_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    html_text = _inject_after_header(html_text, anchor)
+    footer = None
+    for footer in re.finditer(r"<footer\b", html_text, flags=re.IGNORECASE):
+        pass
+    if footer is not None:
+        idx = footer.start()
+        return html_text[:idx] + section + "\n" + html_text[idx:]
     match = None
     for match in re.finditer(r"</body\s*>", html_text, flags=re.IGNORECASE):
         pass
@@ -267,13 +384,20 @@ def main(argv: list[str] | None = None) -> int:
         print(f"bad --article-ids: {exc}", file=sys.stderr)
         return 2
     if args.inject_html:
+        contexts = load_contexts_db(args.db, ids)
+        n_contexts = sum(
+            1
+            for items in contexts.values()
+            for item in items
+            if str(item.get("body") or "").strip()
+        )
         section = standalone_html_section(args.db, ids)
         if section:
             path = args.inject_html
             with open(path, encoding="utf-8") as f:
                 doc = f.read()
             with open(path, "w", encoding="utf-8") as f:
-                f.write(inject_html_section(doc, section))
+                f.write(inject_html_section(doc, section, anchor=anchor_banner(n_contexts)))
         return 0
     print(markdown_section(args.db, ids))
     return 0

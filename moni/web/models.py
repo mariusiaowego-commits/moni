@@ -306,6 +306,15 @@ class ShareTask(BaseModel):
     progress_stage: str | None = None
     progress_pct: int | None = None
     progress_message: str | None = None
+    # v1.0.141: enqueue-time capability snapshot (share_tasks.extra).
+    # ``features`` powers the queue's 特性 column; historical rows with
+    # neither extra nor a queue file set config_unknown=True instead of
+    # pretending to know what they generated.
+    title: str | None = None
+    options: dict[str, Any] | None = None
+    generation_approach: str | None = None
+    features: list[dict[str, str]] = Field(default_factory=list)
+    config_unknown: bool = False
     created_at: str
     started_at: str | None = None
     finished_at: str | None = None
@@ -365,6 +374,16 @@ class BriefCreateResponse(BaseModel):
     status: str = "pending"
     article_count: int = 0
     worker: dict[str, Any] = Field(default_factory=dict)
+
+
+class NextTitleResponse(BaseModel):
+    """Response for GET /api/share/next-title."""
+
+    title: str
+    format: str
+    label: str
+    date: str
+    seq: int
 
 
 class ShareTaskEstimateResponse(BaseModel):

@@ -13,6 +13,8 @@
     ['.bv-chip-wrap', '.tip'],
     ['.title-cell', '.title-tip'],
     ['.tags-cell', '.tags-overflow'],
+    ['.article-card-ctx', '.tip'],
+    ['.feat-cell', '.feat-tip'],
   ];
   const GAP = 6;
   const EDGE = 8;
