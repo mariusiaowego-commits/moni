@@ -81,7 +81,7 @@ class TestSeeding:
             "extract_events_evening",
             "fetch_all_sources",
             "extract_cases_noon_post",
-            "extract_cases_night",
+            "extract_cases_demo",
         ] or sorted(j["id"] for j in jobs) == sorted([
             "fetch_all_sources",
             "extract_events_morning",
@@ -89,7 +89,7 @@ class TestSeeding:
             "extract_events_noon",
             "extract_events_evening",
             "extract_cases_noon_post",
-            "extract_cases_night",
+            "extract_cases_demo",
         ])
         assert len(jobs) == 7
 

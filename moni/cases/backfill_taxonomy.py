@@ -15,7 +15,9 @@ import unicodedata
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
+
+from .backfill_common import backup_database, connect
 
 
 def normalize_alias_key(text: str | None) -> str:
@@ -138,13 +140,110 @@ def classify_scenario(
     return "other"
 
 
+def apply_taxonomy_for_case_ids(
+    conn: sqlite3.Connection,
+    case_ids: Sequence[str],
+) -> int:
+    """为新入库案例写齐四张表（同事务内调用）.
+
+    聚合查询 JOIN 的是 ``cases.subject_enterprise_id`` 与
+    ``case_scenario_links``，只写 ``case_enterprises`` 不够；四处必须一起写，
+    否则新案例继续掉进「其他/未归类」。
+    """
+    ids = [cid for cid in case_ids if cid]
+    if not ids:
+        return 0
+
+    alias_map = load_enterprise_alias_map(conn)
+    marks = ",".join("?" * len(ids))
+    rows = conn.execute(
+        f"""
+        SELECT case_id, subject, case_type, summary, evidence_snippet
+        FROM cases
+        WHERE case_id IN ({marks})
+        """,
+        ids,
+    ).fetchall()
+    kw_rows = conn.execute(
+        f"SELECT case_id, keyword FROM case_keywords WHERE case_id IN ({marks})",
+        ids,
+    ).fetchall()
+    kw_by_case: dict[str, list[str]] = {}
+    for kr in kw_rows:
+        kw_by_case.setdefault(kr["case_id"], []).append(kr["keyword"])
+
+    now = datetime.now(timezone.utc).isoformat()
+    for row in rows:
+        cid = row["case_id"]
+        subject = row["subject"]
+        keywords = kw_by_case.get(cid, [])
+
+        ent_id, _ent_name, _industry = resolve_enterprise(subject, alias_map)
+        category = classify_category(
+            summary=row["summary"],
+            evidence_snippet=row["evidence_snippet"],
+            keywords=keywords,
+            case_type=row["case_type"],
+        )
+        scenario = classify_scenario(
+            keywords=keywords,
+            summary=row["summary"],
+            evidence_snippet=row["evidence_snippet"],
+            subject=subject,
+        )
+
+        conn.execute(
+            "UPDATE cases SET subject_enterprise_id = ?, case_category = ? WHERE case_id = ?",
+            (ent_id, category, cid),
+        )
+        conn.execute(
+            "DELETE FROM case_enterprises "
+            "WHERE case_id = ? AND role = 'subject' AND source_type = 'auto_rule'",
+            (cid,),
+        )
+        if ent_id is not None and not _has_manual_enterprise(conn, cid):
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO case_enterprises
+                    (case_id, enterprise_id, role, raw_name, source_type, created_at)
+                VALUES (?, ?, 'subject', ?, 'auto_rule', ?)
+                """,
+                (cid, ent_id, subject, now),
+            )
+        conn.execute(
+            "DELETE FROM case_scenario_links WHERE case_id = ? AND source_type = 'auto_rule'",
+            (cid,),
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO case_scenario_links
+                (case_id, scenario_code, is_primary, source_type, created_at)
+            VALUES (?, ?, 1, 'auto_rule', ?)
+            """,
+            (cid, scenario, now),
+        )
+    return len(rows)
+
+
+def _has_manual_enterprise(conn: sqlite3.Connection, case_id: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM case_enterprises "
+        "WHERE case_id = ? AND role = 'subject' AND source_type = 'manual_user' LIMIT 1",
+        (case_id,),
+    ).fetchone()
+    return row is not None
+
+
+def _manual_case_ids(conn: sqlite3.Connection) -> set[str]:
+    rows = conn.execute(
+        "SELECT DISTINCT case_id FROM case_enterprises WHERE source_type = 'manual_user'"
+    ).fetchall()
+    return {str(r[0]) for r in rows}
+
+
 def run_backfill(db_path: Path, *, apply: bool = False) -> dict[str, Any]:
     """在指定 DB 上执行企业/行业/场景/8类规则回填."""
-    if not apply:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    else:
-        conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
+    conn = connect(db_path, apply=apply)
 
     try:
         alias_map = load_enterprise_alias_map(conn)
@@ -210,22 +309,33 @@ def run_backfill(db_path: Path, *, apply: bool = False) -> dict[str, Any]:
 
         if apply:
             now = datetime.now(timezone.utc).isoformat()
+            manual = _manual_case_ids(conn)
             with conn:
                 conn.executemany(
                     "UPDATE cases SET subject_enterprise_id = ?, case_category = ? WHERE case_id = ?",
                     updates,
                 )
                 conn.executemany(
-                    """
-                    INSERT OR REPLACE INTO case_enterprises
-                        (case_id, enterprise_id, role, raw_name, source_type, created_at)
-                    VALUES (?, ?, 'subject', ?, 'auto_rule', ?)
-                    """,
-                    [(cid, eid, raw, now) for cid, eid, raw in ent_links],
+                    "DELETE FROM case_enterprises "
+                    "WHERE case_id = ? AND role = 'subject' AND source_type = 'auto_rule'",
+                    [(cid,) for cid, _eid, _raw in ent_links],
                 )
                 conn.executemany(
                     """
-                    INSERT OR REPLACE INTO case_scenario_links
+                    INSERT OR IGNORE INTO case_enterprises
+                        (case_id, enterprise_id, role, raw_name, source_type, created_at)
+                    VALUES (?, ?, 'subject', ?, 'auto_rule', ?)
+                    """,
+                    [(cid, eid, raw, now) for cid, eid, raw in ent_links if cid not in manual],
+                )
+                conn.executemany(
+                    "DELETE FROM case_scenario_links "
+                    "WHERE case_id = ? AND source_type = 'auto_rule'",
+                    [(cid,) for cid, _scn in scn_links],
+                )
+                conn.executemany(
+                    """
+                    INSERT OR IGNORE INTO case_scenario_links
                         (case_id, scenario_code, is_primary, source_type, created_at)
                     VALUES (?, ?, 1, 'auto_rule', ?)
                     """,
@@ -253,12 +363,16 @@ def main(argv: list[str] | None = None) -> int:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="仅统计不写库 (默认)")
     mode.add_argument("--apply", action="store_true", help="写入 DB")
+    parser.add_argument("--no-backup", action="store_true", help="apply 前不自动备份")
     args = parser.parse_args(argv)
 
     db_path = Path(args.db)
     if not db_path.exists():
         print(f"DB not found: {db_path}", file=sys.stderr)
         return 2
+
+    if args.apply and not args.no_backup:
+        print(f"backup: {backup_database(db_path, tag='backfill-taxonomy')}")
 
     res = run_backfill(db_path, apply=bool(args.apply))
     print(f"[{res['mode']}] total={res['total']} enterprise_matched={res['enterprise_matched']} enterprise_unmatched={res['enterprise_unmatched']}")

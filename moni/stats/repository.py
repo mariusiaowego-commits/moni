@@ -19,6 +19,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from ..cases.scope import case_scope_clause
 from ..db.connection import get_db
 
 logger = logging.getLogger(__name__)
@@ -306,7 +307,9 @@ def extract_layer_stats(period: str = "30d") -> dict[str, Any]:
         (since,),
     ).fetchone()[0] or 0
     cases_total = conn.execute(
-        "SELECT COUNT(*) FROM cases WHERE COALESCE(extracted_at, created_at) >= ?",
+        f"""SELECT COUNT(*) FROM cases
+            WHERE COALESCE(extracted_at, created_at) >= ?
+              AND {case_scope_clause("")}""",
         (since,),
     ).fetchone()[0] or 0
     events_pending = conn.execute(
@@ -314,7 +317,10 @@ def extract_layer_stats(period: str = "30d") -> dict[str, Any]:
         (since,),
     ).fetchone()[0] or 0
     cases_pending = conn.execute(
-        "SELECT COUNT(*) FROM cases WHERE COALESCE(extracted_at, created_at) >= ? AND review_status='pending'",
+        f"""SELECT COUNT(*) FROM cases
+            WHERE COALESCE(extracted_at, created_at) >= ?
+              AND review_status = 'pending'
+              AND {case_scope_clause("")}""",
         (since,),
     ).fetchone()[0] or 0
 
@@ -535,6 +541,7 @@ _TIMESERIES_QUERIES: dict[str, dict[str, str]] = {
         "table": "cases",
         "count_expr": "COUNT(*)",
         "extra_col": "SUM(CASE WHEN review_status='confirmed' THEN 1 ELSE 0 END)",
+        "where": case_scope_clause(""),
     },
     "pins": {
         "time_col": "pinned_at",
@@ -593,6 +600,7 @@ def timeseries(
                {q['extra_col']} AS extra
         FROM {q['table']}
         WHERE {q['time_col']} >= ?
+              {("AND " + q["where"]) if q.get("where") else ""}
         GROUP BY bucket
         ORDER BY bucket ASC
         """,
@@ -731,7 +739,7 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
          action_distribution, by_type}
     """
     conn = get_db()
-    where = "subject != '__processing__'"
+    where = case_scope_clause("")
     start: str | None = None
     if period != "all":
         start = _period_iso(period)
@@ -771,7 +779,7 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
     # 排序: 高价值优先 → 置信度高 → 最新 (dad 8-26 review: extracted_at desc 默认
     # 等同"最新"没意义, 必须按 reference_value + confidence 重排)
     # v1.0.37: keywords (case_keywords) + 主地理 (case_geography is_primary)
-    rank_sql = """
+    rank_sql = f"""
         SELECT c.case_id, c.subject, c.counterparty, c.case_action,
                c.reference_value, c.extraction_confidence, c.extracted_at,
                c.summary, c.evidence_snippet,
@@ -790,7 +798,7 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
             ORDER BY g2.is_primary DESC, g2.id
             LIMIT 1
         )
-        WHERE c.subject != '__processing__' AND c.reference_value = 'high'
+        WHERE {case_scope_clause("c")} AND c.reference_value = 'high'
         ORDER BY
             CASE c.reference_value WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
             c.extraction_confidence DESC,
@@ -804,9 +812,10 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
 
     keyword_options = [
         str(r[0]) for r in conn.execute(
-            "SELECT DISTINCT keyword FROM case_keywords "
-            "WHERE keyword IS NOT NULL AND keyword != '' "
-            "ORDER BY keyword"
+            "SELECT DISTINCT ck.keyword FROM case_keywords ck "
+            "JOIN cases c ON c.case_id = ck.case_id "
+            f"WHERE ck.keyword IS NOT NULL AND ck.keyword != '' AND {case_scope_clause('c')} "
+            "ORDER BY ck.keyword"
         ).fetchall()
     ]
 
@@ -850,8 +859,10 @@ def _geo_distribution(conn: sqlite3.Connection) -> dict[str, list[dict[str, Any]
     by_region = [
         {"region": r["region"], "count": int(r["count"])}
         for r in conn.execute(
-            "SELECT region, COUNT(DISTINCT case_id) AS count "
-            "FROM case_geography GROUP BY region ORDER BY count DESC, region"
+            "SELECT g.region, COUNT(DISTINCT g.case_id) AS count "
+            "FROM case_geography g JOIN cases c ON c.case_id = g.case_id "
+            f"WHERE {case_scope_clause('c')} "
+            "GROUP BY g.region ORDER BY count DESC, g.region"
         ).fetchall()
     ]
     by_country = [
@@ -862,9 +873,11 @@ def _geo_distribution(conn: sqlite3.Connection) -> dict[str, list[dict[str, Any]
             "count": int(r["count"]),
         }
         for r in conn.execute(
-            "SELECT country_code, country_name, region, "
-            "COUNT(DISTINCT case_id) AS count "
-            "FROM case_geography GROUP BY country_code "
+            "SELECT g.country_code, g.country_name, g.region, "
+            "COUNT(DISTINCT g.case_id) AS count "
+            "FROM case_geography g JOIN cases c ON c.case_id = g.case_id "
+            f"WHERE {case_scope_clause('c')} "
+            "GROUP BY g.country_code "
             "ORDER BY count DESC, country_code"
         ).fetchall()
     ]
@@ -996,7 +1009,7 @@ def data_funnel_stats() -> dict[str, Any]:
             "SELECT COUNT(*) FROM events WHERE subject != '__processing__'"
         ).fetchone()[0],
         "cases_total": conn.execute(
-            "SELECT COUNT(*) FROM cases WHERE subject != '__processing__'"
+            f"SELECT COUNT(*) FROM cases WHERE {case_scope_clause('')}"
         ).fetchone()[0],
         "share_tasks_done": conn.execute(
             "SELECT COUNT(*) FROM share_tasks WHERE status = 'done'"

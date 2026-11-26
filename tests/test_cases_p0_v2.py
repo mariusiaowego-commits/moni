@@ -67,7 +67,7 @@ class TestMigrations062To064:
                 "SELECT id FROM cron_jobs WHERE func_path LIKE '%extract_cases%'"
             ).fetchall()
         }
-        assert cron_ids == {"extract_cases_noon_post", "extract_cases_night"}
+        assert cron_ids == {"extract_cases_noon_post", "extract_cases_demo"}
 
         budget = tmp_db.execute(
             "SELECT value FROM app_settings WHERE key = 'case_extract_daily_input_token_budget'"
@@ -232,7 +232,14 @@ class TestCronLedgerBudgetAndRateLimit:
         def fake_llm(prompt: str) -> str:
             calls.append(1)
             if "文章1" in prompt:
-                return json.dumps({"cases": [{"subject": "招商银行", "case_type": "AI", "case_action": "pilot", "summary": "试点"}]})
+                return json.dumps({"cases": [{
+                    "subject": "招商银行",
+                    "case_type": "AI",
+                    "case_action": "pilot",
+                    "summary": "招商银行启动智能投顾试点",
+                    "keywords": ["智能投顾", "大模型"],
+                    "extraction_confidence": 85,
+                }]})
             return json.dumps({"cases": []})
 
         r1 = extract_cases_batch(batch_size=10, llm_call_fn=fake_llm)
@@ -347,7 +354,14 @@ class TestCronLedgerBudgetAndRateLimit:
         res = cron_jobs.extract_cases_pending(
             batch_size=5,
             llm_call_fn=lambda _p: json.dumps({
-                "cases": [{"subject": "工商银行", "case_type": "AI", "case_action": "launch", "summary": "上线"}]
+                "cases": [{
+                    "subject": "工商银行",
+                    "case_type": "AI",
+                    "case_action": "launch",
+                    "summary": "工商银行上线智能客服系统",
+                    "keywords": ["智能客服", "大模型"],
+                    "extraction_confidence": 85,
+                }]
             }),
         )
         assert res is not None and res["succeeded"] == 1
@@ -360,6 +374,6 @@ class TestCronLedgerBudgetAndRateLimit:
         cron_jobs._CASE_LOCK.acquire()
         try:
             busy = cron_jobs.extract_cases_pending(batch_size=5)
-            assert busy == {"skipped": "busy"}
+            assert busy["skipped"] == "busy"
         finally:
             cron_jobs._CASE_LOCK.release()

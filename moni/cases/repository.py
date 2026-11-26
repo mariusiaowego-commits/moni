@@ -15,6 +15,7 @@ from typing import Any, Sequence
 
 from ..db.connection import get_db
 from .evidence import build_context, locate_evidence
+from .scope import case_scope_clause
 
 logger = logging.getLogger(__name__)
 
@@ -84,9 +85,9 @@ def _case_filters(
     调用方负责 FROM: cases c LEFT JOIN articles a LEFT JOIN enterprises e。
     ``skip`` 用于 facets：计算某维度时排除该维度自身条件。
     """
-    clauses = ["c.subject != '__processing__'"]
-    if not case_lifecycle:
-        clauses.append("c.case_lifecycle != 'archived'")
+    clauses = [
+        case_scope_clause("c", include_archived=bool(case_lifecycle))
+    ]
     params: list[Any] = []
 
     def add(dim: str, clause: str, values: Sequence[Any]) -> None:
@@ -692,6 +693,15 @@ class CaseRepository:
               AND c.article_id IS NULL
               AND a.raw_content IS NOT NULL
               AND length(a.raw_content) >= ?
+              -- xbot_feed 里只有 xbot-scope 归属 tag 的条目是个人推文，
+              -- 不构成同业案例；带业务 tag 的仍然放行。
+              AND NOT (
+                    a.source = 'xbot_feed'
+                AND NOT EXISTS (
+                        SELECT 1 FROM article_tags t
+                        WHERE t.article_id = a.id AND t.tag_name != 'xbot-scope'
+                    )
+              )
         """
         params: list[Any] = [prompt_version, min_content_len]
         if source:
@@ -893,13 +903,12 @@ class CaseRepository:
         ]
         if item.get("subject_enterprise_id"):
             related_rows = conn.execute(
-                """
+                f"""
                 SELECT case_id, subject, summary, reference_value
                 FROM cases
                 WHERE case_id != ?
                   AND subject_enterprise_id = ?
-                  AND subject != '__processing__'
-                  AND case_lifecycle != 'archived'
+                  AND {case_scope_clause("")}
                 ORDER BY (reference_value = 'high') DESC, created_at DESC
                 LIMIT 4
                 """,
@@ -907,13 +916,12 @@ class CaseRepository:
             ).fetchall()
         else:
             related_rows = conn.execute(
-                """
+                f"""
                 SELECT case_id, subject, summary, reference_value
                 FROM cases
                 WHERE case_id != ?
                   AND subject = ?
-                  AND subject != '__processing__'
-                  AND case_lifecycle != 'archived'
+                  AND {case_scope_clause("")}
                 ORDER BY (reference_value = 'high') DESC, created_at DESC
                 LIMIT 4
                 """,
@@ -927,7 +935,9 @@ class CaseRepository:
         """某篇文章的所有案例."""
         conn = get_db()
         rows = conn.execute(
-            "SELECT * FROM cases WHERE article_id = ? ORDER BY case_type, case_action",
+            f"""SELECT * FROM cases
+                WHERE article_id = ? AND {case_scope_clause("")}
+                ORDER BY case_type, case_action""",
             (article_id,),
         ).fetchall()
         return CaseRepository._attach_metrics(conn, [dict(row) for row in rows])
@@ -1088,7 +1098,7 @@ class CaseRepository:
                 JOIN cases c ON cases_fts.case_id = c.case_id
                 LEFT JOIN articles a ON c.article_id = a.id
                 WHERE cases_fts MATCH ?
-                  AND c.subject != '__processing__'
+                  AND {case_scope_clause("c")}
                   {where_extra}
                 ORDER BY rank LIMIT ?
             """
@@ -1099,7 +1109,7 @@ class CaseRepository:
                 {select_cols}
                 FROM cases c
                 LEFT JOIN articles a ON c.article_id = a.id
-                WHERE c.subject != '__processing__'
+                WHERE {case_scope_clause("c")}
                   AND {where_sql}
                 ORDER BY c.created_at DESC LIMIT ?
             """
@@ -1112,15 +1122,14 @@ class CaseRepository:
         """按规范企业聚合案例数 (未归类统一计入 other)."""
         conn = get_db()
         rows = conn.execute(
-            """
+            f"""
             SELECT COALESCE(e.enterprise_id, 'other') AS enterprise_id,
                    COALESCE(e.name_cn, '其他/未归类') AS name_cn,
                    COALESCE(e.industry_l1, '其他') AS industry_l1,
                    COUNT(*) AS count
             FROM cases c
             LEFT JOIN enterprises e ON e.enterprise_id = c.subject_enterprise_id
-            WHERE c.subject != '__processing__'
-              AND c.case_lifecycle != 'archived'
+            WHERE {case_scope_clause("c")}
             GROUP BY 1, 2, 3
             ORDER BY count DESC, enterprise_id ASC
             LIMIT ?
@@ -1134,13 +1143,12 @@ class CaseRepository:
         """按一级行业聚合案例数 (银行/保险/证券/互联网/其他)."""
         conn = get_db()
         rows = conn.execute(
-            """
+            f"""
             SELECT COALESCE(e.industry_l1, '其他') AS industry_l1,
                    COUNT(*) AS count
             FROM cases c
             LEFT JOIN enterprises e ON e.enterprise_id = c.subject_enterprise_id
-            WHERE c.subject != '__processing__'
-              AND c.case_lifecycle != 'archived'
+            WHERE {case_scope_clause("c")}
             GROUP BY 1
             ORDER BY count DESC, industry_l1 ASC
             """
@@ -1152,15 +1160,14 @@ class CaseRepository:
         """按受控业务场景聚合案例数."""
         conn = get_db()
         rows = conn.execute(
-            """
+            f"""
             SELECT COALESCE(s.code, 'other') AS scenario_code,
                    COALESCE(s.name, '其他业务场景') AS scenario_name,
                    COUNT(DISTINCT c.case_id) AS count
             FROM cases c
             LEFT JOIN case_scenario_links l ON l.case_id = c.case_id
             LEFT JOIN case_scenarios s ON s.code = l.scenario_code
-            WHERE c.subject != '__processing__'
-              AND c.case_lifecycle != 'archived'
+            WHERE {case_scope_clause("c")}
             GROUP BY 1, 2
             ORDER BY count DESC, scenario_code ASC
             """
@@ -1172,14 +1179,13 @@ class CaseRepository:
         """按 8 类案例体系聚合案例数."""
         conn = get_db()
         rows = conn.execute(
-            """
+            f"""
             SELECT COALESCE(cat.code, COALESCE(c.case_category, 'unclassified')) AS category_code,
                    COALESCE(cat.name, '未分类') AS category_name,
                    COUNT(*) AS count
             FROM cases c
             LEFT JOIN case_categories cat ON cat.code = c.case_category
-            WHERE c.subject != '__processing__'
-              AND c.case_lifecycle != 'archived'
+            WHERE {case_scope_clause("c")}
             GROUP BY 1, 2
             ORDER BY count DESC, category_code ASC
             """

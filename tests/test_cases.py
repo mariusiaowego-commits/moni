@@ -953,7 +953,8 @@ class TestPipeline:
                     "case_date": "2026-08-07",
                     "amount": "5 亿元",
                     "reference_value": "high",
-                    "summary": "招行 AI 投顾",
+                    "summary": "招行上线 AI 智能投顾服务",
+                    "keywords": ["智能投顾", "大模型"],
                     "evidence_snippet": "...",
                     "extraction_confidence": 90,
                 }
