@@ -334,7 +334,52 @@ EXTRA_CONFIG_KEYS: tuple[str, ...] = (
     # and is normalised/popped by ``config_sources.py``) — see
     # ``moni/fetch/filters.py::_bypass_tag_or_gate``.
     "bypass_tag_or_gate",
+    # t119u (2026-11-26, dad 拍板): 业务 tag 准入的四组开关。
+    # 同样不进 ``DEFAULT_FETCH_CONFIG``（那是 migration 039 字面量的对照物），
+    # 只在这里放行 + 在 ``_prepare()`` 里带默认值读取。
+    "business_tags_from_source_tags",
+    "business_tags_from_topic_tags",
+    "scope_fence_enabled",
+    "exclude_replies",
+    "exclude_retweets",
 )
+
+#: 工程/跟踪用 tag —— **绝不**参与业务准入（t119u 拍板第 2 条）。
+#:
+#: 单一真相源放在 ``moni/fetch/tag_filter.py``（那边也要排除），这里转发
+#: 一份供 fetcher 内部使用，避免两处各写一个字符串。
+from ..tag_filter import ENGINEERING_TAG_NAMES as _ENGINEERING_TAG_NAMES  # noqa: E402
+
+#: 业务 tag 准入的默认开关（拍板：source_tags 与 topic_tags 都很开；
+#: scope 围栏默认**关** = 只展示；回复/转推默认**过滤**）。
+DEFAULT_BUSINESS_TAG_SWITCHES: dict[str, bool] = {
+    "business_tags_from_source_tags": True,
+    "business_tags_from_topic_tags": True,
+    "scope_fence_enabled": False,
+    "exclude_replies": True,
+    "exclude_retweets": True,
+}
+
+
+def _switch(cfg: dict[str, Any], key: str) -> bool:
+    """读一个业务准入布尔开关（缺失 → ``DEFAULT_BUSINESS_TAG_SWITCHES``）。
+
+    只接受真正的 bool；字符串 ``"false"`` / ``0`` 这类历史写法一并按
+    「假」处理（配置面板会把 JSON 原样存回来），无法识别时用默认值。
+    """
+    default = DEFAULT_BUSINESS_TAG_SWITCHES.get(key, False)
+    raw = cfg.get(key)
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return bool(raw)
+    if isinstance(raw, str):
+        low = raw.strip().lower()
+        if low in ("true", "1", "yes", "on"):
+            return True
+        if low in ("false", "0", "no", "off", ""):
+            return False
+    return default
 
 
 class ThresholdDecision(NamedTuple):
@@ -627,6 +672,25 @@ def _truncate_title(text: str, handle: str, limit: int = 80) -> str:
     if len(first_line) > limit:
         return first_line[: limit - 1].rstrip() + "…"
     return first_line
+
+
+def _is_retweet_text(text: str) -> bool:
+    """纯转推判定（t119u）：X 的转推正文以 ``RT @handle:`` 开头。
+
+    只看**开头** —— 正文中间出现 "RT @" 是引用讨论，不是转推。
+    """
+    return (text or "").lstrip().startswith("RT @")
+
+
+def _is_reply_text(text: str, handle: str = "") -> bool:
+    """纯回复判定（t119u）：X 的回复正文以 ``@someone`` 开头。
+
+    * 只剥行首空白后判断第一个字符是 ``@``；
+    * 若开头 ``@`` 的正是作者自己的 handle（如 "…（续）" 里 @ 自己），
+      仍算回复 —— 与 X 的展示一致，宁可少收也不放水。
+    """
+    head = (text or "").lstrip()
+    return head.startswith("@")
 
 
 def _normalize_published_at(raw: str | None) -> str | None:
@@ -1342,16 +1406,10 @@ class FetcherXbotFeed(BaseFetcher):
             self._author_blocked += 1
             return None
 
-        # topic → 候选 tag → 关键词闸门 (B1)。
-        # 未知 topic (没配候选 tag、也没有同名 active tag) 不入库
-        # (宁可少收也不要错打 tag)。
-        candidates = self._topic_candidate_tags(topic, self._cfg)
-        if not candidates:
-            logger.warning(
-                "[xbot-feed] item %s has unknown topic %r — skipping "
-                "(no candidate tag for it)", tweet_id or raw.get("url"), topic,
-            )
-            return None
+        # t119u: 这里**不再**用 `_topic_candidate_tags()` 提前拦截。
+        # 旧逻辑无视 `business_tags_from_source_tags` / `business_tags_from_topic_tags`
+        # 两个开关，只要 topic 映射为空就直接丢条目（连 business_tag_dropped 都不计）。
+        # 现在统一由 `_match_business_tags()` 按「已启用集合」判定，并 fail-closed。
 
         # ── sprint-35: per-topic 门槛 (第二道闸门) ────────────────────
         # 独立于关键词闸门: bypass_keyword_filters 只短路黑白名单, 门槛
@@ -1380,6 +1438,8 @@ class FetcherXbotFeed(BaseFetcher):
         if self._skip_existing_urls and self._is_url_exists_globally(
             canonical_url, tweet_id
         ):
+            # t119u: 独立计数 —— t118u 复盘时这 3 条是漏斗里「消失」的一部分
+            self._url_deduped += 1
             return None
 
         published_at = _normalize_published_at(raw.get("created_at"))
@@ -1391,42 +1451,65 @@ class FetcherXbotFeed(BaseFetcher):
 
         title = _truncate_title(text, handle)
 
-        # 关键词闸门: 只挂**真实命中**的 tag; 零命中 → 不入库。
-        # (被挡掉的条目不会进 _round_ids, 所以不会写进已导入 state ——
-        #  用户改完关键词下一轮它们还能进来。)
-        hit_tags, hits = self._match_topic_tags(
-            topic, title, content, self._cfg
-        )
+        # ── t119u: 纯回复 / 纯转推过滤（默认开，可配置关）────────────
+        # 放在三道强闸门之后、业务 tag 闸门之前：它们是「形态过滤」，
+        # 不改变强闸门优先级。计数单列，方便用户看懂少收的原因。
+        if self._exclude_retweets and _is_retweet_text(text):
+            self._retweet_dropped += 1
+            return None
+        if self._exclude_replies and _is_reply_text(text, handle):
+            self._reply_dropped += 1
+            return None
 
-        # ── sprint-55 (v1.0.131): scope 准入（与上面的词表闸门 **OR**）──
+        # ── t119u: 业务 tag 准入（唯一的放行通道）────────────────────
         #
-        # 位置很关键: 这一步在 作者屏蔽 / 门槛 / 跨源 URL 去重 **之后** ——
-        # 那三道是强优先闸门, scope 命中不能绕过它们。
-        # OR 而不是 AND: 实测存活段 2767 条里领域词表命中 0 条 —— AND 会让
-        # 「接入」等价于「什么都没变」（表面接入）。
-        scope_fields, scope_hits = self._match_scope(topic, title, content, handle)
-        if scope_fields and not hit_tags:
-            # scope-only 救回: 挂专用 tag（绝不冒充领域关键词命中）
-            hit_tags = [SCOPE_ADMISSION_TAG]
-            hits = scope_hits
-            self._scope_admitted += 1
-            for field in scope_fields:
-                self._scope_admitted_by[field] = (
-                    self._scope_admitted_by.get(field, 0) + 1
-                )
-            logger.debug(
-                "[xbot-feed] item %s (topic=%s) admitted by scope %s",
-                tweet_id or canonical_url, topic or "?", ",".join(scope_fields),
+        # 拍板语义（dad 2026-11-26）：
+        #   * 必须命中**已启用的业务 tag**（source_tags 勾选 与 topic_tags
+        #     映射分别可启停，默认都开；`xbot-scope` 等工程 tag 永不算）；
+        #   * 命中任一即放行（OR 于**已启用集合**）；对集合本身 fail-closed
+        #     —— 两边都关 / 已启用集合关键词全空 ⇒ 0 准入；
+        #   * scope（wechat_regex / xcircle_accounts）默认**不参与准入**，
+        #     只在 ``scope_fence_enabled=true`` 时作为**必须同时满足的 AND
+        #     围栏**（不再有 scope-only 救回，也不再合成 ``xbot-scope``）；
+        #   * 被挡掉的条目不进 ``_round_ids``/state —— 用户改词后 30 天窗口
+        #     内还能回收。
+        hits, hit_tags, gate_empty = self._match_business_tags(
+            topic, title, content
+        )
+        if gate_empty:
+            # 启用集合为空 = fail-closed（绝不透传成「全放通」）
+            self._business_gate_empty = True
+            self._business_tag_dropped += 1
+            logger.warning(
+                "[xbot-feed] item %s dropped — no enabled business tag "
+                "carries any keyword (fail-closed)",
+                tweet_id or canonical_url,
             )
-
+            return None
         if not hit_tags:
+            self._business_tag_dropped += 1
             logger.info(
-                "[xbot-feed] item %s (topic=%s) hit no candidate-tag keyword "
-                "and no scope rule — "
-                "not ingested (stays eligible for a later round)",
+                "[xbot-feed] item %s (topic=%s) hit no enabled business tag "
+                "keyword — not ingested (stays eligible for a later round)",
                 tweet_id or canonical_url, topic or "?",
             )
             return None
+
+        # ── t119u: scope AND 围栏（仅在用户显式启用时）───────────────
+        scope_fields: list[str] = []
+        if self._scope_fence_enabled:
+            scope_fields, _scope_hits = self._match_scope(
+                topic, title, content, handle
+            )
+            if not scope_fields:
+                self._scope_fence_dropped += 1
+                logger.info(
+                    "[xbot-feed] item %s (topic=%s) hit business tag %s but "
+                    "missed the enabled scope fence — not ingested",
+                    tweet_id or canonical_url, topic or "?",
+                    ",".join(hit_tags),
+                )
+                return None
 
         return {
             "title": title,
@@ -1441,7 +1524,7 @@ class FetcherXbotFeed(BaseFetcher):
             # 这里只把 tag 名单带在 article dict 里给下游用。
             "xbot_topic": topic,
             "xbot_tags": list(hit_tags),
-            "xbot_candidate_tags": list(candidates),
+            "xbot_candidate_tags": list(self._business_candidate_tags(topic)),
             "xbot_hits": hits,
             "xbot_tweet_id": tweet_id,
         }
@@ -1538,6 +1621,105 @@ class FetcherXbotFeed(BaseFetcher):
 
         return hit_tags, hits
 
+    # ── t119u: 业务 tag 准入（唯一放行通道）─────────────────────────────
+    def _source_business_tags(self) -> list[str]:
+        """信源**勾选**的业务 tag（``source_tags`` ∩ active，去掉工程 tag）。
+
+        这是「用户勾哪个 tag 就按哪个筛」的真相源之一；另一份是
+        ``fetch_config.topic_tags`` 映射（见 ``_topic_candidate_tags``）。
+        两份都由 ``business_tags_from_source_tags`` /
+        ``business_tags_from_topic_tags`` 分别启停，默认都开。
+        """
+        try:
+            from ...db.connection import get_db
+
+            conn = get_db()
+            rows = conn.execute(
+                """
+                SELECT t.name
+                  FROM source_tags st
+                  JOIN sources s         ON s.id   = st.source_id
+                  JOIN tag_definitions t ON t.name = st.tag_name
+                 WHERE s.name = ?
+                   AND t.is_active = 1
+                 ORDER BY t.name
+                """,
+                (self.source_name,),
+            ).fetchall()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[xbot-feed] cannot read source_tags for %s: %s",
+                self.source_name, exc,
+            )
+            return []
+        return [r[0] for r in rows if r[0] not in _ENGINEERING_TAG_NAMES]
+
+    def _business_candidate_tags(self, topic: str) -> list[str]:
+        """已启用的业务 tag 候选集合（两个真相源按开关并集，去重保序）。"""
+        tags: list[str] = []
+        if self._bt_from_topic_tags:
+            tags.extend(self._topic_candidate_tags(topic, self._cfg))
+        if self._bt_from_source_tags:
+            tags.extend(self._source_business_tags())
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for tag in tags:
+            if not tag or tag in _ENGINEERING_TAG_NAMES or tag in seen:
+                continue
+            seen.add(tag)
+            ordered.append(tag)
+        return ordered
+
+    def _match_business_tags(
+        self,
+        topic: str,
+        title: str,
+        body: str,
+    ) -> tuple[list[dict[str, Any]], list[str], bool]:
+        """按**已启用的业务 tag** 匹配标题 + 正文。
+
+        返回 ``(hits, hit_tags, gate_empty)``：
+
+        * ``hits`` / ``hit_tags`` —— 真实命中的 tag 与命中记录（一个 tag 只
+          记一个关键词，与 ``_match_topic_tags`` 同口径）；
+        * ``gate_empty`` —— 已启用集合里**一个关键词都没有**。调用方必须
+          fail-closed（0 准入），绝不能把它当「没配就全放通」。
+
+        匹配一律走 ``moni/fetch/keyword_match.py::keyword_matches``
+        （AGENTS.md 铁律 1）。
+        """
+        from ..keyword_match import keyword_matches
+
+        candidates = self._business_candidate_tags(topic)
+        if not candidates:
+            return [], [], True
+
+        tag_keywords = _load_tag_keywords(candidates)
+        total_keywords = sum(len(v) for v in tag_keywords.values())
+        if total_keywords == 0:
+            return [], [], True
+
+        hit_tags: list[str] = []
+        hits: list[dict[str, Any]] = []
+        for tag_name in candidates:
+            kws = tag_keywords.get(tag_name)
+            if not kws:
+                continue
+            for kw in kws:
+                if keyword_matches(
+                    kw, title=title, body=body, field="title+content"
+                ):
+                    hit_tags.append(tag_name)
+                    hits.append({
+                        "article_url": "",              # 调用方补
+                        "keyword": kw,
+                        "tag_name": tag_name,
+                        "filter_id": None,
+                        "hit_field": "title+content",
+                    })
+                    break
+        return hits, hit_tags, False
+
     # ── pipeline overrides ───────────────────────────────────────────────
     def dedupe_insert(
         self,
@@ -1621,10 +1803,46 @@ class FetcherXbotFeed(BaseFetcher):
         #   * ``scope_admitted_by`` = 上面那批按字段拆分；
         #   * ``scope_matched_by``  = scope 字段**总命中**（含与词表双命中的，
         #                             双命中不进 scope_admitted）。
-        result["scope_gate_active"] = bool(self._scope_gate_active)
-        result["scope_admitted"] = self._scope_admitted
-        result["scope_admitted_by"] = dict(self._scope_admitted_by)
-        result["scope_matched_by"] = dict(self._scope_matched_by)
+        result["scope_gate_active"] = False
+        # t119u: scope 不再单独准入 —— 这两个键保留（前端/历史消费者仍在读），
+        # 语义退役为「恒 0」，真正的放行通道是业务 tag。
+        result["scope_admitted"] = 0
+        result["scope_admitted_by"] = {}
+        result["scope_matched_by"] = {}
+        # ── t119u: 业务 tag 准入漏斗（后端字段 → job result_json → 前端面板）──
+        result["business_tag_gate_active"] = True
+        result["business_tag_dropped"] = self._business_tag_dropped
+        result["scope_fence_enabled"] = bool(self._scope_fence_enabled)
+        result["scope_fence_dropped"] = self._scope_fence_dropped
+        result["url_deduped"] = self._url_deduped
+        result["reply_dropped"] = self._reply_dropped
+        result["retweet_dropped"] = self._retweet_dropped
+        # 前端既有面板读的是 `dropped_tag_filter` —— 语义对齐成
+        # 「被业务 tag 闸门丢弃」，与 ``base._ingest`` 的同名字段不冲突
+        # （那条路径对 xbot_feed 是 bypass，恒 0）。
+        result["dropped_tag_filter"] = self._business_tag_dropped
+        if self._business_tag_dropped:
+            logger.info(
+                "[xbot-feed] business-tag gate dropped %d item(s) "
+                "(fail-closed=%s)",
+                self._business_tag_dropped,
+                "yes" if self._business_gate_empty else "no",
+            )
+        if self._url_deduped:
+            logger.info(
+                "[xbot-feed] cross-source url dedupe dropped %d item(s)",
+                self._url_deduped,
+            )
+        if self._reply_dropped or self._retweet_dropped:
+            logger.info(
+                "[xbot-feed] reply/retweet filter dropped %d/%d item(s)",
+                self._reply_dropped, self._retweet_dropped,
+            )
+        if self._scope_fence_enabled:
+            logger.info(
+                "[xbot-feed] scope AND fence enabled — narrowed %d item(s)",
+                self._scope_fence_dropped,
+            )
         if self._scope_admitted:
             logger.info(
                 "[xbot-feed] scope admitted %d item(s): %s",
@@ -1841,6 +2059,28 @@ class FetcherXbotFeed(BaseFetcher):
         self._scope_admitted = 0
         self._scope_admitted_by = {}
         self._scope_matched_by = {}
+        # ── t119u: 业务 tag 准入开关 + 计数（每轮重置）──────────────
+        #
+        # 默认值来自 ``DEFAULT_BUSINESS_TAG_SWITCHES``（拍板语义）：
+        #   * source_tags / topic_tags 两个真相源默认都启用；
+        #   * ``scope_fence_enabled`` 默认 **False** = 只展示、不参与准入
+        #     （绝不让「字段里已有正则/账号」偷偷变成 AND 围栏）；
+        #   * 纯回复 / 纯转推默认过滤。
+        self._bt_from_source_tags = _switch(
+            cfg, "business_tags_from_source_tags"
+        )
+        self._bt_from_topic_tags = _switch(
+            cfg, "business_tags_from_topic_tags"
+        )
+        self._scope_fence_enabled = _switch(cfg, "scope_fence_enabled")
+        self._exclude_replies = _switch(cfg, "exclude_replies")
+        self._exclude_retweets = _switch(cfg, "exclude_retweets")
+        self._business_tag_dropped = 0
+        self._business_gate_empty = False
+        self._scope_fence_dropped = 0
+        self._url_deduped = 0
+        self._reply_dropped = 0
+        self._retweet_dropped = 0
 
     # ── scope 准入 (sprint-55) ────────────────────────────────────────────
     def _load_scope_gate(

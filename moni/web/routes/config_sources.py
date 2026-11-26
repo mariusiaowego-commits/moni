@@ -31,6 +31,9 @@ from moni.fetch.sources.xbot_feed import (
 )
 # sprint-55: 正则的「能不能编译 / 怎么匹配」只有一份实现（AGENTS.md 铁律 1）。
 from moni.fetch.keyword_match import compile_regex as _compile_scope_regex
+# t119u: 工程 tag（xbot-scope）的单一真相源在 tag_filter —— 这里用它做
+# 「不许绑到信源」的校验。
+from moni.fetch.tag_filter import ENGINEERING_TAG_NAMES
 # v1.0.76: bank_feed 同样只认 bank_feed.py 里的 DEFAULT_FETCH_CONFIG。
 from moni.fetch.sources.bank_feed import (
     DEFAULT_FETCH_CONFIG as BANK_FEED_DEFAULT_FETCH_CONFIG,
@@ -346,6 +349,25 @@ def _effective_scope(user_cfg: dict) -> tuple[dict, str, bool, bool]:
     return scope, source, upstream_available, has_stored
 
 
+def _truthy(raw: object, default: bool = False) -> bool:
+    """宽容布尔读取（t119u）：配置文件里的值可能是 bool / 0-1 / "true"。
+
+    缺失 / 无法识别 → ``default``。``scope_fence_enabled`` 用它的默认值
+    ``False`` 保证「字段里有正则」不会被误读成「围栏已启用」。
+    """
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return bool(raw)
+    if isinstance(raw, str):
+        low = raw.strip().lower()
+        if low in ("true", "1", "yes", "on"):
+            return True
+        if low in ("false", "0", "no", "off", ""):
+            return False
+    return default
+
+
 def _scope_admission_state(user_cfg: dict) -> tuple[bool, bool]:
     """``(scope_stored, scope_admission_active)`` —— scope 是否**真的**在准入。
 
@@ -606,11 +628,26 @@ def set_source_tags(source_id: str, tag_names: list[str]) -> SourceWithTags:
 
     Tags not in the request body are removed; new tags are added.
     Tags must already exist in tag_definitions (FK).
+
+    t119u (2026-11-26): **工程 tag 不许绑**。``xbot-scope`` 是跟踪标签，
+    既不是业务 tag 也不参与准入 —— 绑上去只会让用户误以为给它设词有用
+    （AC-5：返回 400，不静默忽略）。
     """
     conn = get_db()
     row = conn.execute("SELECT 1 FROM sources WHERE id = ?", (source_id,)).fetchone()
     if row is None:
         raise NotFoundError(message=f"Source {source_id!r} not found")
+
+    engineering = sorted(set(tag_names) & ENGINEERING_TAG_NAMES)
+    if engineering:
+        from moni.web.exceptions import BadRequestError
+        raise BadRequestError(
+            message=(
+                "engineering tags cannot be bound to a source: "
+                f"{engineering}（它们是跟踪标签，不参与业务 tag 准入）"
+            ),
+            details={"engineering_tags": engineering},
+        )
 
     # Validate all tag names exist
     if tag_names:
@@ -681,6 +718,12 @@ def get_fetch_config(source_id: str) -> FetchConfigResponse:
     if source_name == "xbot_feed":
         merged["thresholds"] = _effective_thresholds(user_cfg)
         merged["scope"] = _moni_scope_copy(user_cfg)
+        # t119u (pV P1-3): 5 个新开关的默认值必须**在读取时合入**，
+        # 否则库还没写这几个键时，弹窗里根本看不到这些开关。
+        from moni.fetch.sources.xbot_feed import DEFAULT_BUSINESS_TAG_SWITCHES
+
+        for key, default in DEFAULT_BUSINESS_TAG_SWITCHES.items():
+            merged.setdefault(key, default)
 
     scope_stored = False
     if source_name == "xbot_feed":
@@ -706,7 +749,12 @@ def get_source_scope(source_id: str) -> ScopeResponse:
     * ``upstream_scope_available`` —— 上游 feed JSON 顶层有没有 scope 键;
     * ``scope_edited`` —— moni 侧有没有用户编辑过的副本;
     * ``thresholds`` —— per-topic 门槛 (默认全 0 = 不设限);
-    * ``scope_gates_ingest`` —— **true**（v1.0.131 起）: scope 是入库准入门;
+    * ``scope_gates_ingest`` —— scope 是否**作为 AND 围栏**参与入库
+      （t119u 起默认 **false** = 只展示；只有 ``scope_fence_enabled=true``
+      才为 true，此时入库 = 命中业务 tag **且** 命中 scope）；
+    * ``scope_fence_enabled`` —— 围栏开关本身；
+    * ``scope_mode`` —— ``display_only`` | ``narrow_and``；
+    * ``business_tag_gate_active`` —— 恒为 true（业务 tag 是唯一放行通道）；
     * ``scope_stored`` / ``scope_admission_active`` —— 库里有没有存储 /
       此刻是否真的在准入（展示值来自兜底时 active 为 false）。
 
@@ -742,7 +790,11 @@ def get_source_scope(source_id: str) -> ScopeResponse:
         user_cfg
     )
     # sprint-55: 「展示值」与「是否真的在准入」必须分开报（pV P0）
-    scope_stored, scope_active = _scope_admission_state(user_cfg)
+    scope_stored, scope_usable = _scope_admission_state(user_cfg)
+    # t119u: scope 默认**不参与准入**。只有用户显式打开
+    # ``scope_fence_enabled`` 才作为 AND 围栏；不因为「字段里有正则/账号」
+    # 就偷偷启用（否则升级会把现网已填的 scope 变成 AND，静默改语义）。
+    fence_enabled = _truthy(user_cfg.get("scope_fence_enabled"), False)
     return ScopeResponse(
         source_id=source_id,
         source_name=source_name,
@@ -751,15 +803,24 @@ def get_source_scope(source_id: str) -> ScopeResponse:
         upstream_scope_available=upstream_available,
         scope_edited=scope_edited,
         thresholds=_effective_thresholds(user_cfg),
-        scope_gates_ingest=True,
+        # 兼容字段：语义已是「scope 参与准入（作为 AND 围栏）」而不是「scope
+        # 单独即准入」。前端新文案一律读 scope_mode。
+        scope_gates_ingest=fence_enabled,
         scope_stored=scope_stored,
-        scope_admission_active=scope_active,
+        scope_admission_active=bool(fence_enabled and scope_usable),
+        scope_fence_enabled=fence_enabled,
+        scope_mode="narrow_and" if fence_enabled else "display_only",
+        business_tag_gate_active=True,
         stacking_note=(
-            "这两项是 moni 的**入库准入**：wechat 话题按正则匹配标题+正文"
-            "（大小写不敏感），xcircle 话题按固定账号匹配作者；命中即准入，"
-            "与领域关键词表是 OR 关系。"
-            "它不会改变 X-bot 的搜索范围（采集在上游）。"
-            "作者屏蔽 / 入库门槛 / 跨源 URL 去重优先级更高，scope 命中不能绕过。"
+            "**入库必须命中业务 tag**：一条推文要先命中「标签设置」里勾选的"
+            "业务 tag（或 topic 映射里的业务 tag）之一，才可能入库；"
+            "勾选全空或词表全空 = 一条都不收（不会全放通）。"
+            "源级关键词黑名单已生效；作者屏蔽 / 粉丝点赞门槛 / 跨源 URL 去重"
+            "仍在最前面，业务 tag 命中也不能绕过。"
+            "下方 scope（wechat 正则 / xcircle 固定账号）默认**只作上游范围"
+            "参考、不参与准入**；只有当「把 scope 作为必须同时满足的围栏」"
+            "开关打开时，才要求「命中业务 tag **且** 命中范围」双条件。"
+            "它始终不会改变 X-bot 的搜索范围（采集在上游）。"
             "上游自 2026-11-12 起自带 wechat 门槛（5000 粉 / 5 赞）；moni 门槛"
             "是第二道串联闸门，只能更严，捞不回上游已丢的条目。"
         ),
@@ -824,6 +885,10 @@ def update_fetch_config(source_id: str, body: dict) -> FetchConfigResponse:
         if delete_scope:
             # 合并会把库里那份 scope 带回来 → 显式摘掉（"恢复默认展示"）。
             merged_payload.pop("scope", None)
+            # t119u (pV P0-2): 「恢复默认展示」必须**同时停用围栏**。
+            # 否则会出现「围栏开着 + scope 已删」= 入库被整源拦到 0 的陷阱，
+            # 而前端文案却写着「等于停用围栏」—— 两边说法相反。
+            merged_payload["scope_fence_enabled"] = False
     else:
         merged_payload = dict(body)
 

@@ -57,6 +57,14 @@ from .keyword_match import keyword_matches
 
 logger = logging.getLogger(__name__)
 
+#: 工程 / 跟踪类 tag 名单 —— 只用于追溯，**绝不**参与业务 tag 准入。
+#:
+#: t119u (2026-11-26, dad 拍板第 2 条): ``xbot-scope``（显示名「X-bot 范围」）
+#: 是 migration 061 建的跟踪标签。历史实现会在「scope 救回」时把它当命中
+#: 挂到文章上，导致它出现在用户的业务 tag 勾选列表里、看起来像业务 tag。
+#: 现在统一在这里排除：tag 闸门不读它的关键词，fetcher 也不把它当业务命中。
+ENGINEERING_TAG_NAMES: frozenset[str] = frozenset({"xbot-scope"})
+
 
 def _load_bound_tag_names_for_source(source_name: str) -> list[str]:
     """Return the tag names bound to a source (for synthetic bypass hits)."""
@@ -113,6 +121,9 @@ def _load_tag_keywords_for_source(source_name: str) -> dict[str, list[str]]:
 
     v1.0.5.20: 返回 {tag_name: [keywords]} 而不是 [keywords]，
     以便记录每个关键词属于哪个 tag。
+
+    t119u (2026-11-26): ``ENGINEERING_TAG_NAMES``（目前只有 ``xbot-scope``）
+    在这里被**强制排除** —— 它是工程跟踪 tag，绝不能冒充业务 tag 参与准入。
     """
     conn = get_db()
     rows = conn.execute(
@@ -129,6 +140,9 @@ def _load_tag_keywords_for_source(source_name: str) -> dict[str, list[str]]:
     tag_keywords: dict[str, list[str]] = {}
     for r in rows:
         tag_name = r["name"]
+        if tag_name in ENGINEERING_TAG_NAMES:
+            # 工程 tag：既不进 OR 集合，也不产生命中（t119u AC-5）
+            continue
         raw = r["keywords"]
         if not raw:
             continue

@@ -36,6 +36,9 @@ MIGRATION_039 = (
 SOURCE_ID = "src-xbot-feed"
 SOURCE_NAME = "xbot_feed"
 EXPECTED_TAGS = {"wechat", "miniprogram", "general-tech", "ai-fintech"}
+#: 全量 ``migrate()`` 之后的集合：migration 071 会额外种下并绑定松散业务 tag
+#: `x-ai-circle`（只加不删，既有四个绑定与用户勾选都不动）。
+EXPECTED_TAGS_FULL_MIGRATE = set(EXPECTED_TAGS) | {"x-ai-circle"}
 
 #: The commit whose code predates the xbot_feed source.  A database
 #: built with that code is what "an existing database" looks like.
@@ -165,7 +168,8 @@ def test_039_is_idempotent(seeded_db):
     link_count = seeded_db.execute(
         "SELECT COUNT(*) FROM source_tags WHERE source_id = ?", (SOURCE_ID,)
     ).fetchone()[0]
-    assert link_count == len(EXPECTED_TAGS)
+    # t119u: 全量 migrate 之后还有 070 建议性绑定的 `x-ai-circle`
+    assert link_count == len(EXPECTED_TAGS_FULL_MIGRATE)
 
 
 def test_039_does_not_change_created_at_on_rerun(seeded_db):
@@ -269,9 +273,12 @@ def test_039_skips_links_when_tags_missing(unseeded_db):
         "SELECT COUNT(*) FROM tag_definitions WHERE name IN "
         "('wechat', 'miniprogram', 'general-tech', 'ai-fintech')"
     ).fetchone()[0] == 0
+    # t119u: 全量 migrate 现在还会种下 `x-ai-circle` 并绑到 xbot_feed，
+    # 所以「039 不新增链接」要用**前后差集**断言，而不是绝对空表。
+    before = _links(unseeded_db)
     _run_sql_file(unseeded_db, MIGRATION_039)  # must not raise
     assert _row(unseeded_db) is not None
-    assert _links(unseeded_db) == []
+    assert _links(unseeded_db) == before
 
 
 def test_039_no_dangling_links(seeded_db):
@@ -417,7 +424,8 @@ def test_039_survives_runner_fallback(seeded_db):
 
     _run_sql_file(_BrokenExecutescript(seeded_db), MIGRATION_039)
     assert _row(seeded_db) is not None
-    assert set(_links(seeded_db)) == EXPECTED_TAGS
+    # t119u: 全量 migrate 已带 070 的建议绑定
+    assert set(_links(seeded_db)) == EXPECTED_TAGS_FULL_MIGRATE
 
 
 # ── 9. the runner path through migrate() ────────────────────────────────
@@ -495,7 +503,10 @@ def test_039_tolerates_user_owned_same_name_source(seeded_db):
 
     assert _row(seeded_db) is None
     assert _row(seeded_db, "src-my-own-xbot")["display_name"] == "我的 xbot"
-    assert _links(seeded_db) == []
+    # t119u: 070 建议性绑定只作用于「migrate 当时已存在的 xbot_feed 行」；
+    # 这个用例是在 migrate 之后才造出用户自己的同名列，所以一条绑定都没有，
+    # 039 也不会替它加（差集意义 = 039 不新增）。
+    assert set(_links(seeded_db, "src-my-own-xbot")) == set()
     log = seeded_db.execute(
         "SELECT COUNT(*) FROM schema_cleanup_log WHERE migration = ?",
         ("039_xbot_feed_source",),
@@ -589,7 +600,15 @@ def test_039_migrate_only_path_preserves_user_edits(tmp_path):
     close_db()
     set_db_path(db_path)
     conn = get_db()
-    assert _row(conn) == before
+    after = _row(conn)
+    # t119u: 070 会**按发布需要**改写 xbot_feed 的 fetch_config（关 bypass、
+    # 加业务 tag 开关、min_likes=20），所以不再逐字比较整行；用户手改的
+    # 字段与 fetch_config 里的用户键必须原样保留。
+    for field in ("id", "name", "display_name", "url", "fetch_interval_min",
+                  "is_active", "notes"):
+        assert after[field] == before[field], field
+    after_cfg = json.loads(after["fetch_config"])
+    assert after_cfg["max_days"] == 3, "用户手改的 fetch_config 键不能丢"
     # A migration only adds links, it never removes them.
     assert set(before_links).issubset(set(_links(conn)))
     close_db()
@@ -895,12 +914,12 @@ def test_039_upgrades_a_v38_db_without_seed(tmp_path):
     assert row is not None
     assert row["name"] == SOURCE_NAME
     assert row["is_active"] == 1
-    # The old database had no seed, so there are no tag definitions
-    # and therefore no tag links -- but no crash either.
+    # The old database had no seed, so 039 adds no links.  t119u: 070 会在
+    # 全量 migrate 里种下 `x-ai-circle` 并建议性绑定，所以这里是 1 而不是 0。
     link_count = conn.execute(
         "SELECT COUNT(*) FROM source_tags WHERE source_id = ?", (SOURCE_ID,)
     ).fetchone()[0]
-    assert link_count == 0
+    assert link_count == 1
     conn.close()
 
     # Running the upgrade again is a no-op.
@@ -947,7 +966,8 @@ def test_039_upgrades_a_v38_db_that_has_the_business_tags(tmp_path):
             (SOURCE_ID,),
         )
     ]
-    assert set(links) == set(_V38_TAGS)
+    # t119u: 这是**全量 migrate** 路径 → 还要算上 070 建议性绑定的 x-ai-circle
+    assert set(links) == EXPECTED_TAGS_FULL_MIGRATE
     # The other source is untouched.
     assert conn.execute(
         "SELECT COUNT(*) FROM sources WHERE id = ?", (_OLD_SOURCE_ID,)
@@ -1087,12 +1107,12 @@ def test_039_upgrades_a_db_built_by_old_code(tmp_path):
         assert row is not None
         assert row["name"] == SOURCE_NAME
         assert row["is_active"] == 1
-        # The old database had no seed, so there are no tag definitions
-        # and therefore no tag links -- but no crash either.
+        # The old database had no seed, so 039 adds no links.  t119u: 070 在
+        # 全量 migrate 里种下 `x-ai-circle` 并建议性绑定 ⇒ 这里应为 1。
         link_count = conn.execute(
             "SELECT COUNT(*) FROM source_tags WHERE source_id = ?", (SOURCE_ID,)
         ).fetchone()[0]
-        assert link_count == 0
+        assert link_count == 1
         conn.close()
 
         # Running the upgrade again is a no-op.

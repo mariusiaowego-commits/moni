@@ -126,11 +126,14 @@ def test_no_emoji_in_xbot_block(index_html: str):
 # ── AC-10.3: 其它信源的弹窗渲染不变 ─────────────────────────────────────
 
 def test_generic_key_loop_excludes_xbot_only_keys(app_js: str):
-    """xbot 的 thresholds / scope 不进通用键循环 (其它信源走原路径)。"""
+    """xbot 的 thresholds / scope / scope_fence_enabled 不进通用键循环 (其它信源走原路径)。"""
     src = app_js[app_js.index("fetchConfigSortedKeys() {"):]
     src = src[:src.index("\n    },")]
     assert "xbot_feed" in src
-    assert "k !== 'thresholds' && k !== 'scope'" in src
+    # t119u (pV P1-2): 排除集合写成 xbotOwnKeys 数组（多一个 scope_fence_enabled）
+    assert "xbotOwnKeys" in src
+    assert "'thresholds'" in src and "'scope'" in src
+    assert "'scope_fence_enabled'" in src
 
 
 def test_sorted_keys_for_other_sources_is_unchanged(app_js: str):
@@ -243,29 +246,41 @@ def test_scope_source_label_maps_all_three_states(app_js: str):
 
 # ── sprint-55 (v1.0.131): scope 是入库准入 → UI/契约必须如实 ──────────────
 
-def test_scope_copy_no_longer_claims_display_only(index_html: str):
-    """旧文案「仅用于记录与展示 / 不参与入库闸门」必须改掉（否则是谎言）。"""
+def test_scope_copy_matches_business_tag_gate(index_html: str):
+    """t119u 文案契约：scope 默认只展示、业务 tag 才是唯一放行通道。"""
     block = _xbot_block(index_html)
+    # 旧谎言必须彻底消失
     assert "不参与入库闸门" not in block
     assert "仅用于记录与展示" not in block
-    assert "决定 moni 的入库准入" in block
-    assert "OR" in block
+    assert "与领域关键词表是 <strong>OR</strong>" not in block
+    assert "命中即准入" not in block
+    # 新语义必须写明
+    assert "入库由业务 tag 决定" in block
+    assert "只作上游范围参考、不参与准入" in block
+    assert "一条都不收（不会全放通）" in block
+    # 围栏开关必须存在且默认语义写清
+    assert "scope_fence_enabled" in block
+    assert "围栏" in block
     # 仍然要保留上游边界与串联语义（P0 断言不能被顺手删）
     assert "不会改变 X-bot 的搜索范围" in block
     assert "第二道串联闸门" in block
 
 
-def test_scope_status_line_reflects_active_vs_default(index_html: str,
-                                                     app_js: str):
-    """「默认未启用」vs「实际启用」要由后端字段驱动，不靠猜。"""
+def test_scope_status_line_reflects_fence_vs_display(index_html: str,
+                                                    app_js: str):
+    """状态行由后端 scope_mode / fence 字段驱动，不靠猜。"""
     block = _xbot_block(index_html)
     assert "fetchConfigScopeStatus()" in block
 
     src = app_js[app_js.index("fetchConfigScopeStatus() {"):]
     src = src[:src.index("\n    },")]
+    assert "scope_fence_enabled" in src
     assert "scope_admission_active" in src
     assert "scope_stored" in src
-    assert "当前未启用" in src
+    assert "当前只展示" in src
+    assert "围栏" in src
+    # 旧口径不许回潮
+    assert "scope 命中即准入" not in src
 
 
 def test_wechat_queries_is_marked_display_only(index_html: str):
@@ -312,15 +327,20 @@ def test_save_strips_unstored_scope(app_js: str):
     assert "JSON.stringify(this.fetchConfigData.merged)" in src
 
 
-def test_fetch_result_panel_has_scope_section(app_js: str):
+def test_fetch_result_panel_has_business_tag_section(app_js: str):
     """漏斗: 后端 result 字段必须在前端渲染出来（否则用户只看到「抓了 N 条」）。"""
     src = app_js[app_js.index("formatFetchResult() {"):]
     src = src[:src.index("\n    },")]
-    assert "范围准入" in src
-    assert "scope_gate_active" in src
-    assert "scope_admitted" in src
-    assert "scope_matched_by" in src
-    assert "scope_admitted_by" in src
+    assert "业务 tag 准入" in src
+    assert "business_tag_dropped" in src
+    assert "url_deduped" in src
+    assert "reply_dropped" in src
+    assert "retweet_dropped" in src
+    assert "scope_fence_enabled" in src
+    assert "scope_fence_dropped" in src
+    # 旧口径（scope 是准入通道）不许回潮
+    assert "范围准入" not in src
+    assert "scope 救回" not in src
 
 
 # ── t114u 收尾: 「恢复默认展示 / 删除显式 scope」UI 路径（pV P1-2）────────
@@ -389,3 +409,30 @@ def test_old_plan_marks_scope_section_superseded():
     assert "已被取代" in text[at_section:at_section + 400]
     at_ac = text.index("| AC-12 |")
     assert "已被取代" in text[at_ac:at_ac + 600]
+
+
+# ══ pV P0-2 / P1-2 ═════════════════════════════════════════════════════
+
+def test_restore_scope_default_also_turns_off_fence(index_html: str, app_js: str):
+    """pV P0-2：「恢复默认展示」必须同时停用围栏（前端 + 文案一致）。"""
+    src = app_js[app_js.index("async configRestoreScopeDefault() {"):]
+    src = src[:src.index("\n    },")]
+    assert "scope: null" in src
+    assert "scope_fence_enabled: false" in src, (
+        "恢复默认展示必须同时把 scope_fence_enabled 置 false，"
+        "否则会留下「围栏开着 + scope 空」= 整源 0 入库的陷阱"
+    )
+
+    block = _xbot_block(index_html)
+    assert "等于停用围栏" not in block, (
+        "旧文案「等于停用围栏」与真实行为矛盾（只删 scope 会拦到 0），必须改写"
+    )
+    assert "关闭「scope 围栏」" in block
+
+
+def test_fetch_config_sorted_keys_excludes_scope_fence_enabled(app_js: str):
+    """pV P1-2：围栏开关有专属区块，不能再被通用键循环渲染一次。"""
+    src = app_js[app_js.index("fetchConfigSortedKeys() {"):]
+    src = src[:src.index("\n    },")]
+    assert "'scope_fence_enabled'" in src
+    assert "xbotOwnKeys" in src
