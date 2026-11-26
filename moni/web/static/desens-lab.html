@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>信息脱敏 · moni</title>
+<title>脱敏实验室 · moni</title>
 <style>
   /* v1.0.132: 与主站同一套主题令牌（浅色 / .dark 两档），不再自带一套配色。
      自定义主题由下方 bootstrap 从 localStorage 注入（与 js/theme.js 同键）。 */
@@ -80,23 +80,6 @@
   }
   .pill.on { color: var(--success-muted-fg); background: var(--success-muted); border-color: var(--success-muted); }
   .pill.off { color: var(--muted-fg); }
-  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-  .seg-btn {
-    border: 0; border-radius: 0; padding: 6px 14px;
-    background: transparent; color: var(--muted-fg);
-  }
-  .seg-btn.active { background: var(--accent); color: var(--accent-fg); }
-  .cfg-row {
-    display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 14px;
-    padding: 12px 0; border-bottom: 1px solid var(--border);
-  }
-  .cfg-row:last-child { border-bottom: 0; }
-  .cfg-k { color: var(--muted-fg); font-size: var(--font-13); }
-  .cfg-v { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
-  .cfg-levels label { display: flex; align-items: center; gap: 8px; font-size: var(--font-13); }
-  .toggle { min-width: 96px; font-weight: 600; }
-  .toggle.on { background: var(--success-muted); color: var(--success-muted-fg); border-color: var(--success-muted); }
-  #cfgRules { max-width: 100%; overflow-x: auto; }
   #labPanels { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); }
   main { padding: 20px 24px 40px; display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); }
   .panel { background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
@@ -187,33 +170,34 @@
 </head>
 <body>
 <header>
-  <a class="back" href="/">← 返回 moni</a>
-  <h1>脱敏实验室</h1>
-  <span class="sub">发给大模型之前遮蔽，回来之后本地还原</span>
+  <a class="back" href="/" title="返回 moni 主界面">← 主站</a>
+  <h1 title="验证发给模型的内容遮蔽与本地还原效果">脱敏实验室</h1>
+  <span class="sub" title="发给模型的内容先在本机遮蔽敏感信息，收到模型回包后再在本机还原">出站遮蔽，入站本地还原</span>
   <span class="spacer"></span>
-  <span class="pill" id="switchState">总开关 …</span>
-  <span class="pill" id="ledgerState">账本 …</span>
-  <a class="back" href="/config?tab=desens">配置管理 →</a>
+  <span class="pill" id="switchState" title="L1 凭据 / L2 个人信息 / L3 基础设施">脱敏 …</span>
+  <span class="pill" id="ledgerState" title="账本累计记录：生产调用与实验室调用次数">账本 …</span>
+  <a class="back" href="/config?tab=desens" title="前往配置管理调整脱敏开关与规则">脱敏配置 →</a>
 </header>
 
 <main>
   <div id="labPanels">
   <section class="panel">
-    <h2>输入</h2>
+    <h2 title="输入待测试文本并选择策略，验证遮蔽与本地还原链路">测试输入</h2>
     <div class="pad">
       <textarea id="input" spellcheck="false"></textarea>
       <div class="row">
-        <button id="sample">示例</button>
-        <select id="taskType">
-          <option value="standard">standard · 标准</option>
-          <option value="fact_check_plus">fact_check_plus · 联网核查（保留公开机构名）</option>
+        <button id="sample" title="填入包含机构名、手机号与邮箱的测试文本">载入示例</button>
+        <select id="taskType" title="选择脱敏策略：standard 遮蔽全部已启用类别；fact_check_plus 保留公开机构名">
+          <option value="standard">标准策略 (standard)</option>
+          <option value="fact_check_plus">联网核查 (fact_check_plus)</option>
         </select>
-        <input id="terms" placeholder="临时敏感词，逗号分隔" spellcheck="false"
+        <input id="terms" placeholder="临时遮蔽词（逗号分隔）"
+               title="仅本次测试生效的临时遮蔽词，多个词用逗号分隔" spellcheck="false"
                style="flex:1;min-width:220px;background:var(--background);color:var(--foreground);
                       border:1px solid var(--input);border-radius:8px;padding:7px 10px;
                       font-family:var(--mono);font-size:13px;">
-        <button id="preview">只预览（不出网）</button>
-        <button id="run" class="primary">真跑一次（真调大模型）</button>
+        <button id="preview" title="仅在本机执行遮蔽检查，不调用大模型">本地预览</button>
+        <button id="run" class="primary" title="将遮蔽后的内容发往大模型并验证本地还原效果">模型实测</button>
         <span class="sub" id="status"></span>
       </div>
       <div class="err" id="err"></div>
@@ -221,21 +205,21 @@
   </section>
 
   <section class="cols">
-    <div class="col"><h3><span class="n">①</span>原文</h3><pre id="c1">—</pre></div>
-    <div class="col masked"><h3><span class="n">②</span>发给模型的内容</h3><pre id="c2">—</pre></div>
-    <div class="col raw"><h3><span class="n">③</span>模型回包（原始）</h3><pre id="c3">—</pre></div>
-    <div class="col restored"><h3><span class="n">④</span>本地还原后</h3><pre id="c4">—</pre></div>
+    <div class="col"><h3 title="未做任何处理的原始输入文本"><span class="n">①</span>原文</h3><pre id="c1">—</pre></div>
+    <div class="col masked"><h3 title="已完成本机遮蔽，实际发往大模型的出站内容"><span class="n">②</span>发给模型的内容</h3><pre id="c2">—</pre></div>
+    <div class="col raw"><h3 title="大模型返回的原始文本，仍包含脱敏占位符"><span class="n">③</span>模型回包</h3><pre id="c3">—</pre></div>
+    <div class="col restored"><h3 title="经本机映射表还原占位符后的最终文本"><span class="n">④</span>本地还原后</h3><pre id="c4">—</pre></div>
   </section>
 
   <section class="panel">
-    <h2>本次调用指标</h2>
+    <h2>本次指标</h2>
     <div class="pad metrics" id="metrics"></div>
   </section>
 
   <section class="panel">
-    <h2>审计账本（生产口径排除实验室调用）</h2>
+    <h2 title="仅记录脱敏元数据与计数，不落盘任何敏感原文；生产统计已排除实验室调用">审计账本</h2>
     <div class="pad" id="ledger"></div>
-    <pre class="sql" id="sql"></pre>
+    <pre class="sql" id="sql" title="生产口径复算 SQL（已排除 desens_lab 调用）"></pre>
   </section>
   </div>
 </main>
@@ -265,14 +249,14 @@ function metric(k, v, cls) {
 }
 
 function renderMetrics(s) {
-  if (!s) { $("metrics").innerHTML = '<span class="sub">尚未运行</span>'; return; }
+  if (!s) { $("metrics").innerHTML = '<span class="sub">待运行</span>'; return; }
   const leak = s.leak_scan_hits, unrest = s.unrestored_count, resid = s.residual_placeholders;
   $("metrics").innerHTML = [
-    metric("遮蔽处数", s.masked_total),
-    metric("还原处数", s.restored_total, "good"),
+    metric("遮蔽数", s.masked_total),
+    metric("还原数", s.restored_total, "good"),
     metric("未还原", unrest, unrest === 0 ? "good" : "bad"),
-    metric("出站泄漏命中", leak, leak === 0 ? "good" : "bad"),
-    metric("残留占位符", resid, resid === 0 ? "good" : "bad"),
+    metric("泄漏命中", leak, leak === 0 ? "good" : "bad"),
+    metric("残留符", resid, resid === 0 ? "good" : "bad"),
     metric("遮蔽耗时", s.mask_latency_us + " µs"),
     metric("还原耗时", s.restore_latency_us + " µs"),
     metric("模型耗时", s.model_duration_ms + " ms"),
@@ -285,16 +269,16 @@ async function loadStats() {
   const d = await res.json();
   const pill = $("switchState");
   const mark = (v) => (v ? "✓" : "✗");
-  pill.textContent = "总开关 " + (d.enabled ? "开" : "关") + "（L1" + mark(d.levels.level_l1) +
-    " L2" + mark(d.levels.level_l2) + " L3" + mark(d.levels.level_l3) + "）";
+  pill.textContent = "脱敏 " + (d.enabled ? "开" : "关") + " · L1" + mark(d.levels.level_l1) +
+    " L2" + mark(d.levels.level_l2) + " L3" + mark(d.levels.level_l3);
   pill.className = "pill " + (d.enabled ? "on" : "off");
   const t = d.totals, lab = d.lab_totals;
-  $("ledgerState").textContent = "账本 生产 " + t.calls + " 次 / 实验室 " + lab.calls + " 次";
+  $("ledgerState").textContent = "账本 生产 " + t.calls + " · 实验 " + lab.calls;
   $("ledger").innerHTML =
-    "<table><thead><tr><th>口径</th><th class='num'>调用</th><th class='num'>遮蔽</th>"
-    + "<th class='num'>还原</th><th class='num'>未还原</th><th class='num'>泄漏命中</th>"
-    + "<th class='num'>残留占位符</th><th class='num'>拦截</th><th class='num'>还原成功率</th></tr></thead><tbody>"
-    + row("生产（不含实验室）", t) + row("实验室", lab)
+    "<table><thead><tr><th>统计口径</th><th class='num'>调用数</th><th class='num'>遮蔽数</th>"
+    + "<th class='num'>还原数</th><th class='num'>未还原</th><th class='num'>泄漏数</th>"
+    + "<th class='num'>残留数</th><th class='num'>拦截数</th><th class='num'>还原率</th></tr></thead><tbody>"
+    + row("生产环境", t) + row("实验室", lab)
     + "</tbody></table>";
   renderRecent(d.recent || []);
   $("sql").textContent = SQL_TEXT;
@@ -318,12 +302,12 @@ function renderRecent(recent) {
   const wrap = document.createElement("div");
   wrap.className = "recent";
   const title = document.createElement("h3");
-  title.textContent = "最近调用";
+  title.textContent = "近期记录";
   wrap.appendChild(title);
   const table = document.createElement("table");
-  table.innerHTML = "<thead><tr><th>call_site</th><th>task_type</th>"
+  table.innerHTML = "<thead><tr><th>调用点</th><th>任务类型</th>"
     + "<th class='num'>遮蔽</th><th class='num'>还原</th><th class='num'>未还原</th>"
-    + "<th class='num'>泄漏</th><th>结果</th><th>时间</th></tr></thead>";
+    + "<th class='num'>泄漏</th><th>状态</th><th>时间</th></tr></thead>";
   const tbody = document.createElement("tbody");
   for (const r of recent) {
     const tr = document.createElement("tr");
@@ -339,7 +323,7 @@ function renderRecent(recent) {
       tr.appendChild(td);
     }
     const tdOutcome = document.createElement("td");
-    tdOutcome.textContent = r.blocked ? "拦截（未出网）" : (r.fallback_used || "已出网");
+    tdOutcome.textContent = r.blocked ? "已拦截" : (r.fallback_used || "正常");
     tr.appendChild(tdOutcome);
     const tdTime = document.createElement("td");
     tdTime.textContent = r.created_at || "";
@@ -352,7 +336,7 @@ function renderRecent(recent) {
 }
 
 async function preview() {
-  setErr(""); setStatus("预览中…");
+  setErr(""); setStatus("本地预览中…"); $("err").title = "";
   const res = await fetch("/api/desensitize/preview", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -367,16 +351,17 @@ async function preview() {
   $("c4").textContent = "—";
   renderMetrics(null);
   if (d.blocked) {
-    setErr("已拦截（未出网）：" + (d.blocked_reason || "blocked")
-      + " —— 这段内容命中了拦截规则或出站泄漏扫描，点「真跑一次」也不会发出。");
-    setStatus("已拦截 · 遮蔽 " + d.masked_total + " 处 · 策略 " + d.policy_mode);
+    setErr("已拦截：" + (d.blocked_reason || "blocked"));
+    $("err").title = "命中拦截规则或出站泄漏扫描，即使点击模型实测也不会发往大模型";
+    setStatus("已拦截 · 遮蔽 " + d.masked_total + " · " + d.policy_mode);
     return;
   }
-  setStatus("遮蔽 " + d.masked_total + " 处 · 策略 " + d.policy_mode + " · " + d.latency_us + " µs");
+  setStatus("遮蔽 " + d.masked_total + " · " + d.policy_mode + " · " + d.latency_us + " µs");
 }
 
 async function run() {
-  setErr(""); setStatus("正在调用大模型…（约 5–15 秒）");
+  setErr(""); $("err").title = ""; setStatus("模型调用中…");
+  $("status").title = "正在请求大模型并执行本地还原，通常耗时 5–15 秒";
   $("run").disabled = true; $("preview").disabled = true;
   try {
     const res = await fetch("/api/desensitize/run", {
@@ -386,14 +371,14 @@ async function run() {
       }),
     });
     const d = await res.json();
-    if (!res.ok) { setErr(d.message || d.detail || "运行失败"); setStatus(""); return; }
+    if (!res.ok) { setErr(d.message || d.detail || "调用失败"); setStatus(""); return; }
     $("c1").textContent = d.original;
     $("c2").textContent = d.masked;
     $("c3").textContent = d.reply_raw;
     $("c4").textContent = d.restored;
     renderMetrics(d.stats);
-    setStatus("完成 · 策略 " + d.policy_mode
-      + (d.fallback_used ? " · 降级：" + d.fallback_used : ""));
+    setStatus("完成 · " + d.policy_mode
+      + (d.fallback_used ? " · 回退：" + d.fallback_used : ""));
     await loadStats();
   } catch (e) {
     setErr(String(e));

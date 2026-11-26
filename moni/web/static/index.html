@@ -3677,7 +3677,7 @@
           <div class="surface-muted" style="display: flex; flex-direction: column; gap: var(--space-4);">
             <div class="panel-title-row">
               <h3>信息脱敏</h3>
-              <p class="panel-title-hint">发给大模型前在本机遮蔽敏感信息，回包在本机还原</p>
+              <p class="panel-title-hint" title="在发往大模型前于本机完成敏感信息遮蔽，收到模型回包后再于本机还原">发给模型的内容先遮蔽，模型回包本地还原</p>
             </div>
 
             <div class="switch-cards-grid switch-cards-single">
@@ -3687,7 +3687,7 @@
                       @click="toggleDesens('enabled')">
                 <span class="switch-card-info">
                   <span class="switch-card-title">脱敏总开关</span>
-                  <span class="switch-card-desc">所有出站提示词先遮蔽、回包本地还原。默认关闭。</span>
+                  <span class="switch-card-desc" title="开启后所有发给模型的内容先本机遮蔽、模型回包本地还原；默认关闭">发给模型的内容先遮蔽，默认关闭</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': desensConfig && desensConfig.enabled }"></span>
               </button>
@@ -3700,7 +3700,7 @@
                       @click="toggleDesens('level_l1')">
                 <span class="switch-card-info">
                   <span class="switch-card-title">L1 凭据</span>
-                  <span class="switch-card-desc">密钥、令牌、密码</span>
+                  <span class="switch-card-desc" title="API Key、令牌、私钥与数据库口令等高危凭据">密钥、令牌、密码</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': desensConfig && desensConfig.levels.level_l1 }"></span>
               </button>
@@ -3710,7 +3710,7 @@
                       @click="toggleDesens('level_l2')">
                 <span class="switch-card-info">
                   <span class="switch-card-title">L2 个人信息</span>
-                  <span class="switch-card-desc">手机号、身份证、银行卡、邮箱、机构名</span>
+                  <span class="switch-card-desc" title="个人身份信息及投研关注的机构、项目名称">手机、证件、卡号、邮箱、机构</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': desensConfig && desensConfig.levels.level_l2 }"></span>
               </button>
@@ -3720,7 +3720,7 @@
                       @click="toggleDesens('level_l3')">
                 <span class="switch-card-info">
                   <span class="switch-card-title">L3 基础设施</span>
-                  <span class="switch-card-desc">内网主机、公网 IP、发布方</span>
+                  <span class="switch-card-desc" title="内网域名、公网 IP 与信源发布方名称">内网主机、公网 IP、发布方</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': desensConfig && desensConfig.levels.level_l3 }"></span>
               </button>
@@ -3730,7 +3730,7 @@
                       @click="toggleDesens('strict_fail_closed')">
                 <span class="switch-card-info">
                   <span class="switch-card-title">严格模式</span>
-                  <span class="switch-card-desc">遮蔽失败就拦住不出网；默认放行</span>
+                  <span class="switch-card-desc" title="开启后脱敏引擎异常直接阻断不出网；默认关闭（降级擦除后放行）">异常时阻断不出网，默认放行</span>
                 </span>
                 <span class="toggle-switch" :class="{ 'on': desensConfig && desensConfig.levels.strict_fail_closed }"></span>
               </button>
@@ -3738,8 +3738,9 @@
 
             <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
               <span class="muted" style="font-size: var(--font-13);"
-                    x-text="desensConfig ? ('用户规则 ' + desensConfig.rules_count + ' 条（增删改排下一 sprint）') : '用户规则 …'"></span>
-              <a class="btn btn-secondary btn-sm" href="/desens-lab.html">打开脱敏实验室 →</a>
+                    title="自定义遮蔽词与正则规则（在线编辑后续支持）"
+                    x-text="desensConfig ? ('自定义规则 ' + desensConfig.rules_count + ' 条') : '自定义规则 …'"></span>
+              <a class="btn btn-secondary btn-sm" href="/desens-lab.html" title="前往脱敏实验室测试遮蔽与还原效果">脱敏实验室 →</a>
               <span class="hint" x-show="desensSaveMsg" x-text="desensSaveMsg"></span>
               <span class="hint" x-show="desensConfigError" x-text="desensConfigError"></span>
               <button type="button" class="btn btn-ghost btn-sm"
@@ -3768,7 +3769,7 @@
                     </tr>
                   </template>
                   <tr x-show="!desensConfig || !(desensConfig.rules || []).length">
-                    <td colspan="5" class="muted">暂无自定义规则（增删改排在下一 sprint）</td>
+                    <td colspan="5" class="muted" title="在线增删改规则将在后续版本支持">暂无自定义规则</td>
                   </tr>
                 </tbody>
               </table>
