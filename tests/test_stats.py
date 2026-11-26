@@ -529,6 +529,7 @@ class TestCasesDashboard:
         assert d["archived_total"] == 1
         assert d["total_cases"] == 5
         assert d["high_value_cases"] == 0
+        assert d["total_institutions"] == 5
         assert "MN-AI-2608-0000" not in [r["case_id"] for r in d["high_value_ranking"]]
         assert d["total_cases"] == CaseRepository.stats()["total"]
 

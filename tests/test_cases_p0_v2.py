@@ -229,19 +229,22 @@ class TestSearchFtsV2:
             "case_type": "PI",
             "case_action": "launch",
             "summary": "招商银行上线新服务",
-            "evidence_snippet": "招商银行发布公告",
+            "evidence_snippet": "招商银行发布公告，支持跨境结算",
             "keywords": ["归档测试"],
         })
         with tmp_db:
             CaseRepository.insert_cases(tmp_db, "art_a1", [cs])
         case_id = CaseRepository.get_by_article("art_a1")[0]["case_id"]
         assert [h["case_id"] for h in CaseRepository.search_fts("招商银行")] == [case_id]
+        assert [h["case_id"] for h in CaseRepository.search_fts("跨境")] == [case_id]
 
         with tmp_db:
             tmp_db.execute(
                 "UPDATE cases SET case_lifecycle = 'archived' WHERE case_id = ?", (case_id,)
             )
         assert CaseRepository.search_fts("招商银行") == []
+        assert CaseRepository.search_fts("跨境") == []
+        assert CaseRepository.get_by_article("art_a1") == []
 
 
 class TestCronLedgerBudgetAndRateLimit:

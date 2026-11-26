@@ -149,6 +149,7 @@ def run_backfill_metrics(db_path: Path, *, apply: bool = False) -> dict[str, Any
             FROM cases c
             LEFT JOIN articles a ON a.id = c.article_id
             WHERE c.subject != '__processing__'
+              AND c.case_lifecycle != 'archived'
               AND c.amount IS NOT NULL
               AND TRIM(c.amount) != ''
             ORDER BY c.case_id

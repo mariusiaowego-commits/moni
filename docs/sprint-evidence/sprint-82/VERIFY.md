@@ -27,6 +27,14 @@ $ /usr/local/bin/python3 -m pytest tests/test_share_cases.py tests/test_share_ma
 73 passed in 4.38s
 ```
 
+审计修复后复跑：
+
+```text
+$ /usr/local/bin/python3 -m pytest tests/test_stats.py tests/test_cases_p0_v2.py \
+    tests/test_cli_verify_all.py tests/test_cases_v3_api.py tests/test_cases.py -q
+151 passed in 25.65s
+```
+
 新增用例：
 
 - `tests/test_stats.py::TestCasesDashboard::test_archived_excluded_and_counted`（total −1、
@@ -53,8 +61,21 @@ $ curl -s :8900/api/cases/stats | jq '.total'
 ## 4. failed / skipped
 
 - `skipped`：`ruff check` 未执行（本机 Python 环境无 ruff 模块），由 CI 兜底。
+- `skipped`：`_geo_distribution` 的归档过滤无独立单测（同口径靠 `active_case_clause` 覆盖）。
 - `skipped`：CI 结果在 PR 开出后回填 §5。
 
 ## 5. CI
 
 （PR 开出后回填 run id 与通过数。）
+
+## 6. 独立审计（agy，只读）
+
+结论 APPROVE WITH NITS，2×P1 已修：
+
+- P1 `get_by_article` 未排归档/占位（`moni/cases/repository.py:936`）→ 改为复用 `active_case_clause()`，
+  补断言 `get_by_article("art_a1") == []`。
+- P1 `moni cases verify-all` 会把 pending 的归档案例写回 `verified`（`moni/cli/main.py:851-871`）→
+  `base_where` 与 `pending_after` 都排 archived，新增 `test_verify_all_skips_archived`。
+- P2 6 处手写口径（相关案例 + 4 个 aggregate）→ 全部改用 `active_case_clause()`。
+- P2 测试缺口 → 补 2 字短词 LIKE 分支、`total_institutions` 断言。
+- P2 回填脚本未排 archived → taxonomy / metrics / evidence 三条 SELECT 加 `case_lifecycle != 'archived'`。
