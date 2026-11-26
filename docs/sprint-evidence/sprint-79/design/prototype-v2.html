@@ -62,11 +62,22 @@ button{font-family:inherit; cursor:pointer}
 /* ═══ A 聚合页 ═══ */
 /* 三档表面：A 概览无框（页面底 + 上下细线），B 筛选内凹（--muted + 6px），C 案例卡抬起（--card + 12px）。
    不靠区域标题，靠明度 / 圆角 / 边界三重编码分层，灰度下也能分开。 */
-.stats-strip{display:grid; grid-template-columns:repeat(4,1fr); gap:var(--space-3); margin:0 0 var(--space-6); padding:16px 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border)}
+/* A 区 dashboard：上层 4 格 KPI + 下层 3 列结构分布条；整块仍是无框 + 细线，不进 B/C 的表面语言。 */
+.dash{border-top:1px solid var(--border); border-bottom:1px solid var(--border); margin:0 0 var(--space-6)}
+.dash-kpis{display:grid; grid-template-columns:repeat(4,1fr); gap:var(--space-3); padding:16px 0}
 /* 一卡一指标：只允许「数字 / ≤4 字标签」两级，DOM 不留第三行，避免再塞高·中·低第二口径。 */
 .stat{background:transparent; border:0; border-radius:0; padding:0}
 .stat .n{font-size:var(--font-28); font-weight:600; letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1.1}
 .stat .u{font-size:var(--font-13); color:var(--muted-fg); margin-top:4px; line-height:1.4}
+.dash-bars{display:grid; grid-template-columns:repeat(3,1fr); border-top:1px solid var(--border)}
+.dbar{padding:12px 20px 14px; min-width:0}
+.dbar + .dbar{border-left:1px solid var(--border)}
+.dbar h4{margin:0 0 6px; font-size:var(--font-12); font-weight:600; color:var(--muted-fg)}
+.drow{display:grid; grid-template-columns:136px minmax(0,1fr) 40px; align-items:center; gap:10px; height:24px; font-size:var(--font-13); color:var(--muted-fg)}
+.drow .dl{white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.drow .db{height:6px; border-radius:2px; background:var(--muted); overflow:hidden}
+.drow .db i{display:block; height:100%; border-radius:2px; background:var(--foreground)}
+.drow .dn{font-family:var(--mono); font-size:var(--font-12); text-align:right; color:var(--muted-fg)}
 
 .facets{display:grid; grid-template-columns:repeat(3,1fr); gap:var(--space-4) var(--space-6); margin:0 0 var(--space-6); padding:12px 16px; background:var(--muted); border:1px solid var(--border); border-radius:var(--radius-sm)}
 .facet{background:transparent; border:0; border-radius:0; padding:0}
@@ -82,10 +93,7 @@ button{font-family:inherit; cursor:pointer}
 .case-card{background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-5); cursor:pointer; display:flex; flex-direction:column; gap:var(--space-3); transition:transform 120ms ease-out, box-shadow 120ms ease-out, border-color 120ms ease-out}
 @media (hover:hover){.case-card:hover{transform:translateY(-1px); box-shadow:var(--shadow); border-color:var(--muted-fg)}}
 .case-card:active{transform:scale(.995)}
-.cc-top{display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap}
-.cc-id{font-family:var(--mono); font-size:var(--font-12); color:var(--muted-fg); background:var(--muted); padding:2px 8px; border-radius:var(--radius-sm)}
 .cc-ent{font-size:var(--font-13); font-weight:600; color:var(--card-fg)}
-.cc-type{margin-left:auto; font-size:var(--font-12); padding:2px 8px; border-radius:var(--radius-sm); background:var(--accent); color:var(--accent-fg); font-weight:600}
 .cc-verdict{font-size:var(--font-16); font-weight:600; line-height:1.5; color:var(--card-fg)}
 .cc-sum{font-size:var(--font-13); color:var(--card-fg); opacity:.85; line-height:1.55}
 /* 指标块按「标签 / 数值+单位」两行读：数值与单位同字号，只靠字重分主次，
@@ -101,8 +109,11 @@ button{font-family:inherit; cursor:pointer}
 .cc-metric .mu{color:var(--muted-fg)}
 .cc-why{font-size:var(--font-13); line-height:1.55; color:var(--card-fg)}
 .cc-why .lb{color:var(--muted-fg); font-size:var(--font-12); margin-right:4px}
-.cc-foot{display:flex; gap:var(--space-2); flex-wrap:wrap; margin-top:auto; padding-top:var(--space-2); border-top:1px dashed var(--border)}
-.tag{font-size:var(--font-12); color:var(--muted-fg); background:var(--muted); padding:2px 8px; border-radius:var(--radius-sm)}
+/* 标签语言（unslop 走查后）：不再一排药丸，改成一行著录文本 + 最多 1 个弱底强调项。 */
+.c-meta{display:flex; flex-wrap:wrap; align-items:center; gap:0 var(--space-2); margin-top:auto; padding-top:var(--space-2); font-size:var(--font-12); line-height:16px; color:var(--muted-fg)}
+.c-meta .sep{color:var(--border)}
+.c-meta .k{color:var(--card-fg)}
+.c-flag{font-size:var(--font-12); font-weight:500; line-height:16px; padding:0 6px; border-radius:4px; background:var(--muted); color:var(--card-fg)}
 .case-empty{grid-column:1/-1; text-align:center; padding:var(--space-8) var(--space-4); color:var(--muted-fg); font-size:var(--font-13); line-height:1.6; background:var(--card); border:1px dashed var(--border); border-radius:var(--radius-lg)}
 
 /* ═══ B 沉浸详情：90vw / max 1280 / 双栏 62-38 ═══ */
@@ -205,7 +216,9 @@ button{font-family:inherit; cursor:pointer}
 
 /* ═══ 响应式 ═══ */
 @media (max-width:1100px){
-  .stats-strip{gap:var(--space-2); padding:14px 0}
+  .dash-kpis{gap:var(--space-2); padding:14px 0}
+  .dbar{padding:10px 12px 12px}
+  .drow{grid-template-columns:124px minmax(0,1fr) 34px; gap:8px}
   .facets{gap:var(--space-3) var(--space-4); padding:10px 12px}
   .sheet{display:block; overflow-y:auto; height:92vh}
   .sheet-main,.sheet-side{overflow:visible; height:auto}
@@ -213,7 +226,9 @@ button{font-family:inherit; cursor:pointer}
   .share-stage{grid-template-columns:1fr}
 }
 @media (max-width:800px){
-  .stats-strip{grid-template-columns:repeat(2,1fr)}
+  .dash-kpis{grid-template-columns:repeat(2,1fr)}
+  .dash-bars{grid-template-columns:1fr}
+  .dbar + .dbar{border-left:0; border-top:1px solid var(--border)}
   .facets{grid-template-columns:1fr}
 }
 @media (max-width:720px){
@@ -246,11 +261,36 @@ button{font-family:inherit; cursor:pointer}
 <!-- ══════════ A 列表 / 聚合页 ══════════ -->
 <section class="state is-active" id="state-a">
   <div class="wrap">
-    <div class="stats-strip">
-      <div class="stat"><div class="n">432</div><div class="u">案例</div></div>
-      <div class="stat"><div class="n">137</div><div class="u">高价值</div></div>
-      <div class="stat"><div class="n">305</div><div class="u">机构</div></div>
-      <div class="stat"><div class="n">10</div><div class="u">业务场景</div></div>
+    <div class="dash">
+      <div class="dash-kpis">
+        <div class="stat"><div class="n">432</div><div class="u">案例</div></div>
+        <div class="stat"><div class="n">137</div><div class="u">高价值</div></div>
+        <div class="stat"><div class="n">305</div><div class="u">机构</div></div>
+        <div class="stat"><div class="n">10</div><div class="u">业务场景</div></div>
+      </div>
+      <div class="dash-bars">
+        <div class="dbar">
+          <h4>类型</h4>
+          <div class="drow"><span class="dl">产品与服务创新</span><span class="db"><i style="width:100%"></i></span><span class="dn">144</span></div>
+          <div class="drow"><span class="dl">AI 与大模型应用</span><span class="db"><i style="width:50%"></i></span><span class="dn">72</span></div>
+          <div class="drow"><span class="dl">融资与资本运作</span><span class="db"><i style="width:45%"></i></span><span class="dn">65</span></div>
+          <div class="drow"><span class="dl">生态合作与联名</span><span class="db"><i style="width:42%"></i></span><span class="dn">61</span></div>
+        </div>
+        <div class="dbar">
+          <h4>行业</h4>
+          <div class="drow"><span class="dl">其他</span><span class="db"><i style="width:100%"></i></span><span class="dn">224</span></div>
+          <div class="drow"><span class="dl">银行</span><span class="db"><i style="width:54%"></i></span><span class="dn">121</span></div>
+          <div class="drow"><span class="dl">互联网</span><span class="db"><i style="width:37%"></i></span><span class="dn">83</span></div>
+          <div class="drow"><span class="dl">保险 / 证券</span><span class="db"><i style="width:2%"></i></span><span class="dn">4</span></div>
+        </div>
+        <div class="dbar">
+          <h4>场景</h4>
+          <div class="drow"><span class="dl">其他业务场景</span><span class="db"><i style="width:100%"></i></span><span class="dn">90</span></div>
+          <div class="drow"><span class="dl">数字人民币与稳定币</span><span class="db"><i style="width:84%"></i></span><span class="dn">76</span></div>
+          <div class="drow"><span class="dl">大模型与智能体</span><span class="db"><i style="width:81%"></i></span><span class="dn">73</span></div>
+          <div class="drow"><span class="dl">跨境支付与清算</span><span class="db"><i style="width:56%"></i></span><span class="dn">50</span></div>
+        </div>
+      </div>
     </div>
 
     <div class="facets">
@@ -509,10 +549,7 @@ function renderCards(filterVal, filterLabel){
     card.setAttribute('role','button');
     card.setAttribute('aria-label','打开案例 '+c.id);
     card.innerHTML =
-      '<div class="cc-top">'+
-        '<span class="cc-ent">'+c.entFull+'</span>'+
-        '<span class="cc-type">'+c.type+'</span>'+
-      '</div>'+
+      '<div class="cc-ent">'+c.entFull+'</div>'+
       '<div class="cc-verdict">'+c.verdict+'</div>'+
       '<div class="cc-sum">'+c.summary+'</div>'+
       '<div class="cc-metric'+(c.m2Name?'':' one')+'">'+
@@ -523,12 +560,13 @@ function renderCards(filterVal, filterLabel){
           '<span class="mvr"><span class="mv">'+c.m2Value+'</span><span class="mu">'+c.m2Unit+'</span></span></div>':'')+
       '</div>'+
       '<div class="cc-why">'+c.why+'</div>'+
-      '<div class="cc-foot">'+
-        '<span class="tag">'+c.ind.split(' / ')[0]+'</span>'+
-        c.scenes.map(function(s){return '<span class="tag">'+s+'</span>'}).join('')+
-        '<span class="tag">'+c.action+'</span>'+
-        '<span class="tag">'+c.date+'</span>'+
-        '<span class="tag">'+c.ref+'价值</span>'+
+      '<div class="c-meta">'+
+        '<span>'+c.ind.split(' / ')[0]+'</span>'+
+        '<span class="sep">·</span><span>'+c.action+'</span>'+
+        '<span class="sep">·</span><span>'+c.date+'</span>'+
+        (c.ref==='高'
+          ? '<span class="c-flag">高价值</span>'
+          : '<span class="sep">·</span><span>'+(c.ref==='中'?'中价值':'低价值')+'</span>')+
       '</div>';
     card.addEventListener('click', function(){ setState('b') });
     card.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); setState('b') } });

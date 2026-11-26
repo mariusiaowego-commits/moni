@@ -96,22 +96,32 @@ button{font-family:inherit; cursor:pointer}
 .fmore{grid-column:1/-1; font-size:var(--font-12); color:var(--muted-fg); padding:6px 2px}
 .fempty{grid-column:1/-1; font-size:var(--font-13); color:var(--muted-fg); padding:var(--space-2) 0}
 
-/* A 概览：无框 + 上下细线，与原型三档表面一致 */
-.kpis{width:calc(100% - 48px); max-width:1280px; margin:24px auto; padding:16px 0; display:grid; grid-template-columns:repeat(4,1fr); gap:var(--space-3); border-top:1px solid var(--border); border-bottom:1px solid var(--border)}
-.kpi .n{font-size:var(--font-28); font-weight:600; letter-spacing:-.02em; line-height:1.1; font-variant-numeric:tabular-nums}
-.kpi .u{font-size:var(--font-13); color:var(--muted-fg); margin-top:4px}
+/* A 概览：无框 + 上下细线；上层 4 格 KPI + 下层 3 列结构分布，与原型同一份规格 */
+.dash{width:calc(100% - 48px); max-width:1280px; margin:24px auto; border-top:1px solid var(--border); border-bottom:1px solid var(--border)}
+.dash-kpis{display:grid; grid-template-columns:repeat(4,1fr); gap:var(--space-3); padding:16px 0}
+.stat .n{font-size:var(--font-28); font-weight:600; letter-spacing:-.02em; line-height:1.1; font-variant-numeric:tabular-nums}
+.stat .u{font-size:var(--font-13); color:var(--muted-fg); margin-top:4px}
+.dash-bars{display:grid; grid-template-columns:repeat(3,1fr); border-top:1px solid var(--border)}
+.dbar{padding:12px 20px 14px; min-width:0}
+.dbar + .dbar{border-left:1px solid var(--border)}
+.dbar h4{margin:0 0 6px; font-size:var(--font-12); font-weight:600; color:var(--muted-fg)}
+.drow{display:grid; grid-template-columns:136px minmax(0,1fr) 40px; align-items:center; gap:10px; height:24px; font-size:var(--font-13); color:var(--muted-fg)}
+.drow .dl{white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.drow .db{height:6px; border-radius:2px; background:var(--muted); overflow:hidden}
+.drow .db i{display:block; height:100%; border-radius:2px; background:var(--foreground)}
+.drow .dn{font-family:var(--mono); font-size:var(--font-12); text-align:right; color:var(--muted-fg)}
 
 /* ═══ 列表（沿用原型 .case-grid / .case-card 语言） ═══ */
 .wrap{max-width:1280px; margin:0 auto; padding:var(--space-6)}
 .case-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:var(--space-4)}
 .case-card{background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-5); display:flex; flex-direction:column; gap:var(--space-3)}
-.cc-top{display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap}
 .cc-ent{font-size:var(--font-13); font-weight:600}
-.cc-type{margin-left:auto; font-size:var(--font-12); padding:2px 8px; border-radius:var(--radius-sm); background:var(--accent); color:var(--accent-fg); font-weight:600}
 .cc-verdict{font-size:var(--font-16); font-weight:600; line-height:1.5}
 .cc-sum{font-size:var(--font-13); opacity:.85; line-height:1.55}
-.cc-foot{display:flex; gap:var(--space-2); flex-wrap:wrap; margin-top:auto; padding-top:var(--space-2); border-top:1px dashed var(--border)}
-.tag{font-size:var(--font-12); color:var(--muted-fg); background:var(--muted); padding:2px 8px; border-radius:var(--radius-sm)}
+/* 标签语言（unslop）：只读元信息走著录行，不再用药丸；药丸只留给可点控件（B 区筛选）。 */
+.c-meta{display:flex; flex-wrap:wrap; align-items:center; gap:0 var(--space-2); margin-top:auto; padding-top:var(--space-2); font-size:var(--font-12); line-height:16px; color:var(--muted-fg)}
+.c-meta .sep{color:var(--border)}
+.c-flag{font-size:var(--font-12); font-weight:500; line-height:16px; padding:0 6px; border-radius:4px; background:var(--muted); color:var(--card-fg)}
 .case-empty{grid-column:1/-1; text-align:center; padding:var(--space-8) var(--space-4); color:var(--muted-fg); font-size:var(--font-13); background:var(--card); border:1px dashed var(--border); border-radius:var(--radius-lg)}
 .case-empty .btn{margin-top:var(--space-3)}
 .btn{display:inline-block; padding:6px 14px; font-size:var(--font-13); background:var(--foreground); color:var(--background); border:1px solid var(--foreground); border-radius:var(--radius-sm); font-weight:600}
@@ -119,7 +129,10 @@ button{font-family:inherit; cursor:pointer}
 
 /* ═══ 分档：1024 ═══ */
 @media (max-width:1100px){
-  .kpis{width:calc(100% - 32px); gap:var(--space-2); padding:14px 0}
+  .dash{width:calc(100% - 32px)}
+  .dash-kpis{gap:var(--space-2); padding:14px 0}
+  .dbar{padding:10px 12px 12px}
+  .drow{grid-template-columns:124px minmax(0,1fr) 34px; gap:8px}
   .filters__row{padding:8px 16px; gap:var(--space-2)}
   .fchips{flex:1; min-width:0}
   .search{flex:0 1 260px}
@@ -130,7 +143,9 @@ button{font-family:inherit; cursor:pointer}
   .case-grid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
 }
 @media (max-width:800px){
-  .kpis{grid-template-columns:repeat(2,1fr)}
+  .dash-kpis{grid-template-columns:repeat(2,1fr)}
+  .dash-bars{grid-template-columns:1fr}
+  .dbar + .dbar{border-left:0; border-top:1px solid var(--border)}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none !important; animation:none !important}}
 </style>
@@ -145,11 +160,36 @@ button{font-family:inherit; cursor:pointer}
   </div>
 </nav>
 
-<div class="kpis" aria-label="案例库概览">
-  <div class="kpi"><div class="n">432</div><div class="u">案例</div></div>
-  <div class="kpi"><div class="n">137</div><div class="u">高价值</div></div>
-  <div class="kpi"><div class="n">305</div><div class="u">机构</div></div>
-  <div class="kpi"><div class="n">10</div><div class="u">业务场景</div></div>
+<div class="dash" aria-label="案例库概览（全库截面，不随筛选重算）">
+  <div class="dash-kpis">
+    <div class="stat"><div class="n">432</div><div class="u">案例</div></div>
+    <div class="stat"><div class="n">137</div><div class="u">高价值</div></div>
+    <div class="stat"><div class="n">305</div><div class="u">机构</div></div>
+    <div class="stat"><div class="n">10</div><div class="u">业务场景</div></div>
+  </div>
+  <div class="dash-bars">
+    <div class="dbar">
+      <h4>类型</h4>
+      <div class="drow"><span class="dl">产品与服务创新</span><span class="db"><i style="width:100%"></i></span><span class="dn">144</span></div>
+      <div class="drow"><span class="dl">AI 与大模型应用</span><span class="db"><i style="width:50%"></i></span><span class="dn">72</span></div>
+      <div class="drow"><span class="dl">融资与资本运作</span><span class="db"><i style="width:45%"></i></span><span class="dn">65</span></div>
+      <div class="drow"><span class="dl">生态合作与联名</span><span class="db"><i style="width:42%"></i></span><span class="dn">61</span></div>
+    </div>
+    <div class="dbar">
+      <h4>行业</h4>
+      <div class="drow"><span class="dl">其他</span><span class="db"><i style="width:100%"></i></span><span class="dn">224</span></div>
+      <div class="drow"><span class="dl">银行</span><span class="db"><i style="width:54%"></i></span><span class="dn">121</span></div>
+      <div class="drow"><span class="dl">互联网</span><span class="db"><i style="width:37%"></i></span><span class="dn">83</span></div>
+      <div class="drow"><span class="dl">保险 / 证券</span><span class="db"><i style="width:2%"></i></span><span class="dn">4</span></div>
+    </div>
+    <div class="dbar">
+      <h4>场景</h4>
+      <div class="drow"><span class="dl">其他业务场景</span><span class="db"><i style="width:100%"></i></span><span class="dn">90</span></div>
+      <div class="drow"><span class="dl">数字人民币与稳定币</span><span class="db"><i style="width:84%"></i></span><span class="dn">76</span></div>
+      <div class="drow"><span class="dl">大模型与智能体</span><span class="db"><i style="width:81%"></i></span><span class="dn">73</span></div>
+      <div class="drow"><span class="dl">跨境支付与清算</span><span class="db"><i style="width:56%"></i></span><span class="dn">50</span></div>
+    </div>
+  </div>
 </div>
 
 <div class="filters" id="filters">
@@ -179,10 +219,11 @@ button{font-family:inherit; cursor:pointer}
 /* ═══ 示例子集（24 条）：计数与命中数由同一数组计算，保证自洽 ═══
    真实环境计数由 GET /api/cases/facets 返回，列表走 GET /api/cases?... */
 var ENTS = ['腾讯','字节跳动','阿里巴巴','百度','美团','京东','小米','华为'];
-var INDS = [['互联网','社交'],['互联网','电商'],['互联网','内容'],['金融','银行'],['金融','保险'],['零售','连锁'],['制造','汽车'],['医疗','医药']];
+var INDS = ['互联网 / 社交','互联网 / 电商','互联网 / 内容','金融 / 银行','金融 / 保险','零售 / 连锁','制造 / 汽车','医疗 / 医药'];
 var SCENES = ['智能助理','内容分发','小程序导流','智能客服','搜索推荐','风控审核','营销投放','数据分析','代码生成','多模态生成'];
 var TYPES = ['大模型应用','智能体','内容生成','智能客服','数据洞察','流程自动化','多模态','基础设施'];
 var REFS = ['高','中','低'];
+var ACTIONS = ['上线','发布','试点','合作'];
 var MONTHS = ['2026-11','2026-10','2026-09','2026-08'];
 
 var CASES = [];
@@ -196,13 +237,14 @@ for (var i = 0; i < 24; i++) {
     scenes: s1 === s2 ? [s1] : [s1, s2],
     type: TYPES[i % TYPES.length],
     ref: REFS[i % REFS.length],
+    action: ACTIONS[i % ACTIONS.length],
     month: MONTHS[i % MONTHS.length]
   });
 }
 
 var DIMS = [
   {key:'ent',   label:'企业', opts:ENTS},
-  {key:'ind',   label:'行业', opts:INDS.map(function(x){return x[0] + '/' + x[1]})},
+  {key:'ind',   label:'行业', opts:INDS},
   {key:'scene', label:'场景', opts:SCENES},
   {key:'type',  label:'类型', opts:TYPES},
   {key:'ref',   label:'价值', opts:REFS},
@@ -229,7 +271,7 @@ function match(c, skip) {
   }
   var q = (document.getElementById('q').value || '').trim().toLowerCase();
   if (q) {
-    var hay = (c.id + ' ' + c.ent + ' ' + c.ind.join('/') + ' ' + c.scenes.join(' ') + ' ' + c.type + ' ' + c.ref).toLowerCase();
+    var hay = (c.id + ' ' + c.ent + ' ' + c.ind + ' ' + c.scenes.join(' ') + ' ' + c.type + ' ' + c.ref).toLowerCase();
     if (hay.indexOf(q) === -1) return false;
   }
   return true;
@@ -353,18 +395,16 @@ function renderList() {
     var card = document.createElement('article');
     card.className = 'case-card';
     card.innerHTML =
-      '<div class="cc-top">' +
-        '<span class="cc-ent">' + c.ent + '</span>' +
-        '<span class="cc-type">' + c.type + '</span>' +
-      '</div>' +
-      '<div class="cc-verdict">' + c.ind[0] + ' · ' + c.scenes[0] + '</div>' +
+      '<div class="cc-ent">' + c.ent + '</div>' +
+      '<div class="cc-verdict">' + c.ind.split(' / ')[0] + ' · ' + c.scenes[0] + '</div>' +
       '<div class="cc-sum">' + c.ent + '在「' + c.scenes.join('、') + '」场景落地 ' + c.type + '，参考价值 ' + c.ref + '。</div>' +
-      '<div class="cc-foot">' +
-        '<span class="tag">' + c.ind[0] + '</span>' +
-        '<span class="tag">' + c.ind[1] + '</span>' +
-        c.scenes.map(function(s){ return '<span class="tag">' + s + '</span>' }).join('') +
-        '<span class="tag">' + c.ref + '价值</span>' +
-        '<span class="tag">' + c.month + '</span>' +
+      '<div class="c-meta">' +
+        '<span>' + c.ind.split(' / ')[0] + '</span>' +
+        '<span class="sep">·</span><span>' + c.action + '</span>' +
+        '<span class="sep">·</span><span>' + c.month + '</span>' +
+        (c.ref === '高'
+          ? '<span class="c-flag">高价值</span>'
+          : '<span class="sep">·</span><span>' + c.ref + '价值</span>') +
       '</div>';
     grid.appendChild(card);
   });

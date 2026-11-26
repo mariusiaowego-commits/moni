@@ -1,7 +1,7 @@
 # 案例库第二轮：指标排版 / 原文证据 / 筛选 / 分享简报
 
 - 日期：2026-11-26
-- 状态：§1、§1.1、§2、§4 已落地；§3 方案已拍板，待按 mock 落地
+- 状态：§1、§1.1、§2、§4 已落地；§3 方案已拍板，待按 mock 落地；§7、§8 本轮设计已进 mock
 - 相关：`docs/sprint-evidence/sprint-79/`（第一轮验收）、`design/prototype-v2.html`
 
 ## 1. 指标排版（已改，可直接看）
@@ -204,7 +204,7 @@ FROM cases;
 
 | 区域 | 表面 | 圆角 | 边框 | 内距 | 交互 |
 |---|---|---|---|---|---|
-| A 概览 KPI | 透明（页面 `--background`） | 0 | 上下各 1px `--border` | 16px 0 | 无（只读） |
+| A 概览 KPI + 分布 | 透明（页面 `--background`） | 0 | 上下各 1px `--border` | 16px 0 / 分布 12px 20px | 只读（数字恒为全库截面） |
 | B 筛选控制 | `--muted`（内凹） | 6px | 1px `--border` | 12px 16px | 胶囊 hover / 选中黑底 |
 | C 案例卡 | `--card`（抬起） | 12px | 1px `--border` | 20px | hover `--shadow` + 上移 1px |
 
@@ -240,3 +240,66 @@ FROM cases;
 - 只允许使用现有 token；不新增色板、渐变、发光、玻璃拟态。
 - 对照基线：`render/prototype-zones-1440.png` / `-1024.png`、
   `render/filter-zones-1440.png` / `filter-zones-open-1440.png`。
+
+## 7. 标签语言（pixel unslop 走查 → 融合）
+
+**问题**：案例卡右上紫底「AI 应用」类型药丸 + 底部一排米色药丸（行业/场景/动作/时间/价值），
+同一药丸形状同时充当「分类」「状态」「时间」，所以读起来是「标签+标签」。
+
+**Skill 事实**：本机没有 `better-ui` / `anti-ui-slop` / `anti-slop` / `waza-ui` 这四个 skill
+（`/Users/mt16/.agents/skills` 与 `~/.codex/skills` 均无）。等价走查用 `unslop`（主流程）
++ `polish`（细节收口）+ `critique`（层级复核），三者在 `/Users/mt16/.agents/skills/`。
+上一轮 pixel 未走 skill，本轮按 unslop 九步重做，结论：**Light slop**，只收口标签层。
+
+**融合方案：著录行（方案 A）**。药丸 5→0，只保留 1 个弱底强调项：
+
+```css
+.c-meta{display:flex; flex-wrap:wrap; align-items:center; gap:0 var(--space-2);
+  margin-top:auto; padding-top:var(--space-2);
+  font-size:var(--font-12); line-height:16px; color:var(--muted-fg)}
+.c-meta .sep{color:var(--border)}
+.c-flag{font-size:var(--font-12); font-weight:500; line-height:16px;
+  padding:0 6px; border-radius:4px; background:var(--muted); color:var(--card-fg)}
+```
+
+- 卡片底部固定一行：`行业一级 · 动作 · 时间`，仅「高价值」进 `.c-flag`；
+  中/低价值是纯文本（`中价值` / `低价值`），不做第二个药丸。
+- 直接删：右上类型药丸（8 类是内部 taxonomy，进详情「基本信息」）、`MN-` 编号 chip、
+  「参考价值 高」前缀（改「高价值」）、与摘要重复的场景标签、dashed 分隔线。
+- 圆角 4px、行高 16px、gap 8px 全落 4px 栅格；对比度实测 6.31 / 14.06 / 17.21，全过 AA。
+- 语义分工写死：**药丸只留给可点控件**（B 区筛选胶囊、已选 token、面板选项），
+  **只读元信息一律文本**。所以 B 区胶囊本轮不动，A/C 不再出现药丸墙。
+- 顺带修了 `filter-mock.html` 的既有 bug：行业选项是 `互联网/社交` 字符串，卡片 `ind`
+  却是 `['互联网','社交']` 数组，导致选行业必得「暂无」。现统一为字符串
+  `互联网 / 社交`，展示时取一级行业。
+
+**证据**：`render/filter-zones-1440.png`；pixel 原文 `design/chip-language-pixel.md`
+（含旧/新对比 HTML 与 1440/1024 渲染）。
+
+## 8. 顶部 dashboard（agy 架构 → 融合）
+
+**问题**：A 区只有 4 个数字，回答不了「432 条里什么最多」，垂直体量也撑不住首屏。
+
+**融合方案：方案 1「双层无框概览带」**（agy 三案中推荐案，保留其规格）：
+上层 4 格 KPI，下层 3 列结构分布（类型 Top4 / 行业 Top4 / 场景 Top4），
+整块仍在上下两条 1px `--border` 之间、0 圆角、无底色，不打破三层表面语言。
+
+- 规格：`.dash-kpis` 4 列、数字 28px/600 tabular、标签 13px `--muted-fg`；
+  `.dash-bars` 3 列、列间 1px 竖线、行高 24px；
+  行内 `grid-template-columns:136px minmax(0,1fr) 40px`（1024 下 `124px … 34px`），
+  标签单行 ellipsis，比例条 `6px` 高、`--muted` 槽 + `--foreground` 填充、2px 圆角，
+  数字 12px mono 右对齐。
+- 数据：复用 `GET /api/cases/stats`，不新增端点；`CaseRepository.stats()` 需补
+  `enterprise_count` / `scenario_count` / `category_count`，并把 `total` 统一过滤
+  `subject != '__processing__' AND case_lifecycle != 'archived'`。
+- 口径（生产库副本实测）：432 案例 / 137 高价值 / 305 机构（94 归一 + 211 未归一主体去重并集）
+  / 10 场景；类型 Top4 144·72·65·61，行业 224·121·83·4，场景 90·76·73·50。
+  SQL 见 §1.1 与 `design/dashboard-agy.md` §5。
+- 交互口径（防实现打架）：**A 区数字与比例条恒为全库截面，不随筛选重算**；
+  筛选命中数由 B 区 `.fhit` 承担。生产实现里每行可点下钻，并只把选中行高亮
+  （其余 `opacity:.45`）；本 mock 的列表是 24 条示例子集、与全库分布不同源，
+  故 demo 不绑点击，避免点出空列表——这一条是实现与 demo 的**已知差异**。
+- 1024：A 4 列不换行、分布 3 列每列 ~310px；<800px 分布折单列、KPI 折 2×2。
+
+**证据**：`render/prototype-zones-1440.png` / `-1024.png`、
+`render/filter-zones-1440.png` / `-1024.png`；agy 原文 `design/dashboard-agy.md`。
