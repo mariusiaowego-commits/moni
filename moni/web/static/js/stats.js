@@ -71,6 +71,7 @@ function statsModule() {
       verified_cases: 0,
       published_cases: 0,
       pending_review: 0,
+      archived_total: 0,
       fetch_total: 0,
       high_value_ranking: [],
     },

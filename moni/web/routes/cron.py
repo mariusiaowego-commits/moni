@@ -48,7 +48,12 @@ def _last_runs(conn) -> dict[str, dict[str, Any]]:
 
 
 def _to_model(job: dict, last_runs: dict[str, dict[str, Any]]) -> CronJob:
-    next_run = registry.next_run_at(job["hour"], job["minute"], job["day_of_week"])
+    # manual 任务不在调度器注册，不能给它算一个假的「下次运行」。
+    next_run = (
+        registry.next_run_at(job["hour"], job["minute"], job["day_of_week"])
+        if job["trigger_type"] == "cron"
+        else None
+    )
     last = last_runs.get(job["id"], {})
     return CronJob(
         id=job["id"],

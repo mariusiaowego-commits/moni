@@ -298,6 +298,8 @@ def extract_layer_stats(period: str = "30d") -> dict[str, Any]:
     Schema: events.extracted_at, events.review_status; cases.extracted_at, cases.review_status.
     走 N_EXTRACT_THRESHOLD (5) 避免 cases=1/events=9 同时砍掉 (DA 关键贡献 2026-08-09)。
     """
+    from moni.cases.repository import active_case_clause
+
     conn = get_db()
     since = _period_iso(period)
 
@@ -306,7 +308,8 @@ def extract_layer_stats(period: str = "30d") -> dict[str, Any]:
         (since,),
     ).fetchone()[0] or 0
     cases_total = conn.execute(
-        "SELECT COUNT(*) FROM cases WHERE COALESCE(extracted_at, created_at) >= ?",
+        f"SELECT COUNT(*) FROM cases WHERE {active_case_clause()} "
+        "AND COALESCE(extracted_at, created_at) >= ?",
         (since,),
     ).fetchone()[0] or 0
     events_pending = conn.execute(
@@ -314,7 +317,8 @@ def extract_layer_stats(period: str = "30d") -> dict[str, Any]:
         (since,),
     ).fetchone()[0] or 0
     cases_pending = conn.execute(
-        "SELECT COUNT(*) FROM cases WHERE COALESCE(extracted_at, created_at) >= ? AND review_status='pending'",
+        f"SELECT COUNT(*) FROM cases WHERE {active_case_clause()} "
+        "AND COALESCE(extracted_at, created_at) >= ? AND review_status='pending'",
         (since,),
     ).fetchone()[0] or 0
 
@@ -585,6 +589,11 @@ def timeseries(
     q = _TIMESERIES_QUERIES[metric]
     fmt = _granularity_format(granularity)
     since = _period_iso(period)
+    where_extra = ""
+    if metric == "cases":
+        from moni.cases.repository import active_case_clause
+
+        where_extra = f"AND {active_case_clause()}"
 
     rows = get_db().execute(
         f"""
@@ -593,6 +602,7 @@ def timeseries(
                {q['extra_col']} AS extra
         FROM {q['table']}
         WHERE {q['time_col']} >= ?
+              {where_extra}
         GROUP BY bucket
         ORDER BY bucket ASC
         """,
@@ -730,8 +740,10 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
          institution_distribution (TOP5+其他), high_value_ranking,
          action_distribution, by_type}
     """
+    from moni.cases.repository import active_case_clause
+
     conn = get_db()
-    where = "subject != '__processing__'"
+    where = active_case_clause()
     start: str | None = None
     if period != "all":
         start = _period_iso(period)
@@ -755,6 +767,12 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
     pending_review = conn.execute(
         f"SELECT COUNT(*) FROM cases WHERE {where} AND review_status = 'pending'", params
     ).fetchone()[0]
+    archived_where = "subject != '__processing__' AND case_lifecycle = 'archived'"
+    if start:
+        archived_where += " AND COALESCE(extracted_at, created_at) >= ?"
+    archived_total = conn.execute(
+        f"SELECT COUNT(*) FROM cases WHERE {archived_where}", params
+    ).fetchone()[0]
 
     # 同业机构数: 走"主体+对手方拆分后 DISTINCT" 算法 (agy 评审盲点1 + grok F4 共识).
     # SQL 拆分方案 (dad 拍板 8-26), 不建 case_institutions 关联表. v2 方案附录A 留演进.
@@ -771,7 +789,7 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
     # 排序: 高价值优先 → 置信度高 → 最新 (dad 8-26 review: extracted_at desc 默认
     # 等同"最新"没意义, 必须按 reference_value + confidence 重排)
     # v1.0.37: keywords (case_keywords) + 主地理 (case_geography is_primary)
-    rank_sql = """
+    rank_sql = f"""
         SELECT c.case_id, c.subject, c.counterparty, c.case_action,
                c.reference_value, c.extraction_confidence, c.extracted_at,
                c.summary, c.evidence_snippet,
@@ -790,7 +808,7 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
             ORDER BY g2.is_primary DESC, g2.id
             LIMIT 1
         )
-        WHERE c.subject != '__processing__' AND c.reference_value = 'high'
+        WHERE {active_case_clause("c")} AND c.reference_value = 'high'
         ORDER BY
             CASE c.reference_value WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
             c.extraction_confidence DESC,
@@ -804,9 +822,10 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
 
     keyword_options = [
         str(r[0]) for r in conn.execute(
-            "SELECT DISTINCT keyword FROM case_keywords "
-            "WHERE keyword IS NOT NULL AND keyword != '' "
-            "ORDER BY keyword"
+            "SELECT DISTINCT ck.keyword FROM case_keywords ck "
+            "JOIN cases c ON c.case_id = ck.case_id "
+            f"WHERE ck.keyword IS NOT NULL AND ck.keyword != '' AND {active_case_clause('c')} "
+            "ORDER BY ck.keyword"
         ).fetchall()
     ]
 
@@ -819,6 +838,7 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
         "verified_cases": verified_cases,
         "published_cases": published_cases,
         "pending_review": pending_review,
+        "archived_total": archived_total,
         "fetch_total": _fetch_total(),
         "high_value_ranking": high_value_ranking,
         "keyword_options": keyword_options,
@@ -847,11 +867,14 @@ def _parse_keyword_list(raw: Any) -> list[str]:
 
 def _geo_distribution(conn: sqlite3.Connection) -> dict[str, list[dict[str, Any]]]:
     """案例地理聚合: by_region + by_country (COUNT DISTINCT case_id)."""
+    from moni.cases.repository import active_case_clause
+
     by_region = [
         {"region": r["region"], "count": int(r["count"])}
         for r in conn.execute(
-            "SELECT region, COUNT(DISTINCT case_id) AS count "
-            "FROM case_geography GROUP BY region ORDER BY count DESC, region"
+            "SELECT g.region, COUNT(DISTINCT g.case_id) AS count "
+            "FROM case_geography g JOIN cases c ON c.case_id = g.case_id "
+            f"WHERE {active_case_clause('c')} GROUP BY g.region ORDER BY count DESC, g.region"
         ).fetchall()
     ]
     by_country = [
@@ -862,10 +885,11 @@ def _geo_distribution(conn: sqlite3.Connection) -> dict[str, list[dict[str, Any]
             "count": int(r["count"]),
         }
         for r in conn.execute(
-            "SELECT country_code, country_name, region, "
-            "COUNT(DISTINCT case_id) AS count "
-            "FROM case_geography GROUP BY country_code "
-            "ORDER BY count DESC, country_code"
+            "SELECT g.country_code, g.country_name, g.region, "
+            "COUNT(DISTINCT g.case_id) AS count "
+            "FROM case_geography g JOIN cases c ON c.case_id = g.case_id "
+            f"WHERE {active_case_clause('c')} GROUP BY g.country_code "
+            "ORDER BY count DESC, g.country_code"
         ).fetchall()
     ]
     return {"by_region": by_region, "by_country": by_country}
@@ -989,6 +1013,8 @@ def data_funnel_stats() -> dict[str, Any]:
     Returns:
         {articles_total, events_total, cases_total, share_tasks_done}
     """
+    from moni.cases.repository import active_case_clause
+
     conn = get_db()
     return {
         "articles_total": conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0],
@@ -996,7 +1022,7 @@ def data_funnel_stats() -> dict[str, Any]:
             "SELECT COUNT(*) FROM events WHERE subject != '__processing__'"
         ).fetchone()[0],
         "cases_total": conn.execute(
-            "SELECT COUNT(*) FROM cases WHERE subject != '__processing__'"
+            f"SELECT COUNT(*) FROM cases WHERE {active_case_clause()}"
         ).fetchone()[0],
         "share_tasks_done": conn.execute(
             "SELECT COUNT(*) FROM share_tasks WHERE status = 'done'"

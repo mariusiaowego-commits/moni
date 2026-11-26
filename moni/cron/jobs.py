@@ -365,7 +365,13 @@ def fetch_all_sources() -> dict[str, Any] | None:
     # is finalised so a slow LLM never makes the fetch look unfinished.
     if total_inserted > 0:
         _run_tag_chain(job_id=job_id, cron_run_rowid=cron_run_rowid)
-        _run_case_chain(job_id=job_id, cron_run_rowid=cron_run_rowid)
+        if _case_chain_enabled():
+            _run_case_chain(job_id=job_id, cron_run_rowid=cron_run_rowid)
+        else:
+            logger.info(
+                "[%s] case chain disabled (app_settings.case_chain_enabled != 1)",
+                job_id,
+            )
 
     logger.info(
         "[%s] finished at %s — sources_run=%d inserted=%d failed=%d",
@@ -437,6 +443,22 @@ def _write_case_chain(cron_run_rowid: int, chain: dict[str, Any]) -> None:
         conn.commit()
     except Exception as exc:
         logger.warning("failed to record case chain: %s", exc)
+
+
+def _case_chain_enabled() -> bool:
+    """抓取后的自动案例抽取是否开启：默认关闭，需显式写 app_settings.
+
+    关闭后仍保留「立即运行」与专用 demo 任务，按需触发。
+    """
+    try:
+        conn = get_db()
+        row = conn.execute(
+            "SELECT value FROM app_settings WHERE key = 'case_chain_enabled'"
+        ).fetchone()
+    except Exception:
+        logger.exception("read case_chain_enabled failed — treat as disabled")
+        return False
+    return bool(row) and str(row[0]).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _run_case_chain(*, job_id: str, cron_run_rowid: int) -> None:
@@ -932,16 +954,17 @@ def extract_cases_pending(
     model: str | None = None,
     llm_call_fn: Any = None,
     triggered_by: str | None = None,
+    job_id: str = "extract_cases_pending",
 ) -> dict[str, Any] | None:
-    """为新入库的文章批量抽取同业案例 (走 case_extract_runs 账本 + 互斥锁 + 预算闸)."""
-    if not _CASE_LOCK.acquire(blocking=False):
-        logger.info("[extract_cases_pending] skipped: previous run still in progress")
-        return {"skipped": "busy"}
+    """为新入库的文章批量抽取同业案例 (走 case_extract_runs 账本 + 互斥锁 + 预算闸).
 
-    job_id = "extract_cases_pending"
+    ``job_id`` 允许调用方透传真实任务名（如 extract_cases_demo），
+    否则 cron_runs / 前端轮询会一直落在 extract_cases_pending 上。
+    """
     triggered_at = _cst_now().isoformat()
     history = CronRunHistory()
     cron_run_rowid = 0
+    lock_acquired = False
     try:
         try:
             cron_run_rowid = history.log_run(
@@ -952,9 +975,27 @@ def extract_cases_pending(
                 error=None,
                 new_articles=0,
                 sources_run=0,
+                extra={"in_progress": True},
             )
         except Exception as exc:
             logger.error("[%s] Failed to create cron_runs row: %s", job_id, exc)
+
+        if not _CASE_LOCK.acquire(blocking=False):
+            logger.info("[%s] skipped: previous case extraction still in progress", job_id)
+            error = "案例抽取正在进行中，请稍后再试"
+            if cron_run_rowid:
+                try:
+                    conn = get_db()
+                    conn.execute(
+                        "UPDATE cron_runs SET finished_at=?, success=0, error=?, "
+                        "extra='{\"in_progress\": false}' WHERE id=?",
+                        (_cst_now().isoformat(), error, cron_run_rowid),
+                    )
+                    conn.commit()
+                except Exception:
+                    pass
+            return {"skipped": "busy", "error": error}
+        lock_acquired = True
 
         try:
             from moni.cases.pipeline import extract_cases_batch
@@ -972,7 +1013,8 @@ def extract_cases_pending(
                 try:
                     conn = get_db()
                     conn.execute(
-                        "UPDATE cron_runs SET finished_at=?, success=0, error=? WHERE id=?",
+                        "UPDATE cron_runs SET finished_at=?, success=0, error=?, "
+                        "extra='{\"in_progress\": false}' WHERE id=?",
                         (_cst_now().isoformat(), error, cron_run_rowid),
                     )
                     conn.commit()
@@ -981,14 +1023,22 @@ def extract_cases_pending(
             return {"error": error}
 
         finished_at = _cst_now().isoformat()
-        success = result["failed"] == 0 and not result.get("rate_limited")
+        success = (
+            result["failed"] == 0
+            and not result.get("rate_limited")
+            and not result.get("budget_exhausted")
+        )
         err_msg = None
         if result.get("rate_limited"):
             err_msg = "rate_limited (429)"
+        elif result.get("budget_exhausted"):
+            err_msg = "案例抽取日预算已耗尽，本次未继续调用模型"
         elif result["failed"]:
             err_msg = f"{result['failed']} failed"
 
-        extra_payload: dict[str, Any] = {}
+        extra_payload: dict[str, Any] = {"in_progress": False}
+        if result.get("gated"):
+            extra_payload["gated"] = result["gated"]
         if result.get("budget_exhausted"):
             extra_payload["budget_exhausted"] = True
         if triggered_by:
@@ -1002,7 +1052,7 @@ def extract_cases_pending(
                     UPDATE cron_runs
                     SET finished_at=?, success=?, error=?,
                         new_articles=?, sources_run=?,
-                        extra=CASE WHEN ? != '{}' THEN ? ELSE extra END
+                        extra=?
                     WHERE id=?
                     """,
                     (
@@ -1011,7 +1061,6 @@ def extract_cases_pending(
                         err_msg,
                         result["cases_extracted"],
                         result["processed"],
-                        json.dumps(extra_payload),
                         json.dumps(extra_payload),
                         cron_run_rowid,
                     ),
@@ -1022,4 +1071,14 @@ def extract_cases_pending(
 
         return result
     finally:
-        _CASE_LOCK.release()
+        if lock_acquired:
+            _CASE_LOCK.release()
+
+
+def extract_cases_demo(*, batch_size: int = 10) -> dict[str, Any]:
+    """案例库页「立即抽取」按钮：单次最多 10 条，只作演示。"""
+    return extract_cases_pending(
+        batch_size=max(1, min(int(batch_size or 10), 10)),
+        triggered_by="extract_cases_demo",
+        job_id="extract_cases_demo",
+    ) or {}

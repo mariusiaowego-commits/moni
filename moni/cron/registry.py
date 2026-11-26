@@ -152,7 +152,7 @@ def seed_from_yaml(conn: sqlite3.Connection, path: Path | str, *, force: bool = 
             INSERT OR IGNORE INTO cron_jobs
                 (id, name, func_path, trigger_type, hour, minute, day_of_week,
                  func_kwargs, is_active, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 cfg["id"],
@@ -163,6 +163,7 @@ def seed_from_yaml(conn: sqlite3.Connection, path: Path | str, *, force: bool = 
                 int(cfg.get("minute", 0)),
                 day,
                 json.dumps(cfg.get("func_kwargs") or {}, ensure_ascii=False),
+                int(bool(cfg.get("is_active", True))),
                 now,
                 now,
             ),

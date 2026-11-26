@@ -31,12 +31,28 @@ def fresh_db(tmp_path: Path, monkeypatch):
     mig_mod._CON = None
 
 
+_BODY = (
+    "招商银行今日宣布上线面向零售客户的 AI 投顾服务，并在深圳设立金融科技实验室，"
+    "首批接入智能投顾与财富管理场景。该行表示，新服务将覆盖手机银行与线下网点，"
+    "后续还将与多家头部大模型厂商合作，探索智能客服、风控与合规审查等应用。"
+    "业内人士认为，这一动作标志着银行在数字人民币与跨境支付之外，开始把大模型能力"
+    "落到具体业务流程，预计年内完成试点扩容。"
+)
+
+
 def _seed_article(conn, article_id: str = "art_001") -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         "INSERT INTO articles (id, title, url, source, fetched_at, raw_content) "
         "VALUES (?, ?, ?, ?, ?, ?)",
-        (article_id, "t", "u", "test", now, "raw"),
+        (
+            article_id,
+            "招商银行上线AI投顾并设立金融科技实验室",
+            "u",
+            "test",
+            now,
+            _BODY,
+        ),
     )
     conn.commit()
 
@@ -64,7 +80,7 @@ class TestPipelineExtractsKeywords:
                 "case_type": "AI", "case_action": "launch",
                 "amount": None, "counterparty": None,
                 "reference_value": "high", "reference_rationale": "",
-                "summary": "招行上线 AI 投顾", "evidence_snippet": "",
+                "summary": "招行上线AI投顾并设立金融科技实验室", "evidence_snippet": "",
                 "extraction_confidence": 90,
                 "keywords": ["智能投顾", "财富管理"],
             }],
@@ -91,8 +107,8 @@ class TestPipelineExtractsKeywords:
         keywords = {r["keyword"]: r["source_type"] for r in kw_rows}
         assert keywords == {"智能投顾": "auto_llm", "财富管理": "auto_llm"}
 
-    def test_no_keywords_no_error(self, fresh_db):
-        """LLM 无 keywords → cases 落库, case_keywords 空, 不报错."""
+    def test_no_keywords_dropped_by_gate(self, fresh_db):
+        """LLM 无 keywords → 质量闸丢弃该条, 不落 cases, 不报错."""
         import json
         from moni.cases.pipeline import extract_cases_for_article
 
@@ -104,7 +120,7 @@ class TestPipelineExtractsKeywords:
                 "case_type": "AI", "case_action": "launch",
                 "amount": None, "counterparty": None,
                 "reference_value": "medium", "reference_rationale": "",
-                "summary": "招行案例", "evidence_snippet": "",
+                "summary": "招行上线AI投顾服务并设立实验室", "evidence_snippet": "",
                 "extraction_confidence": 90,
                 # 注意: 无 keywords 字段
             }],
@@ -115,8 +131,10 @@ class TestPipelineExtractsKeywords:
 
         art = _get_article()
         result = extract_cases_for_article(art, llm_call_fn=fake_llm)
-        assert result["status"] == "completed"
-        assert result["case_count"] == 1
+        assert result["status"] == "no_cases"
+        assert result["case_count"] == 0
+        assert result["error"] is None
+        assert fresh_db.execute("SELECT COUNT(*) FROM cases").fetchone()[0] == 0
         assert fresh_db.execute("SELECT COUNT(*) FROM case_keywords").fetchone()[0] == 0
 
 
@@ -137,9 +155,9 @@ class TestManualUserNotOverwritten:
                 "case_type": "AI", "case_action": "launch",
                 "amount": None, "counterparty": None,
                 "reference_value": "high", "reference_rationale": "",
-                "summary": "招行案例", "evidence_snippet": "",
+                "summary": "招行上线AI投顾服务并设立实验室", "evidence_snippet": "",
                 "extraction_confidence": 90,
-                "keywords": ["智能投顾"],
+                "keywords": ["智能投顾", "财富管理"],
             }],
         }, ensure_ascii=False)
 
@@ -167,9 +185,9 @@ class TestManualUserNotOverwritten:
                 "case_type": "AI", "case_action": "launch",
                 "amount": None, "counterparty": None,
                 "reference_value": "high", "reference_rationale": "",
-                "summary": "招行案例", "evidence_snippet": "",
+                "summary": "招行上线AI投顾服务并设立实验室", "evidence_snippet": "",
                 "extraction_confidence": 90,
-                "keywords": ["智能投顾"],
+                "keywords": ["智能投顾", "财富管理"],
             }],
         }, ensure_ascii=False)
 
@@ -185,6 +203,36 @@ class TestManualUserNotOverwritten:
         assert kw["source_type"] == "manual_user", (
             f"manual_user 被 auto_llm 覆盖! source_type={kw['source_type']}"
         )
+
+    def test_restore_manual_keywords_skips_archived(self, fresh_db):
+        """重抽贴回人工词时不落到已归档案例上."""
+        from moni.cases.normalize import normalize_case
+        from moni.cases.repository import CaseRepository
+
+        _seed_article(fresh_db, "art_arch")
+        cs = normalize_case({
+            "subject": "招商银行",
+            "case_type": "AI",
+            "case_action": "launch",
+            "summary": "招行案例",
+            "evidence_snippet": "",
+            "keywords": [],
+        })
+        with fresh_db:
+            CaseRepository.insert_cases(fresh_db, "art_arch", [cs])
+        case_id = fresh_db.execute("SELECT case_id FROM cases").fetchone()[0]
+        assert CaseRepository.soft_delete_case(case_id) is True
+
+        restored = CaseRepository.restore_manual_keywords(
+            fresh_db,
+            "art_arch",
+            [{
+                "subject": "招商银行", "case_type": "AI", "case_action": "launch",
+                "keyword": "智能投顾", "weight": 3,
+            }],
+        )
+        assert restored == 0
+        assert fresh_db.execute("SELECT COUNT(*) FROM case_keywords").fetchone()[0] == 0
 
 
 class TestKeywordsNormalizePipeline:
@@ -202,9 +250,9 @@ class TestKeywordsNormalizePipeline:
                 "case_type": "AI", "case_action": "launch",
                 "amount": None, "counterparty": None,
                 "reference_value": "high", "reference_rationale": "",
-                "summary": "招行案例", "evidence_snippet": "",
+                "summary": "招行上线跨境支付服务并设立实验室", "evidence_snippet": "",
                 "extraction_confidence": 90,
-                "keywords": ["跨境清算", "跨境结算", "跨境支付"],
+                "keywords": ["跨境清算", "跨境结算", "跨境支付", "智能投顾"],
             }],
         }, ensure_ascii=False)
 
@@ -214,11 +262,11 @@ class TestKeywordsNormalizePipeline:
         art = _get_article()
         extract_cases_for_article(art, llm_call_fn=fake_llm)
 
-        # 3 个 alias 词归一为 1 个 "跨境支付"
+        # 3 个 alias 词归一为 1 个 "跨境支付"，"智能投顾" 保留
         kws = [r["keyword"] for r in fresh_db.execute(
             "SELECT keyword FROM case_keywords ORDER BY keyword"
         ).fetchall()]
-        assert kws == ["跨境支付"]
+        assert kws == ["智能投顾", "跨境支付"]
 
 
 class TestParseKeywordsWithNestedBrackets:

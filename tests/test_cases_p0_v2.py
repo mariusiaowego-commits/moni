@@ -67,7 +67,7 @@ class TestMigrations062To064:
                 "SELECT id FROM cron_jobs WHERE func_path LIKE '%extract_cases%'"
             ).fetchall()
         }
-        assert cron_ids == {"extract_cases_noon_post", "extract_cases_night"}
+        assert cron_ids == {"extract_cases_noon_post", "extract_cases_demo"}
 
         budget = tmp_db.execute(
             "SELECT value FROM app_settings WHERE key = 'case_extract_daily_input_token_budget'"
@@ -222,6 +222,30 @@ class TestSearchFtsV2:
             assert r.status_code == 200
             assert r.json()["items"] == []
 
+    def test_archived_hidden_from_search(self, tmp_db: sqlite3.Connection):
+        _seed_article(tmp_db, "art_a1", title="招商银行归档案例")
+        cs = normalize_case({
+            "subject": "招商银行",
+            "case_type": "PI",
+            "case_action": "launch",
+            "summary": "招商银行上线新服务",
+            "evidence_snippet": "招商银行发布公告，支持跨境结算",
+            "keywords": ["归档测试"],
+        })
+        with tmp_db:
+            CaseRepository.insert_cases(tmp_db, "art_a1", [cs])
+        case_id = CaseRepository.get_by_article("art_a1")[0]["case_id"]
+        assert [h["case_id"] for h in CaseRepository.search_fts("招商银行")] == [case_id]
+        assert [h["case_id"] for h in CaseRepository.search_fts("跨境")] == [case_id]
+
+        with tmp_db:
+            tmp_db.execute(
+                "UPDATE cases SET case_lifecycle = 'archived' WHERE case_id = ?", (case_id,)
+            )
+        assert CaseRepository.search_fts("招商银行") == []
+        assert CaseRepository.search_fts("跨境") == []
+        assert CaseRepository.get_by_article("art_a1") == []
+
 
 class TestCronLedgerBudgetAndRateLimit:
     def test_batch_idempotent_via_ledger(self, tmp_db: sqlite3.Connection):
@@ -232,7 +256,14 @@ class TestCronLedgerBudgetAndRateLimit:
         def fake_llm(prompt: str) -> str:
             calls.append(1)
             if "文章1" in prompt:
-                return json.dumps({"cases": [{"subject": "招商银行", "case_type": "AI", "case_action": "pilot", "summary": "试点"}]})
+                return json.dumps({"cases": [{
+                    "subject": "招商银行",
+                    "case_type": "AI",
+                    "case_action": "pilot",
+                    "summary": "招商银行启动智能投顾试点",
+                    "keywords": ["智能投顾", "大模型"],
+                    "extraction_confidence": 85,
+                }]})
             return json.dumps({"cases": []})
 
         r1 = extract_cases_batch(batch_size=10, llm_call_fn=fake_llm)
@@ -347,7 +378,14 @@ class TestCronLedgerBudgetAndRateLimit:
         res = cron_jobs.extract_cases_pending(
             batch_size=5,
             llm_call_fn=lambda _p: json.dumps({
-                "cases": [{"subject": "工商银行", "case_type": "AI", "case_action": "launch", "summary": "上线"}]
+                "cases": [{
+                    "subject": "工商银行",
+                    "case_type": "AI",
+                    "case_action": "launch",
+                    "summary": "工商银行上线智能客服系统",
+                    "keywords": ["智能客服", "大模型"],
+                    "extraction_confidence": 85,
+                }]
             }),
         )
         assert res is not None and res["succeeded"] == 1
@@ -360,6 +398,6 @@ class TestCronLedgerBudgetAndRateLimit:
         cron_jobs._CASE_LOCK.acquire()
         try:
             busy = cron_jobs.extract_cases_pending(batch_size=5)
-            assert busy == {"skipped": "busy"}
+            assert busy["skipped"] == "busy"
         finally:
             cron_jobs._CASE_LOCK.release()

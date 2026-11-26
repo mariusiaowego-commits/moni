@@ -11,15 +11,14 @@
 from __future__ import annotations
 
 import argparse
-import sqlite3
 from pathlib import Path
 
 from moni.cases.evidence import locate_evidence
+from moni.cases.backfill_common import backup_database, connect
 
 
 def run_backfill(db_path: str | Path, *, apply: bool = False) -> dict[str, int]:
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
+    conn = connect(db_path, apply=apply)
     try:
         rows = conn.execute(
             """
@@ -27,6 +26,7 @@ def run_backfill(db_path: str | Path, *, apply: bool = False) -> dict[str, int]:
             FROM cases c
             LEFT JOIN articles a ON a.id = c.article_id
             WHERE c.evidence_snippet IS NOT NULL AND c.evidence_snippet != ''
+              AND c.case_lifecycle != 'archived'
             """
         ).fetchall()
         verified = missing_article = not_found = 0
@@ -64,7 +64,11 @@ def main(argv: list[str] | None = None) -> int:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="仅统计不写库 (默认)")
     mode.add_argument("--apply", action="store_true", help="写入 DB")
+    parser.add_argument("--no-backup", action="store_true", help="apply 前不自动备份")
     args = parser.parse_args(argv)
+
+    if args.apply and not args.no_backup:
+        print(f"backup: {backup_database(args.db, tag='backfill-evidence')}")
 
     stats = run_backfill(args.db, apply=args.apply)
     print(

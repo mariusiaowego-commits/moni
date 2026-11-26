@@ -3607,6 +3607,9 @@ label { font-size: var(--font-14); }
 .cv-clear{height:30px;padding:0 12px;font-size:13px;background:transparent;color:var(--muted-fg);border:1px solid transparent;border-radius:6px;cursor:pointer}
 .cv-clear:hover:not([disabled]){color:var(--foreground);border-color:var(--border)}
 .cv-clear[disabled]{opacity:.45;cursor:default}
+.cv-extract{height:30px;padding:0 12px;margin-left:8px;font-size:13px;background:var(--foreground);color:var(--background);border:1px solid var(--foreground);border-radius:6px;cursor:pointer;white-space:nowrap}
+.cv-extract:hover:not([disabled]){opacity:.88}
+.cv-extract[disabled]{opacity:.5;cursor:default}
 .cv-tokens{display:flex;flex-wrap:wrap;gap:8px;padding:0 16px 12px}
 .cv-token{height:26px;padding:0 6px 0 10px;font-size:13px;background:var(--card);color:var(--card-fg);border:1px solid var(--border);border-radius:6px;display:inline-flex;align-items:center;gap:4px;cursor:pointer}
 .cv-token .x{color:var(--muted-fg);font-size:14px;line-height:1}
