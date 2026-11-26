@@ -1,7 +1,7 @@
 ---
 type: sprint
 sprint: 26112602
-status: 进行中
+status: 已完成
 ---
 
 # Sprint 82 · 验收记录
@@ -47,7 +47,9 @@ $ /usr/local/bin/python3 -m pytest tests/test_stats.py tests/test_cases_p0_v2.py
 生产 `archived=0`，`/stats` 不渲染「归档」后缀（x-if 不成立）；`/api/stats/cases-dashboard`
 返回 `archived_total: 0`。归档数 >0 时的展示走同一条 `stats-card-sub`，不新增布局块。
 
-（最终 8900 端点实测在合并部署后补本条。）
+8900 实测（部署 `c257f47` 后）：`/api/stats/cases-dashboard` → `total_cases=432`、
+`archived_total=0`、`high_value_cases=137`；`/api/cases/stats` → `432 / 137 / 305 / 10 / 8 / 73`；
+`archived=0` 时 `/stats` 不渲染「归档」后缀。
 
 ## 3. 数字可复算
 
@@ -62,11 +64,11 @@ $ curl -s :8900/api/cases/stats | jq '.total'
 
 - `skipped`：`ruff check` 未执行（本机 Python 环境无 ruff 模块），由 CI 兜底。
 - `skipped`：`_geo_distribution` 的归档过滤无独立单测（同口径靠 `active_case_clause` 覆盖）。
-- `skipped`：CI 结果在 PR 开出后回填 §5。
 
 ## 5. CI
 
-（PR 开出后回填 run id 与通过数。）
+CI `pytest · py3.12` run `45786534359`（head `efa3f6c`）→ success，**3017 passed / 2 skipped**，
+3019 collected。合并 commit `c257f47`（PR #343 squash）。
 
 ## 6. 独立审计（agy，只读）
 
