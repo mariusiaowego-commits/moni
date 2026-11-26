@@ -2048,7 +2048,7 @@ label { font-size: var(--font-14); }
 /* ═══════════════════════════════════════════════════════════════
    Config Panel
    ═══════════════════════════════════════════════════════════════ */
-.config-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+.config-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; flex-wrap: wrap; }
 .config-tab { background: transparent; border: none; padding: 8px 14px; border-radius: 6px 6px 0 0; cursor: pointer; font-size: var(--font-14); font-weight: 500; color: var(--muted-fg); transition: background 0.15s, color 0.15s; }
 .config-tab:hover { background: var(--muted); color: var(--foreground); }
 .config-tab.active { background: var(--accent); color: var(--accent-fg); }

@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261125006">
+  <link rel="stylesheet" href="css/main.css?v=20261125009">
   <!-- v1.0.110: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
        放在 main.css 之后，同名选择器以它们为准，便于单独回滚。 -->
   <link rel="stylesheet" href="css/source-ops.css?v=20261120011">
@@ -69,12 +69,6 @@
         <a href="/share"    @click.prevent="navigate('share')"    :class="{ active: currentView === 'share'    }">分享</a>
         <a href="/basket"   @click.prevent="navigate('basket')"   :class="{ active: currentView === 'basket'   }">菜篮子</a>
         <a href="/config"   @click.prevent="navigate('config')"   :class="{ active: currentView === 'config' || currentView === 'llmSettings' || currentView === 'cron' }">配置管理</a>
-        <a href="/desens-lab.html" title="信息脱敏：发给大模型前遮蔽，回包本地还原">
-          信息脱敏
-          <span class="nav-chip nav-chip-state"
-                :class="desensEnabled === true ? 'nav-chip-on' : 'nav-chip-muted'"
-                x-text="desensEnabled === null ? '…' : (desensEnabled ? '开' : '关')"></span>
-        </a>
       </div>
       <div class="topnav-right">
         <div class="svc-wrap" @mouseenter="loadServiceInfo()" @focusin="loadServiceInfo()">
@@ -772,6 +766,7 @@
             </table>
           </div>
         </div>
+
       </section>
 
       <!-- ══ Date-range modal for bestblogs (v1.0.5.24) ═══════════════════ -->
@@ -2923,6 +2918,7 @@
           <button class="tab-btn" :class="{ active: configTab === 'llm' }"     @click="switchConfigTab('llm')">大模型设置</button>
           <button class="tab-btn" :class="{ active: configTab === 'jobs' }"    @click="switchConfigTab('jobs')">定时任务</button>
           <button class="tab-btn" :class="{ active: configTab === 'cron' }"    @click="switchConfigTab('cron')">跑批日志</button>
+          <button class="tab-btn" :class="{ active: configTab === 'desens' }"  @click="switchConfigTab('desens')">脱敏</button>
         </div>
 
         <!-- ── Tab 1: 信源 ── -->
@@ -3674,6 +3670,32 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+        <!-- ── Tab 8: 脱敏（v1.0.134：入口从顶栏挪到配置管理） ── -->
+        <div x-show="configTab === 'desens'">
+          <div class="surface-muted" style="display: flex; flex-direction: column; gap: 12px;">
+            <div class="panel-title-row">
+              <h3>信息脱敏</h3>
+              <p class="panel-title-hint">发给大模型前遮蔽敏感信息，回包本地还原</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+              <span class="nav-chip nav-chip-state"
+                    :class="desensConfig && desensConfig.enabled ? 'nav-chip-on' : 'nav-chip-muted'"
+                    x-text="!desensConfig ? '…' : (desensConfig.enabled ? '开' : '关')"></span>
+              <span class="muted" style="font-size: var(--font-13);"
+                    x-text="desensConfig ? ('级别 L1' + (desensConfig.levels.level_l1 ? '✓' : '✗') + ' L2' + (desensConfig.levels.level_l2 ? '✓' : '✗') + ' L3' + (desensConfig.levels.level_l3 ? '✓' : '✗')) : ''"></span>
+              <span class="muted" style="font-size: var(--font-13);"
+                    x-text="desensConfig ? ('用户规则 ' + desensConfig.rules_count + ' 条') : ''"></span>
+              <a class="btn-primary" href="/desens-lab.html">打开脱敏设置与实验室 →</a>
+              <span class="muted" style="font-size: var(--font-13);"
+                    x-show="desensConfigError" x-text="desensConfigError"></span>
+              <button type="button" class="btn btn-ghost btn-sm"
+                      x-show="desensConfigError" @click="loadDesensConfig()">重试</button>
+            </div>
+            <p class="muted" style="font-size: var(--font-13); margin: 0;">
+              总开关、三级级别、严格模式与用户规则统一在「脱敏设置与实验室」页里管理；规则增删改排在后续 sprint。
+            </p>
           </div>
         </div>
       </section>
@@ -5267,7 +5289,7 @@
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
-  <script src="js/app.js?v=20261125006"></script>
+  <script src="js/app.js?v=20261125009"></script>
   <script src="js/reader.js?v=20261123103"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind

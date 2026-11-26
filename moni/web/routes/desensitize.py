@@ -13,21 +13,24 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from typing import Any
 
 from fastapi import APIRouter, Body
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 from moni.db.connection import get_db
 from moni.llm.client import _get_runner
 from moni.llm.desensitize.audit import (
+    DesensSettings,
     OutboundContext,
     finalize_inbound,
     load_settings,
     prepare_outbound,
     record_event,
+    save_settings,
 )
 from moni.llm.runner import CallRequest
 from moni.web.exceptions import BadRequestError
@@ -197,6 +200,127 @@ def get_stats(limit: int = 20) -> dict[str, Any]:
         "lab_totals": lab,
         "recent": recent,
     }
+
+
+class DesensConfigUpdate(BaseModel):
+    """脱敏配置写入体：字段为 ``None`` 表示这次不改。
+
+    只认布尔（严格模式，不吃 ``"true"`` / ``1``），多余字段直接报错，
+    免得字段名打错时「保存成功但配置没变」。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: StrictBool | None = None
+    level_l1: StrictBool | None = None
+    level_l2: StrictBool | None = None
+    level_l3: StrictBool | None = None
+    strict_fail_closed: StrictBool | None = None
+
+
+def _active_rules(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """启用中的用户规则（只读展示；规则 CRUD 另排期）。"""
+    try:
+        rows = conn.execute(
+            """
+            SELECT rule_type, kind, pattern, aliases_json, pseudonym, action, match_case
+            FROM desensitize_rules
+            WHERE is_active = 1
+            ORDER BY id ASC
+            """
+        ).fetchall()
+    except sqlite3.Error as exc:
+        # 规则表还没建（未迁移 / 恢复旧库）时不让整个配置页 500。
+        logger.warning("desensitize rules unavailable: %s", exc)
+        return []
+    rules: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            aliases = json.loads(row["aliases_json"] or "[]")
+        except json.JSONDecodeError:
+            aliases = []
+        rules.append(
+            {
+                "rule_type": row["rule_type"],
+                "kind": row["kind"],
+                "pattern": row["pattern"],
+                "aliases": aliases if isinstance(aliases, list) else [],
+                "pseudonym": row["pseudonym"],
+                "action": row["action"],
+                "match_case": bool(row["match_case"]),
+            }
+        )
+    return rules
+
+
+def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+    ).fetchone()
+    return row is not None
+
+
+_REQUIRED_COLUMNS = {
+    "app_settings": ("key", "value", "updated_at"),
+    "desensitize_rules": (
+        "id", "rule_type", "kind", "pattern", "aliases_json", "pseudonym", "action",
+        "match_case", "is_active",
+    ),
+}
+
+
+def _schema_problem(conn: sqlite3.Connection) -> str | None:
+    """表缺了或列缺了都不给 500 —— 给出能看懂的原因。"""
+    for table, required in _REQUIRED_COLUMNS.items():
+        if not _table_exists(conn, table):
+            return f"脱敏配置表 {table} 缺失，请先跑数据库迁移"
+        cols = {str(row["name"]) for row in conn.execute(f"PRAGMA table_info({table})")}
+        missing = [name for name in required if name not in cols]
+        if missing:
+            return f"脱敏配置表 {table} 缺列（{', '.join(missing)}），请先跑数据库迁移"
+    return None
+
+
+def _config_payload(settings: DesensSettings, rules: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "enabled": settings.enabled,
+        "levels": {
+            "level_l1": settings.level_l1,
+            "level_l2": settings.level_l2,
+            "level_l3": settings.level_l3,
+            "strict_fail_closed": settings.strict_fail_closed,
+        },
+        "rules_count": len(rules),
+        "rules": rules,
+    }
+
+
+@router.get("/config")
+def get_config() -> dict[str, Any]:
+    """脱敏配置总览：总开关、三级级别、严格模式、用户规则。"""
+    conn = get_db()
+    problem = _schema_problem(conn)
+    if problem:
+        raise BadRequestError(message=problem)
+    settings = load_settings()
+    return _config_payload(settings, _active_rules(conn))
+
+
+@router.put("/config")
+def put_config(payload: DesensConfigUpdate) -> dict[str, Any]:
+    """写总开关/级别/严格模式（运行时生效，不发版）。"""
+    conn = get_db()
+    problem = _schema_problem(conn)
+    if problem:
+        raise BadRequestError(message=problem)
+    settings = save_settings(
+        enabled=payload.enabled,
+        level_l1=payload.level_l1,
+        level_l2=payload.level_l2,
+        level_l3=payload.level_l3,
+        strict_fail_closed=payload.strict_fail_closed,
+    )
+    return _config_payload(settings, _active_rules(conn))
 
 
 def _aggregate(conn: sqlite3.Connection, *, exclude_lab: bool) -> dict[str, Any]:

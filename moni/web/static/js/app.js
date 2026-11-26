@@ -1164,6 +1164,8 @@ function app() {
         this.loadCronRuns();
         if (!this.cronJobs.length) this.loadCronJobs();
         this._startCronPoll();
+      } else if (this.configTab === 'desens') {
+        this.loadDesensConfig();
       }
     },
 
@@ -5879,8 +5881,6 @@ function app() {
     init() {
       // Apply saved theme (from theme.js mixin)
       this.initTheme();
-      // v1.0.132: 顶栏「信息脱敏」入口的状态徽章（开/关）
-      this.loadDesensState();
       // v1.0.110: 滚动锁统一在 modal.js 的 _syncScrollLock() 里按「是否有
       // 可见浮层」计算（v1.0.109 这里只锁了 fetchProgressModal 一个）。
       // Load service status for topnav indicator
@@ -5906,14 +5906,30 @@ function app() {
       window.addEventListener('popstate', (e) => this.onPopState(e));
     },
 
-    // v1.0.132: 只读一次状态，失败不影响主流程（徽章显示「…」）。
-    desensEnabled: null,
-    loadDesensState() {
+    // v1.0.134: 脱敏配置总览（总开关/级别/规则条数），失败不影响主流程。
+    desensConfig: null,
+    desensConfigError: null,
+    loadDesensConfig() {
       const self = this;
-      fetch('/api/desensitize/stats', { credentials: 'same-origin' })
-        .then(r => r.ok ? r.json() : null)
-        .then(d => { if (d) self.desensEnabled = !!d.enabled; })
-        .catch(() => {});
+      fetch('/api/desensitize/config', { credentials: 'same-origin' })
+        .then(async (r) => {
+          if (!r.ok) {
+            let msg = '配置读取失败（' + r.status + '）';
+            try {
+              const body = await r.json();
+              if (body && (body.message || body.detail)) msg = body.message || String(body.detail);
+            } catch (e) { /* 非 JSON 错误体：保留状态码文案 */ }
+            self.desensConfigError = msg;
+            return null;
+          }
+          return r.json();
+        })
+        .then(d => {
+          if (!d) return;
+          self.desensConfig = d;
+          self.desensConfigError = null;
+        })
+        .catch(e => { self.desensConfigError = '配置读取失败：' + e; });
     },
 
     // v1.0.130: 离开页面时停掉通用分的轮询，别在后台一直打接口。
