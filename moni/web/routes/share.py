@@ -30,13 +30,16 @@ from pydantic import BaseModel, Field
 from moni.db.connection import get_db, get_db_path
 from moni.share.artifacts import ensure_artifact
 from moni.share.brief_html import find_unready_articles
+from moni.share.features import describe_features
 from moni.share.formats import validate_manifest
-from moni.share.manifest import write_manifest
+from moni.share.manifest import resolve_queue_dir, write_manifest
+from moni.share.titles import TITLE_FORMAT_LABELS, allocate_title
 from moni.share.worker import _log_file, launch_worker, tail_log
 from moni.web.exceptions import BadRequestError, ConflictError, NotFoundError
 from moni.web.models import (
     BriefCreateRequest,
     BriefCreateResponse,
+    NextTitleResponse,
     ShareTask,
     ShareTaskCreateV1,
     ShareTaskEstimateResponse,
@@ -256,6 +259,8 @@ def _row_to_share_task(row: dict[str, Any]) -> ShareTask:
         if artifact_name:
             output_url = f"/artifacts/{artifact_name}"
 
+    extra, config_unknown = _task_extra(row)
+
     return ShareTask(
         id=row["id"],
         format=row["format"],
@@ -276,10 +281,59 @@ def _row_to_share_task(row: dict[str, Any]) -> ShareTask:
         progress_stage=row.get("progress_stage"),
         progress_pct=row.get("progress_pct"),
         progress_message=row.get("progress_message"),
+        title=extra.get("title"),
+        options=extra.get("options"),
+        generation_approach=extra.get("generation_approach"),
+        features=extra.get("features") or [],
+        config_unknown=config_unknown,
         created_at=row["created_at"],
         started_at=row.get("started_at"),
         finished_at=row.get("finished_at"),
     )
+
+
+def _task_extra(row: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Read the enqueue-time snapshot, falling back to the queue file.
+
+    Historical rows (pre-v1.0.141) have ``extra IS NULL``.  We do not
+    backfill them in the DB: the queue file is the same source of truth and
+    a read-only fallback keeps old rows honest.  Rows with neither are
+    flagged ``config_unknown`` so the UI shows 配置未知 instead of guessing.
+    """
+    raw = row.get("extra")
+    if raw:
+        try:
+            doc = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            doc = None
+        if isinstance(doc, dict) and doc:
+            return doc, False
+
+    task_id = str(row.get("id") or "")
+    if task_id:
+        path = resolve_queue_dir() / f"{task_id}.json"
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            doc = None
+        if isinstance(doc, dict):
+            payload = doc.get("payload")
+            if isinstance(payload, dict):
+                return (
+                    describe_features(
+                        payload,
+                        str(row.get("format") or doc.get("format") or ""),
+                        title=payload.get("title"),
+                        created_by=(
+                            "case"
+                            if str(row.get("format") or "") == "case_brief_html"
+                            or payload.get("case_ids")
+                            else ("brief" if payload.get("brief") else "custom")
+                        ),
+                    ),
+                    False,
+                )
+    return {}, True
 
 
 @router.post("/estimate", response_model=ShareTaskEstimateResponse)
@@ -360,6 +414,27 @@ def estimate_share_task(body: ShareTaskCreateV1) -> ShareTaskEstimateResponse:
     )
 
 
+@router.get("/next-title", response_model=NextTitleResponse)
+def next_title(format: str = Query(..., description="Share format name")) -> NextTitleResponse:
+    """Preview the default title: 同业简报-YYMMDD-<格式>-NN.
+
+    The number is per format per local day.  It is a label, not a
+    uniqueness key — creation does not reserve it.
+    """
+    label = TITLE_FORMAT_LABELS.get(format)
+    if label is None:
+        raise BadRequestError(message=f"unknown format {format!r}")
+    title = allocate_title(get_db(), format, preview=True)
+    seq = int(title.rsplit("-", 1)[-1])
+    return NextTitleResponse(
+        title=title,
+        format=format,
+        label=label,
+        date=title.split("-")[1],
+        seq=seq,
+    )
+
+
 @router.post("", response_model=ShareTaskResponseV1, status_code=201)
 def create_share_task(body: ShareTaskCreateV1) -> ShareTaskResponseV1:
     """Create a share task via the v1.0 manifest pipeline.
@@ -369,9 +444,17 @@ def create_share_task(body: ShareTaskCreateV1) -> ShareTaskResponseV1:
     writes a queue file at ~/.moni/queue/<id>.json.
     """
     # 1. Validate against v1.0 format schemas — raises BadRequestError on failure
-    format_name, validated_payload = validate_manifest(
-        body.model_dump(mode="json")
-    )
+    raw = body.model_dump(mode="json")
+    format_name, validated_payload = validate_manifest(raw)
+
+    # info_graphic_png / pdf otherwise fall back to the old "同业追踪日报"
+    # placeholder.  html_landing is excluded: its schema requires a title, so
+    # validation has already rejected a blank one.
+    if (
+        format_name in ("info_graphic_png", "pdf")
+        and not str((raw.get("payload") or {}).get("title") or "").strip()
+    ):
+        validated_payload["title"] = allocate_title(get_db(), format_name)
 
     # 2. Persist via write_manifest — DB row + queue file
     share_id = write_manifest(
@@ -394,8 +477,8 @@ def create_share_task(body: ShareTaskCreateV1) -> ShareTaskResponseV1:
 
 
 def _default_brief_title() -> str:
-    # Local calendar date for the auto title (user is CN-based).
-    return f"同业简报 {datetime.now().strftime('%Y-%m-%d')}"
+    """Fallback used only when title allocation is unavailable."""
+    return f"同业简报-{datetime.now().strftime('%y%m%d')}"
 
 
 def _article_id_set(raw: Any) -> set[str]:
@@ -520,7 +603,13 @@ def create_brief(body: BriefCreateRequest) -> BriefCreateResponse:
     # Default format: offline HTML brief (full body + collapsible 原文)
     format_name = (body.format or "html_landing").strip()
     opts = body.options or {}
-    title = (body.title or "").strip() or _default_brief_title()
+    title = (body.title or "").strip()
+    if not title and format_name in ("html_landing", "info_graphic_png", "pdf"):
+        try:
+            title = allocate_title(conn, format_name)
+        except Exception as exc:  # noqa: BLE001 — a label must not block the brief
+            logger.warning("brief: title allocation failed: %r", exc)
+            title = _default_brief_title()
 
     payload: dict[str, Any] = {
         "article_ids": article_ids,
@@ -709,7 +798,13 @@ def create_case_share(body: CaseBriefCreateRequest) -> CaseBriefCreateResponse:
                 },
             )
 
-    title = (body.title or "").strip() or f"同业案例简报 — {datetime.now().strftime('%Y-%m-%d')}"
+    title = (body.title or "").strip()
+    if not title:
+        try:
+            title = allocate_title(conn, "case_brief_html")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("case brief: title allocation failed: %r", exc)
+            title = f"同业简报-{datetime.now().strftime('%y%m%d')}-案例-01"
     manifest_body = {
         "format": "case_brief_html",
         "version": "1.0",

@@ -855,7 +855,7 @@ function app() {
       else if (view === 'crud') this.loadCrudArticles();
       else if (view === 'fetch') { this.loadSources(); this.resumeRunningFetchJobs(); }
       else if (view === 'llmJobs') this.loadLlmJobs();  // v1.0.5.1
-      else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this.loadShareContextCounts(); this._startSharePoll(); }
+      else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this.loadShareContextCounts(); this.ensureShareTitle(); this._startSharePoll(); }
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
       else if (view === 'cleaning') { this.loadCleaning(); this.loadLabels(); }
       else if (view === 'calendar') { this.initCalendarPage(); }
@@ -907,7 +907,7 @@ function app() {
       else if (view === 'crud') this.loadCrudArticles();
       else if (view === 'fetch') { this.loadSources(); this.resumeRunningFetchJobs(); }
       else if (view === 'llmJobs') this.loadLlmJobs();
-      else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this.loadShareContextCounts(); this._startSharePoll(); }
+      else if (view === 'share') { this.loadAllArticles(); this.loadPinnedArticles(); this.loadShareContextCounts(); this.ensureShareTitle(); this._startSharePoll(); }
       else if (view === 'basket') { this.loadBasket(); this.loadBasketSources(); }
       else if (view === 'cleaning') { this.loadCleaning(); this.loadLabels(); }
       else if (view === 'calendar') { this.initCalendarPage(); }
@@ -5030,16 +5030,22 @@ function app() {
     // with 400 "Unknown format X".  The labels are kept in Chinese
     // for the UI — only the value is aligned with the FormatEnum.
     shareFormat: 'markdown',
-    // v1.0.5.14: title is required for html_landing and ppt_slides
-    // formats (backend Pydantic models).  We collect it via an
-    // input that's only shown when the selected format needs it
-    // (see x-show="shareFormatNeedsTitle()" in the HTML).  When
+    // Title is required for html_landing and optional for
+    // info_graphic_png / pdf (backend Pydantic models).  We collect it
+    // via an input shown only when the format accepts it
+    // (see x-show="shareFormatHasTitle()" in the HTML).  When
     // the format doesn't need it, this value is still sent in the
     // payload — backend formats like markdown ignore unknown keys
     // thanks to their _extra_forbid config… actually no, we want
     // to AVOID sending `title` for formats that forbid it.  The
     // addToQueue() function does the right thing.
     shareFormatTitle: '',
+    // v1.0.141: one default title for every title-bearing format.
+    // shareTitleDirty protects a hand-edited title from being
+    // overwritten when the user switches format.
+    shareTitleDefault: '',
+    shareTitleDirty: false,
+    shareTitleLoading: false,
     // v1.0.5.18: pre-flight confirm-modal state.  addToQueue() now
     // fetches /api/share/estimate first, sets shareEstimate, and
     // shows the modal.  The user clicks 确认 to actually POST
@@ -5093,7 +5099,9 @@ function app() {
     shareIncludeContexts: false,
     shareBriefIncludeContexts: false,
     shareContextCounts: {},
+    shareContextKinds: {},
     shareContextPinnedTotal: 0,
+    shareContextPinnedByKind: {},
     shareEstimateContextCount: 0,
     // v1.0.10: one-click brief
     briefFormat: 'html_landing',  // v1.0.10: offline HTML (full body + fold)
@@ -5126,7 +5134,6 @@ function app() {
     shareBBEnhanceMainPoints: false,
     shareBBEnhanceKeyQuotes: false,
     shareBBEnhanceTags: false,
-    shareInfoGraphicTitle: '同业追踪日报',
     shareQueue: [],
     _sharePollInterval: null,
     // v1.0.85 (sprint-46): three peer tabs on the share page.
@@ -5170,6 +5177,21 @@ function app() {
       return fmt ? fmt.label : (value || '');
     },
 
+    // Compact queue label: 网页 / 信息图 / 报告图 …
+    shareFormatShort(value) {
+      const map = {
+        html_landing: '网页',
+        info_graphic_png: '信息图',
+        report_png: '报告图',
+        pdf: 'PDF',
+        markdown: 'Markdown',
+        rich_text: '富文本',
+        plain_text: '纯文本',
+        case_brief_html: '案例',
+      };
+      return map[value] || this.shareFormatLabel(value) || value || '';
+    },
+
     // Queue counters used by the tab badge and the status bar.
     shareQueueStatusCount(statuses) {
       return (this.shareQueue || []).filter(q => statuses.includes(q.status)).length;
@@ -5210,13 +5232,43 @@ function app() {
       return Number(this.shareContextPinnedTotal) || 0;
     },
 
+    get sharePinnedChatCount() {
+      return Number((this.shareContextPinnedByKind || {}).chat) || 0;
+    },
+
+    get shareSelectedChatCount() {
+      const kinds = this.shareContextKinds || {};
+      return (this.selectedArticleIds || [])
+        .reduce((sum, id) => sum + (Number((kinds[id] || {}).chat) || 0), 0);
+    },
+
+    shareArticleCtxKind(articleId) {
+      const kinds = (this.shareContextKinds || {})[articleId] || {};
+      if (kinds.chat) return 'chat';
+      const rest = ['note', 'quote', 'summary', 'fact_check'].some((k) => kinds[k]);
+      return rest ? 'note' : '';
+    },
+
+    shareArticleCtxLabel(articleId) {
+      const kinds = (this.shareContextKinds || {})[articleId] || {};
+      const parts = [];
+      if (kinds.chat) parts.push(`AI 对话 ${kinds.chat} 条`);
+      if (kinds.note) parts.push(`手记 ${kinds.note} 条`);
+      if (kinds.quote) parts.push(`原文摘录 ${kinds.quote} 条`);
+      if (kinds.summary) parts.push(`摘要 ${kinds.summary} 条`);
+      if (kinds.fact_check) parts.push(`核查 ${kinds.fact_check} 条`);
+      return parts.length ? parts.join(' · ') + ' · 已存为上下文' : '已存为上下文';
+    },
+
     loadShareContextCounts() {
       fetch('/api/article-contexts/summary', { credentials: 'same-origin' })
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (!data) return;
           this.shareContextCounts = data.counts || {};
+          this.shareContextKinds = data.kinds || {};
           this.shareContextPinnedTotal = data.pinned_total || 0;
+          this.shareContextPinnedByKind = data.pinned_by_kind || {};
         })
         .catch((err) => console.error('loadShareContextCounts failed:', err));
     },
@@ -5230,6 +5282,65 @@ function app() {
     },
     shareClearSelection() {
       this.selectedArticleIds = [];
+    },
+
+    get sharePageAllSelected() {
+      const page = (this.shareArticles || []).map(a => a.id);
+      if (!page.length) return false;
+      const selected = new Set(this.selectedArticleIds || []);
+      return page.every(id => selected.has(id));
+    },
+
+    shareToggleSelectPage() {
+      const page = (this.shareArticles || []).map(a => a.id);
+      if (!page.length) return;
+      const selected = new Set(this.selectedArticleIds || []);
+      if (page.every(id => selected.has(id))) {
+        page.forEach(id => selected.delete(id));
+      } else {
+        page.forEach(id => selected.add(id));
+      }
+      this.selectedArticleIds = Array.from(selected);
+    },
+
+    // ── v1.0.141: default title 同业简报-YYMMDD-<格式>-NN ─────────
+    shareFormatHasTitle() {
+      return ['html_landing', 'info_graphic_png', 'pdf'].includes(this.shareFormat);
+    },
+
+    ensureShareTitle() {
+      if (!this.shareFormatHasTitle()) return;
+      if (this.shareTitleDefault || this.shareTitleLoading) return;
+      this.loadNextShareTitle(this.shareFormat);
+    },
+
+    loadNextShareTitle(format) {
+      if (!['html_landing', 'info_graphic_png', 'pdf'].includes(format)) return;
+      this.shareTitleLoading = true;
+      fetch('/api/share/next-title?format=' + encodeURIComponent(format), {
+        credentials: 'same-origin',
+      })
+        .then(r => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+        .then(data => {
+          this.shareTitleDefault = data.title || '';
+          if (!this.shareTitleDirty) this.shareFormatTitle = this.shareTitleDefault;
+        })
+        .catch(err => console.error('loadNextShareTitle failed:', err))
+        .finally(() => { this.shareTitleLoading = false; });
+    },
+
+    setShareFormat(format) {
+      this.shareFormat = format;
+      this.shareIncludeContexts = this.shareIncludeContexts && this.shareFormatSupportsContexts;
+      // A hand-edited title survives a format switch; only the pristine
+      // default is re-allocated for the new format.
+      this.shareTitleDefault = '';
+      if (this.shareFormatHasTitle()) this.loadNextShareTitle(format);
+    },
+
+    restoreShareTitle() {
+      this.shareFormatTitle = this.shareTitleDefault;
+      this.shareTitleDirty = false;
     },
 
     get shareArticlePage() {
@@ -5548,17 +5659,14 @@ function app() {
       if ((this.shareFormat === 'report_png' || this.shareFormat === 'info_graphic_png') && this.sharePngApproach) {
         payload.generation_approach = this.sharePngApproach;
       }
-      // v1.0.5.20: info_graphic_png / pdf 格式传递用户自定义标题
-      if ((this.shareFormat === 'info_graphic_png' || this.shareFormat === 'pdf') && this.shareInfoGraphicTitle) {
-        payload.title = this.shareInfoGraphicTitle.trim() || '同业追踪日报';
-      }
-      if (this.shareFormatNeedsTitle()) {
+      // v1.0.141: one title input for every title-bearing format.
+      if (this.shareFormatHasTitle()) {
         const t = (this.shareFormatTitle || '').trim();
-        if (!t) {
-          this._notify('info', '此格式 (' + this.shareFormat + ') 必填 title 字段。请在上方输入框填写页面/演示标题。');
+        if (!t && this.shareFormat === 'html_landing') {
+          this._notify('info', '网页格式必填标题。请在上方输入框填写，或点「恢复默认」。');
           return;
         }
-        payload.title = t;
+        if (t) payload.title = t;
       }
       // Stash the payload + format so confirmShareEstimate() can
       // re-use it without re-validating on the client (and without
@@ -5674,6 +5782,9 @@ function app() {
           this.cancelShareEstimate();
           this.loadShareQueue();
           this.selectedArticleIds = [];
+          if (this.shareFormatHasTitle() && !this.shareTitleDirty) {
+            this.loadNextShareTitle(this.shareFormat);
+          }
         })
         .catch(err => {
           console.error('addToQueue failed:', err);
@@ -5816,15 +5927,6 @@ function app() {
         clearInterval(this._workerLogPollInterval);
         this._workerLogPollInterval = null;
       }
-    },
-
-    // v1.0.5.14: helper for the share-format title input.  When the
-    // selected format needs a `title` field (html_landing, ppt_slides),
-    // the form-row becomes visible.  Hard-coded list of formats —
-    // if you add another format with a required title, add it here.
-    shareFormatNeedsTitle() {
-      return this.shareFormat === 'html_landing'
-          || this.shareFormat === 'ppt_slides';
     },
 
     // v1.0.9.3: count of selected articles that CANNOT get BB

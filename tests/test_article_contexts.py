@@ -12,6 +12,7 @@ from moni.db.connection import close_db, get_db, set_db_path
 from moni.db.migrate import migrate
 from moni.share.context_pack import (
     PER_ARTICLE_CHARS,
+    anchor_banner,
     format_lines,
     html_block,
     inject_html_section,
@@ -277,6 +278,8 @@ def test_delete_context_and_summary(client: TestClient) -> None:
 
     summary = client.get("/api/article-contexts/summary").json()
     assert summary["counts"] == {"a1": 1, "a2": 1}
+    assert summary["kinds"]["a1"] == {"chat": 1}
+    assert summary["pinned_by_kind"] == {"chat": 1}
     assert summary["total"] == 2
     assert summary["pinned_total"] == 1
 
@@ -296,3 +299,82 @@ def test_manifest_accepts_share_options() -> None:
     }
     _, payload = validate_manifest(manifest)
     assert payload["include_user_context"] is True
+
+
+# ── v1.0.141: artifact placement + truncation dedupe ────────────────────────
+
+
+def test_format_lines_dedupes_truncated_title() -> None:
+    body = (
+        "结论：这篇文章的证据链是“三段对照实验 + 一次线上灰度”，能支撑的主张是"
+        "「Skyline 在有同步阻塞逻辑时仍能保证首帧有内容」。"
+    )
+    title = body[:39] + "…"
+    lines = format_lines(
+        [{"kind": "chat", "title": title, "body": body}],
+        budget=PER_ARTICLE_CHARS,
+    )
+    assert lines[0] == f"- [AI 对话] {body}"
+    assert lines[0].count("结论：") == 1
+
+
+def test_standalone_section_has_no_article_titles_and_anchors_before_footer() -> None:
+    _article("a1", "第一篇文章")
+    _article("a2", "第二篇文章")
+    _insert_context("a1", "ctx1", "第一条上下文。")
+    _insert_context("a2", "ctx2", "第二条上下文。")
+    section = standalone_html_section(_db_path(), ["a1", "a2"])
+    assert 'id="moni-user-contexts"' in section
+    assert "文章 1" not in section and "第一篇文章" not in section
+    assert section.count("AI 对话") == 2
+
+    doc = (
+        "<html><body><div class=\"wrap\">"
+        "<header><h1>页头</h1></header>"
+        "<article>x</article><footer>页脚</footer>"
+        "</div></body></html>"
+    )
+    out = inject_html_section(doc, section, anchor='<a id="anchor">入口</a>')
+    assert out.index('<a id="anchor">') > out.index("</header>")
+    assert out.index(section) < out.index("<footer>")
+    # The anchor/section must stay inside the content column, before its close.
+    assert out.index(section) < out.index("</div>")
+
+
+def test_inject_without_footer_falls_back_to_body() -> None:
+    _article("a1")
+    _insert_context("a1", "ctx1", "上下文内容。")
+    section = standalone_html_section(_db_path(), ["a1"])
+    out = inject_html_section("<html><body><p>x</p></body></html>", section)
+    assert out.index(section) < out.index("</body>")
+
+
+def test_inject_is_idempotent_for_anchor_and_section() -> None:
+    _article("a1")
+    _insert_context("a1", "ctx1", "上下文内容。")
+    section = standalone_html_section(_db_path(), ["a1"])
+    anchor = anchor_banner(1)
+    doc = (
+        '<html><body><div class="wrap">'
+        "<header><h1>页头</h1></header><article>x</article><footer>页脚</footer>"
+        "</div></body></html>"
+    )
+    once = inject_html_section(doc, section, anchor=anchor)
+    twice = inject_html_section(once, section, anchor=anchor)
+    assert twice.count('class="moni-ctx-anchor"') == 1
+    assert twice.count('id="moni-user-contexts"') == 1
+    assert twice.index(anchor) > twice.index("</header>")
+    assert twice.index(section) < twice.index("<footer>")
+
+
+def test_inject_idempotent_without_header_leaves_no_empty_wrapper() -> None:
+    _article("a1")
+    _insert_context("a1", "ctx1", "上下文内容。")
+    section = standalone_html_section(_db_path(), ["a1"])
+    anchor = anchor_banner(1)
+    doc = "<html><body><p>x</p><footer>页脚</footer></body></html>"
+    once = inject_html_section(doc, section, anchor=anchor)
+    twice = inject_html_section(once, section, anchor=anchor)
+    assert twice.count('class="moni-ctx-anchor"') == 1
+    assert twice.count('class="moni-ctx-anchor-wrap"') == 1
+    assert twice.count('id="moni-user-contexts"') == 1

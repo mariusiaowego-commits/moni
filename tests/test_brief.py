@@ -12,7 +12,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-sys.path.insert(0, os.path.expanduser("~/dev/moni"))
+# Point at *this* checkout; ~/dev/moni silently tests main's package when
+# the worktree has newer modules.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from moni.db.connection import close_db, get_db, set_db_path
 from moni.db.migrate import migrate

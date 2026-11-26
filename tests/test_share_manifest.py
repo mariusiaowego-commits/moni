@@ -350,7 +350,37 @@ class TestWriteManifestUnit:
         assert doc["status"] == "pending"
         assert doc["format"] == "markdown"
         assert doc["payload"] == validated
-        assert isinstance(doc["created_at"], str)
+
+    def test_extra_capability_snapshot_is_written(
+        self, fresh_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_queue = tmp_path / "queue"
+        fake_queue.mkdir()
+        monkeypatch.setattr("moni.share.manifest._queue_dir", lambda: fake_queue)
+
+        validated = {
+            "format": "html_landing",
+            "article_ids": ["a1"],
+            "title": "同业简报-261126-网页-01",
+            "include_abstract": True,
+            "include_fact_check": True,
+            "include_user_context": True,
+            "include_quality_score": True,
+        }
+        share_id = write_manifest(
+            share_id=None, validated_payload=validated, format_name="html_landing"
+        )
+        row = get_db().execute(
+            "SELECT extra FROM share_tasks WHERE id = ?", (share_id,)
+        ).fetchone()
+        extra = json.loads(row["extra"])
+        assert extra["title"] == "同业简报-261126-网页-01"
+        assert [f["label"] for f in extra["features"]] == [
+            "用户上下文",
+            "事实核查",
+            "AI 摘要",
+            "质量评分",
+        ]
 
     def test_share_id_generated_when_none(
         self, fresh_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

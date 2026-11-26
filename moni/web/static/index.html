@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261126006">
+  <link rel="stylesheet" href="css/main.css?v=20261126013">
   <!-- v1.0.110: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
        放在 main.css 之后，同名选择器以它们为准，便于单独回滚。 -->
   <link rel="stylesheet" href="css/source-ops.css?v=20261120011">
@@ -1056,7 +1056,7 @@
             一键分享
           </button>
           <button class="share-tab" :class="{ 'is-active': shareTab === 'custom' }"
-                  role="tab" @click="shareTab = 'custom'">
+                  role="tab" @click="shareTab = 'custom'; ensureShareTitle()">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
             自定义分享
           </button>
@@ -1109,7 +1109,9 @@
                 <span class="switch-card-info">
                   <span class="switch-card-title">带上用户上下文 <span class="mini-tag">可选</span></span>
                   <span class="switch-card-desc">
-                    Pin 池已保存 <b x-text="sharePinnedContextCount"></b> 条；作为简报末尾独立小节，默认不带。
+                    Pin 池有 <b x-text="sharePinnedContextCount"></b> 条可带
+                    <template x-if="sharePinnedChatCount > 0"><span>（AI 对话 <b x-text="sharePinnedChatCount"></b> 条）</span></template>；
+                    默认不带，开启后附在简报末尾。
                   </span>
                   <span class="switch-card-desc" x-show="!briefFormatSupportsContexts">
                     PNG 暂不支持固定文本小节，请改用 HTML / Markdown / PDF。
@@ -1186,49 +1188,71 @@
             </div>
 
             <div class="share-picker-toolbar">
-              <div class="segmented-control">
-                <button class="segmented-item"
-                        :class="{ 'is-active': shareArticleSource === 'all' }"
-                        @click="setShareArticleSource('all')">全部文章</button>
-                <button class="segmented-item"
-                        :class="{ 'is-active': shareArticleSource === 'pinned' }"
-                        @click="setShareArticleSource('pinned')">
-                  仅我的 Pin (<span x-text="pinnedTotal || 0"></span>)
-                </button>
+              <div class="share-picker-filters">
+                <div class="segmented-control">
+                  <button class="segmented-item"
+                          :class="{ 'is-active': shareArticleSource === 'all' }"
+                          @click="setShareArticleSource('all')">全部文章</button>
+                  <button class="segmented-item"
+                          :class="{ 'is-active': shareArticleSource === 'pinned' }"
+                          @click="setShareArticleSource('pinned')">
+                    仅我的 Pin (<span x-text="pinnedTotal || 0"></span>)
+                  </button>
+                </div>
+                <label>
+                  来源:
+                  <select x-model="allArticlesSource" @change="onAllArticlesSourceChange()">
+                    <option value="">全部来源</option>
+                    <template x-for="s in allArticlesSources" :key="s.name || s">
+                      <option :value="s.name || s" x-text="(s.display_name || s.name || s)"></option>
+                    </template>
+                  </select>
+                </label>
+                <label>
+                  分类:
+                  <select x-model="allArticlesTag" @change="onAllArticlesTagChange()">
+                    <option value="">全部分类</option>
+                    <template x-for="t in allArticlesTags" :key="t.name">
+                      <option :value="t.name" x-text="t.display_name || t.name"></option>
+                    </template>
+                  </select>
+                </label>
               </div>
-              <label>
-                来源:
-                <select x-model="allArticlesSource" @change="onAllArticlesSourceChange()">
-                  <option value="">全部来源</option>
-                  <template x-for="s in allArticlesSources" :key="s.name || s">
-                    <option :value="s.name || s" x-text="(s.display_name || s.name || s)"></option>
-                  </template>
-                </select>
-              </label>
-              <label>
-                分类:
-                <select x-model="allArticlesTag" @change="onAllArticlesTagChange()">
-                  <option value="">全部分类</option>
-                  <template x-for="t in allArticlesTags" :key="t.name">
-                    <option :value="t.name" x-text="t.display_name || t.name"></option>
-                  </template>
-                </select>
-              </label>
-              <span class="spacer"></span>
-              <button class="btn-secondary btn-sm" @click="shareSelectAllOnPage()">全选当前页</button>
-              <button class="btn-ghost btn-sm" @click="shareClearSelection()">清空勾选</button>
-              <span class="share-selected-count" x-text="'已勾选 ' + selectedArticleIds.length + ' 篇'"></span>
+              <div class="share-picker-actions">
+                <span class="share-selected-count" x-text="'已选 ' + selectedArticleIds.length + ' 篇'"></span>
+                <div class="segmented-control share-action-group">
+                  <button class="segmented-item" @click="shareToggleSelectPage()"
+                          x-text="sharePageAllSelected ? '取消本页' : '全选本页'"></button>
+                  <button class="segmented-item" @click="shareClearSelection()"
+                          :disabled="!selectedArticleIds.length">清空</button>
+                </div>
+              </div>
             </div>
 
             <!-- 文章卡片：自然流式排布，无内层滚动条（原始 320px scroll trap 已移除） -->
             <div class="article-card-grid">
               <template x-for="a in shareArticles" :key="a.id">
                 <label class="article-card"
-                       :class="{ 'is-selected': selectedArticleIds.includes(a.id) }">
+                       :class="{ 'is-selected': selectedArticleIds.includes(a.id),
+                                 'has-ctx': !!shareArticleCtxKind(a.id) }">
                   <input type="checkbox" :value="a.id"
                          x-model="selectedArticleIds"
                          class="article-card-check">
                   <div class="article-card-source" x-text="a.source"></div>
+                  <template x-if="shareArticleCtxKind(a.id)">
+                    <span class="article-card-ctx"
+                          :class="{ 'is-note': shareArticleCtxKind(a.id) === 'note' }"
+                          :aria-label="shareArticleCtxLabel(a.id)"
+                          @click.prevent.stop>
+                      <template x-if="shareArticleCtxKind(a.id) === 'chat'">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><path d="M8 11h.01M12 11h.01M16 11h.01"></path></svg>
+                      </template>
+                      <template x-if="shareArticleCtxKind(a.id) === 'note'">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
+                      </template>
+                      <span class="tip" x-text="shareArticleCtxLabel(a.id)"></span>
+                    </span>
+                  </template>
                   <div class="article-card-title" :title="a.title" x-text="truncateTitle(a.title, 150)"></div>
                 </label>
               </template>
@@ -1261,19 +1285,29 @@
               <template x-for="fmt in shareFormats" :key="'seg-'+fmt.value">
                 <button class="segmented-item"
                         :class="{ 'is-active': shareFormat === fmt.value }"
-                        @click="shareFormat = fmt.value; shareIncludeContexts = shareIncludeContexts && shareFormatSupportsContexts"
+                        @click="setShareFormat(fmt.value)"
                         x-text="fmt.label"></button>
               </template>
             </div>
 
-            <div x-show="shareFormatNeedsTitle()" style="display:flex; flex-direction:column; gap:6px;">
+            <div x-show="shareFormatHasTitle()" style="display:flex; flex-direction:column; gap:6px;">
               <label style="font-size:var(--font-13); font-weight:600;">
-                页面标题 <span class="required">*</span>
+                <span x-text="shareFormat === 'html_landing' ? '页面标题' : '报告标题'"></span>
+                <span class="required" x-show="shareFormat === 'html_landing'">*</span>
               </label>
-              <input type="text" x-model="shareFormatTitle"
-                     placeholder="e.g. 2026 同业洞察周报"
-                     style="max-width:420px;">
-              <small class="muted">html_landing 必填；其他格式忽略</small>
+              <div class="title-input-row">
+                <input type="text" x-model="shareFormatTitle"
+                       @input="shareTitleDirty = true"
+                       :placeholder="shareTitleDefault || 'e.g. 同业简报-261126-网页-01'"
+                       style="max-width:420px;">
+                <button class="btn-restore" type="button" x-show="shareTitleDirty"
+                        @click="restoreShareTitle()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 3v6h-6"></path></svg>
+                  恢复默认
+                </button>
+              </div>
+              <small class="muted"
+                     x-text="shareTitleDirty ? ('已修改 · 默认「' + shareTitleDefault + '」') : '按 今天日期 + 格式 + 当天序号 自动生成，可改'"></small>
             </div>
 
             <div x-show="shareFormat === 'report_png' || shareFormat === 'info_graphic_png'"
@@ -1289,13 +1323,6 @@
               <small class="muted" style="display:block; margin-top:6px;" x-text="pngApproachDesc()"></small>
             </div>
 
-            <div x-show="shareFormat === 'info_graphic_png' || shareFormat === 'pdf'"
-                 style="margin-top:var(--space-4); display:flex; flex-direction:column; gap:6px;">
-              <label style="font-size:var(--font-13); font-weight:600;">报告标题</label>
-              <input type="text" x-model="shareInfoGraphicTitle"
-                     placeholder="同业追踪日报" style="max-width:420px;">
-              <small class="muted">信息图 / PDF 的总标题，默认「同业追踪日报」</small>
-            </div>
           </div>
 
           <!-- 步骤 3：内容提炼与核验 -->
@@ -1331,7 +1358,9 @@
                 <span class="switch-card-info">
                   <span class="switch-card-title">带上用户上下文 <span class="mini-tag">可选</span></span>
                   <span class="switch-card-desc">
-                    已保存 <b x-text="shareSelectedContextCount"></b> 条；作为文末独立小节，默认不带。
+                    所选文章有 <b x-text="shareSelectedContextCount"></b> 条可带
+                    <template x-if="shareSelectedChatCount > 0"><span>（AI 对话 <b x-text="shareSelectedChatCount"></b> 条）</span></template>；
+                    默认不带，开启后附在文末。
                   </span>
                   <span class="switch-card-desc" x-show="!shareFormatSupportsContexts">
                     PNG 暂不支持固定文本小节，请改用 HTML / Markdown / PDF。
@@ -1438,24 +1467,25 @@
           <div class="table-container">
             <table class="share-queue-table">
               <colgroup>
-                <col style="width:180px;">
-                <col style="width:80px;">
-                <col style="width:120px;">
-                <col style="width:96px;">
-                <col style="width:190px;">
-                <col style="width:172px;">
+                <col style="width:76px;">
+                <col style="width:50px;">
+                <col style="width:68px;">
+                <col style="width:68px;">
+                <col style="width:76px;">
+                <col style="width:88px;">
                 <col style="width:auto;">
-                <col style="width:140px;">
+                <col style="width:176px;">
+                <col style="width:96px;">
               </colgroup>
               <thead>
-                <tr><th>任务ID</th><th>文章数</th><th>格式</th><th>状态</th><th>进度</th><th>创建时间</th><th>产出产物</th><th>操作</th></tr>
+                <tr><th>任务ID</th><th>文章数</th><th>格式</th><th>状态</th><th>进度</th><th>创建时间</th><th>产出产物</th><th>特性</th><th>操作</th></tr>
               </thead>
               <tbody>
                 <template x-for="q in shareQueue" :key="q.id">
                   <tr>
                     <td style="font-size:var(--font-12);" :title="q.id" x-text="q.id"></td>
                     <td x-text="(q.article_count ?? '—') + ' 篇'"></td>
-                    <td x-text="q.format"></td>
+                    <td :title="q.format" x-text="shareFormatShort(q.format)"></td>
                     <td><span class="status-badge" :class="'status-' + q.status" x-text="q.status"></span></td>
                     <td class="cell-progress">
                       <template x-if="q.status === 'running' && q.progress_pct !== null && q.progress_pct !== undefined">
@@ -1478,7 +1508,8 @@
                               x-text="'已暂停' + (q.progress_pct ? ' 在 ' + q.progress_pct + '%' : '')"></span>
                       </template>
                     </td>
-                    <td style="font-size:var(--font-12);" x-text="formatTime(q.created_at)"></td>
+                    <td style="font-size:var(--font-12);" :title="formatTime(q.created_at)"
+                        x-text="formatTime(q.created_at).slice(5)"></td>
                     <td>
                       <template x-if="q.output_url && q.status === 'done'">
                         <a class="link" :class="{'link-blocked': isBlockedUrl(q.output_url)}" :href="safeHref(q.output_url)" target="_blank" rel="noopener noreferrer"
@@ -1492,6 +1523,27 @@
                       <template x-if="q.status !== 'done'">
                         <span class="muted" style="font-size:var(--font-12);"
                               x-text="(q.status === 'failed' || q.status === 'cancelled') ? (q.error || q.status) : '—'"></span>
+                      </template>
+                    </td>
+                    <td class="feat-cell">
+                      <template x-if="q.features && q.features.length">
+                        <div class="feat-chips">
+                          <template x-for="f in q.features.slice(0, 2)" :key="f.key">
+                            <span class="feat-chip" :class="'is-' + (f.kind || 'basic')" x-text="f.label"></span>
+                          </template>
+                          <span class="feat-chip is-more" x-show="q.features.length > 2"
+                                x-text="'+' + (q.features.length - 2)"></span>
+                        </div>
+                      </template>
+                      <span class="feat-chip is-unknown" x-show="q.config_unknown">配置未知</span>
+                      <span class="feat-chip" x-show="!q.config_unknown && !(q.features && q.features.length)">基础导出</span>
+                      <template x-if="q.features && q.features.length">
+                        <div class="feat-tip">
+                          <span class="feat-tip-label" x-text="'全部特性 · ' + q.features.length + ' 项'"></span>
+                          <template x-for="f in q.features" :key="'tip-' + f.key">
+                            <span class="feat-chip" :class="'is-' + (f.kind || 'basic')" x-text="f.label"></span>
+                          </template>
+                        </div>
                       </template>
                     </td>
                     <td>
@@ -1511,7 +1563,7 @@
                   </tr>
                 </template>
                 <tr x-show="shareQueue.length === 0">
-                  <td colspan="8" class="empty-row">暂无分享任务。可在「一键分享」或「自定义分享」中创建。</td>
+                  <td colspan="9" class="empty-row">暂无分享任务。可在「一键分享」或「自定义分享」中创建。</td>
                 </tr>
               </tbody>
             </table>
@@ -5394,7 +5446,7 @@
   <!-- v1.0.13: dialog-certainty helpers (must load before app.js) -->
   <script src="js/toast.js?v=20261119001"></script>
   <script src="js/modal.js?v=20261120001"></script>
-  <script src="js/floating.js?v=20261124001"></script>
+  <script src="js/floating.js?v=20261126001"></script>
   <!-- v1.0.47: URL 白名单护栏。必须早于 Alpine 初始化 —— 它是普通 script
        (非 defer), 在文档解析期就执行完, 而 Alpine 是 defer, 解析结束后才跑。
        所以 window.safeHref / window.isSafeUrl 在 Alpine 求值表达式时已就位。 -->
@@ -5409,7 +5461,7 @@
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
   <script src="js/desens-lab.js?v=20261126003"></script>
-  <script src="js/app.js?v=20261126004"></script>
+  <script src="js/app.js?v=20261126006"></script>
   <script src="js/reader.js?v=20261123103"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind

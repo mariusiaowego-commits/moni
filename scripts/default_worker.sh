@@ -988,7 +988,7 @@ import json, sys
 from datetime import date
 d=json.load(open(sys.argv[1]))
 p=d.get('payload',{}) if isinstance(d.get('payload'),dict) else {}
-print(p.get('title') or ('同业简报 — ' + date.today().isoformat()))
+print(p.get('title') or ('同业简报-' + date.today().strftime('%y%m%d')))
 " "$manifest_path" 2>/dev/null || echo "同业简报")
         # stderr → LOG_FILE (now defined above under set -u).  Also keep a
         # temp copy so failure messages surface in share_tasks.error.
