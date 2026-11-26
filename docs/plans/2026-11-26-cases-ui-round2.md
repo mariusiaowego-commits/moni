@@ -31,14 +31,14 @@ agy 出 3 案、pixel 给规格，融合后选「一卡一指标、只留两级�
 |---|---|---|
 | 1 | 432 | 案例 |
 | 2 | 137 | 高价值 |
-| 3 | 94 | 覆盖企业 |
+| 3 | 305 | 机构 |
 | 4 | 10 | 业务场景 |
 
 - 删除第三行 DOM（`.stat .d`），从结构上杜绝再塞第二口径；高/中/低分布下沉到「价值」筛选面板。
 - 数字 28px / 600 / tabular-nums / line-height 1.1；标签 13px / 400 / `--muted-fg`，间距 4px。
 - 卡 padding 14/20（1024 下 12/16），无阴影；1440 与 1024 都保持 4 列不换行，<800px 才 2×2。
-- 口径：`94` 是生产库副本迁到 069 并跑完 `backfill_taxonomy` 后的
-  `COUNT(DISTINCT enterprise_id)=94`，不是 `enterprises` 表的 116 家。
+- 口径：`305` = 94 个已归一企业 + 211 个未归一的不同主体（去重并集）。
+  `116` 是 `enterprises` 词典总量，`94` 只是命中归一的企业数，都不是全库覆盖数。
   `10` 是 `case_scenario_links` 的 10 个场景（9 个业务场景 + `other`）。
 
 原始建议归档：`design/stats-strip-agy.md`、`design/stats-strip-pixel.md`。
@@ -50,9 +50,14 @@ agy 出 3 案、pixel 给规格，融合后选「一卡一指标、只留两级�
 sqlite3 /private/tmp/ev/news.db "
   select count(*) from cases;
   select count(*) from cases where reference_value='high';
-  select count(distinct enterprise_id) from case_enterprises;
+  select count(*) from (
+    select 'e:'||enterprise_id k from case_enterprises
+    union
+    select 's:'||trim(subject) k from cases c
+    where not exists (select 1 from case_enterprises ce where ce.case_id=c.case_id)
+  );
   select count(distinct scenario_code) from case_scenario_links;"
-# 432 | 137 | 94 | 10
+# 432 | 137 | 305 | 10
 ```
 
 ## 2. 「原文证据」为什么只有一行

@@ -96,6 +96,11 @@ button{font-family:inherit; cursor:pointer}
 .fmore{grid-column:1/-1; font-size:var(--font-12); color:var(--muted-fg); padding:6px 2px}
 .fempty{grid-column:1/-1; font-size:var(--font-13); color:var(--muted-fg); padding:var(--space-2) 0}
 
+/* A 概览：无框 + 上下细线，与原型三档表面一致 */
+.kpis{width:calc(100% - 48px); max-width:1280px; margin:24px auto; padding:16px 0; display:grid; grid-template-columns:repeat(4,1fr); gap:var(--space-3); border-top:1px solid var(--border); border-bottom:1px solid var(--border)}
+.kpi .n{font-size:var(--font-28); font-weight:600; letter-spacing:-.02em; line-height:1.1; font-variant-numeric:tabular-nums}
+.kpi .u{font-size:var(--font-13); color:var(--muted-fg); margin-top:4px}
+
 /* ═══ 列表（沿用原型 .case-grid / .case-card 语言） ═══ */
 .wrap{max-width:1280px; margin:0 auto; padding:var(--space-6)}
 .case-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:var(--space-4)}
@@ -114,6 +119,7 @@ button{font-family:inherit; cursor:pointer}
 
 /* ═══ 分档：1024 ═══ */
 @media (max-width:1100px){
+  .kpis{width:calc(100% - 32px); gap:var(--space-2); padding:14px 0}
   .filters__row{padding:8px 16px; gap:var(--space-2)}
   .fchips{flex:1; min-width:0}
   .search{flex:0 1 260px}
@@ -122,6 +128,9 @@ button{font-family:inherit; cursor:pointer}
   .ftokens{padding:0 16px var(--space-3)}
   .wrap{padding:var(--space-4)}
   .case-grid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+}
+@media (max-width:800px){
+  .kpis{grid-template-columns:repeat(2,1fr)}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none !important; animation:none !important}}
 </style>
@@ -135,6 +144,13 @@ button{font-family:inherit; cursor:pointer}
     <a href="#" class="active">案例库</a><a href="#">量化看板</a>
   </div>
 </nav>
+
+<div class="kpis" aria-label="案例库概览">
+  <div class="kpi"><div class="n">432</div><div class="u">案例</div></div>
+  <div class="kpi"><div class="n">137</div><div class="u">高价值</div></div>
+  <div class="kpi"><div class="n">305</div><div class="u">机构</div></div>
+  <div class="kpi"><div class="n">10</div><div class="u">业务场景</div></div>
+</div>
 
 <div class="filters" id="filters">
   <div class="filters__row">
