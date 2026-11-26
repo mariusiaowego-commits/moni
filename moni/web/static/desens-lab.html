@@ -188,48 +188,15 @@
 <body>
 <header>
   <a class="back" href="/">← 返回 moni</a>
-  <h1>信息脱敏</h1>
-  <span class="sub">moni · 发给大模型之前遮蔽，回来之后本地还原</span>
+  <h1>脱敏实验室</h1>
+  <span class="sub">发给大模型之前遮蔽，回来之后本地还原</span>
   <span class="spacer"></span>
-  <nav class="seg">
-    <button type="button" id="tabConfig" class="seg-btn active">配置</button>
-    <button type="button" id="tabLab" class="seg-btn">脱敏实验室</button>
-  </nav>
   <span class="pill" id="switchState">总开关 …</span>
   <span class="pill" id="ledgerState">账本 …</span>
+  <a class="back" href="/config?tab=desens">配置管理 →</a>
 </header>
 
 <main>
-  <section class="panel" id="configPanel">
-    <h2>配置</h2>
-    <div class="pad">
-      <div class="cfg-row">
-        <div class="cfg-k">总开关</div>
-        <div class="cfg-v">
-          <button type="button" id="cfgEnabled" class="toggle">…</button>
-          <span class="sub" id="cfgEnabledHint"></span>
-          <span class="sub" id="cfgMsg"></span>
-        </div>
-      </div>
-      <div class="cfg-row">
-        <div class="cfg-k">遮蔽级别</div>
-        <div class="cfg-v cfg-levels">
-          <label><input type="checkbox" id="cfgL1"> L1 凭据类（密钥、令牌、密码）</label>
-          <label><input type="checkbox" id="cfgL2"> L2 个人信息与业务语义（手机号、身份证、银行卡、邮箱、机构名）</label>
-          <label><input type="checkbox" id="cfgL3"> L3 可选（内网主机、公网 IP、发布方）</label>
-          <label><input type="checkbox" id="cfgStrict"> 严格模式（遮蔽失败就拦住不出网；默认放行）</label>
-        </div>
-      </div>
-      <div class="cfg-row">
-        <div class="cfg-k">用户规则</div>
-        <div class="cfg-v">
-          <div id="cfgRules"></div>
-          <span class="sub">规则增删改排在后续 sprint（规划：<code>docs/plans/2026-11-25_desens-config-panel-plan.md</code>）。</span>
-        </div>
-      </div>
-    </div>
-  </section>
-
   <div id="labPanels">
   <section class="panel">
     <h2>输入</h2>
@@ -344,122 +311,6 @@ function row(label, t) {
     + "</td></tr>";
 }
 
-// ── 配置区（总开关 / 级别 / 严格模式 / 用户规则） ─────────────────
-let currentConfig = null;
-let configSeq = 0;
-
-async function loadConfig() {
-  const res = await fetch("/api/desensitize/config");
-  if (!res.ok) throw new Error(await errorMessage(res, "config " + res.status));
-  renderConfig(await res.json());
-}
-
-async function errorMessage(res, fallback) {
-  try {
-    const body = await res.json();
-    return (body && (body.message || body.detail)) || fallback;
-  } catch (e) {
-    return fallback;
-  }
-}
-
-function renderConfig(d) {
-  currentConfig = d;
-  const btn = $("cfgEnabled");
-  btn.textContent = d.enabled ? "已开启" : "已关闭";
-  btn.className = "toggle" + (d.enabled ? " on" : "");
-  $("cfgEnabledHint").textContent = d.enabled
-    ? "生产出站的提示词会先遮蔽，回包在本地还原（本进程立即生效；分享 worker 与定时任务最多 30 秒内跟上）。"
-    : "关闭时不脱敏：提示词原样发给大模型（实验室的「真跑一次」不受影响；worker 与定时任务最多 30 秒内跟上）。";
-  $("cfgL1").checked = !!d.levels.level_l1;
-  $("cfgL2").checked = !!d.levels.level_l2;
-  $("cfgL3").checked = !!d.levels.level_l3;
-  $("cfgStrict").checked = !!d.levels.strict_fail_closed;
-  renderPill(d);
-  renderRules(d.rules || []);
-}
-
-// 页头总开关 pill：以当前配置为准，不等 /stats 回来。
-function renderPill(d) {
-  const mark = (v) => (v ? "✓" : "✗");
-  const pill = $("switchState");
-  pill.textContent = "总开关 " + (d.enabled ? "开" : "关") + "（L1" + mark(d.levels.level_l1)
-    + " L2" + mark(d.levels.level_l2) + " L3" + mark(d.levels.level_l3) + "）";
-  pill.className = "pill " + (d.enabled ? "on" : "off");
-}
-
-// 规则内容同样走 DOM API：服务端字段不拼进 innerHTML。
-function renderRules(rules) {
-  const wrap = $("cfgRules");
-  wrap.textContent = "";
-  if (!rules.length) {
-    const empty = document.createElement("span");
-    empty.className = "sub";
-    empty.textContent = "暂无自定义规则。";
-    wrap.appendChild(empty);
-    return;
-  }
-  const table = document.createElement("table");
-  const thead = document.createElement("thead");
-  const headRow = document.createElement("tr");
-  for (const label of ["类型", "类别", "模式", "别名", "动作"]) {
-    const th = document.createElement("th");
-    th.textContent = label;
-    headRow.appendChild(th);
-  }
-  thead.appendChild(headRow);
-  table.appendChild(thead);
-  const tbody = document.createElement("tbody");
-  for (const rule of rules) {
-    const tr = document.createElement("tr");
-    const cells = [rule.rule_type, rule.kind, rule.pattern, (rule.aliases || []).join("、"), rule.action];
-    for (const value of cells) {
-      const td = document.createElement("td");
-      td.textContent = value === null || value === undefined ? "" : String(value);
-      tr.appendChild(td);
-    }
-    tbody.appendChild(tr);
-  }
-  table.appendChild(tbody);
-  wrap.appendChild(table);
-}
-
-async function saveConfig(patch) {
-  const seq = ++configSeq;
-  $("cfgMsg").textContent = "保存中…";
-  setConfigDisabled(true);
-  try {
-    const res = await fetch("/api/desensitize/config", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    if (!res.ok) throw new Error(await errorMessage(res, "config " + res.status));
-    const data = await res.json();
-    if (seq !== configSeq) return;  // 旧响应不覆盖新状态
-    renderConfig(data);
-    $("cfgMsg").textContent = "已保存，立即生效";
-    loadStats().catch(() => {});
-  } catch (e) {
-    if (seq !== configSeq) return;  // 旧响应不覆盖新状态
-    if (currentConfig) renderConfig(currentConfig);  // 失败回滚到已保存值
-    $("cfgMsg").textContent = "保存失败：" + String(e);
-  } finally {
-    setConfigDisabled(false);
-  }
-}
-
-function setConfigDisabled(disabled) {
-  $("cfgEnabled").disabled = disabled;
-  for (const id of ["cfgL1", "cfgL2", "cfgL3", "cfgStrict"]) $(id).disabled = disabled;
-}
-
-function showTab(which) {
-  const isConfig = which === "config";
-  $("configPanel").style.display = isConfig ? "" : "none";
-  $("labPanels").style.display = isConfig ? "none" : "";
-  $("tabConfig").classList.toggle("active", isConfig);
-  $("tabLab").classList.toggle("active", !isConfig);
-}
 
 // 账本最近记录走 DOM API + textContent：服务端字段不拼进 innerHTML。
 function renderRecent(recent) {
@@ -555,20 +406,9 @@ async function run() {
 $("sample").onclick = () => { $("input").value = SAMPLE; $("terms").value = DEFAULT_TERMS; };
 $("preview").onclick = preview;
 $("run").onclick = run;
-$("tabConfig").onclick = () => showTab("config");
-$("tabLab").onclick = () => showTab("lab");
-$("cfgEnabled").onclick = () => saveConfig({ enabled: !(currentConfig && currentConfig.enabled) });
-for (const [id, field] of [
-  ["cfgL1", "level_l1"], ["cfgL2", "level_l2"], ["cfgL3", "level_l3"],
-  ["cfgStrict", "strict_fail_closed"],
-]) {
-  $(id).onchange = () => saveConfig({ [field]: $(id).checked });
-}
 $("input").value = SAMPLE;
 $("terms").value = DEFAULT_TERMS;
 $("sql").textContent = SQL_TEXT;
-showTab("config");
-loadConfig().catch((e) => { $("cfgMsg").textContent = "读取配置失败：" + String(e); });
 loadStats().catch(() => {});
 </script>
 </body>

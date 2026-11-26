@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261125009">
+  <link rel="stylesheet" href="css/main.css?v=20261126001">
   <!-- v1.0.110: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
        放在 main.css 之后，同名选择器以它们为准，便于单独回滚。 -->
   <link rel="stylesheet" href="css/source-ops.css?v=20261120011">
@@ -3672,30 +3672,107 @@
             </table>
           </div>
         </div>
-        <!-- ── Tab 8: 脱敏（v1.0.134：入口从顶栏挪到配置管理） ── -->
+        <!-- ── Tab 8: 脱敏（v1.0.138：配置就地改，不再跳去实验室页） ── -->
         <div x-show="configTab === 'desens'">
-          <div class="surface-muted" style="display: flex; flex-direction: column; gap: 12px;">
+          <div class="surface-muted" style="display: flex; flex-direction: column; gap: var(--space-4);">
             <div class="panel-title-row">
               <h3>信息脱敏</h3>
-              <p class="panel-title-hint">发给大模型前遮蔽敏感信息，回包本地还原</p>
+              <p class="panel-title-hint">发给大模型前在本机遮蔽敏感信息，回包在本机还原</p>
             </div>
-            <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
-              <span class="nav-chip nav-chip-state"
-                    :class="desensConfig && desensConfig.enabled ? 'nav-chip-on' : 'nav-chip-muted'"
-                    x-text="!desensConfig ? '…' : (desensConfig.enabled ? '开' : '关')"></span>
+
+            <div class="switch-cards-grid switch-cards-single">
+              <button type="button" class="switch-card"
+                      :class="{ 'is-active': desensConfig && desensConfig.enabled }"
+                      :disabled="!desensConfig || desensSaving"
+                      @click="toggleDesens('enabled')">
+                <span class="switch-card-info">
+                  <span class="switch-card-title">脱敏总开关</span>
+                  <span class="switch-card-desc">所有出站提示词先遮蔽、回包本地还原。默认关闭。</span>
+                </span>
+                <span class="toggle-switch" :class="{ 'on': desensConfig && desensConfig.enabled }"></span>
+              </button>
+            </div>
+
+            <div class="switch-cards-grid">
+              <button type="button" class="switch-card"
+                      :class="{ 'is-active': desensConfig && desensConfig.levels.level_l1 }"
+                      :disabled="!desensConfig || desensSaving"
+                      @click="toggleDesens('level_l1')">
+                <span class="switch-card-info">
+                  <span class="switch-card-title">L1 凭据</span>
+                  <span class="switch-card-desc">密钥、令牌、密码</span>
+                </span>
+                <span class="toggle-switch" :class="{ 'on': desensConfig && desensConfig.levels.level_l1 }"></span>
+              </button>
+              <button type="button" class="switch-card"
+                      :class="{ 'is-active': desensConfig && desensConfig.levels.level_l2 }"
+                      :disabled="!desensConfig || desensSaving"
+                      @click="toggleDesens('level_l2')">
+                <span class="switch-card-info">
+                  <span class="switch-card-title">L2 个人信息</span>
+                  <span class="switch-card-desc">手机号、身份证、银行卡、邮箱、机构名</span>
+                </span>
+                <span class="toggle-switch" :class="{ 'on': desensConfig && desensConfig.levels.level_l2 }"></span>
+              </button>
+              <button type="button" class="switch-card"
+                      :class="{ 'is-active': desensConfig && desensConfig.levels.level_l3 }"
+                      :disabled="!desensConfig || desensSaving"
+                      @click="toggleDesens('level_l3')">
+                <span class="switch-card-info">
+                  <span class="switch-card-title">L3 基础设施</span>
+                  <span class="switch-card-desc">内网主机、公网 IP、发布方</span>
+                </span>
+                <span class="toggle-switch" :class="{ 'on': desensConfig && desensConfig.levels.level_l3 }"></span>
+              </button>
+              <button type="button" class="switch-card"
+                      :class="{ 'is-active': desensConfig && desensConfig.levels.strict_fail_closed }"
+                      :disabled="!desensConfig || desensSaving"
+                      @click="toggleDesens('strict_fail_closed')">
+                <span class="switch-card-info">
+                  <span class="switch-card-title">严格模式</span>
+                  <span class="switch-card-desc">遮蔽失败就拦住不出网；默认放行</span>
+                </span>
+                <span class="toggle-switch" :class="{ 'on': desensConfig && desensConfig.levels.strict_fail_closed }"></span>
+              </button>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
               <span class="muted" style="font-size: var(--font-13);"
-                    x-text="desensConfig ? ('级别 L1' + (desensConfig.levels.level_l1 ? '✓' : '✗') + ' L2' + (desensConfig.levels.level_l2 ? '✓' : '✗') + ' L3' + (desensConfig.levels.level_l3 ? '✓' : '✗')) : ''"></span>
-              <span class="muted" style="font-size: var(--font-13);"
-                    x-text="desensConfig ? ('用户规则 ' + desensConfig.rules_count + ' 条') : ''"></span>
-              <a class="btn-primary" href="/desens-lab.html">打开脱敏设置与实验室 →</a>
-              <span class="muted" style="font-size: var(--font-13);"
-                    x-show="desensConfigError" x-text="desensConfigError"></span>
+                    x-text="desensConfig ? ('用户规则 ' + desensConfig.rules_count + ' 条（增删改排下一 sprint）') : '用户规则 …'"></span>
+              <a class="btn btn-secondary btn-sm" href="/desens-lab.html">打开脱敏实验室 →</a>
+              <span class="hint" x-show="desensSaveMsg" x-text="desensSaveMsg"></span>
+              <span class="hint" x-show="desensConfigError" x-text="desensConfigError"></span>
               <button type="button" class="btn btn-ghost btn-sm"
                       x-show="desensConfigError" @click="loadDesensConfig()">重试</button>
             </div>
-            <p class="muted" style="font-size: var(--font-13); margin: 0;">
-              总开关、三级级别、严格模式与用户规则统一在「脱敏设置与实验室」页里管理；规则增删改排在后续 sprint。
-            </p>
+
+            <div class="table-container config-table-scroll">
+              <table style="table-layout: fixed; width: 100%;">
+                <thead>
+                  <tr>
+                    <th style="width: 110px;">类型</th>
+                    <th style="width: 110px;">类别</th>
+                    <th>模式</th>
+                    <th style="width: 180px;">别名</th>
+                    <th style="width: 90px;">动作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="r in (desensConfig ? desensConfig.rules : [])" :key="r.rule_type + '|' + r.pattern">
+                    <tr>
+                      <td x-text="r.rule_type"></td>
+                      <td x-text="r.kind"></td>
+                      <td class="nowrap" :title="r.pattern" x-text="r.pattern"></td>
+                      <td x-text="(r.aliases || []).join('、')"></td>
+                      <td x-text="r.action"></td>
+                    </tr>
+                  </template>
+                  <tr x-show="!desensConfig || !(desensConfig.rules || []).length">
+                    <td colspan="5" class="muted">暂无自定义规则（增删改排在下一 sprint）</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </section>
@@ -5289,7 +5366,7 @@
   <!-- app.js / main.css 在 #238 改过（数据清洗页），版本号必须高于 main 与
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
-  <script src="js/app.js?v=20261125009"></script>
+  <script src="js/app.js?v=20261126001"></script>
   <script src="js/reader.js?v=20261123103"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind

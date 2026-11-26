@@ -5889,6 +5889,11 @@ function app() {
       // the CRUD tab directly.  Falls back to /articles for unknown paths.
       // v1.0.25: /cron /llmSettings redirect into 配置管理 subtabs via navigate().
       const view = this._pathToView[window.location.pathname] || 'articles';
+      // v1.0.138: 深链到指定配置页签（/config?tab=desens）。
+      const tabParam = new URLSearchParams(window.location.search).get('tab');
+      if (tabParam && ['sources', 'tags', 'filters', 'directions', 'llm', 'jobs', 'cron', 'desens'].includes(tabParam)) {
+        this.configTab = tabParam;
+      }
       // Warm article filters at boot (cheap)
       this.loadArticlesFilters();
       // Use navigate() so loaders + legacy redirects stay in one place
@@ -5909,6 +5914,8 @@ function app() {
     // v1.0.134: 脱敏配置总览（总开关/级别/规则条数），失败不影响主流程。
     desensConfig: null,
     desensConfigError: null,
+    desensSaving: false,
+    desensSaveMsg: '',
     loadDesensConfig() {
       const self = this;
       fetch('/api/desensitize/config', { credentials: 'same-origin' })
@@ -5928,8 +5935,45 @@ function app() {
           if (!d) return;
           self.desensConfig = d;
           self.desensConfigError = null;
+          self.desensSaveMsg = '';
         })
         .catch(e => { self.desensConfigError = '配置读取失败：' + e; });
+    },
+
+    // v1.0.138: 脱敏开关就地改，不用跳去实验室页。
+    toggleDesens(field) {
+      if (!this.desensConfig || this.desensSaving) return;
+      const current = field === 'enabled'
+        ? this.desensConfig.enabled
+        : this.desensConfig.levels[field];
+      this.saveDesensConfig({ [field]: !current });
+    },
+
+    async saveDesensConfig(patch) {
+      this.desensSaving = true;
+      this.desensSaveMsg = '保存中…';
+      try {
+        const res = await fetch('/api/desensitize/config', {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          const msg = (body && (body.message || body.detail)) || ('HTTP ' + res.status);
+          throw new Error(msg);
+        }
+        this.desensConfig = await res.json();
+        this.desensConfigError = null;
+        this.desensSaveMsg = '已保存，立即生效';
+      } catch (e) {
+        this.desensSaveMsg = '保存失败：' + e;
+        // 回滚到服务端真实值，避免界面显示"改了"但其实没生效。
+        this.loadDesensConfig();
+      } finally {
+        this.desensSaving = false;
+      }
     },
 
     // v1.0.130: 离开页面时停掉通用分的轮询，别在后台一直打接口。
