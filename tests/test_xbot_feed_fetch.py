@@ -183,7 +183,10 @@ def test_parse_maps_fields(fresh_db):
     assert art["xbot_topic"] == "wechat"
     # 只挂**真实命中**的 tag: 正文命中 微信/小程序 → wechat + miniprogram
     assert art["xbot_tags"] == ["wechat", "miniprogram"]
-    assert art["xbot_candidate_tags"] == ["wechat", "miniprogram"]
+    # t119u: 候选集合 = 已启用的**业务 tag**（source 池 ∪ topic 池），
+    # 不再是旧的「topic 候选」——所以它比 ["wechat","miniprogram"] 大。
+    assert set(art["xbot_candidate_tags"]) >= {"wechat", "miniprogram"}
+    assert "xbot-scope" not in art["xbot_candidate_tags"]
     # hit 里记的是**真实关键词** (不是 (topic:xxx) 合成串)
     hit_kws = {h["keyword"] for h in art["xbot_hits"]}
     assert hit_kws <= {"微信", "小程序"}
@@ -431,11 +434,21 @@ def test_blacklist_is_configurable(fresh_db):
     item = next(i for i in _load_fixture()["items"]
                 if i["author_handle"] == "oran_ge")
     assert f.parse(dict(item)) is None
+    assert f._author_blocked == 1, "被屏蔽时必须以 author_blocked 计数"
 
-    # 换成别的 handle, oran_ge 就放行
+    # 换成别的 handle, oran_ge 就不再被屏蔽。
+    # t119u: 准入本身由业务 tag 决定 —— 这条 fixture 是回复（正文以 @ 开头），
+    # 所以这里显式关掉回复/转推过滤，单独验证「黑名单可配置」这一件事。
     f2 = FetcherXbotFeed()
-    f2._prepare({"blacklisted_handles": ["someone_else"]})
-    assert f2.parse(dict(item)) is not None
+    f2._prepare({
+        "blacklisted_handles": ["someone_else"],
+        "exclude_replies": False,
+        "exclude_retweets": False,
+    })
+    assert f2._author_blocked == 0
+    assert f2.parse(dict(item)) is not None, (
+        "不在黑名单里 + 命中业务 tag（AI → general-tech/ai-fintech）⇒ 应入库"
+    )
 
 
 def test_tag_gate_tags_follow_real_keyword_hits(fresh_db, monkeypatch):
@@ -444,7 +457,12 @@ def test_tag_gate_tags_follow_real_keyword_hits(fresh_db, monkeypatch):
 
     data_dir = fresh_db
     clone = _make_clone(data_dir)
-    f = _seeded_fetcher(data_dir, clone_dir=clone)
+    # t119u: 本用例验证「tag 不串台」，不是回复/转推过滤 —— 显式关掉形态过滤，
+    # 让 fixture 的条目集合保持稳定（该 fixture 里 oran_ge 那条是回复）。
+    f = _seeded_fetcher(data_dir, clone_dir=clone, fetch_config={
+        "exclude_replies": False,
+        "exclude_retweets": False,
+    })
     monkeypatch.setattr(FetcherXbotFeed, "_sync_clone", lambda self, cfg: clone)
 
     result = f.run()
