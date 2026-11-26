@@ -252,7 +252,7 @@ function casesModule() {
         if (!r.ok) throw new Error(this._casesApiError(body, r.status));
         notify('info', '已提交抽取，单次最多 10 条');
         const state = await this._cvWaitExtract(baseline);
-        if (state === 'queued') notify('info', '任务已入队，调度器执行后自动完成');
+        if (state === 'queued') notify('info', '仍在运行，稍后刷新查看结果');
       } catch (e) {
         notify('error', '抽取失败: ' + e.message);
       } finally {
@@ -274,8 +274,8 @@ function casesModule() {
     },
 
     async _cvWaitExtract(baseline) {
-      // 调度器 15s 一个 tick；最多等 60s，不阻塞页面其他操作。
-      for (let i = 0; i < 20; i += 1) {
+      // 调度器 15s tick + 单篇 LLM 实测 20–60s，10 篇串行通常 2–5 分钟。
+      for (let i = 0; i < 100; i += 1) {
         await new Promise((res) => setTimeout(res, 3000));
         const r = await fetch('/api/cron/runs?job_id=extract_cases_demo&page_size=1', {
           credentials: 'same-origin',
@@ -287,7 +287,10 @@ function casesModule() {
         if (run.status === 'running') continue;
         if (run.status === 'success') {
           await Promise.all([this.cvLoad(), this.cvLoadStats(), this.cvLoadFacets()]);
-          if (typeof this._notify === 'function') this._notify('success', '抽取完成');
+          if (typeof this._notify === 'function') {
+            const added = Number(run.new_articles) || 0;
+            this._notify('success', `抽取完成：新增 ${added} 条案例`);
+          }
           return 'done';
         }
         throw new Error(run.error_message || '抽取任务失败');

@@ -533,6 +533,7 @@ def extract_cases_batch(
                 "succeeded": 0,
                 "failed": 0,
                 "skipped": 0,
+                "gated": 0,
                 "cases_extracted": 0,
                 "budget_exhausted": True,
                 "rate_limited": False,
@@ -540,7 +541,7 @@ def extract_cases_batch(
 
     # batch_size 指「送进 LLM 的有效篇数」。前置闸挡掉的条目只写账本，
     # 不占配额；否则最新队列里连续几条闲聊就会让「抽 10 条」抽到 0 条。
-    window = min(max(batch_size * 5, 50), 200)
+    window = min(max(batch_size * 20, 100), 500)
     candidates = CaseRepository.get_pending_articles(
         batch_size=window,
         prompt_version=prompt_version,

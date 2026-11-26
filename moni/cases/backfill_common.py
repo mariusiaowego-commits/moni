@@ -23,7 +23,7 @@ def connect(db_path: Path | str, *, apply: bool) -> sqlite3.Connection:
     if apply:
         conn = sqlite3.connect(str(db_path), timeout=BUSY_TIMEOUT_MS / 1000)
     else:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn = sqlite3.connect(f"{Path(db_path).resolve().as_uri()}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
     conn.execute("PRAGMA foreign_keys = ON")
@@ -33,7 +33,7 @@ def connect(db_path: Path | str, *, apply: bool) -> sqlite3.Connection:
 def backup_database(db_path: Path | str, *, tag: str = "backfill") -> Path:
     """WAL 安全在线热备（sqlite3 backup API），返回备份文件路径。"""
     db_path = Path(db_path)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     dest_dir = db_path.parent / BACKUP_DIR_NAME
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"{db_path.name}.pre-{tag}-{stamp}"

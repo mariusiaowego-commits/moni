@@ -1037,6 +1037,8 @@ def extract_cases_pending(
             err_msg = f"{result['failed']} failed"
 
         extra_payload: dict[str, Any] = {"in_progress": False}
+        if result.get("gated"):
+            extra_payload["gated"] = result["gated"]
         if result.get("budget_exhausted"):
             extra_payload["budget_exhausted"] = True
         if triggered_by:

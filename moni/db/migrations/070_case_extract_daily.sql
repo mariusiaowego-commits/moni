@@ -30,8 +30,5 @@ SET status = 'failed',
     error = 'job removed by migration 070'
 WHERE job_id = 'extract_cases_night' AND status IN ('pending', 'claimed');
 
-UPDATE cron_meta
-SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)
-WHERE key = 'schedule_revision';
-
-INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (70, datetime('now'));
+INSERT INTO cron_meta (key, value) VALUES ('schedule_revision', '2')
+ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT);

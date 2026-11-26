@@ -78,6 +78,31 @@ class TestPreGate:
         }
         assert pre_gate(art) is None
 
+    def test_recruiting_and_evening_news_with_signal_pass(self):
+        hire = {
+            "title": "AI布局再发力：汇丰银行设立全球AI中心并招聘100多名AI人才",
+            "source": "mpaypass",
+            "raw_content": "汇丰银行宣布设立全球 AI 中心，并招聘 100 多名 AI 人才。",
+        }
+        assert pre_gate(hire) is None
+        evening = {
+            "title": "氪星晚报｜小米集团宣布与某银行达成战略合作",
+            "source": "36kr",
+            "raw_content": "小米集团宣布与某银行达成战略合作，双方将上线联合支付产品。",
+        }
+        assert pre_gate(evening) is None
+
+    def test_ascii_alias_needs_word_boundary(self):
+        alias_map = {"meta": ("ent_meta", "Meta", "互联网")}
+        art = {
+            "title": "metadata 管理平台发布",
+            "source": "36kr",
+            "raw_content": "这是一个 metadata 管理平台。",
+        }
+        assert pre_gate(art, alias_map) is not None
+        art["raw_content"] = "Meta 宣布上线新的支付产品，覆盖 10 个国家。"
+        assert pre_gate(art, alias_map) is None
+
     def test_short_bank_feed_without_signal_blocked(self):
         art = {"title": "内部通知", "source": "bank_feed", "raw_content": "x" * 100}
         assert pre_gate(art) is not None
@@ -328,6 +353,70 @@ class TestMigration070:
         assert rev >= 2
 
 
+class TestSchedulerYaml:
+    def test_explicit_yaml_skips_manual_and_inactive(self, db: sqlite3.Connection, tmp_path: Path):
+        from moni.cron.scheduler import CronScheduler
+
+        path = tmp_path / "schedule.yaml"
+        path.write_text(
+            "jobs:\n"
+            "  - id: active_cron\n"
+            "    name: 活跃任务\n"
+            "    trigger_type: cron\n"
+            "    hour: 6\n"
+            "    minute: 30\n"
+            "    day_of_week: '*'\n"
+            "    func_path: moni.cron.jobs:fetch_all_sources\n"
+            "  - id: manual_job\n"
+            "    name: 手动任务\n"
+            "    trigger_type: manual\n"
+            "    hour: 0\n"
+            "    minute: 0\n"
+            "    func_path: moni.cron.jobs:extract_cases_demo\n"
+            "  - id: paused_job\n"
+            "    name: 暂停任务\n"
+            "    trigger_type: cron\n"
+            "    hour: 7\n"
+            "    minute: 0\n"
+            "    day_of_week: '*'\n"
+            "    is_active: false\n"
+            "    func_path: moni.cron.jobs:fetch_all_sources\n"
+        )
+        scheduler = CronScheduler(config_path=path)
+        registered: list[str] = []
+
+        class _FakeScheduler:
+            def add_job(self, *args, **kwargs):
+                registered.append(kwargs["id"])
+
+        scheduler._scheduler = _FakeScheduler()  # type: ignore[assignment]
+        scheduler._load_jobs()
+        assert registered == ["active_cron"]
+
+    def test_execute_request_failure_writes_cron_run(self, db: sqlite3.Connection, monkeypatch):
+        from moni.cron import scheduler as sched_mod
+
+        db.execute(
+            "INSERT INTO cron_run_requests (job_id, requested_at, status, claimed_at) "
+            "VALUES ('extract_cases_demo', datetime('now'), 'claimed', datetime('now'))"
+        )
+        db.commit()
+        request_id = db.execute("SELECT MAX(id) FROM cron_run_requests").fetchone()[0]
+
+        def boom(_path):
+            raise RuntimeError("resolver exploded")
+
+        monkeypatch.setattr(sched_mod, "_resolve_func", boom)
+        sched_mod.CronScheduler()._execute_request(request_id, "x:y", {})
+
+        row = db.execute(
+            "SELECT success, error FROM cron_runs WHERE job_id = 'extract_cases_demo' "
+            "ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert row is not None and row["success"] == 0
+        assert "resolver exploded" in (row["error"] or "")
+
+
 class TestArchivedScopeMatrix:
     @pytest.fixture()
     def archived_case(self, db: sqlite3.Connection) -> str:
@@ -364,6 +453,7 @@ class TestArchivedScopeMatrix:
             cases_dashboard_stats,
             data_funnel_stats,
             extract_layer_stats,
+            timeseries,
         )
 
         assert CaseRepository.list_cases() == []
@@ -374,16 +464,25 @@ class TestArchivedScopeMatrix:
 
         dash = cases_dashboard_stats(period="all")
         assert dash["total_cases"] == 0
+        assert dash["archived_total"] == 1
         assert dash["high_value_ranking"] == []
         assert dash["keyword_options"] == []
         assert dash["geo_distribution"] == {"by_region": [], "by_country": []}
 
         assert data_funnel_stats()["cases_total"] == 0
         assert extract_layer_stats(period="90d")["raw"]["cases_total"] == 0
+        assert timeseries("cases", period="90d")["total"] == 0
         assert _dedupe_case_article_ids(db, [archived_case]) == []
 
 
 class TestBackfillHardening:
+    def _copy_db(self, db: sqlite3.Connection, tmp_path: Path, name: str) -> Path:
+        db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        src = Path(db.execute("PRAGMA database_list").fetchone()[2])
+        target = tmp_path / name
+        target.write_bytes(src.read_bytes())
+        return target
+
     def _seed_case(self, db: sqlite3.Connection) -> None:
         _seed_article(db, "a_bf", title="工商银行上线新支付产品", body="工商银行上线新支付产品。" * 20)
         cs = normalize_case(
@@ -451,3 +550,79 @@ class TestBackfillHardening:
         finally:
             check.close()
         assert [r["source_type"] for r in rows] == ["manual_user"]
+
+    def test_manual_enterprise_id_not_overwritten(self, db: sqlite3.Connection, tmp_path: Path):
+        _seed_article(db, "a_manual", title="某地方银行上线支付产品", body="某地方银行上线支付产品。" * 20)
+        cs = normalize_case(
+            {
+                "subject": "某地方银行",
+                "case_type": "PI",
+                "case_action": "launch",
+                "summary": "某地方银行上线支付产品",
+                "evidence_snippet": "某地方银行上线支付产品",
+                "keywords": ["支付"],
+                "reference_value": "medium",
+                "extraction_confidence": 80,
+            }
+        )
+        assert cs is not None
+        with db:
+            CaseRepository.insert_cases(db, "a_manual", [cs])
+        case_id = db.execute("SELECT case_id FROM cases WHERE article_id = 'a_manual'").fetchone()[0]
+        db.execute(
+            "UPDATE cases SET subject_enterprise_id = 'ent_icbc' WHERE case_id = ?", (case_id,)
+        )
+        db.execute(
+            "INSERT OR REPLACE INTO case_enterprises "
+            "(case_id, enterprise_id, role, raw_name, source_type, created_at) "
+            "VALUES (?, 'ent_icbc', 'subject', '某地方银行', 'manual_user', datetime('now'))",
+            (case_id,),
+        )
+        db.commit()
+        target = self._copy_db(db, tmp_path, "news_manual_id.db")
+
+        run_backfill(target, apply=True)
+        check = sqlite3.connect(str(target))
+        check.row_factory = sqlite3.Row
+        try:
+            row = check.execute(
+                "SELECT subject_enterprise_id FROM cases WHERE case_id = ?", (case_id,)
+            ).fetchone()
+            links = check.execute(
+                "SELECT source_type FROM case_enterprises WHERE case_id = ? AND role = 'subject'",
+                (case_id,),
+            ).fetchall()
+        finally:
+            check.close()
+        assert row["subject_enterprise_id"] == "ent_icbc"
+        assert [r["source_type"] for r in links] == ["manual_user"]
+
+    def test_stale_auto_link_cleaned_when_no_longer_matched(
+        self, db: sqlite3.Connection, tmp_path: Path
+    ):
+        self._seed_case(db)
+        case_id = db.execute("SELECT case_id FROM cases WHERE article_id = 'a_bf'").fetchone()[0]
+        target = self._copy_db(db, tmp_path, "news_stale.db")
+        run_backfill(target, apply=True)
+
+        check = sqlite3.connect(str(target))
+        check.row_factory = sqlite3.Row
+        try:
+            assert check.execute(
+                "SELECT COUNT(*) FROM case_enterprises WHERE case_id = ? AND source_type = 'auto_rule'",
+                (case_id,),
+            ).fetchone()[0] == 1
+            check.execute("UPDATE cases SET subject = '某完全未知机构' WHERE case_id = ?", (case_id,))
+            check.commit()
+        finally:
+            check.close()
+
+        run_backfill(target, apply=True)
+        check = sqlite3.connect(str(target))
+        try:
+            assert check.execute(
+                "SELECT COUNT(*) FROM case_enterprises WHERE case_id = ? AND source_type = 'auto_rule'",
+                (case_id,),
+            ).fetchone()[0] == 0
+        finally:
+            check.close()

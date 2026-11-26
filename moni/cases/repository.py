@@ -886,6 +886,7 @@ class CaseRepository:
             LEFT JOIN enterprises e ON e.enterprise_id = c.subject_enterprise_id
             LEFT JOIN case_categories cat ON cat.code = c.case_category
             WHERE c.case_id = ?
+              AND c.subject != '__processing__'
         """
         conn = get_db()
         row = conn.execute(sql, (case_id,)).fetchone()

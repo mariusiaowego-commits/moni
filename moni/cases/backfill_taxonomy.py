@@ -192,16 +192,24 @@ def apply_taxonomy_for_case_ids(
             subject=subject,
         )
 
-        conn.execute(
-            "UPDATE cases SET subject_enterprise_id = ?, case_category = ? WHERE case_id = ?",
-            (ent_id, category, cid),
-        )
+        has_manual = _has_manual_enterprise(conn, cid)
+        if has_manual:
+            # 人工改判的企业优先：只更新分类，不把 subject_enterprise_id 覆盖回规则结果。
+            conn.execute(
+                "UPDATE cases SET case_category = ? WHERE case_id = ?",
+                (category, cid),
+            )
+        else:
+            conn.execute(
+                "UPDATE cases SET subject_enterprise_id = ?, case_category = ? WHERE case_id = ?",
+                (ent_id, category, cid),
+            )
         conn.execute(
             "DELETE FROM case_enterprises "
             "WHERE case_id = ? AND role = 'subject' AND source_type = 'auto_rule'",
             (cid,),
         )
-        if ent_id is not None and not _has_manual_enterprise(conn, cid):
+        if ent_id is not None and not has_manual:
             conn.execute(
                 """
                 INSERT OR IGNORE INTO case_enterprises
@@ -214,14 +222,15 @@ def apply_taxonomy_for_case_ids(
             "DELETE FROM case_scenario_links WHERE case_id = ? AND source_type = 'auto_rule'",
             (cid,),
         )
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO case_scenario_links
-                (case_id, scenario_code, is_primary, source_type, created_at)
-            VALUES (?, ?, 1, 'auto_rule', ?)
-            """,
-            (cid, scenario, now),
-        )
+        if not _has_manual_scenario(conn, cid):
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO case_scenario_links
+                    (case_id, scenario_code, is_primary, source_type, created_at)
+                VALUES (?, ?, 1, 'auto_rule', ?)
+                """,
+                (cid, scenario, now),
+            )
     return len(rows)
 
 
@@ -236,7 +245,24 @@ def _has_manual_enterprise(conn: sqlite3.Connection, case_id: str) -> bool:
 
 def _manual_case_ids(conn: sqlite3.Connection) -> set[str]:
     rows = conn.execute(
-        "SELECT DISTINCT case_id FROM case_enterprises WHERE source_type = 'manual_user'"
+        "SELECT DISTINCT case_id FROM case_enterprises "
+        "WHERE source_type = 'manual_user' AND role = 'subject'"
+    ).fetchall()
+    return {str(r[0]) for r in rows}
+
+
+def _has_manual_scenario(conn: sqlite3.Connection, case_id: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM case_scenario_links "
+        "WHERE case_id = ? AND source_type = 'manual_user' LIMIT 1",
+        (case_id,),
+    ).fetchone()
+    return row is not None
+
+
+def _manual_scenario_case_ids(conn: sqlite3.Connection) -> set[str]:
+    rows = conn.execute(
+        "SELECT DISTINCT case_id FROM case_scenario_links WHERE source_type = 'manual_user'"
     ).fetchall()
     return {str(r[0]) for r in rows}
 
@@ -311,15 +337,20 @@ def run_backfill(db_path: Path, *, apply: bool = False) -> dict[str, Any]:
         if apply:
             now = datetime.now(timezone.utc).isoformat()
             manual = _manual_case_ids(conn)
+            manual_scenarios = _manual_scenario_case_ids(conn)
             with conn:
                 conn.executemany(
                     "UPDATE cases SET subject_enterprise_id = ?, case_category = ? WHERE case_id = ?",
-                    updates,
+                    [u for u in updates if u[2] not in manual],
+                )
+                conn.executemany(
+                    "UPDATE cases SET case_category = ? WHERE case_id = ?",
+                    [(cat, cid) for _eid, cat, cid in updates if cid in manual],
                 )
                 conn.executemany(
                     "DELETE FROM case_enterprises "
                     "WHERE case_id = ? AND role = 'subject' AND source_type = 'auto_rule'",
-                    [(cid,) for cid, _eid, _raw in ent_links],
+                    [(cid,) for _eid, _cat, cid in updates],
                 )
                 conn.executemany(
                     """
@@ -340,7 +371,7 @@ def run_backfill(db_path: Path, *, apply: bool = False) -> dict[str, Any]:
                         (case_id, scenario_code, is_primary, source_type, created_at)
                     VALUES (?, ?, 1, 'auto_rule', ?)
                     """,
-                    [(cid, scn, now) for cid, scn in scn_links],
+                    [(cid, scn, now) for cid, scn in scn_links if cid not in manual_scenarios],
                 )
 
         return {
