@@ -26,6 +26,7 @@ def run_backfill(db_path: str | Path, *, apply: bool = False) -> dict[str, int]:
             FROM cases c
             LEFT JOIN articles a ON a.id = c.article_id
             WHERE c.evidence_snippet IS NOT NULL AND c.evidence_snippet != ''
+              AND c.case_lifecycle != 'archived'
             """
         ).fetchall()
         verified = missing_article = not_found = 0

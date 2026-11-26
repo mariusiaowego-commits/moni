@@ -1,4 +1,4 @@
-"""Sprint 82 — 案例质量闸 / 按需抽取 / 可见性口径 / 回填加固。"""
+"""Sprint 83 — 案例质量闸 / 按需抽取 / 可见性口径 / 回填加固。"""
 
 from __future__ import annotations
 
@@ -13,8 +13,7 @@ from moni.cases.backfill_taxonomy import run_backfill
 from moni.cases.gate import pre_gate, validate_case
 from moni.cases.normalize import normalize_case
 from moni.cases.pipeline import extract_cases_batch, extract_cases_for_article
-from moni.cases.repository import CaseRepository
-from moni.cases.scope import case_scope_clause
+from moni.cases.repository import CaseRepository, active_case_clause
 from moni.cron import jobs as cron_jobs
 from moni.db.connection import close_db, get_db, set_db_path
 from moni.db.migrate import migrate
@@ -22,7 +21,7 @@ from moni.db.migrate import migrate
 
 @pytest.fixture()
 def db(tmp_path: Path):
-    set_db_path(tmp_path / "sprint82.db")
+    set_db_path(tmp_path / "sprint83.db")
     migrate()
     conn = get_db()
     yield conn
@@ -98,8 +97,8 @@ class TestPreGate:
 
 class TestModuleScope:
     def test_clause_shape(self):
-        assert case_scope_clause("") == "subject != '__processing__' AND case_lifecycle != 'archived'"
-        assert "archived" not in case_scope_clause("c", include_archived=True)
+        assert active_case_clause("") == "subject != '__processing__' AND case_lifecycle != 'archived'"
+        assert "archived" not in active_case_clause("c", include_archived=True)
 
 
 class TestPendingQueue:

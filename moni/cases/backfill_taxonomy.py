@@ -252,6 +252,7 @@ def run_backfill(db_path: Path, *, apply: bool = False) -> dict[str, Any]:
             SELECT case_id, subject, case_type, summary, evidence_snippet
             FROM cases
             WHERE subject != '__processing__'
+              AND case_lifecycle != 'archived'
             ORDER BY case_id
             """
         ).fetchall()
