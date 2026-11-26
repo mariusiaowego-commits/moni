@@ -1,3 +1,33 @@
+## 已合并待部署: **案例深度解读（case_insights）生成与回填 CLI** (2026-11-27 · PR #350 → `ceeae3d` · Sprint 84)
+
+**目标**：Issue #346。`case_insights` 表自迁移 067 建好后从未跑过 LLM，详情页也没有消费方；
+本 PR 先补齐「生成 + 回填」后端，API 与详情页 UI 放下一 PR。
+
+**改动**
+
+- `moni/cases/insights.py`：prompt v1 → `what / how[] / risks[] / reusable[] / fit`；证据不足返回
+  `insufficient`；解析容忍 Hermes 尾部进度行；幂等键 `(case_id, prompt_version, input_hash)`；
+  写入新结果时把旧 `done` 行标 `stale`，`cases.insight_id` 指向新行；`call_llm(usage=True)` 回写 token。
+- `moni/cases/backfill_insights.py`：默认 dry-run；`--apply / --limit / --ids / --refresh /
+  --with-article / --max-article-chars / --timeout / --show`；SIGINT 返回 130 并打印剩余；
+  429/配额立即停批返回 2；失败落 `status='failed'` + error，重跑自愈；`busy_timeout=5000`。
+- 测试：`tests/test_cases_insights.py` 19 passed；`pytest -k case` 265 passed。
+
+**实测**
+
+- 副本库：不带原文候选 432、带原文 429（3 条同 hash 已存在）；单条 `--refresh --with-article` 26s。
+- 生产 checkout `6efa793 → ceeae3d`；`python -m moni.cases.backfill_insights --db data/news.db
+  --with-article` dry-run → 候选 432 / 输入约 298253 tokens；`case_insights` 仍 0 行。
+- CI `pytest · py3.12` run `45910362049` success。
+- 两轮独立审计：只读子 agent「需修」（1 High + 5 Medium）→ 修复后 agy（w52:pY）逐条确认「可合并」。
+
+**未做**
+
+- 生产全量回填未跑（432 条约 5 小时 / 约 30 万 input tokens，需排期）。
+- `/api/cases/{id}` 返回 insight + 详情页「深度解读」区块（下一 PR）。
+- 未打 tag、未重启 8900（本 PR 无 web 路由改动）。
+- 已登记待修：Issue #351（`case_action` 100% 塌缩成 launch）、#354（质量闸关键词按归一后计数）。
+
 ## 已部署: **案例在用口径统一 + 生产库迁移 062–069 与规则回填** (2026-11-26 · PR #343 → `c257f47` · Sprint 82)
 
 **目标**：把「什么算一个案例」收敛成一条 SQL 口径，5 处统计 / 搜索 / 漏斗共用；同时补上
