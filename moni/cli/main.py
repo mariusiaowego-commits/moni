@@ -852,6 +852,7 @@ def cmd_cases_verify_all(args) -> int:
     base_where = (
         "review_status='pending' "
         "AND (subject != '__processing__' OR subject IS NULL) "
+        "AND COALESCE(case_lifecycle, '') != 'archived' "
         "AND extraction_confidence >= ?"
     )
 
@@ -870,7 +871,8 @@ def cmd_cases_verify_all(args) -> int:
     )
     conn.commit()
     pending_after = conn.execute(
-        "SELECT COUNT(*) FROM cases WHERE review_status='pending'"
+        "SELECT COUNT(*) FROM cases WHERE review_status='pending' "
+        "AND COALESCE(case_lifecycle, '') != 'archived'"
     ).fetchone()[0]
     print(f"已核验: {cur.rowcount} 条 | 仍 pending: {pending_after} 条")
     return 0

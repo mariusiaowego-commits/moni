@@ -222,6 +222,30 @@ class TestSearchFtsV2:
             assert r.status_code == 200
             assert r.json()["items"] == []
 
+    def test_archived_hidden_from_search(self, tmp_db: sqlite3.Connection):
+        _seed_article(tmp_db, "art_a1", title="招商银行归档案例")
+        cs = normalize_case({
+            "subject": "招商银行",
+            "case_type": "PI",
+            "case_action": "launch",
+            "summary": "招商银行上线新服务",
+            "evidence_snippet": "招商银行发布公告，支持跨境结算",
+            "keywords": ["归档测试"],
+        })
+        with tmp_db:
+            CaseRepository.insert_cases(tmp_db, "art_a1", [cs])
+        case_id = CaseRepository.get_by_article("art_a1")[0]["case_id"]
+        assert [h["case_id"] for h in CaseRepository.search_fts("招商银行")] == [case_id]
+        assert [h["case_id"] for h in CaseRepository.search_fts("跨境")] == [case_id]
+
+        with tmp_db:
+            tmp_db.execute(
+                "UPDATE cases SET case_lifecycle = 'archived' WHERE case_id = ?", (case_id,)
+            )
+        assert CaseRepository.search_fts("招商银行") == []
+        assert CaseRepository.search_fts("跨境") == []
+        assert CaseRepository.get_by_article("art_a1") == []
+
 
 class TestCronLedgerBudgetAndRateLimit:
     def test_batch_idempotent_via_ledger(self, tmp_db: sqlite3.Connection):

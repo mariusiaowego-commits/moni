@@ -510,9 +510,39 @@ class TestCasesDashboard:
         from moni.stats.repository import cases_dashboard_stats
         d_all = cases_dashboard_stats("all")
         assert d_all["total_cases"] == 6
+        assert d_all["archived_total"] == 0
         # 30d 窗口 (extracted_at=now 在内) → 也是 6
         d_30 = cases_dashboard_stats("30d")
         assert d_30["total_cases"] == 6
+
+    def test_archived_excluded_and_counted(self, seed_minimal):
+        """archived 软删: 计入 archived_total, 但不进 total / 榜单 / 机构数."""
+        from moni.cases.repository import CaseRepository
+        from moni.stats.repository import cases_dashboard_stats
+        conn = get_db()
+        conn.execute(
+            "UPDATE cases SET case_lifecycle = 'archived', reference_value = 'high' "
+            "WHERE case_id = 'MN-AI-2608-0000'"
+        )
+        conn.commit()
+        d = cases_dashboard_stats("all")
+        assert d["archived_total"] == 1
+        assert d["total_cases"] == 5
+        assert d["high_value_cases"] == 0
+        assert d["total_institutions"] == 5
+        assert "MN-AI-2608-0000" not in [r["case_id"] for r in d["high_value_ranking"]]
+        assert d["total_cases"] == CaseRepository.stats()["total"]
+
+    def test_archived_excluded_from_extract_and_funnel(self, seed_minimal):
+        """抽取层与数据漏斗与案例库同口径, 归档不重复计数."""
+        from moni.stats.repository import data_funnel_stats, extract_layer_stats
+        conn = get_db()
+        conn.execute(
+            "UPDATE cases SET case_lifecycle = 'archived' WHERE case_id = 'MN-AI-2608-0000'"
+        )
+        conn.commit()
+        assert extract_layer_stats("30d")["raw"]["cases_total"] == 5
+        assert data_funnel_stats()["cases_total"] == 5
 
 
 class TestSplitInstitutions:

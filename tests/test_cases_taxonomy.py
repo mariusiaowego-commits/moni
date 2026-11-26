@@ -183,9 +183,10 @@ class TestBackfillAndAggregation:
 
         res1 = run_backfill(db_file, apply=True)
         res2 = run_backfill(db_file, apply=True)
-        assert res1["enterprise_matched"] == 3
+        assert res1["total"] == 3  # archived 不参与回填
+        assert res1["enterprise_matched"] == 2
         assert res1["enterprise_unmatched"] == 1
-        assert res2["enterprise_matched"] == 3
+        assert res2["enterprise_matched"] == 2
 
         by_ent = CaseRepository.aggregate_cases_by_enterprise()
         ent_ids = {r["enterprise_id"] for r in by_ent}

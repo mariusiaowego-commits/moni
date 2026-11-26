@@ -139,3 +139,23 @@ def test_verify_all_skips_processing_placeholder(fresh_db):
         f"__processing__ 占位行被错误核验: status={row['review_status']}"
     )
     assert row["subject"] == "__processing__"  # 没被改
+
+
+def test_verify_all_skips_archived(fresh_db):
+    """archived 软删行不被 verify-all 复活."""
+    conn = fresh_db
+    _seed_case(conn, case_id="MN-AI-2608-0040", confidence=99)
+    conn.execute(
+        "UPDATE cases SET case_lifecycle = 'archived' WHERE case_id = 'MN-AI-2608-0040'"
+    )
+    conn.commit()
+
+    from moni.cli.main import cmd_cases_verify_all
+    from types import SimpleNamespace
+
+    cmd_cases_verify_all(SimpleNamespace(threshold=80, dry_run=False))
+
+    row = conn.execute(
+        "SELECT review_status, case_lifecycle FROM cases WHERE case_id = 'MN-AI-2608-0040'"
+    ).fetchone()
+    assert (row["review_status"], row["case_lifecycle"]) == ("pending", "archived")
