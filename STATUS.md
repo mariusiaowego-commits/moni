@@ -1,3 +1,27 @@
+## 已合并待部署: **案例库 UI V3（概览带 / 六维筛选 / 沉浸详情）** (2026-11-26 · PR #337 → `c93270d` · Sprint 81)
+
+**目标**：把 `/cases` 从 V2 的 dashboard + 表格改成四块——概览带（4 KPI + 3 列 Top4 分布）→
+六维筛选（企业 / 行业 / 场景 / 类型 / 价值 / 月份，每维计数排除自身条件）→ 案例卡片 →
+62/38 沉浸详情（深链 `?case=`、Esc、滚动锁、焦点归还）。文案原则：复杂留给系统，解释性标签短句化。
+
+**实测**
+
+- 定向：cases 6 文件 → 132 passed；前端契约 5+1 文件 → 66 passed。
+- CI `pytest · py3.12` run `45764984619` on `4009644` → success（3013 passed / 2 skipped）。
+- 隔离库（`MONI_DB_PATH=/private/tmp/ev/news.db`，8901）：432 / 137 / 305 / 10 / 8 / 73；
+  `industry=其他 224`、`scenario=other 90`、`q=小程序 2`、`value=high 137`。
+- Playwright：1440 / 1024 无横向滚动；筛选、搜索、加载更多 100→200、标签增删、分享入队、Esc、
+  焦点归还、滚动锁通过；`/`、`/articles`、`/cases`、`/stats`、`/share` console error 0；
+  亮暗对比度均 ≥ 4.5。
+- 两轮独立只读审计：2×P1 / 7×P2 已修，剩余 P3 记录在 `docs/sprint-evidence/sprint-81/VERIFY.md` §6。
+
+**口径**：`cv-*` 全部消费现有 token（新增 `--scrim`），换 theme 不改组件；案例简报沿用
+`/api/share/cases` 的 share queue，与常规简报同一条管道、同一套排版。
+
+**未做 / 待授权**：未打 tag（候选 `v1.0.139`）、未重启 8900、未删已合并分支；`case_insights`
+（做法 / 风险）未回填，详情不伪造；统计页 `/api/stats/cases-dashboard` 仍只排除 `__processing__`，
+与案例库的 archived 口径分叉（已记入 §4 skipped）。
+
 ## 已发布: **v1.0.138 — 脱敏配置与实验室内联（零跳转）** (2026-11-26 · PR #334 → `b0e36c7` · tag `v1.0.138` · Sprint 81)
 
 **目标**：把脱敏配置与脱敏实验室合并进「配置管理 → 脱敏」同一个页签，去掉进入脱敏前的那次跳转；
