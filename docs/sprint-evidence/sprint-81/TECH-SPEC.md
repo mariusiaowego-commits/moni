@@ -20,8 +20,10 @@ status: 进行中
 | `scenario` | EXISTS `case_scenario_links.scenario_code = ?` |
 | `category` | `cases.case_category = ?` |
 | `month` | `substr(case_date,1,7) = ?` |
+| `value` | `reference_value` 的别名（前端 URL 与 KPI 使用） |
 
 统一过滤：`subject != '__processing__' AND case_lifecycle != 'archived'`。
+显式传 `case_lifecycle` 时以传入值为准（可查 archived）。
 
 ### GET /api/cases/facets
 
@@ -52,6 +54,9 @@ status: 进行中
 
 `month` 过滤 `case_date GLOB 'YYYY-MM*'`，格式脏值（如 `relativ`）不产出选项。
 `by_*` 数组保留。
+
+空值桶：`enterprise=other`、`industry=其他`、`category=unclassified`、`value=none`
+分别按 `COALESCE` 命中空值；`scenario=other` 命中「无链接或仅 other 链接」的案例。
 
 ### GET /api/cases/{id}
 
