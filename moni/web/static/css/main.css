@@ -6006,7 +6006,8 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
 
 /* ═══════════════════════════════════════════════════════════════
    横向滚动条：系统默认样式又粗又黑，压在表格下沿很跳。
-   统一改成 6px、透明轨道、低对比滑块，只有悬停时才明显；
+   标准属性（Chromium 121+ / Firefox）给 thin、透明轨道、低对比滑块；
+   老 WebKit 走 ::-webkit-scrollbar，6px、悬停才加深。
    滚轮、触控板与键盘滚动行为不变。
    ═══════════════════════════════════════════════════════════════ */
 .config-table-scroll,
