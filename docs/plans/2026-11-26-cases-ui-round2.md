@@ -1,7 +1,7 @@
 # 案例库第二轮：指标排版 / 原文证据 / 筛选 / 分享简报
 
 - 日期：2026-11-26
-- 状态：待拍板（§1 已改，§2–§4 待确认）
+- 状态：§1、§1.1、§2 已落地；§3 方案已拍板；§4 待确认
 - 相关：`docs/sprint-evidence/sprint-79/`（第一轮验收）、`design/prototype-v2.html`
 
 ## 1. 指标排版（已改，可直接看）
@@ -19,6 +19,30 @@
 
 截图：`docs/sprint-evidence/sprint-79/render/prototype-metric-1440.png`。
 详细页的 `.hero-metrics` 本来就是三行结构（标签 / 数值 / 说明），本轮不动。
+
+## 1.1 顶部 stats-strip（本轮改）
+
+**问题**：4 张 KPI 卡各自 3 行（28px 数字 / 12px 标签 / 12px 副文案），而且一卡混两种口径：
+`137 高价值` 同卡写「中 199 · 低 96」、`429 / 3` 在一个数字位塞两个值、`30+` 与副行重复。
+
+agy 出 3 案、pixel 给规格，融合后选「一卡一指标、只留两级字号」：
+
+| 卡 | 数字 | 标签 |
+|---|---|---|
+| 1 | 432 | 案例 |
+| 2 | 137 | 高价值 |
+| 3 | 94 | 覆盖企业 |
+| 4 | 10 | 业务场景 |
+
+- 删除第三行 DOM（`.stat .d`），从结构上杜绝再塞第二口径；高/中/低分布下沉到「价值」筛选面板。
+- 数字 28px / 600 / tabular-nums / line-height 1.1；标签 13px / 400 / `--muted-fg`，间距 4px。
+- 卡 padding 14/20（1024 下 12/16），无阴影；1440 与 1024 都保持 4 列不换行，<800px 才 2×2。
+- 口径：`94` 是生产库副本迁到 069 并跑完 `backfill_taxonomy` 后的
+  `COUNT(DISTINCT enterprise_id)=94`，不是 `enterprises` 表的 116 家。
+  `10` 是 `case_scenario_links` 的 10 个场景（9 个业务场景 + `other`）。
+
+原始建议归档：`design/stats-strip-agy.md`、`design/stats-strip-pixel.md`。
+截图：`render/prototype-stats-1440.png`、`render/prototype-stats-1024.png`。
 
 ## 2. 「原文证据」为什么只有一行
 
@@ -58,6 +82,19 @@ FROM cases;
 
 界面上：未命中时标「模型转述」而不是假装是原文；证据区默认 3 行，超出折叠。
 这样既不增加 LLM 成本，也把"为什么算证据"讲清楚。
+
+**已落地（migration 069）**
+
+- `moni/db/migrations/069_case_evidence.sql`：`cases.evidence_verified` / `cases.evidence_offset`。
+- `moni/cases/evidence.py`：空白归一的逐字匹配 + 命中位置前后各 200 字上下文。
+- 抽取时写标记（`moni/cases/pipeline.py`）；详情读取附带 `evidence_context`
+  （`moni/cases/repository.py` → `moni/web/routes/cases.py`）。
+- 存量回填：`python3 -m moni.cases.backfill_evidence --db <db> [--apply]`。
+- 生产库副本实测（001→069 + taxonomy 回填）：432 条中 **265 条命中（61.3%）**，
+  167 条标「模型转述」；`MN-AI-2611-0004` 命中偏移 2696。
+- 测试：`tests/test_cases_evidence.py` 15 passed；受影响集 144 passed。
+- 原型：详情页「✓ 原文引用」徽章 + 上下文高亮 + 判定方式说明，
+  截图 `render/prototype-detail-evidence-1440.png`。
 
 ## 3. 筛选交互（pixel 出方案 → agy 审核 → 我融合）
 

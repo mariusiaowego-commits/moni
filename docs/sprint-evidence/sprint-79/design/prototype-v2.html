@@ -61,11 +61,10 @@ button{font-family:inherit; cursor:pointer}
 
 /* ═══ A 聚合页 ═══ */
 .stats-strip{display:grid; grid-template-columns:repeat(4,1fr); gap:var(--space-3); margin-bottom:var(--space-6)}
-.stat{background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-4) var(--space-5)}
+/* 一卡一指标：只允许「数字 / ≤4 字标签」两级，DOM 不留第三行，避免再塞高·中·低第二口径。 */
+.stat{background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:14px 20px}
 .stat .n{font-size:var(--font-28); font-weight:600; letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1.1}
-.stat .u{font-size:var(--font-12); color:var(--muted-fg); margin-top:2px}
-.stat .d{font-size:var(--font-12); color:var(--muted-fg); margin-top:var(--space-2)}
-.stat .d b{color:var(--card-fg); font-weight:600}
+.stat .u{font-size:var(--font-13); color:var(--muted-fg); margin-top:4px; line-height:1.4}
 
 .facets{display:grid; grid-template-columns:repeat(3,1fr); gap:var(--space-3); margin-bottom:var(--space-6)}
 .facet{background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-4)}
@@ -142,6 +141,15 @@ button{font-family:inherit; cursor:pointer}
 .ev-row .v{font-size:var(--font-13); line-height:1.6}
 .ev-row.quote .v{border-left:2px solid var(--border); padding-left:var(--space-3)}
 .ev-row a{font-size:var(--font-13); word-break:break-all}
+/* 证据可信度：原文逐字命中才标「原文引用」，否则标「模型转述」，不假装是引用。 */
+.ev-flag{display:inline-flex; align-items:center; gap:3px; margin-left:4px; padding:1px 8px; border:1px solid var(--border); border-radius:999px; font-size:var(--font-12); font-weight:500; color:var(--muted-fg); letter-spacing:0; vertical-align:1px}
+.ev-flag.ok{color:var(--card-fg); border-color:var(--muted-fg)}
+.ev-ctx{margin-top:var(--space-2); padding-left:var(--space-3); border-left:2px solid var(--border); font-size:var(--font-13); line-height:1.7; color:var(--muted-fg)}
+.ev-ctx p{margin:0 0 6px}
+.ev-ctx p:last-child{margin-bottom:0}
+.ev-ctx mark{background:var(--muted); color:var(--card-fg); border-radius:2px; padding:0 2px; box-decoration-break:clone}
+.ev-ctx-lb{font-size:var(--font-12); color:var(--muted-fg); opacity:.85; margin-bottom:6px}
+.ev-src{font-size:var(--font-12); color:var(--muted-fg); margin-top:2px}
 
 .side-card{background:var(--background); border:1px solid var(--border); border-radius:var(--radius-md); padding:var(--space-4)}
 .side-card h5{margin:0 0 var(--space-3); font-size:var(--font-12); font-weight:600; color:var(--muted-fg); letter-spacing:.06em}
@@ -195,12 +203,16 @@ button{font-family:inherit; cursor:pointer}
 
 /* ═══ 响应式 ═══ */
 @media (max-width:1100px){
-  .stats-strip{grid-template-columns:repeat(2,1fr)}
+  .stats-strip{gap:var(--space-2)}
+  .stat{padding:12px 16px}
   .facets{grid-template-columns:1fr}
   .sheet{display:block; overflow-y:auto; height:92vh}
   .sheet-main,.sheet-side{overflow:visible; height:auto}
   .sheet-side{border-left:0; border-top:1px solid var(--border)}
   .share-stage{grid-template-columns:1fr}
+}
+@media (max-width:800px){
+  .stats-strip{grid-template-columns:repeat(2,1fr)}
 }
 @media (max-width:720px){
   .wrap,.sheet-main,.sheet-side{padding:var(--space-4)}
@@ -233,10 +245,10 @@ button{font-family:inherit; cursor:pointer}
 <section class="state is-active" id="state-a">
   <div class="wrap">
     <div class="stats-strip">
-      <div class="stat"><div class="n">432</div><div class="u">案例</div><div class="d">高价值 <b>137</b></div></div>
-      <div class="stat"><div class="n">429 / 3</div><div class="u">AI 应用 / 产品创新</div><div class="d">类型分布</div></div>
-      <div class="stat"><div class="n">137</div><div class="u">高价值</div><div class="d">中 199 · 低 96</div></div>
-      <div class="stat"><div class="n">30+</div><div class="u">最高频触点</div><div class="d">微信小微 · 30+</div></div>
+      <div class="stat"><div class="n">432</div><div class="u">案例</div></div>
+      <div class="stat"><div class="n">137</div><div class="u">高价值</div></div>
+      <div class="stat"><div class="n">94</div><div class="u">覆盖企业</div></div>
+      <div class="stat"><div class="n">10</div><div class="u">业务场景</div></div>
     </div>
 
     <div class="facets">
@@ -297,9 +309,18 @@ button{font-family:inherit; cursor:pointer}
         </div>
 
         <div class="sec">
-          <div class="sec-h">原文证据</div>
+          <div class="sec-h">原文证据<span class="ev-flag ok">✓ 原文引用</span></div>
           <div class="ev">
             <div class="ev-row quote"><div class="v">小微第一次披露数据：互动日活3000万，触点扩展到朋友圈、公众号、视频号等30多个。</div></div>
+            <div class="ev-row">
+              <div class="k">原文上下文 · 命中位置前后各 200 字（程序截取，未经模型改写）</div>
+              <div class="ev-ctx">
+                <p>六、小微日活3000万，全量开放的成本比元宝低</p>
+                <p><mark>小微第一次披露数据：互动日活3000万，触点扩展到朋友圈、公众号、视频号等30多个。</mark></p>
+                <p>3000万对比14.49亿月活，大概是2%。小微还在很早期。刘炽平同时说——「即使小微向全部14亿微信用户开放，我们预计小微的季度成本仍会低于今年早些时候元宝的季度成本。」</p>
+              </div>
+              <div class="ev-src">判定方式：证据句与正文按空白归一后逐字一致，未命中则标注「模型转述」。</div>
+            </div>
             <div class="ev-row"><div class="k">原文链接</div><div class="v"><a href="#" onclick="return false">mp.weixin.qq.com / 微信小微数据披露（示例链接）</a></div></div>
           </div>
         </div>
@@ -554,6 +575,13 @@ document.querySelectorAll('.tabbar button').forEach(function(b){
 
 buildFacets();
 renderCards(null, null);
+var params = new URLSearchParams(location.search);
+var initial = params.get('state');
+if(initial) setState(initial);
+if(params.get('scroll') === 'evidence'){
+  var ev = document.querySelector('#state-b .ev');
+  if(ev) ev.scrollIntoView({block:'center'});
+}
 </script>
 </body>
 </html>
