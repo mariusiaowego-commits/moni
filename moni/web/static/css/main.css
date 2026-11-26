@@ -6003,3 +6003,31 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
 }
 .bv-chip-wrap:hover .tip,
 .bv-chip-wrap:focus-visible .tip { display: block; }
+
+/* ═══════════════════════════════════════════════════════════════
+   横向滚动条：系统默认样式又粗又黑，压在表格下沿很跳。
+   统一改成 6px、透明轨道、低对比滑块，只有悬停时才明显；
+   滚轮、触控板与键盘滚动行为不变。
+   ═══════════════════════════════════════════════════════════════ */
+.config-table-scroll,
+.desens-lab #lab-ledger {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.config-table-scroll::-webkit-scrollbar,
+.desens-lab #lab-ledger::-webkit-scrollbar { height: 6px; }
+.config-table-scroll::-webkit-scrollbar-track,
+.desens-lab #lab-ledger::-webkit-scrollbar-track { background: transparent; }
+.config-table-scroll::-webkit-scrollbar-thumb,
+.desens-lab #lab-ledger::-webkit-scrollbar-thumb {
+  background: var(--border); border-radius: 999px; border: none;
+}
+.config-table-scroll:hover::-webkit-scrollbar-thumb,
+.desens-lab #lab-ledger:hover::-webkit-scrollbar-thumb { background: var(--muted-fg); }
+
+/* 脱敏规则表只有 5 列且内容短，不该跟其它配置表一样钉死 1198px：
+   桌面内容区实测 1156px，1198px 会常年溢出 42px 挂一条没有意义的滚动条。
+   这里按「固定列 490px + 匹配模式至少 150px」给 640px 下限：
+   ≥768px 窗口完全不滚动，更窄时仍可横向滑，但不会把匹配模式列压成 0 宽。 */
+.config-table-scroll > table.desens-rules-table { min-width: 640px; }
+.desens-rules-table td.desens-pattern { overflow-wrap: anywhere; }
