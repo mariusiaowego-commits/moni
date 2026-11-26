@@ -522,6 +522,7 @@ class CaseRepository:
                 SELECT case_id FROM cases
                 WHERE article_id = ? AND subject = ? AND case_type = ?
                   AND case_action = ? AND subject != '__processing__'
+                  AND case_lifecycle != 'archived'
                 """,
                 (article_id, subject, case_type, case_action),
             ).fetchone()

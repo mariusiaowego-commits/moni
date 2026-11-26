@@ -544,6 +544,27 @@ class TestCasesDashboard:
         assert extract_layer_stats("30d")["raw"]["cases_total"] == 5
         assert data_funnel_stats()["cases_total"] == 5
 
+    def test_geo_distribution_excludes_archived(self, seed_minimal):
+        """归档案例不进入地理分布 (JOIN cases 口径)."""
+        from moni.stats.repository import cases_dashboard_stats
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO case_geography "
+            "(case_id, country_code, country_name, region, is_primary, source_type, created_at) "
+            "VALUES ('MN-AI-2608-0000', 'CN', '中国', 'APAC', 1, 'auto_rule', ?)",
+            (_iso_now(),),
+        )
+        conn.commit()
+        before = sum(r["count"] for r in cases_dashboard_stats("all")["geo_distribution"]["by_country"])
+        assert before == 1
+
+        conn.execute(
+            "UPDATE cases SET case_lifecycle = 'archived' WHERE case_id = 'MN-AI-2608-0000'"
+        )
+        conn.commit()
+        after = sum(r["count"] for r in cases_dashboard_stats("all")["geo_distribution"]["by_country"])
+        assert after == 0
+
 
 class TestSplitInstitutions:
 
