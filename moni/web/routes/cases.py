@@ -40,9 +40,15 @@ def _row_to_case(row: dict[str, Any]) -> dict[str, Any]:
         "case_date_precision": row.get("case_date_precision"),
         "subject": row.get("subject"),
         "subject_raw": row.get("subject_raw"),
+        "enterprise_name": row.get("enterprise_name"),
+        "industry_l1": row.get("industry_l1"),
         "case_type": row.get("case_type"),
         "case_action": row.get("case_action"),
         "case_action_source": row.get("case_action_source"),
+        "case_category": row.get("case_category"),
+        "category_name": row.get("category_name"),
+        "scenarios": row.get("scenarios") or [],
+        "related": row.get("related") or [],
         "counterparty": row.get("counterparty"),
         "amount": row.get("amount"),
         "metrics": row.get("metrics") or [],
@@ -68,10 +74,16 @@ def _row_to_case(row: dict[str, Any]) -> dict[str, Any]:
 
 @router.get("")
 def list_cases(
+    q: str | None = Query(None, description="模糊搜索: 主体 / 摘要 / 对手方 / 企业名"),
+    enterprise: str | None = Query(None, description="enterprise_id, 未归类用 other"),
+    industry: str | None = Query(None, description="一级行业"),
+    scenario: str | None = Query(None, description="业务场景 code"),
+    category: str | None = Query(None, description="8 类案例 code"),
     case_type: str | None = Query(None, description="Filter by case_type: AI/PI"),
     case_action: str | None = Query(None, description="Filter by case_action: launch/pilot/scale/transform/exit"),
     subject: str | None = Query(None, description="Filter by subject (fuzzy match)"),
     reference_value: str | None = Query(None, description="Filter by reference_value: high/medium/low"),
+    month: str | None = Query(None, description="案例月份 YYYY-MM"),
     review_status: str | None = Query(None, description="Filter by review_status: pending/confirmed/rejected"),
     case_lifecycle: str | None = Query(None, description="Filter by case_lifecycle: draft/verified/published/deprecated/archived"),
     limit: int = Query(50, ge=1, le=200, description="Page size (1-200)"),
@@ -79,20 +91,32 @@ def list_cases(
 ) -> dict[str, Any]:
     """案例列表 (带筛选 + 分页)."""
     cases = CaseRepository.list_cases(
+        q=q,
+        enterprise=enterprise,
+        industry=industry,
+        scenario=scenario,
+        category=category,
         case_type=case_type,
         case_action=case_action,
         subject=subject,
         reference_value=reference_value,
+        month=month,
         review_status=review_status,
         case_lifecycle=case_lifecycle,
         limit=limit,
         offset=offset,
     )
     total = CaseRepository.count_cases(
+        q=q,
+        enterprise=enterprise,
+        industry=industry,
+        scenario=scenario,
+        category=category,
         case_type=case_type,
         case_action=case_action,
         subject=subject,
         reference_value=reference_value,
+        month=month,
         review_status=review_status,
         case_lifecycle=case_lifecycle,
     )
@@ -152,6 +176,32 @@ def get_stats() -> dict[str, Any]:
       - by_category: list[{category_code, category_name, count}]
     """
     return CaseRepository.stats()
+
+
+@router.get("/facets")
+def get_facets(
+    q: str | None = Query(None),
+    enterprise: str | None = Query(None),
+    industry: str | None = Query(None),
+    scenario: str | None = Query(None),
+    category: str | None = Query(None),
+    case_type: str | None = Query(None),
+    case_action: str | None = Query(None),
+    reference_value: str | None = Query(None),
+    month: str | None = Query(None),
+) -> dict[str, Any]:
+    """六维筛选选项与计数（各维度排除自身条件）。"""
+    return CaseRepository.facets(
+        q=q,
+        enterprise=enterprise,
+        industry=industry,
+        scenario=scenario,
+        category=category,
+        case_type=case_type,
+        case_action=case_action,
+        reference_value=reference_value,
+        month=month,
+    )
 
 
 @router.get("/by-article/{article_id}")

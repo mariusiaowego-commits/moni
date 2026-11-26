@@ -1,23 +1,52 @@
-/* cases.js — 同业案例库 Alpine 组件
- * v1.0.17: F6 同业案例库
- * 用法: 在 app() 作用域内挂到 this 上, 通过 x-data 里的方法调用
+/* cases.js — 同业案例库 Alpine 组件（V3 · 2026-11）
+ * 列表 / 概览带 / 六维筛选 / 沉浸详情。
+ * 保留：核验、驳回、编辑、标签、删除、分享。
  */
 
 function casesModule() {
+  const DIMS = [
+    { key: 'enterprise', label: '企业' },
+    { key: 'industry', label: '行业' },
+    { key: 'scenario', label: '场景' },
+    { key: 'category', label: '类型' },
+    { key: 'value', label: '价值' },
+    { key: 'month', label: '时间' },
+  ];
+
+  const ACTION_LABELS = {
+    launch: '上线', pilot: '试点', scale: '规模化', transform: '转型', exit: '退出',
+  };
+  const VALUE_LABELS = { high: '高价值', medium: '中价值', low: '低价值', none: '未评级' };
+  const VALUE_SHORT = { high: '高', medium: '中', low: '低', none: '未评级' };
+  const METRIC_LABELS = {
+    dau: '日活用户', mau: '月活用户', funding: '融资额',
+    contract_value: '合同/预算金额', deal_value: '交易金额', penalty: '罚没金额',
+    revenue: '营收', valuation: '估值', investment: '投资额',
+    cost_saving: '降本', txn_volume: '交易额', txn_count: '交易笔数',
+    user_count: '用户数', coverage: '覆盖规模', headcount: '人员规模',
+    efficiency: '效率提升', other: '其他',
+  };
+  const UNIT_SUFFIX = {
+    percent: '%', user: '人', CNY: '元', USD: '美元', EUR: '欧元',
+    GBP: '英镑', JPY: '日元', HKD: '港元', x: '倍', institution: '家',
+  };
+
   return {
-    // ── 状态 ────────────────────────────────────────────────
-    cases: [],                   // 当前案例列表
-    casesTotal: 0,
-    casesFilterType: '',          // '' / 'AI' / 'PI'
-    casesFilterAction: '',        // '' / launch / pilot / scale / transform / exit
-    casesFilterReference: '',     // '' / high / medium / low
-    casesLoading: false,
-    casesSearch: '',              // FTS5 全文检索 / 跳转时的主体筛选
-    casesSearchActive: false,     // true = 用户在搜, 显示 FTS 覆盖层
-    casesSearchResults: [],
-    casesDetail: null,            // 选中案例详情
-    casesStats: null,
-    casesReviewBusy: false,       // confirm/reject/delete in-flight
+    // ── V3 状态 ──────────────────────────────────────────────
+    cvDims: DIMS,
+    cvQ: '',
+    cvSel: { enterprise: [], industry: [], scenario: [], category: [], value: [], month: [] },
+    cvItems: [],
+    cvTotal: 0,
+    cvLoading: false,
+    cvStats: null,
+    cvFacets: null,
+    cvPanel: null,
+    cvDetail: null,
+    cvDetailLoading: false,
+
+    // ── 保留的编辑 / 标签状态 ────────────────────────────────
+    casesReviewBusy: false,
     casesEditing: false,
     casesEditBusy: false,
     casesEditForm: { subject: '', counterparty: '', case_action: '', reference_value: '', summary: '' },
@@ -25,48 +54,39 @@ function casesModule() {
     casesTagInput: '',
     casesTagBusy: false,
 
-    // ── 类型/动作/参考价值 配置 ──────────────────────────────
     caseTypes: [
       { value: '', label: '全部类型' },
-      { value: 'AI', label: 'AI 应用', color: '#5b8ccf' },
-      { value: 'PI', label: '产品创新', color: '#d9a861' },
+      { value: 'AI', label: 'AI 应用' },
+      { value: 'PI', label: '产品创新' },
     ],
-
     caseActions: [
       { value: '', label: '全部动作' },
-      { value: 'launch', label: '上线', color: '#5fa98f' },
-      { value: 'pilot', label: '试点', color: '#d9a861' },
-      { value: 'scale', label: '规模化', color: '#5b8ccf' },
-      { value: 'transform', label: '转型', color: '#9b87c4' },
-      { value: 'exit', label: '退出', color: '#9aa39a' },
+      { value: 'launch', label: '上线' },
+      { value: 'pilot', label: '试点' },
+      { value: 'scale', label: '规模化' },
+      { value: 'transform', label: '转型' },
+      { value: 'exit', label: '退出' },
     ],
-
     caseReferences: [
       { value: '', label: '全部参考价值' },
-      { value: 'high', label: '高', color: '#d97a7a' },
-      { value: 'medium', label: '中', color: '#d9a861' },
-      { value: 'low', label: '低', color: '#9aa39a' },
+      { value: 'high', label: '高' },
+      { value: 'medium', label: '中' },
+      { value: 'low', label: '低' },
     ],
 
-    caseTypeColor(type) {
-      const t = this.caseTypes.find(x => x.value === type);
-      return t ? t.color : '#9aa39a';
-    },
+    // ── 标签映射 ────────────────────────────────────────────
     caseTypeLabel(type) {
-      const t = this.caseTypes.find(x => x.value === type);
-      return t ? t.label : type;
+      const t = this.caseTypes.find((x) => x.value === type);
+      return t ? t.label : (type || '未分类');
     },
     caseActionLabel(action) {
-      const a = this.caseActions.find(x => x.value === action);
-      return a ? a.label : action;
+      return ACTION_LABELS[action] || action || '未标注';
     },
     caseReferenceLabel(reference) {
-      const r = this.caseReferences.find(x => x.value === reference);
-      return r ? r.label : reference;
+      return VALUE_SHORT[reference] || '未评级';
     },
-    caseReferenceColor(reference) {
-      const r = this.caseReferences.find(x => x.value === reference);
-      return r ? r.color : '#9aa39a';
+    cvRefLabel(reference) {
+      return VALUE_LABELS[reference] || '未评级';
     },
     caseActionOptions() {
       return this.caseActions.filter((a) => a.value);
@@ -75,74 +95,287 @@ function casesModule() {
       return this.caseReferences.filter((r) => r.value);
     },
 
-    // ── 数据加载 ────────────────────────────────────────────
-    async loadCases() {
-      this.casesLoading = true;
+    // ── 卡片辅助 ────────────────────────────────────────────
+    cvEnt(cs) {
+      return cs.enterprise_name || cs.subject || '未归类';
+    },
+    cvIndustry(cs) {
+      return cs.industry_l1 || '其他';
+    },
+    cvMonth(cs) {
+      const d = cs.case_date || '';
+      return /^\d{4}-\d{2}/.test(d) ? d.slice(0, 7) : '';
+    },
+    cvMetrics(cs) {
+      const rows = Array.isArray(cs.metrics) ? cs.metrics : [];
+      return rows.slice(0, 2).map((m) => ({
+        name: METRIC_LABELS[m.metric_type] || m.metric_type || m.name || '指标',
+        value: m.value_raw || (m.value_num != null ? String(m.value_num) : (m.value_approx || '—')),
+        unit: m.value_raw ? '' : (UNIT_SUFFIX[m.unit] || ''),
+      }));
+    },
+
+    // ── 筛选 ────────────────────────────────────────────────
+    cvHasFilters() {
+      return !!this.cvQ.trim() || DIMS.some((d) => (this.cvSel[d.key] || []).length > 0);
+    },
+    cvActiveCount(dim) {
+      return (this.cvSel[dim] || []).length;
+    },
+    cvIsSel(dim, value) {
+      return (this.cvSel[dim] || []).includes(value);
+    },
+    cvTokens() {
+      const out = [];
+      DIMS.forEach((d) => {
+        (this.cvSel[d.key] || []).forEach((v) => {
+          out.push({ dim: d.key, dimLabel: d.label, value: v, text: this.cvOptionLabel(d.key, v) });
+        });
+      });
+      return out;
+    },
+    cvOptionLabel(dim, value) {
+      if (dim === 'value') return VALUE_SHORT[value] || value;
+      if (dim === 'enterprise' && value === 'other') return '其他/未归类';
+      const list = this.cvFacets && this.cvFacets[dim];
+      const hit = Array.isArray(list) ? list.find((o) => o.value === value) : null;
+      if (hit && hit.label) return hit.label;
+      if (dim === 'industry') return value;
+      return value;
+    },
+    cvPanelOptions() {
+      const dim = this.cvPanel;
+      if (!dim || !this.cvFacets) return [];
+      const rows = this.cvFacets[dim] || [];
+      return rows
+        .filter((o) => (o.count || 0) > 0 || this.cvIsSel(dim, o.value))
+        .map((o) => ({
+          value: o.value,
+          label: dim === 'value'
+            ? (VALUE_LABELS[o.value] || o.label)
+            : (dim === 'action' ? (ACTION_LABELS[o.value] || o.label) : o.label),
+          count: o.count || 0,
+        }));
+    },
+    cvOpenPanel(dim) {
+      this.cvPanel = this.cvPanel === dim ? null : dim;
+    },
+    cvToggle(dim, value) {
+      const cur = this.cvSel[dim] || [];
+      const next = cur.includes(value) ? cur.filter((v) => v !== value) : cur.concat([value]);
+      this.cvSel = Object.assign({}, this.cvSel, { [dim]: next });
+      this.cvLoad();
+      this.cvLoadFacets();
+      this.cvSyncURL();
+    },
+    cvRemoveToken(dim, value) {
+      const next = (this.cvSel[dim] || []).filter((v) => v !== value);
+      this.cvSel = Object.assign({}, this.cvSel, { [dim]: next });
+      this.cvLoad();
+      this.cvLoadFacets();
+      this.cvSyncURL();
+    },
+    cvClear() {
+      this.cvQ = '';
+      this.cvSel = { enterprise: [], industry: [], scenario: [], category: [], value: [], month: [] };
+      this.cvPanel = null;
+      this.cvLoad();
+      this.cvLoadFacets();
+      this.cvSyncURL();
+    },
+    cvOnSearch() {
+      this.cvLoad();
+      this.cvLoadFacets();
+      this.cvSyncURL();
+    },
+
+    _cvParams() {
+      const p = new URLSearchParams();
+      if (this.cvQ.trim()) p.set('q', this.cvQ.trim());
+      DIMS.forEach((d) => {
+        const vals = this.cvSel[d.key] || [];
+        if (vals.length) p.set(d.key, vals.join(','));
+      });
+      return p;
+    },
+
+    cvLoad(append = false) {
+      const p = this._cvParams();
+      p.set('limit', '100');
+      if (append) p.set('offset', String((this.cvItems || []).length));
+      this.cvLoading = true;
+      return fetch(`/api/cases?${p.toString()}`, { credentials: 'same-origin' })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+        .then((data) => {
+          const items = data.items || [];
+          this.cvItems = append ? (this.cvItems || []).concat(items) : items;
+          this.cvTotal = data.total || 0;
+        })
+        .catch((e) => console.error('加载案例失败:', e))
+        .finally(() => { this.cvLoading = false; });
+    },
+    cvLoadMore() {
+      if (this.cvLoading) return null;
+      return this.cvLoad(true);
+    },
+
+    cvLoadStats() {
+      return fetch('/api/cases/stats', { credentials: 'same-origin' })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+        .then((data) => { this.cvStats = data; })
+        .catch((e) => console.error('加载案例统计失败:', e));
+    },
+
+    cvLoadFacets() {
+      const p = this._cvParams();
+      return fetch(`/api/cases/facets?${p.toString()}`, { credentials: 'same-origin' })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+        .then((data) => { this.cvFacets = data; })
+        .catch((e) => console.error('加载筛选选项失败:', e));
+    },
+
+    // ── 概览带 ──────────────────────────────────────────────
+    cvStatCols() {
+      const s = this.cvStats || {};
+      const norm = (rows) => (Array.isArray(rows) ? rows.slice(0, 4) : []).map((o) => ({
+        value: o.category_code || o.industry_l1 || o.scenario_code || '',
+        label: o.category_name || o.industry_l1 || o.scenario_name || '',
+        count: o.count || 0,
+      }));
+      return [
+        { key: 'category', title: '类型', rows: norm(s.by_category) },
+        { key: 'industry', title: '行业', rows: norm(s.by_industry) },
+        { key: 'scenario', title: '场景', rows: norm(s.by_scenario) },
+      ];
+    },
+    cvBarPct(count, rows) {
+      const max = Math.max(1, ...rows.map((r) => r.count || 0));
+      return Math.round(((count || 0) / max) * 100);
+    },
+    cvDashToggle(dim, value) {
+      if (!value) return;
+      this.cvPanel = null;
+      this.cvToggle(dim, value);
+      const el = document.querySelector('.cv-grid');
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    },
+    cvDashActive(dim, value) {
+      return this.cvIsSel(dim, value);
+    },
+
+    // ── URL ─────────────────────────────────────────────────
+    cvSyncURL() {
+      if (window.location.pathname !== '/cases') return;
+      const p = this._cvParams();
+      const qs = p.toString();
+      const url = '/cases' + (qs ? '?' + qs : '');
+      try { window.history.replaceState({ view: 'cases' }, '', url); } catch (e) { /* noop */ }
+    },
+
+    cvReadURL() {
+      const p = new URLSearchParams(window.location.search);
+      this.cvQ = p.get('q') || p.get('subject') || '';
+      const pick = (key, legacy) => {
+        const raw = p.get(key) || (legacy ? p.get(legacy) : '') || '';
+        return raw.split(',').map((v) => v.trim()).filter(Boolean);
+      };
+      this.cvSel = {
+        enterprise: pick('enterprise'),
+        industry: pick('industry'),
+        scenario: pick('scenario'),
+        category: pick('category', 'case_type'),
+        value: pick('value', 'reference_value'),
+        month: pick('month'),
+      };
+      return p;
+    },
+
+    initCasesPage() {
+      const p = this.cvReadURL();
+      this.cvPanel = null;
+      this.cvLoad();
+      this.cvLoadStats();
+      this.cvLoadFacets();
+      const caseId = p.get('case');
+      if (caseId) this.cvOpenDetail({ case_id: caseId });
+    },
+
+    // ── 详情 ────────────────────────────────────────────────
+    cvOpenDetail(cs) {
+      if (!cs || !cs.case_id) return;
+      this.casesEditing = false;
+      this.casesTagInput = '';
+      this.casesTags = [];
+      this.cvDetail = cs;
+      this.cvDetailLoading = true;
+      this.loadCaseTags(cs.case_id);
+      fetch(`/api/cases/${encodeURIComponent(cs.case_id)}`, { credentials: 'same-origin' })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+        .then((data) => { this.cvDetail = data; })
+        .catch((e) => console.error('加载案例详情失败:', e))
+        .finally(() => { this.cvDetailLoading = false; });
+    },
+    cvCloseDetail() {
+      this.cvDetail = null;
+      this.casesEditing = false;
+      this.casesTags = [];
+      this.casesTagInput = '';
+      if (window.location.pathname === '/cases' && new URLSearchParams(window.location.search).has('case')) {
+        const p = this._cvParams();
+        const qs = p.toString();
+        try { window.history.replaceState({ view: 'cases' }, '', '/cases' + (qs ? '?' + qs : '')); } catch (e) { /* noop */ }
+      }
+    },
+    cvEvidenceBadge(detail) {
+      return detail && detail.evidence_verified ? '原文引用' : '模型转述';
+    },
+    cvHasEvidenceContext(detail) {
+      const ctx = detail && detail.evidence_context;
+      return !!(ctx && (ctx.context_before || ctx.context_after));
+    },
+
+    async cvShare() {
+      const id = this.cvDetail && this.cvDetail.case_id;
+      if (!id) return;
       try {
-        const params = new URLSearchParams();
-        params.set('limit', '100');
-        if (this.casesFilterType) params.set('case_type', this.casesFilterType);
-        if (this.casesFilterAction) params.set('case_action', this.casesFilterAction);
-        if (this.casesFilterReference) params.set('reference_value', this.casesFilterReference);
-        // 看板跳转: 搜索框有值但未进 FTS 覆盖层 → 当 subject LIKE 筛选
-        if (this.casesSearch.trim() && !this.casesSearchActive) {
-          params.set('subject', this.casesSearch.trim());
+        const r = await fetch('/api/share/cases', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ case_ids: [id] }),
+        });
+        const body = await r.json().catch(() => ({}));
+        if (r.status === 409) {
+          const sid = body && body.details && body.details.share_id;
+          if (sid) this.activeBriefId = sid;
+          if (this.loadShareQueue) this.loadShareQueue();
+          if (this._startSharePoll) this._startSharePoll();
+          if (this._notify) this._notify('info', '已有相同案例简报任务，已跳到分享页');
+          this.navigate('share');
+          return;
         }
-        const resp = await fetch(`/api/cases?${params.toString()}`);
-        const data = await resp.json();
-        this.cases = data.items || [];
-        this.casesTotal = data.total || 0;
+        if (!r.ok) throw new Error(this._casesApiError(body, r.status));
+        this.activeBriefId = body.share_id;
+        if (this.loadShareQueue) this.loadShareQueue();
+        if (this._startSharePoll) this._startSharePoll();
+        if (this._notify) this._notify('success', '案例简报已入队');
+        this.navigate('share');
       } catch (e) {
-        console.error('加载案例失败:', e);
-      } finally {
-        this.casesLoading = false;
+        if (this._notify) this._notify('error', '生成分享失败: ' + e.message);
+        else console.error('生成分享失败:', e);
       }
     },
-
-    async loadCasesStats() {
-      try {
-        const resp = await fetch('/api/cases/stats');
-        this.casesStats = await resp.json();
-      } catch (e) {
-        console.error('加载案例统计失败:', e);
+    cvCopyLink() {
+      const id = this.cvDetail && this.cvDetail.case_id;
+      if (!id) return;
+      const url = `${window.location.origin}/cases?case=${encodeURIComponent(id)}`;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url)
+          .then(() => { if (this._notify) this._notify('success', '链接已复制'); })
+          .catch(() => { if (this._notify) this._notify('error', '复制失败'); });
+      } else if (this._notify) {
+        this._notify('info', url);
       }
-    },
-
-    async loadCasesSearch() {
-      const q = this.casesSearch.trim();
-      if (!q) {
-        this.casesSearchResults = [];
-        this.casesSearchActive = false;
-        this.loadCases();
-        return;
-      }
-      this.casesSearchActive = true;
-      try {
-        const resp = await fetch(`/api/cases/search?q=${encodeURIComponent(q)}`);
-        const data = await resp.json();
-        this.casesSearchResults = data.items || [];
-      } catch (e) {
-        console.error('案例搜索失败:', e);
-        this.casesSearchResults = [];
-      }
-    },
-
-    casesOnFilterChange() {
-      this.loadCases();
-    },
-
-    casesOpenDetail(caseItem) {
-      this.casesEditing = false;
-      this.casesTagInput = '';
-      this.casesTags = [];
-      this.casesDetail = caseItem;
-      if (caseItem && caseItem.case_id) this.loadCaseTags(caseItem.case_id);
-    },
-    casesCloseDetail() {
-      this.casesDetail = null;
-      this.casesEditing = false;
-      this.casesTags = [];
-      this.casesTagInput = '';
     },
 
     // 查看原文 (复用 articles showArticleDetail)
@@ -151,34 +384,13 @@ function casesModule() {
       this.showArticleDetail({ id: articleId });
     },
 
-    initCasesPage() {
-      const params = new URLSearchParams(window.location.search);
-      const ref = params.get('reference_value');
-      const subject = params.get('subject');
-      const act = params.get('case_action');
-      const hasQuery = params.has('reference_value') || params.has('subject') || params.has('case_action');
-      if (hasQuery) {
-        this.casesFilterReference = ref || '';
-        this.casesFilterAction = act || '';
-        this.casesSearch = subject || '';
-        this.casesSearchActive = false;
-      } else {
-        this.casesFilterReference = '';
-        this.casesFilterAction = '';
-        this.casesFilterType = '';
-        this.casesSearch = '';
-        this.casesSearchActive = false;
-      }
-      this.loadCases();
-      this.loadCasesStats();
-    },
-
     _casesApiError(body, status) {
       if (body && typeof body.message === 'string' && body.message) return body.message;
       if (body && typeof body.detail === 'string' && body.detail) return body.detail;
       return 'HTTP ' + status;
     },
 
+    // ── 核验 / 驳回 ─────────────────────────────────────────
     async casesConfirm(caseId, ev) {
       if (ev) ev.stopPropagation();
       if (!caseId || this.casesReviewBusy) return;
@@ -195,8 +407,7 @@ function casesModule() {
           review_status: body.review_status || 'confirmed',
           case_lifecycle: body.case_lifecycle || 'verified',
         });
-        await Promise.all([this.loadCases(), this.loadCasesStats()]);
-        if (this.casesSearchActive) this.loadCasesSearch();
+        await Promise.all([this.cvLoad(), this.cvLoadStats(), this.cvLoadFacets()]);
       } catch (e) {
         if (typeof this._notify === 'function') this._notify('error', '核验失败: ' + e.message);
         else console.error('核验失败:', e);
@@ -220,11 +431,8 @@ function casesModule() {
         const body = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(this._casesApiError(body, r.status));
         if (typeof this._notify === 'function') this._notify('success', '已驳回');
-        this._applyCaseReviewLocal(caseId, {
-          review_status: body.review_status || 'rejected',
-        });
-        await Promise.all([this.loadCases(), this.loadCasesStats()]);
-        if (this.casesSearchActive) this.loadCasesSearch();
+        this._applyCaseReviewLocal(caseId, { review_status: body.review_status || 'rejected' });
+        await Promise.all([this.cvLoad(), this.cvLoadStats(), this.cvLoadFacets()]);
       } catch (e) {
         if (typeof this._notify === 'function') this._notify('error', '驳回失败: ' + e.message);
         else console.error('驳回失败:', e);
@@ -234,22 +442,21 @@ function casesModule() {
     },
 
     _applyCaseReviewLocal(caseId, patch) {
-      const apply = (item) => item && item.case_id === caseId ? Object.assign({}, item, patch) : item;
-      this.cases = (this.cases || []).map(apply);
-      this.casesSearchResults = (this.casesSearchResults || []).map(apply);
-      if (this.casesDetail && this.casesDetail.case_id === caseId) {
-        this.casesDetail = Object.assign({}, this.casesDetail, patch);
+      const apply = (item) => (item && item.case_id === caseId ? Object.assign({}, item, patch) : item);
+      this.cvItems = (this.cvItems || []).map(apply);
+      if (this.cvDetail && this.cvDetail.case_id === caseId) {
+        this.cvDetail = Object.assign({}, this.cvDetail, patch);
       }
     },
 
     _removeCaseLocal(caseId) {
-      this.cases = (this.cases || []).filter((c) => c.case_id !== caseId);
-      this.casesSearchResults = (this.casesSearchResults || []).filter((c) => c.case_id !== caseId);
-      this.casesTotal = Math.max(0, (this.casesTotal || 1) - 1);
+      this.cvItems = (this.cvItems || []).filter((c) => c.case_id !== caseId);
+      this.cvTotal = Math.max(0, (this.cvTotal || 1) - 1);
     },
 
+    // ── 编辑 ────────────────────────────────────────────────
     casesStartEdit() {
-      const d = this.casesDetail || {};
+      const d = this.cvDetail || {};
       this.casesEditForm = {
         subject: d.subject || '',
         counterparty: d.counterparty || '',
@@ -265,7 +472,7 @@ function casesModule() {
     },
 
     async casesSaveEdit() {
-      const id = this.casesDetail && this.casesDetail.case_id;
+      const id = this.cvDetail && this.cvDetail.case_id;
       if (!id || this.casesEditBusy) return;
       const subject = String(this.casesEditForm.subject || '').trim();
       if (!subject) {
@@ -290,10 +497,9 @@ function casesModule() {
         if (!r.ok) throw new Error(this._casesApiError(body, r.status));
         this._applyCaseReviewLocal(id, {
           subject: body.subject != null ? body.subject : subject,
-          counterparty: body.counterparty !== undefined ? body.counterparty : this.casesEditForm.counterparty,
+          summary: body.summary != null ? body.summary : this.casesEditForm.summary,
           case_action: body.case_action || this.casesEditForm.case_action,
           reference_value: body.reference_value || this.casesEditForm.reference_value,
-          summary: body.summary != null ? body.summary : this.casesEditForm.summary,
         });
         this.casesEditing = false;
         if (typeof this._notify === 'function') this._notify('success', '已保存');
@@ -305,6 +511,7 @@ function casesModule() {
       }
     },
 
+    // ── 删除 ────────────────────────────────────────────────
     async casesDelete(caseId, ev) {
       if (ev) ev.stopPropagation();
       if (!caseId || this.casesReviewBusy) return;
@@ -324,9 +531,10 @@ function casesModule() {
           throw new Error(this._casesApiError(body, r.status));
         }
         this._removeCaseLocal(caseId);
-        if (this.casesDetail && this.casesDetail.case_id === caseId) this.casesCloseDetail();
+        if (this.cvDetail && this.cvDetail.case_id === caseId) this.cvCloseDetail();
         if (typeof this._notify === 'function') this._notify('success', '已删除');
-        this.loadCasesStats();
+        this.cvLoadStats();
+        this.cvLoadFacets();
       } catch (e) {
         if (typeof this._notify === 'function') this._notify('error', '删除失败: ' + e.message);
         else console.error('删除失败:', e);
@@ -335,6 +543,7 @@ function casesModule() {
       }
     },
 
+    // ── 标签 ────────────────────────────────────────────────
     async loadCaseTags(caseId) {
       this.casesTags = [];
       if (!caseId) return;
@@ -352,7 +561,7 @@ function casesModule() {
 
     async casesAddTag() {
       const kw = String(this.casesTagInput || '').trim();
-      const id = this.casesDetail && this.casesDetail.case_id;
+      const id = this.cvDetail && this.cvDetail.case_id;
       if (!kw || !id || this.casesTagBusy) return;
       this.casesTagBusy = true;
       try {
@@ -380,7 +589,7 @@ function casesModule() {
     },
 
     async casesRemoveTag(kw) {
-      const id = this.casesDetail && this.casesDetail.case_id;
+      const id = this.cvDetail && this.cvDetail.case_id;
       if (!id || !kw || this.casesTagBusy) return;
       const keyword = kw.keyword || kw;
       this.casesTagBusy = true;

@@ -53,6 +53,121 @@ def _generate_case_id(case_type: str, case_date: str | None) -> str:
     return f"{prefix}{seq:04d}"
 
 
+def _like_escape(value: str) -> str:
+    """LIKE 参数转义（配合 ESCAPE '\\'）。"""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _multi(value: str | None) -> list[str]:
+    """逗号分隔的多选值 → 列表（去空）。"""
+    return [v.strip() for v in (value or "").split(",") if v.strip()]
+
+
+def _case_filters(
+    *,
+    q: str | None = None,
+    enterprise: str | None = None,
+    industry: str | None = None,
+    scenario: str | None = None,
+    category: str | None = None,
+    case_type: str | None = None,
+    case_action: str | None = None,
+    reference_value: str | None = None,
+    month: str | None = None,
+    subject: str | None = None,
+    review_status: str | None = None,
+    case_lifecycle: str | None = None,
+    skip: str | None = None,
+) -> tuple[str, list[Any]]:
+    """案例统一过滤口径（列表 / 计数 / facets 共用）。
+
+    调用方负责 FROM: cases c LEFT JOIN articles a LEFT JOIN enterprises e。
+    ``skip`` 用于 facets：计算某维度时排除该维度自身条件。
+    """
+    clauses = ["c.subject != '__processing__'", "c.case_lifecycle != 'archived'"]
+    params: list[Any] = []
+
+    def add(dim: str, clause: str, values: Sequence[Any]) -> None:
+        if skip == dim:
+            return
+        clauses.append(clause)
+        params.extend(values)
+
+    if q and q.strip():
+        pattern = f"%{_like_escape(q.strip())}%"
+        add(
+            "q",
+            "("
+            "c.subject LIKE ? ESCAPE '\\' OR c.subject_raw LIKE ? ESCAPE '\\' "
+            "OR c.summary LIKE ? ESCAPE '\\' OR c.counterparty LIKE ? ESCAPE '\\' "
+            "OR c.evidence_snippet LIKE ? ESCAPE '\\' OR e.name_cn LIKE ? ESCAPE '\\' "
+            "OR EXISTS (SELECT 1 FROM case_keywords k "
+            "WHERE k.case_id = c.case_id AND k.keyword LIKE ? ESCAPE '\\')"
+            ")",
+            [pattern] * 7,
+        )
+    enterprise_values = _multi(enterprise)
+    if enterprise_values:
+        add(
+            "enterprise",
+            "COALESCE(c.subject_enterprise_id, 'other') IN "
+            f"({','.join('?' * len(enterprise_values))})",
+            enterprise_values,
+        )
+    industry_values = _multi(industry)
+    if industry_values:
+        add(
+            "industry",
+            f"e.industry_l1 IN ({','.join('?' * len(industry_values))})",
+            industry_values,
+        )
+    scenario_values = _multi(scenario)
+    if scenario_values:
+        add(
+            "scenario",
+            "EXISTS (SELECT 1 FROM case_scenario_links l "
+            "WHERE l.case_id = c.case_id AND l.scenario_code IN "
+            f"({','.join('?' * len(scenario_values))}))",
+            scenario_values,
+        )
+    category_values = _multi(category)
+    if category_values:
+        add(
+            "category",
+            f"c.case_category IN ({','.join('?' * len(category_values))})",
+            category_values,
+        )
+    if case_type:
+        add("case_type", "c.case_type = ?", [case_type])
+    if case_action:
+        add("case_action", "c.case_action = ?", [case_action])
+    value_values = _multi(reference_value)
+    if value_values:
+        add(
+            "value",
+            f"c.reference_value IN ({','.join('?' * len(value_values))})",
+            value_values,
+        )
+    month_values = _multi(month)
+    if month_values:
+        add(
+            "month",
+            f"substr(c.case_date, 1, 7) IN ({','.join('?' * len(month_values))})",
+            month_values,
+        )
+    if subject:
+        add(
+            "subject",
+            "(c.subject LIKE ? ESCAPE '\\' OR c.subject_raw LIKE ? ESCAPE '\\')",
+            [f"%{_like_escape(subject)}%"] * 2,
+        )
+    if review_status:
+        add("review_status", "c.review_status = ?", [review_status])
+    if case_lifecycle:
+        add("case_lifecycle", "c.case_lifecycle = ?", [case_lifecycle])
+    return " AND ".join(clauses), params
+
+
 class CaseRepository:
     """Repository for case persistence (cases table).
 
@@ -623,10 +738,16 @@ class CaseRepository:
 
     @staticmethod
     def list_cases(
+        q: str | None = None,
+        enterprise: str | None = None,
+        industry: str | None = None,
+        scenario: str | None = None,
+        category: str | None = None,
         case_type: str | None = None,
         case_action: str | None = None,
         subject: str | None = None,
         reference_value: str | None = None,
+        month: str | None = None,
         review_status: str | None = None,
         case_lifecycle: str | None = None,
         limit: int = 50,
@@ -639,10 +760,12 @@ class CaseRepository:
                    a.published_at AS article_published_at,
                    c.case_date, c.case_date_precision,
                    c.subject, c.subject_raw,
+                   e.name_cn AS enterprise_name, e.industry_l1,
                    c.case_type, c.case_action, c.case_action_source,
+                   c.case_category,
                    c.counterparty, c.amount,
                    c.reference_value, c.reference_rationale,
-                   c.summary, c.evidence_snippet,
+                   c.summary, c.evidence_snippet, c.evidence_verified, c.evidence_offset,
                    c.extraction_confidence, c.review_status,
                    c.extraction_status, c.case_lifecycle,
                    c.extraction_attempts, c.last_error,
@@ -650,60 +773,65 @@ class CaseRepository:
                    c.created_at, c.updated_at
             FROM cases c
             LEFT JOIN articles a ON c.article_id = a.id
-            WHERE 1 = 1
+            LEFT JOIN enterprises e ON e.enterprise_id = c.subject_enterprise_id
+            WHERE {where}
+            ORDER BY c.created_at DESC LIMIT ? OFFSET ?
         """
-        params: list[Any] = []
-
-        if case_type:
-            sql += " AND c.case_type = ?"
-            params.append(case_type)
-        if case_action:
-            sql += " AND c.case_action = ?"
-            params.append(case_action)
-        if subject:
-            sql += " AND (c.subject LIKE ? OR c.subject_raw LIKE ?)"
-            params.extend([f"%{subject}%", f"%{subject}%"])
-        if reference_value:
-            sql += " AND c.reference_value = ?"
-            params.append(reference_value)
-        if review_status:
-            sql += " AND c.review_status = ?"
-            params.append(review_status)
-        if case_lifecycle:
-            sql += " AND c.case_lifecycle = ?"
-            params.append(case_lifecycle)
-
-        sql += " ORDER BY c.created_at DESC LIMIT ? OFFSET ?"
+        where, params = _case_filters(
+            q=q,
+            enterprise=enterprise,
+            industry=industry,
+            scenario=scenario,
+            category=category,
+            case_type=case_type,
+            case_action=case_action,
+            subject=subject,
+            reference_value=reference_value,
+            month=month,
+            review_status=review_status,
+            case_lifecycle=case_lifecycle,
+        )
         params.extend([limit, offset])
 
         conn = get_db()
-        rows = conn.execute(sql, params).fetchall()
+        rows = conn.execute(sql.format(where=where), params).fetchall()
         return CaseRepository._attach_metrics(conn, [dict(row) for row in rows])
 
     @staticmethod
     def count_cases(
+        q: str | None = None,
+        enterprise: str | None = None,
+        industry: str | None = None,
+        scenario: str | None = None,
+        category: str | None = None,
         case_type: str | None = None,
         case_action: str | None = None,
         subject: str | None = None,
         reference_value: str | None = None,
+        month: str | None = None,
         review_status: str | None = None,
         case_lifecycle: str | None = None,
     ) -> int:
         """案例总数."""
-        sql = "SELECT COUNT(*) FROM cases WHERE 1 = 1"
-        params: list[Any] = []
-        if case_type:
-            sql += " AND case_type = ?"; params.append(case_type)
-        if case_action:
-            sql += " AND case_action = ?"; params.append(case_action)
-        if subject:
-            sql += " AND (subject LIKE ? OR subject_raw LIKE ?)"; params.extend([f"%{subject}%", f"%{subject}%"])
-        if reference_value:
-            sql += " AND reference_value = ?"; params.append(reference_value)
-        if review_status:
-            sql += " AND review_status = ?"; params.append(review_status)
-        if case_lifecycle:
-            sql += " AND case_lifecycle = ?"; params.append(case_lifecycle)
+        where, params = _case_filters(
+            q=q,
+            enterprise=enterprise,
+            industry=industry,
+            scenario=scenario,
+            category=category,
+            case_type=case_type,
+            case_action=case_action,
+            subject=subject,
+            reference_value=reference_value,
+            month=month,
+            review_status=review_status,
+            case_lifecycle=case_lifecycle,
+        )
+        sql = f"""
+            SELECT COUNT(*) FROM cases c
+            LEFT JOIN enterprises e ON e.enterprise_id = c.subject_enterprise_id
+            WHERE {where}
+        """
         conn = get_db()
         return conn.execute(sql, params).fetchone()[0]
 
@@ -713,9 +841,13 @@ class CaseRepository:
         sql = """
             SELECT c.*, a.title AS article_title,
                    a.source AS article_source, a.url AS article_url,
-                   a.raw_content AS article_raw_content
+                   a.raw_content AS article_raw_content,
+                   e.name_cn AS enterprise_name, e.industry_l1,
+                   cat.name AS category_name
             FROM cases c
             LEFT JOIN articles a ON c.article_id = a.id
+            LEFT JOIN enterprises e ON e.enterprise_id = c.subject_enterprise_id
+            LEFT JOIN case_categories cat ON cat.code = c.case_category
             WHERE c.case_id = ?
         """
         conn = get_db()
@@ -729,6 +861,48 @@ class CaseRepository:
             if verified:
                 item["evidence_offset"] = offset
                 item["evidence_context"] = build_context(raw_content, offset, length)
+        item["scenarios"] = [
+            dict(r)
+            for r in conn.execute(
+                """
+                SELECT s.code, s.name
+                FROM case_scenario_links l
+                JOIN case_scenarios s ON s.code = l.scenario_code
+                WHERE l.case_id = ?
+                ORDER BY s.sort_order
+                """,
+                (case_id,),
+            ).fetchall()
+        ]
+        if item.get("subject_enterprise_id"):
+            related_rows = conn.execute(
+                """
+                SELECT case_id, subject, summary, reference_value
+                FROM cases
+                WHERE case_id != ?
+                  AND subject_enterprise_id = ?
+                  AND subject != '__processing__'
+                  AND case_lifecycle != 'archived'
+                ORDER BY (reference_value = 'high') DESC, created_at DESC
+                LIMIT 4
+                """,
+                (case_id, item["subject_enterprise_id"]),
+            ).fetchall()
+        else:
+            related_rows = conn.execute(
+                """
+                SELECT case_id, subject, summary, reference_value
+                FROM cases
+                WHERE case_id != ?
+                  AND subject = ?
+                  AND subject != '__processing__'
+                  AND case_lifecycle != 'archived'
+                ORDER BY (reference_value = 'high') DESC, created_at DESC
+                LIMIT 4
+                """,
+                (case_id, item.get("subject")),
+            ).fetchall()
+        item["related"] = [dict(r) for r in related_rows]
         return CaseRepository._attach_metrics(conn, [item])[0]
 
     @staticmethod
@@ -997,34 +1171,64 @@ class CaseRepository:
 
     @staticmethod
     def stats() -> dict[str, Any]:
-        """案例统计数据 (含 P1-1 四维聚合: by_enterprise / by_industry / by_scenario / by_category)."""
+        """案例统计（全库截面，口径统一为 非占位 + 非归档）。"""
         conn = get_db()
-        total = conn.execute("SELECT COUNT(*) FROM cases").fetchone()[0]
+        where, params = _case_filters()
+        from_sql = (
+            "FROM cases c "
+            "LEFT JOIN enterprises e ON e.enterprise_id = c.subject_enterprise_id "
+            f"WHERE {where}"
+        )
+        total = conn.execute(f"SELECT COUNT(*) {from_sql}", params).fetchone()[0]
+        high_value = conn.execute(
+            f"SELECT COUNT(*) {from_sql} AND c.reference_value = 'high'", params
+        ).fetchone()[0]
 
         by_type = {}
         for row in conn.execute(
-            "SELECT case_type, COUNT(*) FROM cases GROUP BY case_type"
+            f"SELECT c.case_type, COUNT(*) {from_sql} GROUP BY c.case_type", params
         ).fetchall():
             by_type[row[0]] = row[1]
 
         by_action = {}
         for row in conn.execute(
-            "SELECT case_action, COUNT(*) FROM cases GROUP BY case_action"
+            f"SELECT c.case_action, COUNT(*) {from_sql} GROUP BY c.case_action", params
         ).fetchall():
             by_action[row[0]] = row[1]
 
         by_reference = {}
         for row in conn.execute(
-            "SELECT reference_value, COUNT(*) FROM cases GROUP BY reference_value"
+            f"SELECT c.reference_value, COUNT(*) {from_sql} GROUP BY c.reference_value", params
         ).fetchall():
             by_reference[row[0]] = row[1]
 
         pending_review = conn.execute(
-            "SELECT COUNT(*) FROM cases WHERE review_status = 'pending'"
+            f"SELECT COUNT(*) {from_sql} AND c.review_status = 'pending'", params
+        ).fetchone()[0]
+
+        enterprise_count = conn.execute(
+            "SELECT COUNT(DISTINCT COALESCE(c.subject_enterprise_id, c.subject)) "
+            f"{from_sql}",
+            params,
+        ).fetchone()[0]
+        scenario_count = conn.execute(
+            "SELECT COUNT(DISTINCT l.scenario_code) "
+            "FROM cases c "
+            "JOIN case_scenario_links l ON l.case_id = c.case_id "
+            f"WHERE {where}",
+            params,
+        ).fetchone()[0]
+        category_count = conn.execute(
+            f"SELECT COUNT(DISTINCT c.case_category) {from_sql} AND c.case_category IS NOT NULL",
+            params,
         ).fetchone()[0]
 
         return {
             "total": total,
+            "high_value": high_value,
+            "enterprise_count": enterprise_count,
+            "scenario_count": scenario_count,
+            "category_count": category_count,
             "by_type": by_type,
             "by_action": by_action,
             "by_reference_value": by_reference,
@@ -1033,4 +1237,80 @@ class CaseRepository:
             "by_industry": CaseRepository.aggregate_cases_by_industry(),
             "by_scenario": CaseRepository.aggregate_cases_by_scenario(),
             "by_category": CaseRepository.aggregate_cases_by_category(),
+        }
+
+    @staticmethod
+    def facets(**filters: Any) -> dict[str, list[dict[str, Any]]]:
+        """六维筛选选项与计数；计算某维度时排除该维度自身条件。"""
+        conn = get_db()
+        from_sql = (
+            "FROM cases c "
+            "LEFT JOIN enterprises e ON e.enterprise_id = c.subject_enterprise_id "
+        )
+
+        def rows(
+            select: str, group: str, dim: str, join: str = "", extra: str = ""
+        ) -> list[dict[str, Any]]:
+            where, params = _case_filters(**filters, skip=dim)
+            if extra:
+                where = f"{where} AND {extra}"
+            sql = f"{select} {from_sql}{join} WHERE {where} {group}"
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+        enterprise = rows(
+            "SELECT COALESCE(c.subject_enterprise_id, 'other') AS value, "
+            "COALESCE(e.name_cn, c.subject_enterprise_id, '其他/未归类') AS label, "
+            "COUNT(*) AS count",
+            "GROUP BY 1, 2 ORDER BY count DESC, value LIMIT 30",
+            "enterprise",
+        )
+        industry = rows(
+            "SELECT COALESCE(e.industry_l1, '其他') AS value, "
+            "COALESCE(e.industry_l1, '其他') AS label, COUNT(*) AS count",
+            "GROUP BY 1 ORDER BY count DESC, value",
+            "industry",
+        )
+        scenario = rows(
+            "SELECT COALESCE(l.scenario_code, 'other') AS value, "
+            "COALESCE(s.name, '其他业务场景') AS label, COUNT(DISTINCT c.case_id) AS count",
+            "GROUP BY 1, 2 ORDER BY count DESC, value",
+            "scenario",
+            "LEFT JOIN case_scenario_links l ON l.case_id = c.case_id "
+            "LEFT JOIN case_scenarios s ON s.code = l.scenario_code ",
+        )
+        category = rows(
+            "SELECT COALESCE(c.case_category, 'unclassified') AS value, "
+            "COALESCE(cat.name, '未分类') AS label, COUNT(*) AS count",
+            "GROUP BY 1, 2 ORDER BY count DESC, value",
+            "category",
+            "LEFT JOIN case_categories cat ON cat.code = c.case_category ",
+        )
+        value = rows(
+            "SELECT COALESCE(c.reference_value, 'none') AS value, "
+            "COALESCE(c.reference_value, '未评级') AS label, COUNT(*) AS count",
+            "GROUP BY 1 ORDER BY count DESC, value",
+            "value",
+        )
+        action = rows(
+            "SELECT COALESCE(c.case_action, 'none') AS value, "
+            "COALESCE(c.case_action, '未标注') AS label, COUNT(*) AS count",
+            "GROUP BY 1 ORDER BY count DESC, value",
+            "action",
+        )
+        month = rows(
+            "SELECT substr(c.case_date, 1, 7) AS value, substr(c.case_date, 1, 7) AS label, "
+            "COUNT(*) AS count",
+            "GROUP BY 1 ORDER BY value DESC",
+            "month",
+            "",
+            "c.case_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]*'",
+        )
+        return {
+            "enterprise": enterprise,
+            "industry": industry,
+            "scenario": scenario,
+            "category": category,
+            "value": value,
+            "action": action,
+            "month": month,
         }

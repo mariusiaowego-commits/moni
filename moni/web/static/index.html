@@ -2097,297 +2097,280 @@
 
       <!-- ══ 同业案例库 (v1.0.17 F6) ════════════════════════════════ -->
       <section x-show="currentView === 'cases'" x-cloak>
-        <div class="panel-header">
-          <div class="panel-title-row">
-            <h3>同业案例库</h3>
-            <p class="panel-title-hint">同业案例沉淀，便于横向对比与检索</p>
-          </div>
-          <div class="search-box">
-            <span class="cal-stat-sub"
-                  x-text="'共 ' + (casesTotal || 0) + ' 个案例'"></span>
-          </div>
-        </div>
-
-        <div class="case-toolbar">
-          <input type="text" x-model="casesSearch" @input.debounce.300ms="loadCasesSearch()"
-                 placeholder="搜索案例主体 / 摘要 / 金额..." class="case-toolbar-search">
-
-          <span class="case-toolbar-label">类型</span>
-          <select x-model="casesFilterType" @change="casesOnFilterChange()" class="filter-select">
-            <template x-for="t in caseTypes" :key="t.value">
-              <option :value="t.value" x-text="t.label"></option>
-            </template>
-          </select>
-
-          <span class="case-toolbar-label">动作</span>
-          <select x-model="casesFilterAction" @change="casesOnFilterChange()" class="filter-select">
-            <template x-for="a in caseActions" :key="a.value">
-              <option :value="a.value" x-text="a.label"></option>
-            </template>
-          </select>
-
-          <span class="case-toolbar-label">参考价值</span>
-          <select x-model="casesFilterReference" @change="casesOnFilterChange()" class="filter-select">
-            <template x-for="r in caseReferences" :key="r.value">
-              <option :value="r.value" x-text="r.label"></option>
-            </template>
-          </select>
-        </div>
-
-        <!-- 搜索结果 (覆盖默认列表; 看板跳转填 subject 但不进 FTS 覆盖层) -->
-        <template x-if="casesSearch.trim() && casesSearchActive">
-          <div>
-            <div class="cal-card-title" style="margin-bottom: 12px;">
-              搜索结果 (<span x-text="casesSearchResults.length"></span>)
+        <div class="cv-wrap">
+          <!-- A 概览带：全库截面，不随筛选重算 -->
+          <div class="cv-dash">
+            <div class="cv-kpis">
+              <div class="cv-stat"><div class="n" x-text="cvStats?.total ?? '—'"></div><div class="u">案例</div></div>
+              <button type="button" class="cv-stat cv-stat-link" @click="cvDashToggle('value', 'high')" title="只看高价值">
+                <div class="n" x-text="cvStats?.high_value ?? '—'"></div><div class="u">高价值</div>
+              </button>
+              <div class="cv-stat"><div class="n" x-text="cvStats?.enterprise_count ?? '—'"></div><div class="u">机构</div></div>
+              <div class="cv-stat"><div class="n" x-text="cvStats?.scenario_count ?? '—'"></div><div class="u">业务场景</div></div>
             </div>
-            <div class="case-list">
-              <template x-for="cs in casesSearchResults" :key="cs.case_id">
-                <div class="case-card" @click="casesOpenDetail(cs)">
-                  <button type="button" class="case-card-del" title="删除"
-                          @click.stop="casesDelete(cs.case_id, $event)" aria-label="删除"><svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
-                  <div class="case-card-head">
-                    <span class="case-id" x-text="cs.case_id"></span>
-                    <span class="case-subject" x-text="cs.subject"></span>
-                  </div>
-                  <div class="case-summary" x-text="cs.summary"></div>
-                  <div class="case-chips">
-                    <span class="cal-type-chip"
-                          :style="{ background: caseTypeColor(cs.case_type), color: '#fff' }"
-                          x-text="caseTypeLabel(cs.case_type)"></span>
-                    <span class="cal-type-chip"
-                          :style="{ background: caseReferenceColor(cs.reference_value), color: '#fff' }"
-                          x-text="'参考价值: ' + caseReferenceLabel(cs.reference_value)"></span>
-                  </div>
-                  <div class="row-actions" x-show="cs.review_status === 'pending'" @click.stop>
-                    <button class="btn btn-primary btn-sm" :disabled="casesReviewBusy"
-                            @click="casesConfirm(cs.case_id, $event)">核验通过</button>
-                    <button class="btn btn-danger btn-sm" :disabled="casesReviewBusy"
-                            @click="casesReject(cs.case_id, $event)">驳回</button>
-                  </div>
+            <div class="cv-bars">
+              <template x-for="col in cvStatCols()" :key="col.key">
+                <div class="cv-barcol">
+                  <h4 x-text="col.title"></h4>
+                  <template x-for="row in col.rows" :key="col.key + row.value">
+                    <button type="button" class="cv-brow" :class="{ 'is-active': cvDashActive(col.key, row.value) }"
+                            @click="cvDashToggle(col.key, row.value)">
+                      <span class="dl" x-text="row.label"></span>
+                      <span class="db"><i :style="'width:' + cvBarPct(row.count, col.rows) + '%'"></i></span>
+                      <span class="dn" x-text="row.count"></span>
+                    </button>
+                  </template>
                 </div>
               </template>
-              <div x-show="casesSearchResults.length === 0" class="case-empty">
-                无搜索结果
+            </div>
+          </div>
+
+          <!-- B 筛选条 -->
+          <div class="cv-filters">
+            <div class="cv-frow">
+              <div class="cv-search">
+                <input type="text" x-model="cvQ" @input.debounce.300ms="cvOnSearch()"
+                       placeholder="搜索机构、场景或关键词…" aria-label="搜索案例">
+                <span class="k">⌘K</span>
+              </div>
+              <div class="cv-chips" role="group" aria-label="筛选维度">
+                <template x-for="d in cvDims" :key="d.key">
+                  <button type="button" class="cv-chip" :class="{ 'is-open': cvPanel === d.key, 'is-set': cvActiveCount(d.key) }"
+                          :aria-expanded="cvPanel === d.key" @click="cvOpenPanel(d.key)">
+                    <span x-text="d.label"></span>
+                    <span class="cv-chip-n" x-show="cvActiveCount(d.key)" x-text="cvActiveCount(d.key)"></span>
+                  </button>
+                </template>
+              </div>
+              <output class="cv-hit" aria-live="polite"><b x-text="cvTotal"></b> 条</output>
+              <button type="button" class="cv-clear" :disabled="!cvHasFilters()" @click="cvClear()">清空</button>
+            </div>
+
+            <div class="cv-tokens" x-show="cvTokens().length">
+              <template x-for="t in cvTokens()" :key="t.dim + t.value">
+                <button type="button" class="cv-token" @click="cvRemoveToken(t.dim, t.value)"
+                        :aria-label="'移除筛选 ' + t.dimLabel + ' ' + t.text">
+                  <span x-text="t.text"></span><span class="x" aria-hidden="true">×</span>
+                </button>
+              </template>
+            </div>
+
+            <div class="cv-panel" x-show="cvPanel" x-cloak>
+              <div class="cv-panel-h">
+                <span x-text="(cvDims.find(d => d.key === cvPanel) || {}).label || ''"></span>
+                <span class="cv-panel-sel" x-text="'已选 ' + cvActiveCount(cvPanel || '')"></span>
+              </div>
+              <div class="cv-panel-b">
+                <template x-for="o in cvPanelOptions()" :key="o.value">
+                  <button type="button" class="cv-opt" :class="{ 'is-sel': cvIsSel(cvPanel, o.value) }"
+                          @click="cvToggle(cvPanel, o.value)">
+                    <span x-text="o.label"></span><span class="n" x-text="o.count"></span>
+                  </button>
+                </template>
+                <div class="cv-panel-empty" x-show="cvPanelOptions().length === 0">当前条件下暂无选项</div>
               </div>
             </div>
           </div>
-        </template>
 
-        <!-- 默认列表 (无 FTS 覆盖时显示, 含看板跳转的 subject 筛选) -->
-        <template x-if="!(casesSearch.trim() && casesSearchActive)">
-          <div class="case-layout">
-            <div class="case-main">
-              <div class="case-list">
-                <template x-for="cs in cases" :key="cs.case_id">
-                  <div class="case-card" @click="casesOpenDetail(cs)">
-                    <button type="button" class="case-card-del" title="删除"
-                            @click.stop="casesDelete(cs.case_id, $event)" aria-label="删除"><svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
-                    <div class="case-card-head">
-                      <span class="case-id" x-text="cs.case_id"></span>
-                      <span class="case-subject" x-text="cs.subject"></span>
-                      <span class="cal-type-chip"
-                            style="margin-inline-start: auto;"
-                            :style="{ background: caseTypeColor(cs.case_type), color: '#fff' }"
-                            x-text="caseTypeLabel(cs.case_type)"></span>
-                    </div>
-                    <div class="case-summary" x-text="cs.summary || '(无摘要)'"></div>
-                    <div class="case-meta">
-                      <span class="case-meta-item">
-                        <span x-text="caseActionLabel(cs.case_action)"></span>
-                      </span>
-                      <template x-if="cs.case_date">
-                        <span class="case-meta-item">
-                          <span x-text="cs.case_date"></span>
-                        </span>
-                      </template>
-                      <template x-if="cs.amount">
-                        <span class="case-meta-item">
-                          <strong x-text="cs.amount"></strong>
-                        </span>
-                      </template>
-                      <template x-if="cs.counterparty">
-                        <span class="case-meta-item">
-                          对手方: <span x-text="cs.counterparty"></span>
-                        </span>
-                      </template>
-                    </div>
-                    <div class="row-actions" x-show="cs.review_status === 'pending'" @click.stop>
-                      <button class="btn btn-primary btn-sm" :disabled="casesReviewBusy"
-                              @click="casesConfirm(cs.case_id, $event)">核验通过</button>
-                      <button class="btn btn-danger btn-sm" :disabled="casesReviewBusy"
-                              @click="casesReject(cs.case_id, $event)">驳回</button>
-                    </div>
-                  </div>
-                </template>
-                <div x-show="!casesLoading && cases.length === 0" class="case-empty">
-                  暂无案例。系统正在从文章中自动识别同业案例，稍后刷新即可看到；也可以打开单篇文章，在详情页点"提取案例"手动触发。
+          <!-- C 案例卡 -->
+          <div class="cv-grid">
+            <template x-for="cs in cvItems" :key="cs.case_id">
+              <article class="cv-card" tabindex="0" role="button" @click="cvOpenDetail(cs)"
+                       @keydown.enter.prevent="cvOpenDetail(cs)" @keydown.space.prevent="cvOpenDetail(cs)"
+                       :aria-label="'打开案例 ' + cs.case_id">
+                <div class="cv-ent">
+                  <span x-text="cvEnt(cs)"></span>
+                  <button type="button" class="cv-del" title="删除" @click.stop="casesDelete(cs.case_id, $event)" aria-label="删除">
+                    <svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+                  </button>
                 </div>
-                <div x-show="casesLoading" class="case-empty">加载中…</div>
-              </div>
-            </div>
-
-            <div class="case-side">
-              <!-- 统计卡片 -->
-              <div class="case-stat-card">
-                <div class="case-stat-title">案例统计</div>
-                <div class="case-stat-num" x-text="casesStats?.total || 0"></div>
-                <div class="cal-stat-sub">个案例</div>
-                <div class="case-stat-legend">
-                  <template x-for="t in caseTypes.filter(t => t.value)" :key="t.value">
-                    <div class="case-stat-legend-row">
-                      <span class="case-stat-legend-dot" :style="{ backgroundColor: t.color }"></span>
-                      <span x-text="t.label + ' · ' + (casesStats?.by_type?.[t.value] || 0)"></span>
+                <div class="cv-verdict" x-text="cs.summary || '(无摘要)'"></div>
+                <div class="cv-metrics" x-show="cvMetrics(cs).length">
+                  <template x-for="m in cvMetrics(cs)" :key="m.name">
+                    <div class="cv-m">
+                      <div class="mn" x-text="m.name"></div>
+                      <div class="mvr"><span class="mv" x-text="m.value"></span><span class="mu" x-text="m.unit"></span></div>
                     </div>
                   </template>
                 </div>
-              </div>
-
-              <!-- 参考价值分布 -->
-              <div class="case-stat-card">
-                <div class="case-stat-title">参考价值分布</div>
-                <div class="case-stat-legend">
-                  <template x-for="r in caseReferences.filter(r => r.value)" :key="r.value">
-                    <div class="case-stat-legend-row">
-                      <span class="case-stat-legend-dot" :style="{ backgroundColor: r.color }"></span>
-                      <span x-text="r.label + ' · ' + (casesStats?.by_reference_value?.[r.value] || 0)"></span>
-                    </div>
+                <div class="cv-why" x-show="cs.reference_rationale">
+                  <span class="lb">为什么值得看</span><span x-text="cs.reference_rationale"></span>
+                </div>
+                <div class="cv-meta">
+                  <span x-text="cvIndustry(cs)"></span>
+                  <span class="sep">·</span><span x-text="caseActionLabel(cs.case_action)"></span>
+                  <template x-if="cvMonth(cs)"><span class="sep">·</span></template>
+                  <template x-if="cvMonth(cs)"><span x-text="cvMonth(cs)"></span></template>
+                  <template x-if="cs.reference_value === 'high'"><span class="cv-flag">高价值</span></template>
+                  <template x-if="cs.reference_value !== 'high'">
+                    <span><span class="sep">·</span><span x-text="cvRefLabel(cs.reference_value)"></span></span>
                   </template>
                 </div>
-              </div>
+                <div class="cv-actions" x-show="cs.review_status === 'pending'" @click.stop>
+                  <button class="btn btn-primary btn-sm" :disabled="casesReviewBusy" @click="casesConfirm(cs.case_id, $event)">核验通过</button>
+                  <button class="btn btn-danger btn-sm" :disabled="casesReviewBusy" @click="casesReject(cs.case_id, $event)">驳回</button>
+                </div>
+              </article>
+            </template>
+            <div class="cv-empty" x-show="!cvLoading && cvItems.length === 0">
+              无匹配案例，试试清空筛选条件。
             </div>
+            <div class="cv-empty" x-show="cvLoading">加载中…</div>
           </div>
-        </template>
+          <div class="cv-more" x-show="cvTotal > cvItems.length">
+            <span x-text="'已显示 ' + cvItems.length + ' / ' + cvTotal + ' 条'"></span>
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="cvLoading" @click="cvLoadMore()">加载更多</button>
+          </div>
+        </div>
 
-        <!-- 案例详情 modal -->
-        <div x-show="casesDetail" x-cloak @click.self="casesCloseDetail()"
-             x-transition.opacity.duration.150ms
-             class="modal-backdrop-dim" style="position: fixed; inset: 0; z-index: var(--z-modal);">
-          <div x-show="casesDetail" class="case-detail" @click.stop>
-            <template x-if="casesDetail">
-              <div>
-                <div class="case-detail-head">
-                  <div>
-                    <div class="case-detail-id" x-text="casesDetail.case_id"></div>
-                    <div class="case-detail-subject" x-show="!casesEditing" x-text="casesDetail.subject"></div>
-                    <input x-show="casesEditing" type="text" class="case-edit-input"
-                           x-model="casesEditForm.subject" placeholder="主体">
+        <!-- B 沉浸详情 -->
+        <div x-show="cvDetail" x-cloak class="cv-overlay modal-backdrop modal-backdrop-dim" @click.self="cvCloseDetail()" x-transition.opacity.duration.150ms>
+          <div class="cv-sheet" @click.stop>
+            <template x-if="cvDetail">
+              <div class="cv-sheet-grid">
+                <div class="cv-sheet-main">
+                  <div class="cv-dhead">
+                    <div>
+                      <div class="cv-did" x-text="cvDetail.case_id"></div>
+                      <div class="cv-dent" x-text="cvEnt(cvDetail)"></div>
+                      <h3 class="cv-dtitle" x-show="!casesEditing" x-text="cvDetail.summary || '(无摘要)'"></h3>
+                      <input x-show="casesEditing" type="text" class="cv-input" x-model="casesEditForm.subject" placeholder="主体">
+                    </div>
+                    <div class="cv-dhead-actions">
+                      <button type="button" class="btn btn-secondary btn-sm" x-show="!casesEditing" @click="casesStartEdit()">编辑</button>
+                      <button type="button" class="btn btn-primary btn-sm" x-show="casesEditing" :disabled="casesEditBusy" @click="casesSaveEdit()">保存</button>
+                      <button type="button" class="btn btn-ghost btn-sm" x-show="casesEditing" :disabled="casesEditBusy" @click="casesCancelEdit()">取消</button>
+                      <button type="button" class="cv-close" @click="cvCloseDetail()" aria-label="关闭">
+                        <svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+                      </button>
+                    </div>
                   </div>
-                  <div class="case-detail-head-actions">
-                    <button type="button" class="btn btn-secondary btn-sm" x-show="!casesEditing"
-                            @click="casesStartEdit()">编辑</button>
-                    <button type="button" class="btn btn-primary btn-sm" x-show="casesEditing"
-                            :disabled="casesEditBusy" @click="casesSaveEdit()">保存</button>
-                    <button type="button" class="btn btn-ghost btn-sm" x-show="casesEditing"
-                            :disabled="casesEditBusy" @click="casesCancelEdit()">取消</button>
-                    <button @click="casesCloseDetail()" class="cal-popover-close" aria-label="关闭"><svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+
+                  <textarea x-show="casesEditing" x-model="casesEditForm.summary" rows="4" class="cv-input" placeholder="摘要"></textarea>
+
+                  <div class="cv-hero" x-show="cvMetrics(cvDetail).length">
+                    <template x-for="m in cvMetrics(cvDetail)" :key="'d-' + m.name">
+                      <div class="cv-hm">
+                        <div class="mn" x-text="m.name"></div>
+                        <div class="mv" :class="{ 'is-long': (m.value || '').length > 8 }" x-text="m.value"></div>
+                        <div class="mu" x-text="m.unit"></div>
+                      </div>
+                    </template>
+                    <div class="cv-hm">
+                      <div class="mn">参考价值</div>
+                      <div class="mv" x-text="caseReferenceLabel(cvDetail.reference_value)"></div>
+                      <div class="mu">按可迁移性与证据强度</div>
+                    </div>
+                  </div>
+
+                  <div class="cv-sec" x-show="cvDetail.reference_rationale">
+                    <div class="cv-sec-h">为什么值得看</div>
+                    <div class="cv-sec-b" x-text="cvDetail.reference_rationale"></div>
+                  </div>
+
+                  <div class="cv-sec" x-show="cvDetail.evidence_snippet">
+                    <div class="cv-sec-h">
+                      原文证据
+                      <span class="cv-evflag" :class="{ 'ok': cvDetail.evidence_verified }" x-text="cvEvidenceBadge(cvDetail)"></span>
+                    </div>
+                    <div class="cv-ev">
+                      <div class="q" x-show="!cvHasEvidenceContext(cvDetail)" x-text="cvDetail.evidence_snippet"></div>
+                      <div class="ctx" x-show="cvHasEvidenceContext(cvDetail)">
+                        <div class="ctx-lb">原文上下文</div>
+                        <p><span x-text="(cvDetail.evidence_context || {}).context_before"></span><mark x-text="cvDetail.evidence_snippet"></mark><span x-text="(cvDetail.evidence_context || {}).context_after"></span></p>
+                      </div>
+                      <a class="src" x-show="cvDetail.article_url" :class="{'link-blocked': isBlockedUrl(cvDetail.article_url)}" :href="safeHref(cvDetail.article_url)" target="_blank" rel="noopener noreferrer">打开原文 · <span x-text="cvDetail.article_source || ''"></span></a>
+                    </div>
+                  </div>
+
+                  <div class="cv-sec" x-show="casesEditing">
+                    <div class="cv-sec-h">编辑字段</div>
+                    <div class="cv-editrow">
+                      <label>动作
+                        <select x-model="casesEditForm.case_action" class="cv-input">
+                          <template x-for="a in caseActionOptions()" :key="'ea-' + a.value">
+                            <option :value="a.value" x-text="a.label"></option>
+                          </template>
+                        </select>
+                      </label>
+                      <label>参考价值
+                        <select x-model="casesEditForm.reference_value" class="cv-input">
+                          <template x-for="r in caseReferenceOptions()" :key="'er-' + r.value">
+                            <option :value="r.value" x-text="r.label"></option>
+                          </template>
+                        </select>
+                      </label>
+                    </div>
+                    <label class="cv-editlabel">对手方
+                      <input type="text" class="cv-input" x-model="casesEditForm.counterparty" placeholder="可空">
+                    </label>
                   </div>
                 </div>
 
-                <div class="case-chips" x-show="!casesEditing">
-                  <span class="cal-type-chip"
-                        :style="{ background: caseTypeColor(casesDetail.case_type), color: '#fff' }"
-                        x-text="caseTypeLabel(casesDetail.case_type)"></span>
-                  <span class="cal-type-chip"
-                        :style="{ background: caseReferenceColor(casesDetail.reference_value), color: '#fff' }"
-                        x-text="'参考价值: ' + caseReferenceLabel(casesDetail.reference_value)"></span>
-                  <span class="cal-type-chip"
-                        style="background: var(--muted); color: var(--card-fg);"
-                        x-text="caseActionLabel(casesDetail.case_action)"></span>
-                </div>
-                <div class="case-edit-row" x-show="casesEditing">
-                  <div class="case-edit-field">
-                    <label>动作</label>
-                    <select x-model="casesEditForm.case_action">
-                      <template x-for="a in caseActionOptions()" :key="'act-' + a.value">
-                        <option :value="a.value" x-text="a.label"></option>
+                <aside class="cv-sheet-side">
+                  <div class="cv-side-card">
+                    <h5>基本信息</h5>
+                    <dl class="cv-kv">
+                      <dt>企业</dt><dd x-text="cvDetail.enterprise_name || cvDetail.subject || '—'"></dd>
+                      <dt>主体</dt><dd x-text="cvDetail.subject || '—'"></dd>
+                      <dt>行业</dt><dd x-text="cvDetail.industry_l1 || '其他'"></dd>
+                      <dt>场景</dt><dd x-text="(cvDetail.scenarios || []).map(s => s.name).join(' / ') || '—'"></dd>
+                      <dt>类型</dt><dd x-text="cvDetail.category_name || caseTypeLabel(cvDetail.case_type)"></dd>
+                      <dt>动作</dt><dd x-text="caseActionLabel(cvDetail.case_action)"></dd>
+                      <dt>时间</dt><dd x-text="cvDetail.case_date || '—'"></dd>
+                      <dt x-show="cvDetail.counterparty">对手方</dt><dd x-show="cvDetail.counterparty" x-text="cvDetail.counterparty"></dd>
+                    </dl>
+                  </div>
+
+                  <div class="cv-side-card">
+                    <h5>标签</h5>
+                    <div class="cv-tags">
+                      <template x-for="kw in casesTags" :key="(kw.id || kw.keyword)">
+                        <span class="cv-tag">
+                          <span x-text="kw.keyword"></span>
+                          <button type="button" x-show="kw.source_type === 'manual_user'" class="x"
+                                  :disabled="casesTagBusy" @click="casesRemoveTag(kw)" aria-label="删除标签">×</button>
+                        </span>
                       </template>
-                    </select>
+                      <span class="cv-tag-empty" x-show="!casesTags.length">暂无标签</span>
+                    </div>
+                    <div class="cv-tagadd">
+                      <input type="text" x-model="casesTagInput" placeholder="添加标签" @keydown.enter.prevent="casesAddTag()">
+                      <button type="button" class="btn btn-secondary btn-sm" :disabled="casesTagBusy" @click="casesAddTag()">添加</button>
+                    </div>
                   </div>
-                  <div class="case-edit-field">
-                    <label>参考价值</label>
-                    <select x-model="casesEditForm.reference_value">
-                      <template x-for="r in caseReferenceOptions()" :key="'ref-' + r.value">
-                        <option :value="r.value" x-text="r.label"></option>
+
+                  <div class="cv-side-card" x-show="(cvDetail.related || []).length">
+                    <h5>相关案例</h5>
+                    <div class="cv-related">
+                      <template x-for="r in (cvDetail.related || [])" :key="r.case_id">
+                        <button type="button" class="cv-rel" @click="cvOpenDetail(r)">
+                          <span class="t" x-text="r.summary || r.subject"></span>
+                          <span class="m" x-text="r.case_id + ' · ' + cvRefLabel(r.reference_value)"></span>
+                        </button>
                       </template>
-                    </select>
+                    </div>
                   </div>
-                </div>
 
-                <div class="case-detail-section" x-show="casesEditing || casesDetail.summary">
-                  <div class="case-detail-label">案例摘要</div>
-                  <div class="case-detail-value" x-show="!casesEditing" x-text="casesDetail.summary"></div>
-                  <textarea x-show="casesEditing" x-model="casesEditForm.summary" rows="4"
-                            class="case-edit-input" placeholder="摘要"></textarea>
-                </div>
-
-                <template x-if="casesDetail.reference_rationale">
-                  <div class="case-detail-section">
-                    <div class="case-detail-label">参考价值依据</div>
-                    <div class="case-detail-value" x-text="casesDetail.reference_rationale"></div>
+                  <div class="cv-side-card">
+                    <h5>分享</h5>
+                    <div class="cv-share">
+                      <button type="button" class="btn btn-primary" @click="cvShare()">生成案例简报</button>
+                      <button type="button" class="btn btn-secondary" @click="cvCopyLink()">复制链接</button>
+                      <button type="button" class="btn btn-secondary" x-show="cvDetail.article_id" @click="casesGoToArticle(cvDetail.article_id)">查看原文</button>
+                    </div>
                   </div>
-                </template>
 
-                <div class="case-detail-section" x-show="casesEditing || casesDetail.case_date || casesDetail.amount || casesDetail.counterparty">
-                  <div class="case-detail-label">关键信息</div>
-                  <div class="case-detail-value" x-show="!casesEditing">
-                    <template x-if="casesDetail.case_date">
-                      <div>时间: <span x-text="casesDetail.case_date"></span></div>
+                  <div class="cv-detail-actions">
+                    <template x-if="cvDetail.review_status === 'pending'">
+                      <button class="btn btn-primary btn-sm" :disabled="casesReviewBusy" @click="casesConfirm(cvDetail.case_id, $event)">核验通过</button>
                     </template>
-                    <template x-if="casesDetail.amount">
-                      <div>规模: <strong x-text="casesDetail.amount"></strong></div>
+                    <template x-if="cvDetail.review_status === 'pending'">
+                      <button class="btn btn-danger btn-sm" :disabled="casesReviewBusy" @click="casesReject(cvDetail.case_id, $event)">驳回</button>
                     </template>
-                    <template x-if="casesDetail.counterparty">
-                      <div>对手方: <span x-text="casesDetail.counterparty"></span></div>
-                    </template>
+                    <button class="btn btn-danger btn-sm" :disabled="casesReviewBusy" @click="casesDelete(cvDetail.case_id, $event)">删除</button>
                   </div>
-                  <div class="case-edit-field" x-show="casesEditing">
-                    <label>对手方</label>
-                    <input type="text" class="case-edit-input" x-model="casesEditForm.counterparty" placeholder="对手方（可空）">
-                  </div>
-                </div>
-
-                <div class="case-detail-section">
-                  <div class="case-detail-label">标签</div>
-                  <div class="case-kw-list">
-                    <template x-for="kw in casesTags" :key="(kw.id || kw.keyword)">
-                      <span class="case-kw-chip">
-                        <span x-text="kw.keyword"></span>
-                        <button type="button" x-show="kw.source_type === 'manual_user'"
-                                class="case-kw-x" title="删除标签" aria-label="删除标签"
-                                :disabled="casesTagBusy"
-                                @click="casesRemoveTag(kw)"><svg class="icon icon-12" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
-                      </span>
-                    </template>
-                    <span class="stats-outcomes-hint" x-show="!casesTags.length">暂无标签</span>
-                  </div>
-                  <div class="case-kw-add">
-                    <input type="text" x-model="casesTagInput" placeholder="添加关键词"
-                           @keydown.enter.prevent="casesAddTag()">
-                    <button type="button" class="btn btn-secondary btn-sm" :disabled="casesTagBusy"
-                            @click="casesAddTag()">+</button>
-                  </div>
-                </div>
-
-                <div class="case-detail-section" x-show="casesDetail.evidence_snippet">
-                  <div class="case-detail-label">原文证据</div>
-                  <div class="case-detail-evidence" x-text="casesDetail.evidence_snippet"></div>
-                </div>
-
-                <div class="case-detail-actions">
-                  <template x-if="casesDetail.review_status === 'pending'">
-                    <button class="btn btn-primary btn-sm" :disabled="casesReviewBusy"
-                            @click="casesConfirm(casesDetail.case_id, $event)">核验通过</button>
-                  </template>
-                  <template x-if="casesDetail.review_status === 'pending'">
-                    <button class="btn btn-danger btn-sm" :disabled="casesReviewBusy"
-                            @click="casesReject(casesDetail.case_id, $event)">驳回</button>
-                  </template>
-                  <button class="btn btn-danger btn-sm" :disabled="casesReviewBusy"
-                          @click="casesDelete(casesDetail.case_id, $event)">删除</button>
-                  <span class="case-detail-actions-spacer"></span>
-                  <button class="btn btn-primary btn-sm" @click="casesGoToArticle(casesDetail.article_id)">查看原文</button>
-                  <button class="btn btn-ghost btn-sm" @click="casesCloseDetail()">关闭</button>
-                </div>
+                </aside>
               </div>
             </template>
           </div>
