@@ -572,10 +572,16 @@ class ScopeResponse(BaseModel):
     thresholds: dict[str, Any]
     scope_gates_ingest: bool
     stacking_note: str
-    #: 库里有没有**显式存储**的 scope（False = 准入未启用，展示值只是兜底）。
+    #: 库里有没有**显式存储**的 scope（False = 未存，展示值只是兜底）。
     scope_stored: bool = False
-    #: 此刻是否真的在准入（stored 且有可用字段）。
+    #: 此刻 scope 是否**真的**参与准入 = ``scope_fence_enabled`` 且字段可用。
     scope_admission_active: bool = False
+    #: t119u: scope 是否被显式启用为 AND 围栏（默认 False = 只展示）。
+    scope_fence_enabled: bool = False
+    #: t119u: ``"display_only"``（默认，仅展示）| ``"narrow_and"``（AND 围栏）。
+    scope_mode: str = "display_only"
+    #: t119u: 业务 tag 闸门是否生效（xbot_feed 恒 True —— 必须命中业务 tag）。
+    business_tag_gate_active: bool = True
 
 
 # ---------------------------------------------------------------------------

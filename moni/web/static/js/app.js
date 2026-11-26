@@ -1829,8 +1829,11 @@ function app() {
       // 专属区块 (类型化输入框), 不进通用键循环 —— 免得门槛被当成
       // raw JSON textarea (AC-10.2)。其它信源的键列表一个字不变。
       const isXbot = this.fetchConfigData.source_name === 'xbot_feed';
+      // t119u (pV P1-2): ``scope_fence_enabled`` 也有专属区块（中文复选框），
+      // 不能再进通用键循环，否则同一个开关在弹窗里渲染两次。
+      const xbotOwnKeys = ['thresholds', 'scope', 'scope_fence_enabled'];
       const keys = isXbot
-        ? Object.keys(merged).filter(k => k !== 'thresholds' && k !== 'scope')
+        ? Object.keys(merged).filter(k => !xbotOwnKeys.includes(k))
         : Object.keys(merged);
       // Prefer known meta order, then unknown keys alpha
       const order = Object.keys(this.FETCH_CONFIG_META);
@@ -1884,17 +1887,20 @@ function app() {
       merged.scope[key] = String(text == null ? '' : text);
       this.fetchConfigScopeDirty = true;
     },
-    /** sprint-55: 「默认未启用」vs「实际启用」—— 必须如实显示, 不能靠猜。 */
+    /** sprint-55 / t119u: 状态行必须与真实闸门一致（默认 display_only）。 */
     fetchConfigScopeStatus() {
       const info = this.fetchConfigScopeInfo || {};
-      if (info.scope_admission_active === true) {
-        return '当前生效：scope 命中即准入（wechat 正则 / xcircle 固定账号），与领域关键词表是 OR。';
+      if (info.scope_fence_enabled === true) {
+        return info.scope_admission_active === true
+          ? '当前围栏已启用：入库 = 命中业务 tag 且命中 scope（wechat 正则 / xcircle 固定账号）。'
+          : '围栏开关已打开，但 scope 字段为空/非法 → 这一段不会命中任何条目，等于把入库拦到 0。';
       }
       if (info.scope_stored === true) {
-        return '已保存但当前不参与准入：正则为空/非法，或固定账号为空。填好后保存即生效。';
+        return '当前只展示：scope 已保存但不参与准入（入库只由业务 tag 决定）。'
+          + '需要 AND 收窄请打开上面的围栏开关。';
       }
-      return '当前未启用：moni 侧还没有显式存储的 scope。下面显示的是兜底快照，'
-        + '修改任一项并保存后才会参与入库准入。';
+      return '当前只展示：moni 侧还没有显式存储的 scope。下面显示的是兜底快照，'
+        + '不影响入库（入库只由业务 tag 决定）。';
     },
     /** scope 的来源徽标文案 (三态: upstream / moni_stored / moni_fallback)。 */
     fetchConfigScopeSourceLabel() {
@@ -1963,13 +1969,19 @@ function app() {
       if (this.fetchConfigData.source_name !== 'xbot_feed') return;
       if (!this.fetchConfigData.scope_stored) return;
       const ok = await moniModal.confirm(
-        '恢复默认展示会删除已保存的 scope，并停用 scope 准入'
+        '恢复默认展示会删除已保存的 scope，并**停用 scope 围栏**'
         + '（不再按正则 / 固定账号救回条目）。兜底名单与正则只用于展示，'
         + '不会被写入准入；已入库的文章不受影响。',
         { title: '恢复默认展示', okLabel: '恢复默认', danger: true });
       if (!ok) return;
       const sid = encodeURIComponent(this.fetchConfigData.source_id);
-      const body = { ...(this.fetchConfigData.merged || {}), scope: null };
+      // t119u (pV P0-2): 同步把 scope_fence_enabled 置 false —— 只删 scope
+      // 会留下「围栏开着 + scope 空」= 整源 0 入库的陷阱。
+      const body = {
+        ...(this.fetchConfigData.merged || {}),
+        scope: null,
+        scope_fence_enabled: false,
+      };
       fetch(`/api/config/sources/${sid}/fetch_config`, {
         method: 'PUT', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
@@ -3339,32 +3351,49 @@ function app() {
         });
       }
 
-      // sprint-55 (v1.0.131): scope 准入（wechat 正则 / xcircle 固定账号）。
-      // 口径: scope_admitted 只计 scope-only 救回; scope_matched_by 是总命中
-      // （含与领域词表双命中的），两者不可相加。
-      if (d.scope_gate_active === true) {
-        const scopeAdmitted = d.scope_admitted ?? 0;
-        const matchedBy = d.scope_matched_by || {};
-        const admittedBy = d.scope_admitted_by || {};
-        const fmtBy = (obj) => Object.entries(obj)
-          .map(([k, v]) => `${k} ${v}`).join('，') || '—';
-        lines.push({ type: 'section', text: '范围准入' });
+      // t119u: **业务 tag 准入**（唯一放行通道）+ 新增的漏斗计数。
+      //
+      // 口径：``business_tag_dropped`` = 没命中任何已启用业务 tag（或启用集合
+      // 关键词全空 = fail-closed）而丢弃；``scope_fence_dropped`` 只在用户
+      // 显式启用 AND 围栏时才有值。
+      const btDropped = d.business_tag_dropped ?? d.dropped_tag_filter ?? 0;
+      const urlDeduped = d.url_deduped ?? 0;
+      const replyDropped = d.reply_dropped ?? 0;
+      const retweetDropped = d.retweet_dropped ?? 0;
+      const fenceDropped = d.scope_fence_dropped ?? 0;
+      if (btDropped > 0) {
+        lines.push({ type: 'section', text: '业务 tag 准入' });
         lines.push({
           type: 'item',
-          label: 'scope 救回',
-          value: `新增 ${scopeAdmitted} 条`,
-          detail: scopeAdmitted > 0
-            ? `按字段：${fmtBy(admittedBy)}（其中命中正则/账号但词表也命中的不重复计入）`
-            : '本轮全靠领域关键词表或全部被丢弃',
+          label: '未命中业务 tag',
+          value: `丢弃 ${btDropped} 条`,
+          detail: '没有命中任何已勾选的业务 tag 关键词（或业务词表为空 = 阻断入库）',
         });
-        if (Object.keys(matchedBy).length > 0) {
-          lines.push({
-            type: 'item',
-            label: 'scope 命中',
-            value: `${Object.values(matchedBy).reduce((a, b) => a + b, 0)} 条`,
-            detail: `按字段：${fmtBy(matchedBy)}`,
-          });
-        }
+      }
+      if (urlDeduped > 0) {
+        lines.push({
+          type: 'item',
+          label: '跨源去重',
+          value: `丢弃 ${urlDeduped} 条`,
+          detail: '同一推文已被其它信源（bestblog-x / xwatch）存过',
+        });
+      }
+      if (replyDropped > 0 || retweetDropped > 0) {
+        lines.push({
+          type: 'item',
+          label: '回复 / 转推',
+          value: `丢弃 ${replyDropped} / ${retweetDropped} 条`,
+          detail: '默认过滤纯回复与纯转推（可在 fetch_config 关掉）',
+        });
+      }
+      if (d.scope_fence_enabled === true) {
+        lines.push({ type: 'section', text: '范围围栏（AND）' });
+        lines.push({
+          type: 'item',
+          label: '未命中范围',
+          value: `丢弃 ${fenceDropped} 条`,
+          detail: '已命中业务 tag，但没有命中 wechat 正则 / xcircle 固定账号',
+        });
       }
 
       return lines;

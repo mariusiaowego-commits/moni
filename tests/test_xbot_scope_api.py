@@ -137,10 +137,12 @@ def test_get_scope_returns_fallback_mode(client, fresh_db):
         "wechat": {"min_followers": 0, "min_likes": 0},
         "xcircle": {"min_followers": 0, "min_likes": 0},
     }
-    assert data["scope_gates_ingest"] is True, (
-        "sprint-55 (v1.0.131): scope 已接入入库准入 —— 该字段不再恒为 False"
+    assert data["scope_gates_ingest"] is False, (
+        "t119u: scope 默认只展示（scope_mode=display_only），不再单独准入"
     )
-    # 但「能力为真」≠「此刻生效」: 新装库没有显式存储 → 准入未启用
+    assert data["scope_mode"] == "display_only"
+    assert data["scope_fence_enabled"] is False
+    # 但「能力为真」≠「此刻生效」: 新装库没有显式存储 → 未存
     assert data["scope_stored"] is False
     assert data["scope_admission_active"] is False
 
@@ -441,8 +443,22 @@ def test_put_accepts_valid_regex_and_scope_stored_turns_true(client):
 
     scope_info = client.get(f"/api/config/sources/{_SOURCE_ID}/scope").json()
     assert scope_info["scope_stored"] is True
-    assert scope_info["scope_admission_active"] is True
+    # t119u: 存了 scope ≠ 生效。默认只展示（fence 关）。
+    assert scope_info["scope_admission_active"] is False
+    assert scope_info["scope_gates_ingest"] is False
+    assert scope_info["scope_mode"] == "display_only"
+
+    # 显式打开 AND 围栏后才参与准入 —— 证明「字段里有值」不会被自动当成启用
+    resp = client.put(
+        f"/api/config/sources/{_SOURCE_ID}/fetch_config",
+        json={"scope_fence_enabled": True},
+    )
+    assert resp.status_code == 200, resp.text
+    scope_info = client.get(f"/api/config/sources/{_SOURCE_ID}/scope").json()
+    assert scope_info["scope_fence_enabled"] is True
+    assert scope_info["scope_mode"] == "narrow_and"
     assert scope_info["scope_gates_ingest"] is True
+    assert scope_info["scope_admission_active"] is True
 
 
 def test_scope_admission_inactive_when_only_empty_fields(client):
@@ -607,7 +623,7 @@ def test_scope_admission_behavior_off_vs_on():
     fixture_dir = Path(__file__).parent / "fixtures" / "xbot_feed"
     _ABSENT = object()
 
-    def _run(scope_value, upstream_scope=None):
+    def _run(scope_value, upstream_scope=None, extra_cfg=None):
         close_db()
         data_dir = Path(tempfile.mkdtemp(prefix="moni-scope-ac12-"))
         os.environ["MONI_DATA_DIR"] = str(data_dir)
@@ -620,12 +636,15 @@ def test_scope_admission_behavior_off_vs_on():
                      ("src-xbot-feed", "xbot_feed"))
         conn.commit()
         cfg = {
-            "bypass_keyword_filters": True,
+            "bypass_keyword_filters": False,
+            "bypass_tag_or_gate": True,
             "repo_url": "https://example.invalid/xbot-feed.git",
             "max_days": 30,
         }
         if scope_value is not _ABSENT:
             cfg["scope"] = scope_value
+        if extra_cfg:
+            cfg.update(extra_cfg)
         conn.execute(
             "INSERT INTO sources (id, name, display_name, source_type, url, "
             "fetch_interval_min, is_active, notes, fetch_config, created_at, "
@@ -682,7 +701,10 @@ def test_scope_admission_behavior_off_vs_on():
 
     urls_off, result_off = _run(_ABSENT)
     urls_off2, result_off2 = _run(_ABSENT, upstream_scope=upstream_only_scope)
-    urls_on, result_on = _run(stored_scope)
+    urls_stored, result_stored = _run(stored_scope)
+    urls_fenced, result_fenced = _run(
+        stored_scope, extra_cfg={"scope_fence_enabled": True}
+    )
 
     assert urls_off, "基线跑出 0 条 → 断言无意义"
     assert urls_off == urls_off2, (
@@ -692,9 +714,19 @@ def test_scope_admission_behavior_off_vs_on():
     assert result_off2["scope_gate_active"] is False
     assert result_off["scope_admitted"] == 0
 
-    assert result_on["scope_gate_active"] is True
-    assert set(urls_on) > set(urls_off), "显式存储 scope 后必须严格多收（OR 准入）"
-    assert result_on["scope_admitted"] == len(urls_on) - len(urls_off)
+    # t119u: 存量 scope 默认只展示 —— 入库集合与无 scope 完全相同
+    assert urls_stored == urls_off, (
+        "t119u: 存了 scope 也不会单独放行（默认 display_only）"
+    )
+    assert result_stored["scope_admitted"] == 0
+    assert result_stored["business_tag_gate_active"] is True
+
+    # 只有显式打开 AND 围栏才收窄（不新增条目）
+    assert set(urls_fenced).issubset(set(urls_off)), (
+        "AND 围栏只能收窄，永远不能新增准入"
+    )
+    assert result_fenced["scope_fence_enabled"] is True
+    assert result_fenced["scope_fence_dropped"] >= 1
 
 
 # ── AC-13: migrate-only 升级不覆盖 thresholds / scope ───────────────────
@@ -762,3 +794,79 @@ def test_seed_config_module_has_no_xbot_specific_branch():
         assert '"scope"' not in literal and "'scope'" not in literal, (
             f"seed_config 里出现了 scope 字面量: {literal!r}"
         )
+
+
+# ══ pV P0-2 / P1-3 ═════════════════════════════════════════════════════
+
+def test_put_scope_null_also_disables_scope_fence(client):
+    """pV P0-2：「恢复默认展示」必须**同时停用围栏**。
+
+    否则会留下「围栏开着 + scope 已删」= 入库被整源拦到 0 的陷阱，
+    而 UI 文案写着「等于停用围栏」—— 两边说法相反。
+    """
+    conn = get_db()
+    _seed_xbot(conn)
+    # 先存 scope，再显式打开围栏
+    assert client.put(
+        f"/api/config/sources/{_SOURCE_ID}/fetch_config",
+        json={"scope": {"xcircle_accounts": ["dotey"], "wechat_regex": "微信",
+                        "wechat_queries": []}},
+    ).status_code == 200
+    assert client.put(
+        f"/api/config/sources/{_SOURCE_ID}/fetch_config",
+        json={"scope_fence_enabled": True},
+    ).status_code == 200
+    info = client.get(f"/api/config/sources/{_SOURCE_ID}/scope").json()
+    assert info["scope_fence_enabled"] is True
+    assert info["scope_mode"] == "narrow_and"
+
+    # 「恢复默认展示」= PUT {"scope": null}
+    resp = client.put(
+        f"/api/config/sources/{_SOURCE_ID}/fetch_config",
+        json={"scope": None},
+    )
+    assert resp.status_code == 200, resp.text
+    info = client.get(f"/api/config/sources/{_SOURCE_ID}/scope").json()
+    assert info["scope_fence_enabled"] is False, (
+        "删 scope 必须同时停用围栏，否则入库会被拦到 0"
+    )
+    assert info["scope_mode"] == "display_only"
+    assert info["scope_gates_ingest"] is False
+    # 库里也要真的落成 false（不是只在响应里改的）
+    stored = json.loads(
+        get_db().execute(
+            "SELECT fetch_config FROM sources WHERE id = ?", (_SOURCE_ID,)
+        ).fetchone()[0]
+    )
+    assert stored["scope_fence_enabled"] is False
+    assert "scope" not in stored
+
+
+def test_get_fetch_config_merges_business_switch_defaults(client):
+    """pV P1-3：5 个新开关的默认值必须在读取时合入（库里没写也要看得到）。"""
+    conn = get_db()
+    _seed_xbot(conn)
+    resp = client.get(f"/api/config/sources/{_SOURCE_ID}/fetch_config")
+    assert resp.status_code == 200, resp.text
+    cfg = resp.json()["fetch_config"]
+    assert cfg["business_tags_from_source_tags"] is True
+    assert cfg["business_tags_from_topic_tags"] is True
+    assert cfg["scope_fence_enabled"] is False
+    assert cfg["exclude_replies"] is True
+    assert cfg["exclude_retweets"] is True
+
+
+def test_get_fetch_config_keeps_user_switch_values(client):
+    """pV P1-3：合入默认值**不能**覆盖用户已改的开关值。"""
+    conn = get_db()
+    _seed_xbot(conn)
+    assert client.put(
+        f"/api/config/sources/{_SOURCE_ID}/fetch_config",
+        json={"exclude_replies": False, "business_tags_from_topic_tags": False},
+    ).status_code == 200
+    cfg = client.get(
+        f"/api/config/sources/{_SOURCE_ID}/fetch_config"
+    ).json()["fetch_config"]
+    assert cfg["exclude_replies"] is False
+    assert cfg["business_tags_from_topic_tags"] is False
+    assert cfg["business_tags_from_source_tags"] is True
