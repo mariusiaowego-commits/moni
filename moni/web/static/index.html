@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261126003">
+  <link rel="stylesheet" href="css/main.css?v=20261126004">
   <!-- v1.0.110: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
        放在 main.css 之后，同名选择器以它们为准，便于单独回滚。 -->
   <link rel="stylesheet" href="css/source-ops.css?v=20261120011">
@@ -2176,7 +2176,8 @@
           <div class="cv-grid">
             <template x-for="cs in cvItems" :key="cs.case_id">
               <article class="cv-card" tabindex="0" role="button" @click="cvOpenDetail(cs)"
-                       @keydown.enter.prevent="cvOpenDetail(cs)" @keydown.space.prevent="cvOpenDetail(cs)"
+                       @keydown.enter.prevent="$event.target === $event.currentTarget && cvOpenDetail(cs)"
+                       @keydown.space.prevent="$event.target === $event.currentTarget && cvOpenDetail(cs)"
                        :aria-label="'打开案例 ' + cs.case_id">
                 <div class="cv-ent">
                   <span x-text="cvEnt(cs)"></span>
@@ -2227,7 +2228,7 @@
         <div x-show="cvDetail" x-cloak class="cv-overlay modal-backdrop modal-backdrop-dim"
              @click.self="cvCloseDetail()" @keydown.escape.window="cvDetail && cvCloseDetail()"
              x-transition.opacity.duration.150ms>
-          <div class="cv-sheet" @click.stop>
+          <div class="cv-sheet" @click.stop role="dialog" aria-modal="true" aria-label="案例详情">
             <template x-if="cvDetail">
               <div class="cv-sheet-grid">
                 <div class="cv-sheet-main">
@@ -5398,7 +5399,7 @@
        所以 window.safeHref / window.isSafeUrl 在 Alpine 求值表达式时已就位。 -->
   <script src="js/safe_url.js?v=20261023001"></script>
   <script src="js/calendar.js?v=20260810001"></script>
-  <script src="js/cases.js?v=20260826023"></script>
+  <script src="js/cases.js?v=20261126004"></script>
   <script src="js/stats.js?v=20261125002"></script>
   <script src="js/theme.js?v=20260813019"></script>
   <script src="vendor/marked-16.4.2.umd.js?v=20261116001"></script>
@@ -5407,7 +5408,7 @@
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
   <script src="js/desens-lab.js?v=20261126003"></script>
-  <script src="js/app.js?v=20261126003"></script>
+  <script src="js/app.js?v=20261126004"></script>
   <script src="js/reader.js?v=20261123103"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind

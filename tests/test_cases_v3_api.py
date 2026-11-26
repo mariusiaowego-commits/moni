@@ -80,12 +80,7 @@ class TestStatsScope:
         assert body["total"] == 3
         assert body["high_value"] == 2
         assert body["enterprise_count"] == 2
-        expected_scenarios = conn.execute(
-            "SELECT COUNT(DISTINCT l.scenario_code) FROM case_scenario_links l "
-            "JOIN cases c ON c.case_id = l.case_id "
-            "WHERE c.subject != '__processing__' AND c.case_lifecycle != 'archived'"
-        ).fetchone()[0]
-        assert body["scenario_count"] == expected_scenarios
+        assert body["scenario_count"] == 3
         assert body["category_count"] == 2
         assert sum(body["by_type"].values()) == body["total"]
 
@@ -108,6 +103,15 @@ class TestFilters:
         client, _, _ = seeded
         assert _cases(client, month="2026-08")["total"] == 1
         assert _cases(client, month="2026-08,2026-07")["total"] == 2
+
+    def test_value_alias_and_empty_buckets(self, seeded):
+        client, _, _ = seeded
+        assert _cases(client, value="high")["total"] == 2
+        assert _cases(client, scenario="other")["total"] == 1
+
+    def test_explicit_archived_overrides_default_exclusion(self, seeded):
+        client, _, _ = seeded
+        assert _cases(client, case_lifecycle="archived")["total"] == 1
 
     def test_pagination_no_duplicates(self, seeded):
         client, _, _ = seeded

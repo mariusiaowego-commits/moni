@@ -83,6 +83,7 @@ def list_cases(
     case_action: str | None = Query(None, description="Filter by case_action: launch/pilot/scale/transform/exit"),
     subject: str | None = Query(None, description="Filter by subject (fuzzy match)"),
     reference_value: str | None = Query(None, description="Filter by reference_value: high/medium/low"),
+    value: str | None = Query(None, description="reference_value 别名（前端 URL 使用）"),
     month: str | None = Query(None, description="案例月份 YYYY-MM"),
     review_status: str | None = Query(None, description="Filter by review_status: pending/confirmed/rejected"),
     case_lifecycle: str | None = Query(None, description="Filter by case_lifecycle: draft/verified/published/deprecated/archived"),
@@ -99,7 +100,7 @@ def list_cases(
         case_type=case_type,
         case_action=case_action,
         subject=subject,
-        reference_value=reference_value,
+        reference_value=reference_value or value,
         month=month,
         review_status=review_status,
         case_lifecycle=case_lifecycle,
@@ -115,7 +116,7 @@ def list_cases(
         case_type=case_type,
         case_action=case_action,
         subject=subject,
-        reference_value=reference_value,
+        reference_value=reference_value or value,
         month=month,
         review_status=review_status,
         case_lifecycle=case_lifecycle,
@@ -188,6 +189,7 @@ def get_facets(
     case_type: str | None = Query(None),
     case_action: str | None = Query(None),
     reference_value: str | None = Query(None),
+    value: str | None = Query(None),
     month: str | None = Query(None),
 ) -> dict[str, Any]:
     """六维筛选选项与计数（各维度排除自身条件）。"""
@@ -199,7 +201,7 @@ def get_facets(
         category=category,
         case_type=case_type,
         case_action=case_action,
-        reference_value=reference_value,
+        reference_value=reference_value or value,
         month=month,
     )
 
@@ -334,7 +336,7 @@ class CaseUpdateBody(BaseModel):
 @router.patch("/{case_id}")
 def update_case(case_id: str, body: CaseUpdateBody) -> dict[str, Any]:
     """编辑案例字段 (v1.0.35.19 agy v3 需求1)."""
-    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    updates = body.model_dump(exclude_unset=True)
     ok = CaseRepository.update_case(case_id, updates)
     if not ok:
         raise NotFoundError(message=f"Case {case_id!r} not found or no editable field")

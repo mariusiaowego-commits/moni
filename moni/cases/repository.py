@@ -84,7 +84,9 @@ def _case_filters(
     调用方负责 FROM: cases c LEFT JOIN articles a LEFT JOIN enterprises e。
     ``skip`` 用于 facets：计算某维度时排除该维度自身条件。
     """
-    clauses = ["c.subject != '__processing__'", "c.case_lifecycle != 'archived'"]
+    clauses = ["c.subject != '__processing__'"]
+    if not case_lifecycle:
+        clauses.append("c.case_lifecycle != 'archived'")
     params: list[Any] = []
 
     def add(dim: str, clause: str, values: Sequence[Any]) -> None:
@@ -118,34 +120,49 @@ def _case_filters(
     if industry_values:
         add(
             "industry",
-            f"e.industry_l1 IN ({','.join('?' * len(industry_values))})",
+            f"COALESCE(e.industry_l1, '其他') IN ({','.join('?' * len(industry_values))})",
             industry_values,
         )
     scenario_values = _multi(scenario)
     if scenario_values:
+        scenario_parts: list[str] = []
+        scenario_params: list[Any] = []
+        concrete = [v for v in scenario_values if v != "other"]
+        if concrete:
+            scenario_parts.append(
+                "EXISTS (SELECT 1 FROM case_scenario_links l "
+                "WHERE l.case_id = c.case_id AND l.scenario_code IN "
+                f"({','.join('?' * len(concrete))}))"
+            )
+            scenario_params.extend(concrete)
+        if "other" in scenario_values:
+            scenario_parts.append(
+                "NOT EXISTS (SELECT 1 FROM case_scenario_links l2 "
+                "WHERE l2.case_id = c.case_id AND l2.scenario_code != 'other')"
+            )
         add(
             "scenario",
-            "EXISTS (SELECT 1 FROM case_scenario_links l "
-            "WHERE l.case_id = c.case_id AND l.scenario_code IN "
-            f"({','.join('?' * len(scenario_values))}))",
-            scenario_values,
+            "(" + " OR ".join(scenario_parts) + ")",
+            scenario_params,
         )
     category_values = _multi(category)
     if category_values:
         add(
             "category",
-            f"c.case_category IN ({','.join('?' * len(category_values))})",
+            "COALESCE(c.case_category, 'unclassified') IN "
+            f"({','.join('?' * len(category_values))})",
             category_values,
         )
     if case_type:
         add("case_type", "c.case_type = ?", [case_type])
     if case_action:
-        add("case_action", "c.case_action = ?", [case_action])
+        add("action", "c.case_action = ?", [case_action])
     value_values = _multi(reference_value)
     if value_values:
         add(
             "value",
-            f"c.reference_value IN ({','.join('?' * len(value_values))})",
+            "COALESCE(c.reference_value, 'none') IN "
+            f"({','.join('?' * len(value_values))})",
             value_values,
         )
     month_values = _multi(month)
@@ -775,7 +792,7 @@ class CaseRepository:
             LEFT JOIN articles a ON c.article_id = a.id
             LEFT JOIN enterprises e ON e.enterprise_id = c.subject_enterprise_id
             WHERE {where}
-            ORDER BY c.created_at DESC LIMIT ? OFFSET ?
+            ORDER BY c.created_at DESC, c.case_id DESC LIMIT ? OFFSET ?
         """
         where, params = _case_filters(
             q=q,
@@ -1261,7 +1278,7 @@ class CaseRepository:
             "SELECT COALESCE(c.subject_enterprise_id, 'other') AS value, "
             "COALESCE(e.name_cn, c.subject_enterprise_id, '其他/未归类') AS label, "
             "COUNT(*) AS count",
-            "GROUP BY 1, 2 ORDER BY count DESC, value LIMIT 30",
+            "GROUP BY 1, 2 ORDER BY count DESC, value LIMIT 200",
             "enterprise",
         )
         industry = rows(

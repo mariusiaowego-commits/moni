@@ -44,6 +44,9 @@ function casesModule() {
     cvPanel: null,
     cvDetail: null,
     cvDetailLoading: false,
+    _cvLoadSeq: 0,
+    _cvFacetSeq: 0,
+    _cvDetailSeq: 0,
 
     // ── 保留的编辑 / 标签状态 ────────────────────────────────
     casesReviewBusy: false,
@@ -200,6 +203,7 @@ function casesModule() {
     },
 
     cvLoad(append = false) {
+      const seq = ++this._cvLoadSeq;
       const p = this._cvParams();
       p.set('limit', '100');
       if (append) p.set('offset', String((this.cvItems || []).length));
@@ -207,12 +211,13 @@ function casesModule() {
       return fetch(`/api/cases?${p.toString()}`, { credentials: 'same-origin' })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
         .then((data) => {
+          if (seq !== this._cvLoadSeq) return;
           const items = data.items || [];
           this.cvItems = append ? (this.cvItems || []).concat(items) : items;
           this.cvTotal = data.total || 0;
         })
         .catch((e) => console.error('加载案例失败:', e))
-        .finally(() => { this.cvLoading = false; });
+        .finally(() => { if (seq === this._cvLoadSeq) this.cvLoading = false; });
     },
     cvLoadMore() {
       if (this.cvLoading) return null;
@@ -227,10 +232,11 @@ function casesModule() {
     },
 
     cvLoadFacets() {
+      const seq = ++this._cvFacetSeq;
       const p = this._cvParams();
       return fetch(`/api/cases/facets?${p.toString()}`, { credentials: 'same-origin' })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
-        .then((data) => { this.cvFacets = data; })
+        .then((data) => { if (seq === this._cvFacetSeq) this.cvFacets = data; })
         .catch((e) => console.error('加载筛选选项失败:', e));
     },
 
@@ -267,6 +273,7 @@ function casesModule() {
     cvSyncURL() {
       if (window.location.pathname !== '/cases') return;
       const p = this._cvParams();
+      if (this.cvDetail && this.cvDetail.case_id) p.set('case', this.cvDetail.case_id);
       const qs = p.toString();
       const url = '/cases' + (qs ? '?' + qs : '');
       try { window.history.replaceState({ view: 'cases' }, '', url); } catch (e) { /* noop */ }
@@ -283,7 +290,7 @@ function casesModule() {
         enterprise: pick('enterprise'),
         industry: pick('industry'),
         scenario: pick('scenario'),
-        category: pick('category', 'case_type'),
+        category: pick('category'),
         value: pick('value', 'reference_value'),
         month: pick('month'),
       };
@@ -303,28 +310,32 @@ function casesModule() {
     // ── 详情 ────────────────────────────────────────────────
     cvOpenDetail(cs) {
       if (!cs || !cs.case_id) return;
+      const seq = ++this._cvDetailSeq;
+      const id = cs.case_id;
       this.casesEditing = false;
       this.casesTagInput = '';
       this.casesTags = [];
       this.cvDetail = cs;
       this.cvDetailLoading = true;
-      this.loadCaseTags(cs.case_id);
-      fetch(`/api/cases/${encodeURIComponent(cs.case_id)}`, { credentials: 'same-origin' })
+      this.cvSyncURL();
+      this.loadCaseTags(id);
+      fetch(`/api/cases/${encodeURIComponent(id)}`, { credentials: 'same-origin' })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
-        .then((data) => { this.cvDetail = data; })
+        .then((data) => {
+          if (seq !== this._cvDetailSeq) return;
+          this.cvDetail = data;
+          this.cvSyncURL();
+        })
         .catch((e) => console.error('加载案例详情失败:', e))
-        .finally(() => { this.cvDetailLoading = false; });
+        .finally(() => { if (seq === this._cvDetailSeq) this.cvDetailLoading = false; });
     },
     cvCloseDetail() {
+      this._cvDetailSeq += 1;
       this.cvDetail = null;
       this.casesEditing = false;
       this.casesTags = [];
       this.casesTagInput = '';
-      if (window.location.pathname === '/cases' && new URLSearchParams(window.location.search).has('case')) {
-        const p = this._cvParams();
-        const qs = p.toString();
-        try { window.history.replaceState({ view: 'cases' }, '', '/cases' + (qs ? '?' + qs : '')); } catch (e) { /* noop */ }
-      }
+      this.cvSyncURL();
     },
     cvEvidenceBadge(detail) {
       return detail && detail.evidence_verified ? '原文引用' : '模型转述';
@@ -500,6 +511,7 @@ function casesModule() {
           summary: body.summary != null ? body.summary : this.casesEditForm.summary,
           case_action: body.case_action || this.casesEditForm.case_action,
           reference_value: body.reference_value || this.casesEditForm.reference_value,
+          counterparty: String(this.casesEditForm.counterparty || '').trim() || null,
         });
         this.casesEditing = false;
         if (typeof this._notify === 'function') this._notify('success', '已保存');
@@ -553,7 +565,9 @@ function casesModule() {
         });
         if (!r.ok) return;
         const d = await r.json();
-        this.casesTags = Array.isArray(d) ? d : (d.items || d.tags || []);
+        if (this.cvDetail && this.cvDetail.case_id === caseId) {
+          this.casesTags = Array.isArray(d) ? d : (d.items || d.tags || []);
+        }
       } catch (e) {
         console.error('加载案例标签失败:', e);
       }

@@ -39,9 +39,12 @@ $ curl -s :8901/api/cases/stats
 ```text
 industry=银行                         -> total 121
 industry=银行,保险                    -> total 123
+industry=其他                         -> total 224（空值桶走 COALESCE）
 enterprise=ent_tencent                -> total 10
 month=2026-11                         -> total 6
 q=小程序                              -> total 2
+value=high                            -> total 137（= reference_value=high）
+scenario=other                        -> total 90（= 场景 facet「其他业务场景」）
 ```
 
 `/api/cases/facets`：企业 `其他/未归类 215 · 腾讯 10 · Visa 10 · 汇丰 7`；
@@ -85,7 +88,7 @@ enterprise 只返回 `ent_cmb`。
 截图（`docs/sprint-evidence/sprint-81/render/`）：
 
 `v3-cases-1440.png`、`v3-cases-1024.png`、`v3-cases-dark-1440.png`、`v3-cases-dark-1024.png`、
-`v3-filter-panel-1440.png`、`v3-search-miniapp-1440.png`、`v3-loadmore-1440.png`、
+`v3-filter-panel-1440.png`、`v3-dash-filter-1440.png`、`v3-search-miniapp-1440.png`、`v3-loadmore-1440.png`、
 `v3-detail-1440.png`、`v3-detail-1024.png`、`v3-detail-dark-1440.png`、
 `v3-detail-tags-1440.png`、`v3-share-queue-1440.png`。
 
@@ -102,6 +105,8 @@ enterprise 只返回 `ent_cmb`。
 - `skipped`：生产 8900 未重启、未跑生产库 UI（按边界只动 8901 + DB 副本）。
 - `skipped`：`case_insights` 的「做法 / 风险」段落未展示（表未回填，PRD 非目标，不伪造）。
 - `skipped`：加载更多只抽测一次追加（100 → 200），未在测试里点满 432。
+- `skipped`：统计页 `/api/stats/cases-dashboard` 仍只排除 `__processing__`，与案例库
+  `stats` 的 archived 口径分叉；属相邻页面问题，本次不改。
 
 ## 5. 全量测试与 CI
 
@@ -132,3 +137,24 @@ tests/test_frontend_motion.py tests/test_web_static_headers.py -> 11 passed
 ```
 
 CI 结果：合并前回填 run id 与结论。
+
+## 6. 独立审计与修复
+
+独立只读审计按 PR head 复跑 128 passed，提出 2×P1 / 6×P2 / 8×P3。已修：
+
+- P1 `value` 参数与后端 `reference_value` 不一致 → 路由加别名，KPI「高价值」、价值 chip、
+  token、URL 回填统一生效（实测 137）。
+- P1 静态资源版本号未 bump → `main.css / cases.js / app.js` 统一到 `?v=20261126004`。
+- P2 facets 空值桶点了必 0 → `industry/category/value` 改 `COALESCE`，`scenario=other`
+  改「无非 other 链接即命中」；实测 224 / 90。
+- P2 action facet skip 维度名不一致 → `case_action` 条件归入 `action`。
+- P2 显式 `case_lifecycle=archived` 恒 0 → 仅未显式指定时才默认排除 archived。
+- P2 分页同 `created_at` 无 tie-breaker → `ORDER BY created_at DESC, case_id DESC`。
+- P2 编辑对手方不回显/不能清空 → PATCH 用 `exclude_unset` 允许 `null`，前端本地补丁回写。
+- P2 列表/详情/标签异步后到覆盖 → 加请求序号，关闭详情后迟到响应不再重开浮层。
+- P2 详情浮层 a11y → `role="dialog" aria-modal="true" aria-label`，Esc 关闭，滚动锁复用。
+- P2 企业 facet `LIMIT 30` 长尾不可选 → 提到 200。
+- P3 详情深链 → 打开即写 `?case=`，关闭即移除；legacy `case_type` 不再误映射到 category。
+- P3 卡片内删除按钮 Enter 冒泡 → keydown 仅 `$event.target === $event.currentTarget` 时打开。
+- P3 `is-set` 无样式 → 补 chip 边框；`cvDetailLoading` 仍保留但未加占位（不影响功能）。
+- P3 测试表演型断言 → `scenario_count` 改字面量 3，新增 value 别名、other 桶、archived 三组用例。
