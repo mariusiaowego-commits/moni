@@ -29,9 +29,13 @@ from moni.share.enrichment import (
 )
 from moni.share.context_pack import html_block as _context_html_block
 from moni.share.context_pack import load_contexts_db
+from moni.share.context_pack import detail_css as _context_detail_css
 
 # Display copy when raw body is missing / too short (aligned with PDF brief prompt v1.0.15)
 _THIN_SUMMARY_COPY = "仅标题/短帖入库，正文未同步，无可展开摘要。"
+
+# 上下文详情的分节样式（双列瀑布流 / 整段），与独立 HTML 注入共用一份实现。
+_CONTEXT_DETAIL_CSS = _context_detail_css(".ctx-body")
 
 _EMPTY_SUM_MARKERS = frozenset(
     {"", "素材不足", "（无摘要）", "无摘要", "（暂无可用摘要）", "—", "-"}
@@ -1312,11 +1316,12 @@ def render_brief_html(
   .ctx-summary::-webkit-details-marker {{ display: none; }}
   .ctx-summary::before {{ content: '▸ '; color: var(--accent); }}
   .ctx-details[open] .ctx-summary::before {{ content: '▾ '; }}
-  .ctx-details .ctx-body {{ margin-top: 8px; }}
+  .ctx-details .ctx-body {{ margin-top: 8px; white-space: normal; }}
   .ctx-details .ctx-body p {{ margin: 0 0 0.6em; }}
   .ctx-details .ctx-body ol, .ctx-details .ctx-body ul {{ margin: 0 0 0.6em; padding-left: 1.4em; }}
   .ctx-details .ctx-body li {{ margin: 0 0 0.45em; }}
   .ctx-details .ctx-body strong {{ color: #1c1917; }}
+  {_CONTEXT_DETAIL_CSS}
   .ctx-note {{ margin: 10px 0 0; font-size: 0.8rem; color: var(--muted); }}
   .orig-body blockquote, blockquote {{
     margin: 0.7em 0; padding: 10px 14px; border-left: 3px solid var(--tone-2);

@@ -16,8 +16,10 @@ import pytest
 
 from moni.share import context_pack
 from moni.share.context_pack import (
+    detail_css,
     html_block,
     render_body_html,
+    render_detail_html,
     split_tldr,
     standalone_html_section,
 )
@@ -119,7 +121,7 @@ def test_html_block_shows_tldr_and_collapses_detail():
     html = html_block([{"kind": "chat", "title": "", "body": body}])
     assert "这是一句话结论。" in html
     assert "<details" in html and "展开完整上下文" in html
-    assert "<ol>" in html
+    assert 'class="moni-ctx-item"' in html and "第一条" in html
     assert html.count("这是一句话结论。") == 1
 
 
@@ -159,6 +161,65 @@ def test_standalone_section_renders_tldr_and_details(tmp_path):
 def test_standalone_section_empty_without_contexts(tmp_path):
     db = _db(tmp_path, [])
     assert standalone_html_section(db, ["a1"]) == ""
+
+
+_SECTIONED = """一、关键事实（作者的结论性主张）
+
+1. 微信小程序基于 Webview 引擎。   证明：属于定性背景，无数据。
+
+2. 有赞对「首帧」的定义是「切页后第一帧」。
+   证明：有赞自定义口径，不是官方定义。
+
+二、案例与实验（证据链逐条）3. 案例对比：H5 跳转 → 小程序跳转。
+    证明：建立体验基线，只有录屏，无量化。
+
+三、无出处 / 需标注的数字
+
+- 200ms：异步注入的 setTimeout 延时，是模拟值。
+- 1000ms：实验里的 sleep 阻塞时长，是人造模拟。
+
+四、未知（文中没有）
+
+- 首帧耗时的实际测量值。
+- 灰度期间的问题率。"""
+
+
+def test_render_detail_html_lays_numbered_sections_in_two_columns():
+    html = render_detail_html(_SECTIONED)
+    assert html.count('class="moni-ctx-cols"') == 2
+    assert html.count('class="moni-ctx-item"') == 3
+    assert html.count('class="moni-ctx-h"') == 4
+    assert "关键事实（作者的结论性主张）" in html
+    assert "案例与实验（证据链逐条）" in html
+    assert "证明：属于定性背景，无数据。" in html
+    assert 'class="moni-ctx-proof"' in html
+
+
+def test_render_detail_html_keeps_prose_sections_whole_and_once():
+    """无出处 / 未知 走整段，且回归过一处重复渲染（lead 与 body 各输出一次）。"""
+    html = render_detail_html(_SECTIONED)
+    assert html.count("200ms：异步注入的 setTimeout 延时") == 1
+    assert html.count("首帧耗时的实际测量值") == 1
+    assert "<ul>" in html
+    prose = html.split('class="moni-ctx-prose"')
+    assert len(prose) == 3  # 两个整段区块 + 一次 split 余量
+
+
+def test_render_detail_html_falls_back_without_section_headings():
+    html = render_detail_html("结论之外的补充：若换成三个月统计，结果不同。")
+    assert "moni-ctx-cols" not in html
+    assert "若换成三个月统计" in html
+
+
+def test_render_detail_html_escapes_heading():
+    html = render_detail_html("一、<script>alert(1)</script>\n\n1. 甲\n\n2. 乙")
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_detail_css_is_scoped():
+    assert "#box .moni-ctx-cols" in detail_css("#box")
+    assert detail_css("").lstrip().startswith(".moni-ctx-h")
 
 
 @pytest.mark.parametrize("kind", ["chat", "note", "quote", "summary", "fact_check"])
