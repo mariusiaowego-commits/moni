@@ -7501,6 +7501,68 @@ function app() {
     llmJobsLoading: false,
     llmJobsPollHandle: null,
     llmJobsLastFetched: 0,
+    llmJobsReqSeq: 0,
+    llmJobsReloadQueued: false,
+    llmType: 'all',
+    llmTypeFilters: [
+      { key: 'all', label: '全部', types: '' },
+      { key: 'summary', label: '摘要', types: 'summary' },
+      { key: 'check', label: '核查', types: 'fact_check,fact_check_plus' },
+      { key: 'case_extract', label: '案例抽取', types: 'case_extract' },
+      { key: 'reader_chat', label: '阅读对话', types: 'reader_chat' },
+    ],
+    llmBatchOpen: {},
+
+    setLlmType(key) {
+      if (this.llmType === key) return;
+      this.llmType = key;
+      this.llmBatchOpen = {};
+      this.llmJobs = [];
+      // 让在途的旧类型响应作废，避免旧数据覆盖新筛选结果。
+      this.llmJobsReqSeq = (this.llmJobsReqSeq || 0) + 1;
+      this.loadLlmJobs();
+    },
+
+    llmJobsView() {
+      const groups = [];
+      const byBatch = new Map();
+      for (const job of (this.llmJobs || [])) {
+        if (job.task_type === 'case_extract' && job.batch_id) {
+          let g = byBatch.get(job.batch_id);
+          if (!g) {
+            g = {
+              key: 'batch:' + job.batch_id,
+              kind: 'batch',
+              batch_id: job.batch_id,
+              jobs: [],
+              created_at: job.created_at,
+            };
+            byBatch.set(job.batch_id, g);
+            groups.push(g);
+          }
+          g.jobs.push(job);
+          if (job.created_at && job.created_at > g.created_at) g.created_at = job.created_at;
+          continue;
+        }
+        groups.push({ key: 'job:' + job.id, kind: 'job', job, created_at: job.created_at });
+      }
+      for (const g of groups) {
+        if (g.kind !== 'batch') continue;
+        g.done = g.jobs.filter((j) => j.status === 'done').length;
+        g.failed = g.jobs.filter((j) => j.status === 'failed').length;
+        g.duration_ms = g.jobs.reduce((sum, j) => sum + (Number(j.duration_ms) || 0), 0);
+        const finished = g.done + g.failed === g.jobs.length;
+        g.label = g.failed ? '部分失败' : (finished ? '完成' : '进行中');
+        g.badge = g.failed ? 'badge-failed' : (finished ? 'badge-done' : 'badge-running');
+      }
+      return groups;
+    },
+
+    toggleLlmBatch(batchId) {
+      const next = Object.assign({}, this.llmBatchOpen);
+      next[batchId] = !next[batchId];
+      this.llmBatchOpen = next;
+    },
 
     enqueueLlmJob(taskType, jobId, articleId) {
       // 任务已经在阅读器的槽位里跟随了。这里只刷新一次任务面板的计数，
@@ -7515,13 +7577,25 @@ function app() {
 
     loadLlmJobs() {
       const self = this;
-      if (self.llmJobsLoading) return;
+      // 轮询 / 切筛选叠加时不能丢请求：记一个待重跑标记，
+      // 由当前请求的 finally 立刻补跑一次。
+      if (self.llmJobsLoading) {
+        self.llmJobsReloadQueued = true;
+        return;
+      }
       self.llmJobsLoading = true;
+      self.llmJobsReloadQueued = false;
+      const seq = ++self.llmJobsReqSeq;
+      const active = self.llmTypeFilters.find((f) => f.key === self.llmType);
+      const typeQuery = active && active.types
+        ? '&task_type=' + encodeURIComponent(active.types)
+        : '';
       Promise.all([
-        fetch('/api/llm/jobs?limit=100', { credentials: 'same-origin' }).then(r => r.json()),
+        fetch('/api/llm/jobs?limit=100' + typeQuery, { credentials: 'same-origin' }).then(r => r.json()),
         fetch('/api/llm/jobs/stats/summary', { credentials: 'same-origin' }).then(r => r.json()),
       ])
         .then(([jobs, stats]) => {
+          if (seq !== self.llmJobsReqSeq) return;  // 已被更新的筛选取代
           self.llmJobs = Array.isArray(jobs) ? jobs : [];
           self.llmJobsStats = stats || self.llmJobsStats;
           self.llmJobsLastFetched = Date.now();
@@ -7529,6 +7603,11 @@ function app() {
         .catch(err => { console.error('loadLlmJobs failed:', err); })
         .finally(() => {
           self.llmJobsLoading = false;
+          if (self.llmJobsReloadQueued) {
+            self.llmJobsReloadQueued = false;
+            self.loadLlmJobs();
+            return;
+          }
           // Schedule the next poll.  Use a tighter interval while
           // there is in-flight work; back off when the queue is empty.
           const inFlight = (self.llmJobsStats.pending || 0) + (self.llmJobsStats.running || 0);
@@ -7562,6 +7641,7 @@ function app() {
         running:   { label: '运行中', cls: 'badge-running' },
         done:      { label: '完成',   cls: 'badge-done' },
         failed:    { label: '失败',   cls: 'badge-failed' },
+        stale:     { label: '已超时', cls: 'badge-failed' },
         cancelled: { label: '已取消', cls: 'badge-cancelled' },
       };
       return map[status] || { label: status, cls: 'badge-unknown' };
@@ -7610,6 +7690,15 @@ function app() {
     // object for backwards compatibility but is no longer wired to UI.
     jobDetail: null,
     jobDetailCopied: false,
+    jobBatch: null,
+
+    openBatchDetail(group) {
+      this.jobBatch = group;
+    },
+
+    closeBatchDetail() {
+      this.jobBatch = null;
+    },
     jobDetailFactCheck: null,
 
     openJobDetail(job) {
@@ -7618,20 +7707,29 @@ function app() {
       this.jobDetailFactCheck = null;
       // v1.0.35.13: 联网核查 done — 拉 detail 拿结构化证据 (fact_check 字段),
       // 用于用户友好的卡片渲染 (而非直接把 LLM 原始 JSON 甩给用户)。
-      if (job && job.task_type === 'fact_check_plus' && job.status === 'done' && job.id) {
+      // Sprint 86: 案例抽取 done 同样要拉 detail —— 列表行不带
+      // extracted_cases，只有详情接口才附本次抽到的案例清单。
+      const wantsFactCheck = job && job.task_type === 'fact_check_plus';
+      const wantsCases = job && job.task_type === 'case_extract';
+      if ((wantsFactCheck || wantsCases) && job.status === 'done' && job.id) {
         const self = this;
         fetch(`/api/llm/jobs/${encodeURIComponent(job.id)}`, {
           method: 'GET', credentials: 'same-origin',
         })
           .then(r => r.json())
           .then(detail => {
-            if (detail && detail.fact_check) {
+            if (!detail) return;
+            // 回包时弹窗可能已关闭或已切到另一条任务 —— 丢弃过期响应。
+            if (!self.jobDetail || self.jobDetail.id !== job.id) return;
+            if (wantsCases) {
+              self.jobDetail = Object.assign({}, detail);
+            } else if (detail.fact_check) {
               self.jobDetailFactCheck = detail.fact_check;
             }
           })
           .catch(err => {
             // 非致命: 拿不到结构化数据就退回原始 JSON 展示
-            console.warn('load fact_check detail failed:', err);
+            console.warn('load llm job detail failed:', err);
           });
       }
     },

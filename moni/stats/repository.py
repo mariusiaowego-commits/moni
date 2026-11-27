@@ -789,7 +789,7 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
     # 排序: 高价值优先 → 置信度高 → 最新 (dad 8-26 review: extracted_at desc 默认
     # 等同"最新"没意义, 必须按 reference_value + confidence 重排)
     # v1.0.37: keywords (case_keywords) + 主地理 (case_geography is_primary)
-    rank_sql = f"""
+    rank_select = f"""
         SELECT c.case_id, c.subject, c.counterparty, c.case_action,
                c.reference_value, c.extraction_confidence, c.extracted_at,
                c.summary, c.evidence_snippet,
@@ -808,17 +808,35 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
             ORDER BY g2.is_primary DESC, g2.id
             LIMIT 1
         )
+    """
+    # 高价值榜：口径固定累计（不随 toolbar 7/30/90 漂），显式 LIMIT 50。
+    rank_sql = f"""
+        {rank_select}
         WHERE {active_case_clause("c")} AND c.reference_value = 'high'
         ORDER BY
             CASE c.reference_value WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
             c.extraction_confidence DESC,
             c.extracted_at DESC
+        LIMIT 50
     """
-    high_value_ranking = []
-    for r in conn.execute(rank_sql).fetchall():
-        row = dict(r)
-        row["keywords"] = _parse_keyword_list(row.get("keywords"))
-        high_value_ranking.append(row)
+    # 最新入库：所有在用案例按抽出入库时间倒序，LIMIT 20（演示用，随抽随新）。
+    recent_sql = f"""
+        {rank_select}
+        WHERE {active_case_clause("c")}
+        ORDER BY c.extracted_at DESC, c.case_id DESC
+        LIMIT 20
+    """
+
+    def _rows(sql: str) -> list[dict[str, Any]]:
+        out = []
+        for r in conn.execute(sql).fetchall():
+            row = dict(r)
+            row["keywords"] = _parse_keyword_list(row.get("keywords"))
+            out.append(row)
+        return out
+
+    high_value_ranking = _rows(rank_sql)
+    recent_cases = _rows(recent_sql)
 
     keyword_options = [
         str(r[0]) for r in conn.execute(
@@ -841,6 +859,7 @@ def cases_dashboard_stats(period: str = "all") -> dict[str, Any]:
         "archived_total": archived_total,
         "fetch_total": _fetch_total(),
         "high_value_ranking": high_value_ranking,
+        "recent_cases": recent_cases,
         "keyword_options": keyword_options,
         "geo_distribution": _geo_distribution(conn),
     }

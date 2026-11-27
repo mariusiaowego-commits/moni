@@ -1308,7 +1308,13 @@
       if (job.task_type === 'reader_chat') {
         return job.prompt_name ? ('阅读 · ' + job.prompt_name) : '阅读对话';
       }
-      return job.task_type === 'summary' ? '摘要' : '事实核查';
+      const labels = {
+        summary: '摘要',
+        fact_check: '事实核查',
+        fact_check_plus: '联网核查',
+        case_extract: '案例抽取',
+      };
+      return labels[job.task_type] || job.task_type;
     },
 
     readerStartUnreadPoll() {

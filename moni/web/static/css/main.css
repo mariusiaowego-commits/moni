@@ -6300,3 +6300,49 @@ a.cite-chip:hover { color: var(--foreground); background: color-mix(in oklch, va
    ≥768px 窗口完全不滚动，更窄时仍可横向滑，但不会把匹配模式列压成 0 宽。 */
 .config-table-scroll > table.desens-rules-table { min-width: 640px; }
 .desens-rules-table td.desens-pattern { overflow-wrap: anywhere; }
+
+/* sprint-86: 大模型任务类型筛选 */
+.llm-typebar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 10px;
+}
+.llm-typebtn {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted-fg);
+  cursor: pointer;
+}
+.llm-typebtn:hover { border-color: var(--accent); color: var(--accent); }
+.llm-typebtn.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+/* sprint-86: 看板榜单口径切换 */
+.stats-rank-switch {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-left: 8px;
+}
+.stats-rank-tab {
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--muted-fg);
+  cursor: pointer;
+}
+.stats-rank-tab.is-active {
+  background: var(--accent);
+  color: var(--accent-fg);
+}

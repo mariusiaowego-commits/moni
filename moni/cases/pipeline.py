@@ -20,6 +20,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -225,8 +226,17 @@ def _record_case_llm_job(
     usage: dict[str, Any] | None = None,
     error: str | None = None,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
+    batch_id: str | None = None,
+    started_at: str | None = None,
+    finished_at: str | None = None,
+    duration_ms: int | None = None,
+    result_text: str | None = None,
 ) -> None:
-    """将案例抽取的 LLM 用量写入 llm_jobs 记账 (best-effort)."""
+    """将案例抽取的 LLM 用量写入 llm_jobs 记账 (best-effort).
+
+    result 存精简 JSON（outcome / case_count / dropped / case_ids），
+    详情页据此拉本批案例；别把大段 LLM 原文塞进来拖慢列表。
+    """
     now = datetime_iso()
     u = usage or {}
     try:
@@ -235,8 +245,9 @@ def _record_case_llm_job(
             INSERT INTO llm_jobs
                 (id, task_type, article_id, provider, model, status, error,
                  attempts, created_at, started_at, finished_at,
-                 input_tokens, output_tokens, cost_usd, prompt_name)
-            VALUES (?, 'case_extract', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+                 input_tokens, output_tokens, cost_usd, prompt_name,
+                 batch_id, duration_ms, result)
+            VALUES (?, 'case_extract', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 uuid.uuid4().hex,
@@ -246,16 +257,37 @@ def _record_case_llm_job(
                 status,
                 error,
                 now,
-                now,
-                now,
+                started_at or now,
+                finished_at or now,
                 int(u.get("input_tokens") or 0),
                 int(u.get("output_tokens") or 0),
                 float(u.get("cost_usd") or 0.0),
                 prompt_version,
+                batch_id,
+                duration_ms,
+                result_text,
             ),
         )
     except Exception as exc:
         logger.debug("record case llm_jobs skipped: %s", exc)
+
+
+def _case_job_result(
+    outcome: str,
+    *,
+    case_count: int = 0,
+    dropped: int = 0,
+    case_ids: list[str] | None = None,
+) -> str:
+    return json.dumps(
+        {
+            "outcome": outcome,
+            "case_count": int(case_count),
+            "dropped": int(dropped),
+            "case_ids": case_ids or [],
+        },
+        ensure_ascii=False,
+    )
 
 
 def extract_cases_for_article(
@@ -265,6 +297,7 @@ def extract_cases_for_article(
     model: str | None = None,
     llm_call_fn: Any = None,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
+    batch_id: str | None = None,
 ) -> dict[str, Any]:
     """同步抽取一篇文章的案例.
 
@@ -286,6 +319,30 @@ def extract_cases_for_article(
     input_hash = _compute_input_hash(article)
     conn = get_db()
     usage_info: dict[str, Any] | None = None
+    t0 = time.monotonic()
+    started_at = datetime_iso()
+
+    def elapsed_ms() -> int:
+        return int((time.monotonic() - t0) * 1000)
+
+    def record_job(status: str, result_text: str, error: str | None = None) -> None:
+        if llm_call_fn is not None:
+            return
+        _record_case_llm_job(
+            conn,
+            article_id=article_id,
+            provider=provider,
+            model=model,
+            status=status,
+            usage=usage_info,
+            error=error,
+            prompt_version=prompt_version,
+            batch_id=batch_id,
+            started_at=started_at,
+            finished_at=datetime_iso(),
+            duration_ms=elapsed_ms(),
+            result_text=result_text,
+        )
 
     try:
         # 调用 LLM
@@ -332,11 +389,7 @@ def extract_cases_for_article(
                     status="no_cases",
                     case_count=0,
                 )
-                if usage_info is not None:
-                    _record_case_llm_job(
-                        conn, article_id=article_id, provider=provider, model=model,
-                        status="done", usage=usage_info, prompt_version=prompt_version,
-                    )
+                record_job("done", _case_job_result("no_cases"))
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -380,11 +433,10 @@ def extract_cases_for_article(
                         else None
                     ),
                 )
-                if usage_info is not None:
-                    _record_case_llm_job(
-                        conn, article_id=article_id, provider=provider, model=model,
-                        status="done", usage=usage_info, prompt_version=prompt_version,
-                    )
+                record_job(
+                    "done",
+                    _case_job_result("filtered", dropped=dropped_low_quality),
+                )
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -414,18 +466,17 @@ def extract_cases_for_article(
             )
             inserted = CaseRepository.insert_cases(conn, article_id, normalized)
             CaseRepository.restore_manual_keywords(conn, article_id, manual_rows)
+            case_ids = [
+                r[0]
+                for r in conn.execute(
+                    "SELECT case_id FROM cases WHERE article_id = ? "
+                    "AND subject != '__processing__'",
+                    (article_id,),
+                ).fetchall()
+            ]
             apply_taxonomy_for_case_ids(
                 conn,
-                [
-                    row[0]
-                    for row in conn.execute(
-                        """
-                        SELECT case_id FROM cases
-                        WHERE article_id = ? AND subject != '__processing__'
-                        """,
-                        (article_id,),
-                    ).fetchall()
-                ],
+                case_ids,
             )
             CaseRepository.upsert_extract_run(
                 conn, article_id,
@@ -434,11 +485,15 @@ def extract_cases_for_article(
                 status="done",
                 case_count=inserted,
             )
-            if usage_info is not None:
-                _record_case_llm_job(
-                    conn, article_id=article_id, provider=provider, model=model,
-                    status="done", usage=usage_info, prompt_version=prompt_version,
-                )
+            record_job(
+                "done",
+                _case_job_result(
+                    "completed",
+                    case_count=len(case_ids),
+                    dropped=dropped_low_quality,
+                    case_ids=case_ids,
+                ),
+            )
 
         return {
             "status": "completed",
@@ -462,11 +517,7 @@ def extract_cases_for_article(
                     error=str(e)[:500],
                     increment_attempts=not rate_limited,
                 )
-                if llm_call_fn is None:
-                    _record_case_llm_job(
-                        conn, article_id=article_id, provider=provider, model=model,
-                        status="failed", error=str(e)[:500], prompt_version=prompt_version,
-                    )
+                record_job("failed", _case_job_result("failed"), error=str(e)[:500])
         except Exception:
             pass
         return {
@@ -587,6 +638,7 @@ def extract_cases_batch(
         provider, model = resolve_active_model()
 
     results: dict[str, Any] = {
+        "batch_id": f"cb-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}",
         "processed": 0,
         "succeeded": 0,
         "failed": 0,
@@ -596,6 +648,7 @@ def extract_cases_batch(
         "budget_exhausted": False,
         "rate_limited": False,
     }
+    batch_id = results["batch_id"]
 
     for art in articles:
         if check_budget:
@@ -612,6 +665,7 @@ def extract_cases_batch(
             model=model,
             llm_call_fn=llm_call_fn,
             prompt_version=prompt_version,
+            batch_id=batch_id,
         )
         results["processed"] += 1
         status = res.get("status")

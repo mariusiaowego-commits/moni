@@ -159,9 +159,14 @@ def list_jobs(
     *,
     status: str | None = None,
     article_id: str | None = None,
+    task_type: str | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
-    """List jobs, newest first, optionally filtered by status and article."""
+    """List jobs, newest first, optionally filtered by status/article/type.
+
+    ``task_type`` 支持逗号分隔多值（如 ``fact_check,fact_check_plus``），
+    供前端「核查」筛选一次覆盖快核与联网核查。
+    """
     conn = get_db()
     where: list[str] = []
     params: list[Any] = []
@@ -171,6 +176,14 @@ def list_jobs(
     if article_id:
         where.append("article_id = ?")
         params.append(article_id)
+    if task_type:
+        types = [t.strip() for t in task_type.split(",") if t.strip()]
+        if len(types) == 1:
+            where.append("task_type = ?")
+            params.append(types[0])
+        elif types:
+            where.append(f"task_type IN ({','.join('?' * len(types))})")
+            params.extend(types)
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
     params.append(limit)
     rows = conn.execute(
