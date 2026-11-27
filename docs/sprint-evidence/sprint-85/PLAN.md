@@ -1,7 +1,7 @@
 ---
 type: sprint
 sprint: 26112701
-status: 进行中
+status: 已完成
 ---
 
 # Sprint 85 · case_action 口径修复与规则回填（Issue #351）
