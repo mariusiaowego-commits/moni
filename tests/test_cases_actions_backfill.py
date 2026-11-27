@@ -29,8 +29,17 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _seed(conn: sqlite3.Connection, case_id: str, summary: str, *, lifecycle: str = "verified") -> None:
-    article_id = f"art_{case_id}"
+def _seed(
+    conn: sqlite3.Connection,
+    case_id: str,
+    summary: str,
+    *,
+    lifecycle: str = "verified",
+    action: str = "launch",
+    source: str = "default",
+    article_id: str | None = None,
+) -> None:
+    article_id = article_id or f"art_{case_id}"
     conn.execute(
         "INSERT OR IGNORE INTO articles (id, title, url, source, fetched_at) VALUES (?,?,?,?,?)",
         (article_id, "t", "u", "s", _now()),
@@ -40,9 +49,9 @@ def _seed(conn: sqlite3.Connection, case_id: str, summary: str, *, lifecycle: st
                case_action, case_action_source, reference_value, extraction_status,
                review_status, case_lifecycle, extraction_attempts, normalize_version,
                summary, evidence_snippet, extracted_at, created_at, updated_at)
-           VALUES (?, ?, 'month', '招商银行', 'AI', 'launch', 'default', 'high',
+           VALUES (?, ?, 'month', '招商银行', 'AI', ?, ?, 'high',
                    'completed', 'confirmed', ?, 1, 1, ?, '', ?, ?, ?)""",
-        (case_id, article_id, lifecycle, summary, _now(), _now(), _now()),
+        (case_id, article_id, action, source, lifecycle, summary, _now(), _now(), _now()),
     )
     conn.commit()
 
@@ -101,4 +110,35 @@ class TestCli:
         assert main(["--db", str(db_file), "--apply"]) == 0
         assert "无候选" in capsys.readouterr().out
         row = conn.execute("SELECT case_action FROM cases").fetchone()
+        assert row[0] == "launch"
+
+    def test_llm_enum_skipped_by_default(self, tmp_db, capsys):
+        conn, db_file = tmp_db
+        _seed(conn, "MN-AI-2608-0004", "Visa 收购反欺诈企业", action="pilot", source="llm_enum")
+        from moni.cases.backfill_actions import main
+        assert main(["--db", str(db_file), "--apply"]) == 0
+        assert "跳过 llm_enum/manual 1 条" in capsys.readouterr().out
+        row = conn.execute("SELECT case_action, case_action_source FROM cases").fetchone()
+        assert tuple(row) == ("pilot", "llm_enum")
+
+    def test_include_llm_overrides(self, tmp_db):
+        conn, db_file = tmp_db
+        _seed(conn, "MN-AI-2608-0004", "Visa 收购反欺诈企业", action="pilot", source="llm_enum")
+        from moni.cases.backfill_actions import main
+        assert main(["--db", str(db_file), "--apply", "--include-llm"]) == 0
+        row = conn.execute("SELECT case_action FROM cases").fetchone()
+        assert row[0] == "transform"
+
+    def test_unique_conflict_skipped_not_fatal(self, tmp_db, capsys):
+        conn, db_file = tmp_db
+        # 同文章 + 同主体 + 同类型：一条已是 transform，另一条待改 transform
+        _seed(conn, "MN-AI-2608-0004", "Visa 收购反欺诈企业", action="transform", source="rule_text")
+        _seed(conn, "MN-AI-2608-0005", "Visa 收购另一家公司", article_id="art_MN-AI-2608-0004")
+        from moni.cases.backfill_actions import main
+        assert main(["--db", str(db_file), "--apply"]) == 0
+        out = capsys.readouterr().out
+        assert "冲突跳过 1 条" in out
+        row = conn.execute(
+            "SELECT case_action FROM cases WHERE case_id = 'MN-AI-2608-0005'"
+        ).fetchone()
         assert row[0] == "launch"

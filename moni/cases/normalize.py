@@ -207,7 +207,7 @@ CASE_ACTION_KEYWORDS: dict[str, list[str]] = {
     "transform": [
         "收购", "并购", "私有化", "合并", "重组", "整合", "转型", "改制",
         "更名", "组织架构调整", "架构调整", "核心系统切换", "系统切换",
-        "战略升级", "升级", "重塑", "重构", "改造",
+        "战略升级", "系统升级", "架构升级", "核心系统升级", "重塑", "重构", "改造",
     ],
     "pilot": [
         "试点", "试运行", "试运营", "内测", "灰度", "沙盒", "试行", "小范围",
@@ -225,7 +225,8 @@ CASE_ACTION_KEYWORDS: dict[str, list[str]] = {
 }
 
 #: 上下文关键词命中优先级：越靠前越具体，避免「上线并推广」被判成 launch。
-CASE_ACTION_PRIORITY = ("exit", "transform", "pilot", "scale", "launch")
+#: scale 在 pilot 之前： 「试点成功后全行推广」应记最终态规模化。
+CASE_ACTION_PRIORITY = ("exit", "transform", "scale", "pilot", "launch")
 
 # ── case_type 关键词映射 (2 类) ──────────────────────────────────────────
 CASE_TYPE_KEYWORDS: dict[str, list[str]] = {

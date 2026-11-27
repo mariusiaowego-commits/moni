@@ -19,10 +19,13 @@ status: 进行中
 - 扩充 5 类关键词：`exit` 用「关停/停止服务/下线…」，`transform` 吸收
   「收购/并购/私有化/合并/重组/整合/转型/升级」，`pilot`「试点/内测/灰度」，
   `scale`「规模化/全面推广/扩容」，`launch`「上线/推出/成立/签…」。
-- 上下文优先级固定为 `exit > transform > pilot > scale > launch`；
+- 上下文优先级固定为 `exit > transform > scale > pilot > launch`（「试点后全行推广」
+  记最终态）；上下文只吃 summary + evidence，不拼标题，避免合辑标题串味；
   当模型给 `launch` 而上下文更具体时，以上下文为准。
-- 新增 `moni/cases/backfill_actions.py`：按 summary + evidence + 标题重算，
+- 新增 `moni/cases/backfill_actions.py`：按 summary + evidence 重算，
   默认 dry-run，`--apply` 才写库，`--ids/--limit` 可控。
+  默认跳过 `case_action_source in ('llm_enum','manual')` 的行（`--include-llm` 可覆盖）；
+  逐条 UPDATE 并捕获唯一键冲突，冲突行跳过而不是整批回滚。
 - 前端标签 `transform` 由「转型」改为「转型/整合」，覆盖 M&A 语义。
 
 ## 非目标

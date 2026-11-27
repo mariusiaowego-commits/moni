@@ -22,10 +22,10 @@ from moni.cases.normalize import normalize_case_action_with_source
 
 def _rows(conn: sqlite3.Connection, ids: list[str] | None, limit: int | None) -> list[dict]:
     sql = """
-        SELECT c.case_id, c.case_action, c.case_action_source,
-               c.summary, c.evidence_snippet, a.title AS article_title
+        SELECT c.case_id, c.article_id, c.subject, c.case_type,
+               c.case_action, c.case_action_source,
+               c.summary, c.evidence_snippet
         FROM cases c
-        LEFT JOIN articles a ON a.id = c.article_id
         WHERE c.case_lifecycle != 'archived'
           AND c.subject != '__processing__'
     """
@@ -41,8 +41,8 @@ def _rows(conn: sqlite3.Connection, ids: list[str] | None, limit: int | None) ->
 
 
 def _context(row: dict) -> str:
-    parts = (row.get("summary"), row.get("evidence_snippet"), row.get("article_title"))
-    return " ".join(str(p or "") for p in parts).strip()
+    """与实时 normalize_case 同口径：只吃 summary + evidence，不拼标题."""
+    return f"{row.get('summary') or ''} {row.get('evidence_snippet') or ''}".strip()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -51,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ids", default=None, help="逗号分隔的 case_id")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--apply", action="store_true", help="写库（默认 dry-run）")
+    parser.add_argument("--include-llm", action="store_true",
+                        help="连 llm_enum / manual 来源的行一起重算（默认跳过）")
     args = parser.parse_args(argv)
     if args.limit is not None and args.limit <= 0:
         parser.error("--limit 必须 > 0")
@@ -67,13 +69,20 @@ def main(argv: list[str] | None = None) -> int:
         plan = []
         before = collections.Counter(r["case_action"] for r in rows)
         after = collections.Counter()
+        skipped_locked = 0
         for row in rows:
+            if not args.include_llm and row["case_action_source"] in ("llm_enum", "manual"):
+                skipped_locked += 1
+                after[row["case_action"]] += 1
+                continue
             action, source = normalize_case_action_with_source(None, context_text=_context(row))
             after[action] += 1
             if (action, source) != (row["case_action"], row["case_action_source"]):
                 plan.append((row["case_id"], action, source))
 
         print(f"[actions] 候选 {len(rows)} 条，需改动 {len(plan)} 条")
+        if skipped_locked:
+            print(f"  跳过 llm_enum/manual {skipped_locked} 条（--include-llm 可覆盖）")
         print(f"  before {json.dumps(dict(before), ensure_ascii=False)}")
         print(f"  after  {json.dumps(dict(after), ensure_ascii=False)}")
 
@@ -85,13 +94,22 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         now = datetime.now(timezone.utc).isoformat()
+        applied = 0
+        conflicts = 0
         with conn:
-            conn.executemany(
-                "UPDATE cases SET case_action = ?, case_action_source = ?, updated_at = ?"
-                " WHERE case_id = ?",
-                [(action, source, now, case_id) for case_id, action, source in plan],
-            )
-        print(f"[actions] 已写入 {len(plan)} 条")
+            for case_id, action, source in plan:
+                # UNIQUE(article_id, subject, case_type, case_action)：同文同主体
+                # 已有目标动作时跳过，避免整批回滚。
+                try:
+                    conn.execute(
+                        "UPDATE cases SET case_action = ?, case_action_source = ?,"
+                        " updated_at = ? WHERE case_id = ?",
+                        (action, source, now, case_id),
+                    )
+                    applied += 1
+                except sqlite3.IntegrityError:
+                    conflicts += 1
+        print(f"[actions] 已写入 {applied} 条" + (f"，唯一键冲突跳过 {conflicts} 条" if conflicts else ""))
         return 0
     finally:
         conn.close()
