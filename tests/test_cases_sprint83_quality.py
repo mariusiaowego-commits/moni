@@ -117,7 +117,10 @@ class TestPreGate:
         assert validate_case(ok) is None
         assert validate_case({**ok, "summary": "太短"}) is not None
         assert validate_case({**ok, "extraction_confidence": 59}) is not None
-        assert validate_case({**ok, "keywords": ["智能投顾"]}) is not None
+        # 别名归并后单概念是正常结果，不拦；0 关键词才拦
+        assert validate_case({**ok, "keywords": ["智能投顾"]}) is None
+        assert validate_case({**ok, "keywords": []}) is not None
+        assert validate_case({**ok, "keywords": ["  ", ""]}) is not None
 
 
 class TestModuleScope:
