@@ -29,7 +29,7 @@
 **测试**：CI `pytest · py3.12` run `45934729139` success（`76bf65a`）；定向 131 + 11 passed；
 agy 独立复检 APPROVE（`/private/tmp/herdr-dispatch/tasks/20261127-112653-share-queue-link-column-audit/result.md`）
 
-## 已部署: **案例详情「深度解读」+ case_action 回填** (2026-11-27 · PR #358 / #360 → `c6ce761` · Sprint 85/86)
+## 已部署: **案例详情「深度解读」+ case_action 回填** (2026-11-27 · PR #358 / #360 → `60a914d` · tag `v1.0.147` · Sprint 85/86)
 
 **目标**：Issue #351 与「详情页 10 秒判断值不值得看」。分两个 PR 落地，依次合并。
 
@@ -47,20 +47,25 @@ agy 独立复检 APPROVE（`/private/tmp/herdr-dispatch/tasks/20261127-112653-sh
 - 生产 checkout `e426a1b → c6ce761`，8900 重启，`/cases` 200、`/api/cases/MN-AI-2611-0003` 返回
   `insight.what/how[4]/risks[4]/reusable[4]/fit`。
 - 动作回填：候选 435 / 已写入 282；分布 `launch 330 / transform 49 / scale 22 / pilot 20 / exit 14`。
-- 深度解读定向回填 30 条：`ok 29 / failed 1 / insufficient 5`（失败 `MN-AI-2608-0002`：
-  empty/invalid JSON）；`case_insights` 30 行、`cases.insight_id` 29 条。
+- 深度解读全量回填 404 条（70 分钟）：`ok 401 / failed 3 / insufficient 104`。终态
+  `case_insights` 435 行（done 432 / failed 3），其中 insufficient 110；可用 322 条；
+  `cases.insight_id` 432；幂等重复 0。失败：`MN-AI-2608-0002`、`MN-AI-2607-0092`（invalid JSON）、
+  `MN-AI-2605-0005`（hermes failover exhausted）。
 - UI 实测 1440：`.cv-deep-cols` `464.359px 240px`、导语 `20px/600`、4 步；1024：单列
   `896.547px`、step 476px；两档 `scrollWidth == clientWidth`。
+- 生产端测：页面 15/15 200；只读 API 19/19 200（cases / articles / share / cleaning /
+  config / basket / desensitize）；insufficient 案例不渲染「深度解读」，JS exceptions 0。
 
 **证据**
 
 - `docs/sprint-evidence/sprint-86/{PLAN,VERIFY}.md`
-- `docs/sprint-evidence/sprint-86/render/{detail-insight-1440,detail-insight-1024,prod-detail-1440,prod-detail-1024}.png`
+- `docs/sprint-evidence/sprint-86/render/{detail-insight-1440,detail-insight-1024,prod-detail-1440,prod-detail-1024,prod-check-1440}.png`
+- `docs/sprint-evidence/sprint-86/PROD-CHECKLIST.md`
 
 **未做**
 
-- 全量 432 条 insight 回填未跑（约 5 小时 / 30 万 input tokens）。
-- 未打 tag。
+- 3 条 failed 可按 id 重跑；110 条 insufficient 属预期（原文不足）。
+- 移动端（<768px）未逐项视觉验收。
 
 ## 已部署: **分享页 v2：产出物特性快照 / 简报默认标题 / 上下文标记 / 工具栏重做** (2026-11-27 · PR #352 → `b7480f2` · tag `v1.0.144` · Sprint 84)
 
