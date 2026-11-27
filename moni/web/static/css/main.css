@@ -5176,9 +5176,9 @@ body.has-float-layer .feat-tip { display: none !important; }
 }
 .queue-toolbar { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
 .queue-toolbar .icon { width: 15px; height: 15px; }
-/* 9 fixed columns sum to 696px; below that the artifact column would
-   collapse to 0 and its header would bleed into 特性, so keep a floor and
-   let narrow viewports scroll the table container instead. */
+/* 8 固定列合计 858px（简报链接 280 + 操作 120 + 创建时间 120 + 其余 6 列），
+   「特性」列 auto 吸收剩余；min-width 1034px 给特性列留 176px 底线，
+   再窄就横向滚动表格容器，不让表头互相挤压。 */
 .share-queue-table { table-layout: fixed; width: 100%; min-width: 1034px; }
 .share-queue-table th,
 .share-queue-table td { padding: 9px 6px; }
