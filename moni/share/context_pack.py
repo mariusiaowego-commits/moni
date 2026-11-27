@@ -106,6 +106,12 @@ def render_body_html(text: str) -> str:
 
 _SECTION_LINE_RE = re.compile(r"^[ \t]*([一二三四五六七八九十]+)、[ \t]*(.*)$")
 _NUMBERED_RE = re.compile(r"(?m)(?:^|(?<=[。！？；）)]))[ \t]*(\d{1,2})[.、][ \t]+")
+# 标题行里紧贴正文的编号（``一、结论1. 这个案例…``）：前导不限标点，只要求
+# 编号前不是数字，避免把年份「2024. 」里的「24.」当成条目。
+_INLINE_NUMBER_RE = re.compile(r"(?<!\d)(\d{1,2})[.、][ \t]+")
+# 标题与正文的其它分隔：句读、冒号，或两个以上空格（``七、优先级建议  第一步：``）。
+_HEADING_BREAK_RE = re.compile(r"(?:[。；：]|[ \t]{2,})")
+_MAX_HEADING_CHARS = 12
 _PROOF_RE = re.compile(r"证明[：:]")
 
 _DETAIL_CSS = """
@@ -152,22 +158,35 @@ def _split_sections(text: str) -> list[tuple[str, str]]:
         if not match:
             buf.append(line)
             continue
-        if buf:
+        if buf or heading:
             sections.append((heading, "\n".join(buf).strip()))
         buf = []
         rest = match.group(2).strip()
-        inline = _NUMBERED_RE.search(rest)
-        if inline and inline.start() > 0:
-            heading = rest[: inline.start()].strip()
-            buf.append(rest[inline.start() :])
-        elif inline:
-            heading = ""
-            buf.append(rest)
-        else:
-            heading = rest
+        label, body = _split_heading_line(rest)
+        heading = label
+        if body:
+            buf.append(body)
     if buf:
         sections.append((heading, "\n".join(buf).strip()))
     return [(h, b) for h, b in sections if h or b]
+
+
+def _split_heading_line(rest: str) -> tuple[str, str]:
+    """标题行可能把第 1 条正文粘在标题后面，这里把它拆出来。
+
+    生产里真实出现过 ``一、结论1. 这个案例…``、``六、两个反直觉的洞察1. …``
+    和 ``七、优先级建议  第一步：…`` 三种写法；只在分隔符前的标题确实很短时
+    才切，避免把正常的长标题腰斩。
+    """
+    inline = _INLINE_NUMBER_RE.search(rest)
+    if inline and inline.start() > 0:
+        return rest[: inline.start()].strip(), rest[inline.start() :]
+    if inline:
+        return "", rest
+    sep = _HEADING_BREAK_RE.search(rest)
+    if sep and 0 < sep.start() <= _MAX_HEADING_CHARS:
+        return rest[: sep.start()].strip(), rest[sep.end() :].strip()
+    return rest, ""
 
 
 def _numbered_items(body: str) -> tuple[str, list[str]]:
@@ -177,11 +196,22 @@ def _numbered_items(body: str) -> tuple[str, list[str]]:
     有些对话把编号写在上一句后面（``…先排除变量。14. 实验二``），所以句读
     之后的编号也算。
     """
-    marks: list[re.Match[str]] = []
-    expected: int | None = None
-    for match in _NUMBERED_RE.finditer(body):
+    candidates = list(_NUMBERED_RE.finditer(body))
+    if not candidates:
+        return body, []
+    # 从「正文开头」或「编号 1」起算，避免前导句里偶然出现的「。5.」把序列锁死。
+    start = next(
+        (i for i, m in enumerate(candidates) if not body[: m.start()].strip()), 0
+    )
+    if start == 0 and int(candidates[0].group(1)) != 1:
+        start = next(
+            (i for i, m in enumerate(candidates) if int(m.group(1)) == 1), 0
+        )
+    marks = [candidates[start]]
+    expected = int(candidates[start].group(1)) + 1
+    for match in candidates[start + 1 :]:
         number = int(match.group(1))
-        if expected is not None and number != expected:
+        if number != expected:
             continue
         marks.append(match)
         expected = number + 1

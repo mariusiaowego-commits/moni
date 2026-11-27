@@ -217,6 +217,40 @@ def test_render_detail_html_escapes_heading():
     assert "&lt;script&gt;" in html
 
 
+def test_render_detail_html_splits_item_glued_to_heading():
+    """生产真实写法：``一、结论1. 这个案例…`` —— 第 1 条不能并进标题。"""
+    html = render_detail_html("一、结论1. 甲条。\n2. 乙条。\n\n六、两个反直觉的洞察1. 丙条。\n2. 丁条。")
+    assert '<h4 class="moni-ctx-h">结论</h4>' in html
+    assert '<h4 class="moni-ctx-h">两个反直觉的洞察</h4>' in html
+    assert html.count('class="moni-ctx-item"') == 4
+    assert "1. 甲条。" not in html
+
+
+def test_render_detail_html_splits_heading_from_body_on_double_space():
+    html = render_detail_html("七、优先级建议  第一步：权益台账。")
+    assert '<h4 class="moni-ctx-h">优先级建议</h4>' in html
+    assert "第一步：权益台账。" in html
+
+
+def test_render_detail_html_keeps_long_heading_intact():
+    heading = "四个可落地的玩法（按合规压力从低到高）"
+    html = render_detail_html(f"四、{heading}\n\n1. 甲\n\n2. 乙")
+    assert heading in html
+
+
+def test_numbered_items_skip_stray_number_before_real_list():
+    from moni.share.context_pack import _numbered_items
+
+    lead, items = _numbered_items("前导一句话。5. 噪声\n\n1. 甲\n\n2. 乙")
+    assert items == ["甲", "乙"]
+
+
+def test_empty_section_heading_is_not_dropped():
+    html = render_detail_html("一、A\n二、B\n\n1. 甲\n\n2. 乙")
+    assert '<h4 class="moni-ctx-h">A</h4>' in html
+    assert '<h4 class="moni-ctx-h">B</h4>' in html
+
+
 def test_detail_css_is_scoped():
     assert "#box .moni-ctx-cols" in detail_css("#box")
     assert detail_css("").lstrip().startswith(".moni-ctx-h")
