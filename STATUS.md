@@ -27,7 +27,8 @@
 - 端点 200：`/`、`/cases`、`/stats`、`/api/share/tasks`。
 - Playwright 1440 实测：工具栏 `display:flex / gap:12px / wrap`，右侧按钮统一
   `26.9px` 高 / `13px` / `4px` 圆角 / `5px 14px` 内距；上下文图标宽 `16px`（纯图标），
-  图标右缘 688 vs 勾选框 x 693（gap 5px）；队列 113 行，特性列前 2 + `+N`，横向溢出 0，console 0 error。
+  图标右缘 688 vs 勾选框 x 693（gap 5px）；队列表（API `total=129`，前端 20/页）
+  特性列前 2 + `+N`，横向溢出 0，console 0 error。
 
 **测试**
 
