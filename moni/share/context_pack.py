@@ -252,8 +252,8 @@ def markdown_section(
     tldr_block = (
         "".join(
             [
-                "> **TLDR**\n",
-                "\n".join(tldr_lines),
+                "> **TLDR**\n>\n",
+                "\n".join(f"> {line}" for line in tldr_lines),
                 "\n\n",
             ]
         )
