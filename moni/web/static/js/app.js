@@ -7501,6 +7501,64 @@ function app() {
     llmJobsLoading: false,
     llmJobsPollHandle: null,
     llmJobsLastFetched: 0,
+    llmType: 'all',
+    llmTypeFilters: [
+      { key: 'all', label: '全部', types: '' },
+      { key: 'summary', label: '摘要', types: 'summary' },
+      { key: 'check', label: '核查', types: 'fact_check,fact_check_plus' },
+      { key: 'case_extract', label: '案例抽取', types: 'case_extract' },
+      { key: 'reader_chat', label: '阅读对话', types: 'reader_chat' },
+    ],
+    llmBatchOpen: {},
+
+    setLlmType(key) {
+      if (this.llmType === key) return;
+      this.llmType = key;
+      this.llmBatchOpen = {};
+      this.llmJobs = [];
+      this.loadLlmJobs();
+    },
+
+    llmJobsView() {
+      const groups = [];
+      const byBatch = new Map();
+      for (const job of (this.llmJobs || [])) {
+        if (job.task_type === 'case_extract' && job.batch_id) {
+          let g = byBatch.get(job.batch_id);
+          if (!g) {
+            g = {
+              key: 'batch:' + job.batch_id,
+              kind: 'batch',
+              batch_id: job.batch_id,
+              jobs: [],
+              created_at: job.created_at,
+            };
+            byBatch.set(job.batch_id, g);
+            groups.push(g);
+          }
+          g.jobs.push(job);
+          if (job.created_at && job.created_at > g.created_at) g.created_at = job.created_at;
+          continue;
+        }
+        groups.push({ key: 'job:' + job.id, kind: 'job', job, created_at: job.created_at });
+      }
+      for (const g of groups) {
+        if (g.kind !== 'batch') continue;
+        g.done = g.jobs.filter((j) => j.status === 'done').length;
+        g.failed = g.jobs.filter((j) => j.status === 'failed').length;
+        g.duration_ms = g.jobs.reduce((sum, j) => sum + (Number(j.duration_ms) || 0), 0);
+        const finished = g.done + g.failed === g.jobs.length;
+        g.label = g.failed ? '部分失败' : (finished ? '完成' : '进行中');
+        g.badge = g.failed ? 'badge-failed' : (finished ? 'badge-done' : 'badge-running');
+      }
+      return groups;
+    },
+
+    toggleLlmBatch(batchId) {
+      const next = Object.assign({}, this.llmBatchOpen);
+      next[batchId] = !next[batchId];
+      this.llmBatchOpen = next;
+    },
 
     enqueueLlmJob(taskType, jobId, articleId) {
       // 任务已经在阅读器的槽位里跟随了。这里只刷新一次任务面板的计数，
@@ -7517,8 +7575,12 @@ function app() {
       const self = this;
       if (self.llmJobsLoading) return;
       self.llmJobsLoading = true;
+      const active = self.llmTypeFilters.find((f) => f.key === self.llmType);
+      const typeQuery = active && active.types
+        ? '&task_type=' + encodeURIComponent(active.types)
+        : '';
       Promise.all([
-        fetch('/api/llm/jobs?limit=100', { credentials: 'same-origin' }).then(r => r.json()),
+        fetch('/api/llm/jobs?limit=100' + typeQuery, { credentials: 'same-origin' }).then(r => r.json()),
         fetch('/api/llm/jobs/stats/summary', { credentials: 'same-origin' }).then(r => r.json()),
       ])
         .then(([jobs, stats]) => {
@@ -7562,6 +7624,7 @@ function app() {
         running:   { label: '运行中', cls: 'badge-running' },
         done:      { label: '完成',   cls: 'badge-done' },
         failed:    { label: '失败',   cls: 'badge-failed' },
+        stale:     { label: '已超时', cls: 'badge-failed' },
         cancelled: { label: '已取消', cls: 'badge-cancelled' },
       };
       return map[status] || { label: status, cls: 'badge-unknown' };
@@ -7610,6 +7673,15 @@ function app() {
     // object for backwards compatibility but is no longer wired to UI.
     jobDetail: null,
     jobDetailCopied: false,
+    jobBatch: null,
+
+    openBatchDetail(group) {
+      this.jobBatch = group;
+    },
+
+    closeBatchDetail() {
+      this.jobBatch = null;
+    },
     jobDetailFactCheck: null,
 
     openJobDetail(job) {

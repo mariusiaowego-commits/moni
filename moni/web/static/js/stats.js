@@ -94,6 +94,7 @@ function statsModule() {
     rankPage: 1,
     rankPageSize: 20,
     rankPageSizeOptions: [20, 50],
+    rankView: 'high',
 
     // ── lifecycle ──────────────────────────────────────────
     async init() {
@@ -513,10 +514,25 @@ function statsModule() {
     },
 
     _normalizeRankingRows() {
-      const rows = this.casesDashboard.high_value_ranking || [];
-      rows.forEach((row) => {
-        row.keywords = this._parseKeywords(row.keywords);
+      ['high_value_ranking', 'recent_cases'].forEach((key) => {
+        (this.casesDashboard[key] || []).forEach((row) => {
+          row.keywords = this._parseKeywords(row.keywords);
+        });
       });
+    },
+
+    activeRankRows() {
+      if (this.rankView === 'recent') {
+        return this.casesDashboard.recent_cases || [];
+      }
+      return this.casesDashboard.high_value_ranking || [];
+    },
+
+    setRankView(view) {
+      const next = view === 'recent' ? 'recent' : 'high';
+      if (this.rankView === next) return;
+      this.rankView = next;
+      this.rankPage = 1;
     },
 
     _restoreExclusions() {
@@ -735,7 +751,7 @@ function statsModule() {
     },
 
     filteredHighValueRanking() {
-      const rows = this.casesDashboard.high_value_ranking || [];
+      const rows = this.activeRankRows();
       const ex = this.caseExclusions || this._emptyExclusions();
       if (!(ex.keywords || []).length
           && !(ex.countries || []).length
@@ -746,7 +762,7 @@ function statsModule() {
     },
 
     excludedRankCount() {
-      const all = (this.casesDashboard.high_value_ranking || []).length;
+      const all = this.activeRankRows().length;
       return Math.max(0, all - this.filteredHighValueRanking().length);
     },
 

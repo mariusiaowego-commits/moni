@@ -58,6 +58,8 @@ def test_job_out_requires_the_identity_fields(schema: dict):
         ("output_tokens", {"integer", "null"}),
         ("cost_usd", {"number", "null"}),
         ("fact_check", {"object", "null"}),
+        ("batch_id", {"string", "null"}),
+        ("extracted_cases", {"array", "null"}),
         ("error", {"string", "null"}),
     ],
 )
