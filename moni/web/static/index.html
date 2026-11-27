@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261127002">
+  <link rel="stylesheet" href="css/main.css?v=20261127003">
   <!-- v1.0.110: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
        放在 main.css 之后，同名选择器以它们为准，便于单独回滚。 -->
   <link rel="stylesheet" href="css/source-ops.css?v=20261120011">
@@ -1472,13 +1472,13 @@
                 <col style="width:68px;">
                 <col style="width:68px;">
                 <col style="width:76px;">
-                <col style="width:88px;">
+                <col style="width:120px;">
+                <col style="width:280px;">
                 <col style="width:auto;">
-                <col style="width:176px;">
-                <col style="width:96px;">
+                <col style="width:120px;">
               </colgroup>
               <thead>
-                <tr><th>任务ID</th><th>文章数</th><th>格式</th><th>状态</th><th>进度</th><th>创建时间</th><th>产出产物</th><th>特性</th><th>操作</th></tr>
+                <tr><th>任务ID</th><th>文章数</th><th>格式</th><th>状态</th><th>进度</th><th>创建时间</th><th>简报链接</th><th>特性</th><th>操作</th></tr>
               </thead>
               <tbody>
                 <template x-for="q in shareQueue" :key="q.id">
@@ -1510,7 +1510,7 @@
                     </td>
                     <td style="font-size:var(--font-12);" :title="formatTime(q.created_at)"
                         x-text="formatTime(q.created_at).slice(5)"></td>
-                    <td>
+                    <td class="cell-artifact">
                       <template x-if="q.output_url && q.status === 'done'">
                         <a class="link" :class="{'link-blocked': isBlockedUrl(q.output_url)}" :href="safeHref(q.output_url)" target="_blank" rel="noopener noreferrer"
                            x-text="q.output_url.split('/').pop()"
@@ -1522,6 +1522,7 @@
                       </template>
                       <template x-if="q.status !== 'done'">
                         <span class="muted" style="font-size:var(--font-12);"
+                              :title="(q.status === 'failed' || q.status === 'cancelled') ? (q.error || q.status) : ''"
                               x-text="(q.status === 'failed' || q.status === 'cancelled') ? (q.error || q.status) : '—'"></span>
                       </template>
                     </td>
