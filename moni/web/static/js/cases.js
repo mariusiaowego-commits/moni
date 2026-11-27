@@ -14,7 +14,7 @@ function casesModule() {
   ];
 
   const ACTION_LABELS = {
-    launch: '上线', pilot: '试点', scale: '规模化', transform: '转型', exit: '退出',
+    launch: '上线', pilot: '试点', scale: '规模化', transform: '转型/整合', exit: '退出',
   };
   const VALUE_LABELS = { high: '高价值', medium: '中价值', low: '低价值', none: '未评级' };
   const VALUE_SHORT = { high: '高', medium: '中', low: '低', none: '未评级' };
@@ -69,7 +69,7 @@ function casesModule() {
       { value: 'launch', label: '上线' },
       { value: 'pilot', label: '试点' },
       { value: 'scale', label: '规模化' },
-      { value: 'transform', label: '转型' },
+      { value: 'transform', label: '转型/整合' },
       { value: 'exit', label: '退出' },
     ],
     caseReferences: [

@@ -200,12 +200,33 @@ BANK_ALIAS_MAP: dict[str, str] = {
 
 # ── case_action 关键词映射 (5 类) ─────────────────────────────────────────
 CASE_ACTION_KEYWORDS: dict[str, list[str]] = {
-    "launch": ["上线", "推出", "发布", "落地", "启用", "正式", "投入运营", "推出新"],
-    "pilot": ["试点", "试运行", "试运营", "内测", "小范围", "局部", "测试期", "试水"],
-    "scale": ["规模化", "全面推广", "大规模", "全覆盖", "全行推广", "扩大", "扩展到", "推广到"],
-    "transform": ["转型", "重塑", "升级", "重构", "改造", "数字化转型", "智能化升级"],
-    "exit": ["退出", "下线", "终止", "关停", "停运", "撤出", "结束"],
+    "exit": [
+        "关停", "下线", "停止服务", "停止运营", "终止服务", "终止运营",
+        "退出市场", "撤出", "停运", "解散", "清退", "结束运营", "暂停服务",
+    ],
+    "transform": [
+        "收购", "并购", "私有化", "合并", "重组", "整合", "转型", "改制",
+        "更名", "组织架构调整", "架构调整", "核心系统切换", "系统切换",
+        "战略升级", "系统升级", "架构升级", "核心系统升级", "重塑", "重构", "改造",
+    ],
+    "pilot": [
+        "试点", "试运行", "试运营", "内测", "灰度", "沙盒", "试行", "小范围",
+        "测试期", "试水",
+    ],
+    "scale": [
+        "规模化", "全面推广", "大面积推广", "全覆盖", "全行推广", "推广至",
+        "推广到", "扩展至", "扩容", "复制到", "扩大覆盖",
+    ],
+    "launch": [
+        "上线", "推出", "发布", "落地", "启用", "投入运营", "成立", "设立",
+        "开业", "获批", "中标", "签约", "达成合作", "战略合作", "合作", "联合",
+        "接入", "部署", "投产", "开通", "首发", "启动",
+    ],
 }
+
+#: 上下文关键词命中优先级：越靠前越具体，避免「上线并推广」被判成 launch。
+#: scale 在 pilot 之前： 「试点成功后全行推广」应记最终态规模化。
+CASE_ACTION_PRIORITY = ("exit", "transform", "scale", "pilot", "launch")
 
 # ── case_type 关键词映射 (2 类) ──────────────────────────────────────────
 CASE_TYPE_KEYWORDS: dict[str, list[str]] = {
@@ -322,20 +343,28 @@ def normalize_case_action_with_source(
       - 'rule_text': raw_action 或 context_text 命中中文关键词
       - 'default': 兜底回退为 'launch'
     """
+    text_action = None
+    if context_text:
+        for action in CASE_ACTION_PRIORITY:
+            if any(kw in context_text for kw in CASE_ACTION_KEYWORDS[action]):
+                text_action = action
+                break
+
     if raw_action:
         cleaned = raw_action.strip()
         if cleaned.lower() in CASE_ACTION_KEYWORDS:
-            return cleaned.lower(), "llm_enum"
-        for action, keywords in CASE_ACTION_KEYWORDS.items():
-            for kw in keywords:
+            enum = cleaned.lower()
+            # 模型倾向把一切都标 launch；上下文更具体时以上下文为准
+            if enum == "launch" and text_action and text_action != "launch":
+                return text_action, "rule_text"
+            return enum, "llm_enum"
+        for action in CASE_ACTION_PRIORITY:
+            for kw in CASE_ACTION_KEYWORDS[action]:
                 if kw in cleaned:
                     return action, "rule_text"
 
-    if context_text:
-        for action in ("exit", "pilot", "scale", "transform", "launch"):
-            for kw in CASE_ACTION_KEYWORDS[action]:
-                if kw in context_text:
-                    return action, "rule_text"
+    if text_action:
+        return text_action, "rule_text"
 
     return "launch", "default"
 
