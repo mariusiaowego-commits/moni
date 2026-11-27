@@ -191,6 +191,46 @@ class TestShareCasesP2:
         assert "深度解读" in html_with_ins
         assert "招行标杆落地" in html_with_ins
 
+    def test_render_case_brief_supports_v1_insight_keys(self, share_db):
+        conn, db_file, _ = share_db
+        cid = _seed_case(
+            conn, "art_r2", subject="招商银行",
+            summary="招行上线智能投顾系统", evidence="招行公告",
+        )
+        conn.execute(
+            """
+            INSERT INTO case_insights (case_id, prompt_version, input_hash, status, body_json)
+            VALUES (?, 'v1', 'h-v1', 'done', ?)
+            """,
+            (cid, json.dumps({
+                "what": "上线智能投顾",
+                "how": ["自研模型", "分层服务"],
+                "risks": ["合规边界"],
+                "reusable": ["分层运营"],
+                "fit": "零售客群",
+            }, ensure_ascii=False)),
+        )
+        conn.commit()
+        html = render_case_brief_html(db_file, [cid], title="v1解读简报")
+        for text in ("上线智能投顾", "自研模型", "合规边界", "分层运营", "零售客群"):
+            assert text in html
+
+    def test_render_case_brief_skips_insufficient(self, share_db):
+        conn, db_file, _ = share_db
+        cid = _seed_case(
+            conn, "art_r3", subject="招商银行", summary="招行公告", evidence="招行公告",
+        )
+        conn.execute(
+            """
+            INSERT INTO case_insights (case_id, prompt_version, input_hash, status, body_json)
+            VALUES (?, 'v1', 'h-ins', 'done', ?)
+            """,
+            (cid, json.dumps({"insufficient": True, "reason": "只有标题"}, ensure_ascii=False)),
+        )
+        conn.commit()
+        html = render_case_brief_html(db_file, [cid], title="空简报")
+        assert "深度解读" not in html
+
     def test_brief_uses_chinese_labels_not_raw_enums(self, share_db):
         """分享出去的简报是给人看的：库里的英文枚举不能直接漏出去。"""
         conn, db_file, _ = share_db

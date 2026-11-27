@@ -479,12 +479,25 @@ def _unit_suffix(value_raw: Any, unit: str) -> str:
 
 
 def _render_insight(insight: dict[str, Any]) -> str:
+    if insight.get("insufficient"):
+        return ""
+    what = insight.get("what") or insight.get("one_liner")
+    how = [str(x) for x in (insight.get("how") or []) if str(x).strip()]
+    reusable = [str(x) for x in (insight.get("reusable") or []) if str(x).strip()]
+    risks = insight.get("risks") or insight.get("risks_prerequisites") or []
+    fit = insight.get("fit")
+    practices = insight.get("transferable_practices") or []
+    if not (what or how or reusable or risks or fit or practices):
+        return ""
+
     parts: list[str] = ['<div class="insight-box"><h4>深度解读</h4>']
-    if insight.get("one_liner"):
-        parts.append(f'<p><strong>一句话结论：</strong>{_esc(insight["one_liner"])}</p>')
+    if what:
+        parts.append(f'<p><strong>一句话结论：</strong>{_esc(what)}</p>')
     if insight.get("why_it_matters"):
         parts.append(f'<p><strong>为什么值得看：</strong>{_esc(insight["why_it_matters"])}</p>')
-    practices = insight.get("transferable_practices") or []
+    if how:
+        items = "".join(f"<li>{_esc(x)}</li>" for x in how[:5])
+        parts.append(f"<p><strong>具体做法：</strong></p><ol>{items}</ol>")
     if practices:
         items = "".join(
             "<li>{}{}</li>".format(
@@ -495,9 +508,13 @@ def _render_insight(insight: dict[str, Any]) -> str:
             if isinstance(p, dict)
         )
         parts.append(f"<p><strong>可迁移做法：</strong></p><ul>{items}</ul>")
-    risks = insight.get("risks_prerequisites") or []
+    if reusable:
+        items = "".join(f"<li>{_esc(x)}</li>" for x in reusable[:5])
+        parts.append(f"<p><strong>同行可复制：</strong></p><ul>{items}</ul>")
     if risks:
-        parts.append(f'<p><strong>风险/前提：</strong>{_esc("；".join(str(r) for r in risks))}</p>')
+        parts.append(f'<p><strong>落地风险：</strong>{_esc("；".join(str(r) for r in risks))}</p>')
+    if fit:
+        parts.append(f'<p><strong>适用条件：</strong>{_esc(fit)}</p>')
     parts.append("</div>")
     return "".join(parts)
 

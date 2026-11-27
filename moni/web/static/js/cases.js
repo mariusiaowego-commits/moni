@@ -421,6 +421,17 @@ function casesModule() {
       const ctx = detail && detail.evidence_context;
       return !!(ctx && (ctx.context_before || ctx.context_after));
     },
+    cvHasInsight(detail) {
+      const ins = detail && detail.insight;
+      if (!ins || ins.insufficient) return false;
+      return !!(ins.what || (ins.how || []).length || (ins.risks || []).length
+        || (ins.reusable || []).length || ins.fit);
+    },
+    cvHasInsightSide(detail) {
+      const ins = detail && detail.insight;
+      if (!ins) return false;
+      return !!((ins.risks || []).length || (ins.reusable || []).length || ins.fit);
+    },
 
     async cvShare() {
       const id = this.cvDetail && this.cvDetail.case_id;
