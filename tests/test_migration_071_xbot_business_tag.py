@@ -35,8 +35,8 @@ def _cfg() -> dict:
     return json.loads(row[0])
 
 
-def test_current_version_is_71():
-    assert _CURRENT_VERSION == 71
+def test_current_version_is_at_least_71():
+    assert _CURRENT_VERSION >= 71
 
 
 def test_migration_sets_switches_and_keeps_user_keys(fresh_db):

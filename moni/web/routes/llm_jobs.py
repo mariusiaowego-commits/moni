@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import math
+import json
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -100,6 +101,10 @@ class JobOut(BaseModel):
     progress: JobProgress | None = None
     #: 仅 fact_check_plus 且 done 时有值（人话结论 + 证据链）。
     fact_check: dict[str, Any] | None = None
+    #: 批量抽取批次；同一次「立即抽取」的逐篇任务共享。
+    batch_id: str | None = None
+    #: 仅 case_extract 且 done 时有值（本次抽到的案例清单）。
+    extracted_cases: list[dict[str, Any]] | None = None
 
 
 class DurationStats(BaseModel):
@@ -161,10 +166,18 @@ def _annotate(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def list_llm_jobs(
     status: str | None = Query(default=None, pattern=_STATUS_PATTERN),
     article_id: str | None = Query(default=None),
+    task_type: str | None = Query(default=None, description="类型；支持逗号分隔多值"),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[dict[str, Any]]:
-    """List LLM jobs newest first, optional status/article filters."""
-    return _annotate(list_jobs(status=status, article_id=article_id, limit=limit))
+    """List LLM jobs newest first, optional status/article/type filters."""
+    return _annotate(
+        list_jobs(
+            status=status,
+            article_id=article_id,
+            task_type=task_type,
+            limit=limit,
+        )
+    )
 
 
 @router.get("/stats/summary", response_model=JobsStats)
@@ -223,6 +236,67 @@ def jobs_duration_stats(
     )
 
 
+def _extracted_cases(job: dict[str, Any]) -> list[dict[str, Any]]:
+    """案例抽取任务对应的案例清单（详情弹窗用）。
+
+    优先按 ``result.case_ids`` 精确匹配；历史任务 result 为空时按 article_id
+    兜底 —— pipeline 重试会先删同文旧案例，库里天然只剩该文最新一批。
+    """
+    from moni.db.connection import get_db
+
+    conn = get_db()
+    case_ids: list[str] = []
+    has_case_ids = False
+    raw = job.get("result") or ""
+    if raw:
+        try:
+            data = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            data = None
+        if isinstance(data, dict):
+            # 新版记账总是带 case_ids（可能是空数组：被质量闸全丢或 0 案例）。
+            # 空数组表示"本次确实没有案例"，不能回落 article_id 兜底 ——
+            # 否则同文重试后会把其它批次的新案例串到这条旧任务上。
+            if "case_ids" in data:
+                has_case_ids = True
+                case_ids = [str(x) for x in (data.get("case_ids") or []) if x]
+
+    cols = """
+        c.case_id, c.subject, c.case_type, c.case_action,
+        c.extraction_confidence, c.reference_value,
+        (SELECT json_group_array(k.keyword) FROM case_keywords k
+         WHERE k.case_id = c.case_id) AS keywords
+    """
+    if has_case_ids and not case_ids:
+        return []
+    if case_ids:
+        marks = ",".join("?" * len(case_ids))
+        rows = conn.execute(
+            f"SELECT {cols} FROM cases c WHERE c.case_id IN ({marks}) "
+            "ORDER BY c.extraction_confidence DESC",
+            case_ids,
+        ).fetchall()
+    elif job.get("article_id"):
+        rows = conn.execute(
+            f"SELECT {cols} FROM cases c "
+            "WHERE c.article_id = ? AND c.subject != '__processing__' "
+            "ORDER BY c.extraction_confidence DESC",
+            (job["article_id"],),
+        ).fetchall()
+    else:
+        return []
+
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        row = dict(r)
+        try:
+            row["keywords"] = json.loads(row.get("keywords") or "[]")
+        except (TypeError, json.JSONDecodeError):
+            row["keywords"] = []
+        out.append(row)
+    return out
+
+
 @router.get("/{job_id}", response_model=JobOut)
 def get_llm_job(job_id: str) -> dict[str, Any]:
     """Return one job row (the SPA polls this every 1s).
@@ -272,6 +346,9 @@ def get_llm_job(job_id: str) -> dict[str, Any]:
             "timeliness": art_row.get("fact_check_timeliness") or None,
             "evidence": [dict(r) for r in ev_rows],
         }
+
+    if job.get("task_type") == "case_extract" and job.get("status") == "done":
+        job["extracted_cases"] = _extracted_cases(job)
     return _annotate([job])[0]
 
 

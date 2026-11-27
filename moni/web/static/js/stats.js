@@ -94,6 +94,7 @@ function statsModule() {
     rankPage: 1,
     rankPageSize: 20,
     rankPageSizeOptions: [20, 50],
+    rankView: 'high',
 
     // ── lifecycle ──────────────────────────────────────────
     async init() {
@@ -513,10 +514,25 @@ function statsModule() {
     },
 
     _normalizeRankingRows() {
-      const rows = this.casesDashboard.high_value_ranking || [];
-      rows.forEach((row) => {
-        row.keywords = this._parseKeywords(row.keywords);
+      ['high_value_ranking', 'recent_cases'].forEach((key) => {
+        (this.casesDashboard[key] || []).forEach((row) => {
+          row.keywords = this._parseKeywords(row.keywords);
+        });
       });
+    },
+
+    activeRankRows() {
+      if (this.rankView === 'recent') {
+        return this.casesDashboard.recent_cases || [];
+      }
+      return this.casesDashboard.high_value_ranking || [];
+    },
+
+    setRankView(view) {
+      const next = view === 'recent' ? 'recent' : 'high';
+      if (this.rankView === next) return;
+      this.rankView = next;
+      this.rankPage = 1;
     },
 
     _restoreExclusions() {
@@ -570,7 +586,16 @@ function statsModule() {
     },
 
     async loadRankingKeywords() {
-      const rows = this.casesDashboard.high_value_ranking || [];
+      const high = this.casesDashboard.high_value_ranking || [];
+      const recent = this.casesDashboard.recent_cases || [];
+      // 两个榜单都要纳入候选词：切到「最新入库」时表单词不能少。
+      const seen = new Set();
+      const rows = [];
+      [...high, ...recent].forEach((r) => {
+        if (!r || !r.case_id || seen.has(r.case_id)) return;
+        seen.add(r.case_id);
+        rows.push(r);
+      });
       this.excludeKeywordOptions = [];
       if (!rows.length) return;
       const already = rows.some((r) => (r.keywords || []).length);
@@ -580,33 +605,34 @@ function statsModule() {
         this.excludeKeywordOptions = Array.from(set).sort();
         return;
       }
-      const set = new Set();
-      const withKw = (row, keywords) => Object.assign({}, row, { keywords });
+      // 兼容旧后端（榜单行不带 keywords）：逐条拉 /keywords 再回填。
+      const fetched = new Map();
       try {
-        const r0 = await fetch(
-          `/api/cases/${encodeURIComponent(rows[0].case_id)}/keywords`,
-          { credentials: 'same-origin' }
-        );
-        if (!r0.ok) return;
-        const d0 = await r0.json();
-        const kw0 = (d0.items || []).map((i) => i.keyword).filter(Boolean);
-        kw0.forEach((k) => set.add(k));
-        const rest = await Promise.all(rows.slice(1).map(async (row) => {
+        await Promise.all(rows.map(async (row) => {
           try {
             const r = await fetch(
               `/api/cases/${encodeURIComponent(row.case_id)}/keywords`,
               { credentials: 'same-origin' }
             );
-            if (!r.ok) return withKw(row, []);
+            if (!r.ok) { fetched.set(row.case_id, []); return; }
             const d = await r.json();
-            const keywords = (d.items || []).map((i) => i.keyword).filter(Boolean);
-            keywords.forEach((k) => set.add(k));
-            return withKw(row, keywords);
+            fetched.set(
+              row.case_id,
+              (d.items || []).map((i) => i.keyword).filter(Boolean),
+            );
           } catch (e) {
-            return withKw(row, []);
+            fetched.set(row.case_id, []);
           }
         }));
-        this.casesDashboard.high_value_ranking = [withKw(rows[0], kw0)].concat(rest);
+        const set = new Set();
+        fetched.forEach((keywords) => keywords.forEach((k) => set.add(k)));
+        const apply = (list) => (list || []).map((r) => (
+          fetched.has(r.case_id)
+            ? Object.assign({}, r, { keywords: fetched.get(r.case_id) })
+            : r
+        ));
+        this.casesDashboard.high_value_ranking = apply(high);
+        this.casesDashboard.recent_cases = apply(recent);
         this.excludeKeywordOptions = Array.from(set).sort();
       } catch (e) {
         this.excludeKeywordOptions = [];
@@ -735,7 +761,7 @@ function statsModule() {
     },
 
     filteredHighValueRanking() {
-      const rows = this.casesDashboard.high_value_ranking || [];
+      const rows = this.activeRankRows();
       const ex = this.caseExclusions || this._emptyExclusions();
       if (!(ex.keywords || []).length
           && !(ex.countries || []).length
@@ -746,7 +772,7 @@ function statsModule() {
     },
 
     excludedRankCount() {
-      const all = (this.casesDashboard.high_value_ranking || []).length;
+      const all = this.activeRankRows().length;
       return Math.max(0, all - this.filteredHighValueRanking().length);
     },
 

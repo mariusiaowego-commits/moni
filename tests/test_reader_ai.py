@@ -403,7 +403,8 @@ def test_frontend_reader_contract():
     assert 'x-model="articlesSource"' not in html
     assert 'x-model="articlesTag"' not in html
     assert "readerRunPrompt(p)" in html
-    assert "llmJobTypeLabel(job)" in html
+    assert "llmJobTypeLabel(g.job)" in html
+    assert "llmJobTypeLabel(jobDetail)" in html
     assert "function readerRunPrompt" not in js
     assert "readerRunPrompt(prompt)" in js
     assert "this.readerInput = prompt.body" not in js
