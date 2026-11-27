@@ -15,6 +15,7 @@ import json
 import re
 import sqlite3
 import sys
+from functools import lru_cache
 from typing import Any
 
 KIND_LABELS = {
@@ -27,6 +28,75 @@ KIND_LABELS = {
 
 PER_ARTICLE_CHARS = 2400
 TOTAL_CHARS = 12000
+
+# AI 对话类上下文的第一段通常是用户自己写的「结论：…」，直接拿它当 TLDR。
+# 上下文不进 LLM（红线），所以 TLDR 必须是抽取式，不做任何模型调用。
+TLDR_PREFIXES = ("结论：", "结论:", "TLDR：", "TLDR:", "要点：", "摘要：")
+MAX_TLDR_CHARS = 180
+
+
+@lru_cache(maxsize=1)
+def _markdown_renderer() -> Any:
+    """mistune 实例；没装就返回 None（调用方退回纯文本）。"""
+    try:
+        import mistune
+    except ImportError:  # pragma: no cover - 环境缺依赖时的降级路径
+        return None
+    return mistune.create_markdown(
+        escape=True,  # 上下文是用户内容，原样 HTML 一律转义
+        plugins=["table", "strikethrough"],
+    )
+
+
+def split_tldr(body: str) -> tuple[str, str]:
+    """把上下文正文拆成 (TLDR, 详情)。
+
+    AI 对话的第一段就是用户自己下的结论（``结论：…``），那就是现成的 TLDR；
+    没有结论前缀时退化成第一句。TLDR 之后的所有内容都进详情，不能丢。
+    不调用模型 —— 上下文不许进 LLM 输入。
+    """
+    text = (body or "").strip()
+    if not text:
+        return "", ""
+    parts = text.split("\n\n", 1)
+    first = parts[0].strip()
+    rest = parts[1].strip() if len(parts) > 1 else ""
+    head = first
+    for prefix in TLDR_PREFIXES:
+        if head.startswith(prefix):
+            head = head[len(prefix) :].strip()
+            break
+    stop = re.search(r"[。！？!?]", head)
+    if stop:
+        sentence, leftover = head[: stop.end()].strip(), head[stop.end() :].strip()
+    else:
+        sentence, leftover = "", head
+    if len(sentence) > MAX_TLDR_CHARS:
+        overflow = sentence[MAX_TLDR_CHARS:].strip()
+        sentence = sentence[:MAX_TLDR_CHARS].rstrip() + "…"
+        leftover = f"{overflow} {leftover}".strip()
+    if not sentence:
+        if len(leftover) > MAX_TLDR_CHARS:
+            overflow = leftover[MAX_TLDR_CHARS:].strip()
+            sentence = leftover[:MAX_TLDR_CHARS].rstrip() + "…"
+            leftover = overflow
+        else:
+            sentence, leftover = leftover, ""
+    detail = f"{leftover}\n\n{rest}".strip() if rest else leftover
+    return sentence, detail
+
+
+def render_body_html(text: str) -> str:
+    """Markdown → HTML。mistune 缺失时退回转义纯文本，不抛错。"""
+    if not text:
+        return ""
+    renderer = _markdown_renderer()
+    if renderer is None:  # pragma: no cover - 环境缺依赖时的降级路径
+        return (
+            '<div style="white-space:pre-wrap;overflow-wrap:anywhere;">'
+            f"{html.escape(text)}</div>"
+        )
+    return renderer(text)
 
 
 def load_contexts(
@@ -116,6 +186,32 @@ def _title_is_body_prefix(title: str, body: str) -> bool:
     return len(stem) >= 16 and head.startswith(stem)
 
 
+def _title_covered_by_tldr(title: str, tldr: str) -> bool:
+    """True when the title is just a truncated copy of the TLDR.
+
+    AI 对话的标题由正文首句自动派生（截断到 40 字加省略号），正文首句同时
+    又是 TLDR。两者都显示就成了同一句话出现两遍 —— 留 TLDR 一份即可。
+    比较前先把「结论：」这类前缀从两边都剥掉，否则标题带前缀、TLDR 不带，
+    就会判不出是同一句。
+    """
+    t, l = title.strip(), tldr.strip()
+    if not t or not l:
+        return False
+    stem = t[:-1].strip() if t.endswith("…") else t
+    for prefix in TLDR_PREFIXES:
+        if stem.startswith(prefix):
+            stem = stem[len(prefix) :].strip()
+            break
+    for prefix in TLDR_PREFIXES:
+        if l.startswith(prefix):
+            l = l[len(prefix) :].strip()
+            break
+    short, long_ = (stem, l) if len(stem) <= len(l) else (l, stem)
+    if len(short) < 8:
+        return False
+    return long_.startswith(short)
+
+
 def markdown_section(
     db_path: str,
     article_ids: list[str],
@@ -143,8 +239,30 @@ def markdown_section(
         )
     if not blocks:
         return ""
+    tldr_lines: list[str] = []
+    for aid in article_ids:
+        for item in contexts.get(str(aid)) or []:
+            tldr, _ = split_tldr(str(item.get("body") or ""))
+            if tldr:
+                tldr_lines.append(f"- {tldr}")
+            if len(tldr_lines) >= 3:
+                break
+        if len(tldr_lines) >= 3:
+            break
+    tldr_block = (
+        "".join(
+            [
+                "> **TLDR**\n",
+                "\n".join(tldr_lines),
+                "\n\n",
+            ]
+        )
+        if tldr_lines
+        else ""
+    )
     return (
         f"## {heading}\n\n"
+        f"{tldr_block}"
         "> 以下内容由用户在阅读时保存，未经事实核查，不代表本简报结论。\n\n"
         + "\n\n".join(blocks)
     )
@@ -156,22 +274,32 @@ def html_block(items: list[dict[str, Any]]) -> str:
     lis: list[str] = []
     for item in items:
         label = KIND_LABELS.get(str(item.get("kind") or ""), "上下文")
-        title = html.escape(str(item.get("title") or "").strip())
-        body = html.escape(str(item.get("body") or "").strip())
-        if not body:
+        raw_title = str(item.get("title") or "").strip()
+        title = html.escape(raw_title)
+        raw_body = str(item.get("body") or "").strip()
+        if not raw_body:
             continue
+        tldr, detail = split_tldr(raw_body)
         title_html = (
             f'<span class="ctx-title">{title}</span>'
-            if title and not _title_is_body_prefix(
-                str(item.get("title") or "").strip(),
-                str(item.get("body") or "").strip(),
-            )
+            if title
+            and not _title_is_body_prefix(raw_title, raw_body)
+            and not _title_covered_by_tldr(raw_title, tldr)
+            else ""
+        )
+        details_html = (
+            '<details class="ctx-details">'
+            '<summary class="ctx-summary">展开完整上下文</summary>'
+            f'<div class="ctx-body">{render_body_html(detail)}</div>'
+            "</details>"
+            if detail
             else ""
         )
         lis.append(
             '<li class="ctx-item">'
             f'<div class="ctx-meta"><span class="ctx-kind">{html.escape(label)}</span>{title_html}</div>'
-            f'<div class="ctx-body">{body}</div>'
+            f'<div class="ctx-tldr">{html.escape(tldr)}</div>'
+            f"{details_html}"
             "</li>"
         )
     if not lis:
@@ -234,17 +362,33 @@ def standalone_html_section(
                 break
             budget = min(PER_ARTICLE_CHARS, remaining)
             count += 1
-            truncated = len(body) > budget
-            text = body[:budget]
+            tldr, detail = split_tldr(body)
+            truncated = len(detail) > budget
+            text = detail[:budget]
             used += len(text)
             label = KIND_LABELS.get(str(item.get("kind") or ""), "上下文")
             title = str(item.get("title") or "").strip()
             title_html = ""
-            if title and not _title_is_body_prefix(title, body):
+            if (
+                title
+                and not _title_is_body_prefix(title, body)
+                and not _title_covered_by_tldr(title, tldr)
+            ):
                 title_html = (
                     '<div style="margin:0 0 4px;font-size:13px;'
                     f'color:#78716c;">{html.escape(title)}</div>'
                 )
+            details_html = (
+                '<details style="margin:8px 0 0;">'
+                '<summary style="cursor:pointer;font-size:12px;color:#78716c;">'
+                "展开完整上下文</summary>"
+                '<div style="margin:8px 0 0;font-size:14px;line-height:1.75;'
+                f'color:#44403c;">{render_body_html(text)}'
+                f"{'<span>…</span>' if truncated else ''}</div>"
+                "</details>"
+                if text
+                else ""
+            )
             items_html.append(
                 '<div style="border:1px solid #e2e8f0;border-radius:10px;'
                 'padding:12px 14px;background:#ffffff;">'
@@ -252,10 +396,10 @@ def standalone_html_section(
                 'color:#3730a3;background:#e0e7ff;border-radius:4px;'
                 f'padding:1px 6px;">{html.escape(label)}</span>'
                 f'{title_html}'
-                '<div style="margin:6px 0 0;font-size:14px;line-height:1.75;'
-                'color:#44403c;white-space:pre-wrap;overflow-wrap:anywhere;">'
-                f"{html.escape(text)}{'…' if truncated else ''}"
-                "</div></div>"
+                '<div style="margin:6px 0 0;font-size:14px;line-height:1.7;'
+                'font-weight:600;color:#1c1917;">'
+                f"{html.escape(tldr)}</div>"
+                f"{details_html}</div>"
             )
     if not items_html:
         return ""

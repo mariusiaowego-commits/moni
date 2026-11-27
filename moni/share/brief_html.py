@@ -1300,6 +1300,23 @@ def render_brief_html(
     white-space: pre-wrap; overflow-wrap: anywhere;
     font-size: 0.98rem; line-height: 1.7; color: #292524;
   }}
+  .ctx-tldr {{
+    font-size: 0.98rem; line-height: 1.7; font-weight: 600; color: #1c1917;
+    margin: 0 0 6px;
+  }}
+  .ctx-details {{ margin: 0; }}
+  .ctx-summary {{
+    cursor: pointer; font-size: 0.8rem; color: var(--muted);
+    list-style: none; display: inline-block;
+  }}
+  .ctx-summary::-webkit-details-marker {{ display: none; }}
+  .ctx-summary::before {{ content: '▸ '; color: var(--accent); }}
+  .ctx-details[open] .ctx-summary::before {{ content: '▾ '; }}
+  .ctx-details .ctx-body {{ margin-top: 8px; }}
+  .ctx-details .ctx-body p {{ margin: 0 0 0.6em; }}
+  .ctx-details .ctx-body ol, .ctx-details .ctx-body ul {{ margin: 0 0 0.6em; padding-left: 1.4em; }}
+  .ctx-details .ctx-body li {{ margin: 0 0 0.45em; }}
+  .ctx-details .ctx-body strong {{ color: #1c1917; }}
   .ctx-note {{ margin: 10px 0 0; font-size: 0.8rem; color: var(--muted); }}
   .orig-body blockquote, blockquote {{
     margin: 0.7em 0; padding: 10px 14px; border-left: 3px solid var(--tone-2);
