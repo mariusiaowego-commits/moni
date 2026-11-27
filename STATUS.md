@@ -1,3 +1,40 @@
+## 已部署: **分享简报「用户上下文」按 markdown 渲染 + 抽取式 TLDR，详情默认折叠** (2026-11-27 · PR #367 → `403fd05` · tag `v1.0.148` · Sprint 87)
+
+**问题**：分享简报 HTML 产出物里「用户上下文 / AI 对话」是一整块原始 markdown 纯文本
+（`一、关键事实`、`1. …`、`证明：…` 全挤在一段 `<pre>` 里），又长又没法读。
+
+**做法（上下文不进 LLM，红线保持）**
+
+- TLDR **不做模型摘要**，走抽取式：AI 对话正文第一段就是用户自己写的 `结论：…`，
+  剥前缀后取第一句（上限 180 字），其余全部进详情（一字不丢）
+- 详情用 mistune 渲染（`escape=True`，用户内容里的 HTML 一律转义）；未装 mistune 时退回转义纯文本
+- 两条渲染路径统一成「badge + TLDR + `<details>` 折叠全文」：
+  `context_pack.standalone_html_section`（LLM 生成的 html_landing 注入）与
+  `context_pack.html_block`（一键分享简报内嵌卡片）+ 对应 CSS
+- 标题与 TLDR 重复时只留 TLDR（标题是正文首句的 40 字截断版）
+- `markdown_section`（md/pdf 产出）加 `> **TLDR**` 引用块
+- 新增依赖 `mistune>=3.1,<4`；无 migration、无接口变更
+
+**实测（生产库真实数据 + 真实产出物）**
+
+- 真实 body 拆分核对：440 字那条 TLDR 90 / 详情 347；2517 字那条 TLDR 117 / 详情 2395
+  （TLDR + 详情 ≈ 原文长度，只差前缀与空行）
+- html_landing 注入样例：2 条上下文、2 个 `<details>`；折叠段高 1101px，展开 2830px，
+  渲染出 19 个列表 / 95 个段落
+- 简报内嵌样例：折叠段高 271px（TLDR 一行 + 「展开完整上下文」），展开后 4 个 `<ol>`
+- 部署：生产 checkout `9b1f4ad → 403fd05`，8900 pid `95599 → 37383`，`/` 200，mistune 3.1.3 在位
+
+**测试 / 审计**
+
+- 新增 `tests/test_context_pack_render.py`（21 条）：TLDR 抽取、markdown 渲染、HTML 转义、
+  缺 mistune 降级、标题去重、空正文
+- 定向 6 文件 → **116 passed**（agy 复跑同数）
+- CI `pytest · py3.12` run `45946463004` success（`2e8b498`）
+- agy 独立复检 **APPROVE WITH NITS**（1 条 P2 markdown 引用块续行，已在同 PR 修掉）：
+  `/private/tmp/herdr-dispatch/tasks/20261127-132635-share-context-tldr-audit/result.md`
+- 红线复核：上下文仍只在 LLM 生成 HTML **之后**注入（`scripts/default_worker.sh`），
+  `split_tldr` 为纯字符串抽取，零模型调用
+
 ## 已部署: **分享队列「产出产物」→「简报链接」+ 列宽收窄，修掉操作按钮被裁** (2026-11-27 · PR #362 → `0e28776` · tag `v1.0.146` · Sprint 84 补丁)
 
 **问题**：分享队列表失败行的「操作」列末尾出现一个「…」，看着像折叠菜单，实际是「丢弃」按钮被裁掉后
