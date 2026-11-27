@@ -1,3 +1,40 @@
+## 已部署: **分享上下文卡片标注所属文章 + 详情分节双列瀑布流** (2026-11-27 · PR #370 → `dfbec81` · tag `v1.0.150` · Sprint 87 补丁)
+
+**问题**：落地页「用户上下文」把多篇文章的上下文混在一个列表，卡片只有「AI 对话」徽标，
+看不出这段针对哪篇文章；展开后又是一整块 markdown —— 关键事实 / 案例与实验 是逐条编号的
+证据，读起来长；无出处 / 未知 是整段说明，不需要分栏。
+
+**做法**
+
+- `standalone_html_section`：每张卡在徽标旁显示所属文章标题（`articles.title`）；简报内嵌
+  卡片本身就在文章卡里，不重复标题。
+- 新增 `render_detail_html` / `detail_css`（`moni/share/context_pack.py`）：按「一、xxx」
+  分节，编号条目铺 `columns: 280px 2` 双列瀑布流，每条拆「主张 + 证明」；无出处 / 未知
+  这类整段内容保持整段，列表标记显式声明，避免被宿主页面 CSS 吃掉；解析不出分节就退回
+  原 markdown。
+- 编号只在连续递增时才算条目，避免把 `3.0.1` 当条目号；`…先排除变量。14. 实验二` 这种
+  同行编号也能拆。标题行里紧贴的第 1 条（`一、结论1. …`）单拆出来，双空格分隔
+  （`七、优先级建议  第一步：…`）同样处理。
+- 两条渲染路径共用一份 `detail_css`：独立 HTML 注入在 section 内自带 `<style>`（随
+  section 一起被幂等移除），简报内嵌复用 `brief_html.py` 的 CSS。
+- 简报 `.ctx-details .ctx-body` 改回 `white-space: normal`，否则结构化 HTML 的换行会渲染成空行。
+
+**实测（生产库真实上下文 + 生产产物）**
+
+- 生产库 3 条 `article_contexts` 全量过渲染：0 报错；`8b3b9726`（2659 字）得到 6 个 h4 /
+  4 个双列 / 13 条，`a75e0782`（2517 字）得到 4 个 h4 / 2 个双列 / 16 条。
+- `20261127-145749` 审计先给 P2（标题紧贴编号被并进 h4），修完复检 **approve、无 P1/P2**。
+- 生产重注入 `ehNn…`：sha `ae4740fa → 81544d15`；Playwright 1440/1024 实测
+  `details=2`、`column-count 2 / column-width 280px`、条目宽 313px、区块高 2527px、
+  两张卡标题正确、console 0 error。
+- 部署：生产 checkout `e86bc0e → dfbec81`，8900 pid `37383 → 67554`，`/`、`/share`、
+  `/api/share/tasks` 均 200；本次只改后端 Python，`main.css/app.js` 版本键不变（符合预期）。
+
+**测试 / 审计**
+
+- 定向 `tests/test_context_pack_render.py` + `tests/test_article_contexts.py` → **48 passed**
+- CI `pytest · py3.12` on `cc91f91` success
+
 ## 已部署: **分享简报「用户上下文」按 markdown 渲染 + 抽取式 TLDR，详情默认折叠** (2026-11-27 · PR #367 → `403fd05` · tag `v1.0.148` · Sprint 87)
 
 **问题**：分享简报 HTML 产出物里「用户上下文 / AI 对话」是一整块原始 markdown 纯文本
