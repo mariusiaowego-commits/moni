@@ -1,3 +1,36 @@
+## 已部署: **案例详情「深度解读」+ case_action 回填** (2026-11-27 · PR #358 / #360 → `c6ce761` · Sprint 85/86)
+
+**目标**：Issue #351 与「详情页 10 秒判断值不值得看」。分两个 PR 落地，依次合并。
+
+**改动**
+
+- #358：`case_action` 关键词扩到 5 类，优先级 `exit > transform > scale > pilot > launch`；
+  模型误标 launch 时按 summary/evidence 纠正；去掉裸词「升级」。回填 CLI 默认 dry-run、
+  默认跳过 `llm_enum/manual`（`--include-llm` 才覆盖）、逐条 UPDATE 捕获 UNIQUE 冲突。
+- #360：`GET /api/cases/{id}` 附带 `insight`（优先 `cases.insight_id`，回退最新 `done`，
+  脏 JSON → `null`，仅详情不进列表）；详情抽屉新增「深度解读」（导语 / 编号做法 / 侧栏）；
+  空字段时 `.cv-deep-cols.is-single` 收成单列；`case_brief` 兼容 v1 新键与 `insufficient`。
+
+**实测（8900，部署后）**
+
+- 生产 checkout `e426a1b → c6ce761`，8900 重启，`/cases` 200、`/api/cases/MN-AI-2611-0003` 返回
+  `insight.what/how[4]/risks[4]/reusable[4]/fit`。
+- 动作回填：候选 435 / 已写入 282；分布 `launch 330 / transform 49 / scale 22 / pilot 20 / exit 14`。
+- 深度解读定向回填 30 条：`ok 29 / failed 1 / insufficient 5`（失败 `MN-AI-2608-0002`：
+  empty/invalid JSON）；`case_insights` 30 行、`cases.insight_id` 29 条。
+- UI 实测 1440：`.cv-deep-cols` `464.359px 240px`、导语 `20px/600`、4 步；1024：单列
+  `896.547px`、step 476px；两档 `scrollWidth == clientWidth`。
+
+**证据**
+
+- `docs/sprint-evidence/sprint-86/{PLAN,VERIFY}.md`
+- `docs/sprint-evidence/sprint-86/render/{detail-insight-1440,detail-insight-1024,prod-detail-1440,prod-detail-1024}.png`
+
+**未做**
+
+- 全量 432 条 insight 回填未跑（约 5 小时 / 30 万 input tokens）。
+- 未打 tag。
+
 ## 已部署: **分享页 v2：产出物特性快照 / 简报默认标题 / 上下文标记 / 工具栏重做** (2026-11-27 · PR #352 → `b7480f2` · tag `v1.0.144` · Sprint 84)
 
 **目标**：分享队列每个产出物能看出「带了哪些增强特性 / 用了什么生图方式」；新建简报默认标题
@@ -38,7 +71,7 @@
 - 首轮 CI 曾因 `test_direction_clarification_api.py::test_research_is_refused_while_questions_are_unanswered`
   断言 `running != passed` 失败；本地复跑 6 passed，判定为轮询无 sleep 的时序 flaky，与本 PR 改动面无交集。
 
-## 已合并待部署: **案例深度解读（case_insights）生成与回填 CLI** (2026-11-27 · PR #350 → `ceeae3d` · Sprint 84)
+## 已部署: **案例深度解读（case_insights）生成与回填 CLI** (2026-11-27 · PR #350 → `ceeae3d` · Sprint 84)
 
 **目标**：Issue #346。`case_insights` 表自迁移 067 建好后从未跑过 LLM，详情页也没有消费方；
 本 PR 先补齐「生成 + 回填」后端，API 与详情页 UI 放下一 PR。
@@ -64,9 +97,9 @@
 **未做**
 
 - 生产全量回填未跑（432 条约 5 小时 / 约 30 万 input tokens，需排期）。
-- `/api/cases/{id}` 返回 insight + 详情页「深度解读」区块（下一 PR）。
-- 未打 tag、未重启 8900（本 PR 无 web 路由改动）。
-- 已登记待修：Issue #351（`case_action` 100% 塌缩成 launch）、#354（质量闸关键词按归一后计数）。
+- 已由 #360 补上 `/api/cases/{id}` insight 与详情页「深度解读」区块。
+- 未打 tag。
+- Issue #351、#354 已分别由 #358、#357 关闭。
 
 ## 已部署: **案例在用口径统一 + 生产库迁移 062–069 与规则回填** (2026-11-26 · PR #343 → `c257f47` · Sprint 82)
 
