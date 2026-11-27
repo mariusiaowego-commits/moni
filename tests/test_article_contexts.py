@@ -318,14 +318,16 @@ def test_format_lines_dedupes_truncated_title() -> None:
     assert lines[0].count("结论：") == 1
 
 
-def test_standalone_section_has_no_article_titles_and_anchors_before_footer() -> None:
+def test_standalone_section_shows_owning_article_title_and_anchors_before_footer() -> None:
     _article("a1", "第一篇文章")
     _article("a2", "第二篇文章")
     _insert_context("a1", "ctx1", "第一条上下文。")
     _insert_context("a2", "ctx2", "第二条上下文。")
     section = standalone_html_section(_db_path(), ["a1", "a2"])
     assert 'id="moni-user-contexts"' in section
-    assert "文章 1" not in section and "第一篇文章" not in section
+    # 一个列表里混着多篇文章的上下文，每张卡必须能看出属于哪篇。
+    assert "第一篇文章" in section and "第二篇文章" in section
+    assert "文章 1" not in section
     assert section.count("AI 对话") == 2
 
     doc = (

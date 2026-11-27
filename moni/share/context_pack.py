@@ -99,6 +99,174 @@ def render_body_html(text: str) -> str:
     return renderer(text)
 
 
+# --- 详情结构化渲染 -------------------------------------------------------
+# AI 对话正文天然是「一、关键事实 / 二、案例与实验 / 三、无出处 / 四、未知」
+# 这种分节。前两类是逐条编号的证据，铺成双列瀑布流好扫；后两类是整段说明，
+# 保持整段排版。解析不出结构就退回普通 markdown，不猜。
+
+_SECTION_LINE_RE = re.compile(r"^[ \t]*([一二三四五六七八九十]+)、[ \t]*(.*)$")
+_NUMBERED_RE = re.compile(r"(?m)(?:^|(?<=[。！？；）)]))[ \t]*(\d{1,2})[.、][ \t]+")
+# 标题行里紧贴正文的编号（``一、结论1. 这个案例…``）：前导不限标点，只要求
+# 编号前不是数字，避免把年份「2024. 」里的「24.」当成条目。
+_INLINE_NUMBER_RE = re.compile(r"(?<!\d)(\d{1,2})[.、][ \t]+")
+# 标题与正文的其它分隔：句读、冒号，或两个以上空格（``七、优先级建议  第一步：``）。
+_HEADING_BREAK_RE = re.compile(r"(?:[。；：]|[ \t]{2,})")
+_MAX_HEADING_CHARS = 12
+_PROOF_RE = re.compile(r"证明[：:]")
+
+_DETAIL_CSS = """
+{S}.moni-ctx-h {
+  margin: 20px 0 8px; font-size: 15px; font-weight: 700; color: #1a365d;
+}
+{S}.moni-ctx-h:first-child { margin-top: 0; }
+{S}.moni-ctx-cols { columns: 280px 2; column-gap: 16px; margin: 0 0 4px; }
+{S}.moni-ctx-item {
+  break-inside: avoid; -webkit-column-break-inside: avoid;
+  margin: 0 0 12px; padding: 10px 12px 11px;
+  border: 1px solid #eee7dd; border-radius: 8px; background: #fffdf9;
+}
+{S}.moni-ctx-claim { font-size: 13.5px; line-height: 1.65; color: #292524; }
+{S}.moni-ctx-proof { margin-top: 6px; font-size: 12.5px; line-height: 1.6; color: #78716c; }
+{S}.moni-ctx-claim p, {S}.moni-ctx-proof p { margin: 0 0 0.45em; }
+{S}.moni-ctx-claim p:last-child, {S}.moni-ctx-proof p:last-child { margin-bottom: 0; }
+{S}.moni-ctx-prose { font-size: 14px; line-height: 1.8; color: #44403c; }
+{S}.moni-ctx-prose p { margin: 0 0 0.6em; }
+{S}.moni-ctx-prose ul { list-style: disc outside; margin: 0 0 0.6em; padding-left: 1.3em; }
+{S}.moni-ctx-prose ol { list-style: decimal outside; margin: 0 0 0.6em; padding-left: 1.3em; }
+{S}.moni-ctx-prose li { display: list-item; margin: 0 0 0.3em; }
+{S}.moni-ctx-prose code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em; background: #f5f5f4; border-radius: 3px; padding: 0 3px;
+}
+@media (max-width: 720px) { {S}.moni-ctx-cols { columns: 1; } }
+"""
+
+
+def detail_css(scope: str = "") -> str:
+    """分节渲染所需样式；scope 是选择器前缀（如 ``#moni-user-contexts``）。"""
+    prefix = f"{scope} " if scope else ""
+    return _DETAIL_CSS.replace("{S}", prefix)
+
+
+def _split_sections(text: str) -> list[tuple[str, str]]:
+    """按「一、xxx」切成 [(标题, 正文)]；没有标题的段落标题为空。"""
+    sections: list[tuple[str, str]] = []
+    heading = ""
+    buf: list[str] = []
+    for line in text.splitlines():
+        match = _SECTION_LINE_RE.match(line)
+        if not match:
+            buf.append(line)
+            continue
+        if buf or heading:
+            sections.append((heading, "\n".join(buf).strip()))
+        buf = []
+        rest = match.group(2).strip()
+        label, body = _split_heading_line(rest)
+        heading = label
+        if body:
+            buf.append(body)
+    if buf:
+        sections.append((heading, "\n".join(buf).strip()))
+    return [(h, b) for h, b in sections if h or b]
+
+
+def _split_heading_line(rest: str) -> tuple[str, str]:
+    """标题行可能把第 1 条正文粘在标题后面，这里把它拆出来。
+
+    生产里真实出现过 ``一、结论1. 这个案例…``、``六、两个反直觉的洞察1. …``
+    和 ``七、优先级建议  第一步：…`` 三种写法；只在分隔符前的标题确实很短时
+    才切，避免把正常的长标题腰斩。
+    """
+    inline = _INLINE_NUMBER_RE.search(rest)
+    if inline and inline.start() > 0:
+        return rest[: inline.start()].strip(), rest[inline.start() :]
+    if inline:
+        return "", rest
+    sep = _HEADING_BREAK_RE.search(rest)
+    if sep and 0 < sep.start() <= _MAX_HEADING_CHARS:
+        return rest[: sep.start()].strip(), rest[sep.end() :].strip()
+    return rest, ""
+
+
+def _numbered_items(body: str) -> tuple[str, list[str]]:
+    """拆出编号条目；返回 (前导文字, [条目])。
+
+    编号必须连续（1→2→3…）才算一条，避免把正文里的「3.0.1」当成条目号；
+    有些对话把编号写在上一句后面（``…先排除变量。14. 实验二``），所以句读
+    之后的编号也算。
+    """
+    candidates = list(_NUMBERED_RE.finditer(body))
+    if not candidates:
+        return body, []
+    # 从「正文开头」或「编号 1」起算，避免前导句里偶然出现的「。5.」把序列锁死。
+    start = next(
+        (i for i, m in enumerate(candidates) if not body[: m.start()].strip()), 0
+    )
+    if start == 0 and int(candidates[0].group(1)) != 1:
+        start = next(
+            (i for i, m in enumerate(candidates) if int(m.group(1)) == 1), 0
+        )
+    marks = [candidates[start]]
+    expected = int(candidates[start].group(1)) + 1
+    for match in candidates[start + 1 :]:
+        number = int(match.group(1))
+        if number != expected:
+            continue
+        marks.append(match)
+        expected = number + 1
+    starts_body = bool(marks) and not body[: marks[0].start()].strip()
+    if not marks or (len(marks) < 2 and not starts_body):
+        return body, []
+    lead = body[: marks[0].start()].strip()
+    items: list[str] = []
+    for idx, match in enumerate(marks):
+        end = marks[idx + 1].start() if idx + 1 < len(marks) else len(body)
+        item = body[match.end() : end].strip()
+        if item:
+            items.append(item)
+    return lead, items
+
+
+def _render_numbered_items(items: list[str]) -> str:
+    cards: list[str] = []
+    for raw in items:
+        proof_at = _PROOF_RE.search(raw)
+        claim, proof = raw, ""
+        if proof_at and proof_at.start() > 0:
+            claim = raw[: proof_at.start()].strip()
+            proof = raw[proof_at.start() :].strip()
+        card = (
+            '<div class="moni-ctx-item">'
+            f'<div class="moni-ctx-claim">{render_body_html(claim)}</div>'
+        )
+        if proof:
+            card += f'<div class="moni-ctx-proof">{render_body_html(proof)}</div>'
+        cards.append(card + "</div>")
+    return f'<div class="moni-ctx-cols">{"".join(cards)}</div>'
+
+
+def render_detail_html(text: str) -> str:
+    """上下文详情 → HTML：编号分节铺双列，其余整段。"""
+    if not text:
+        return ""
+    sections = _split_sections(text)
+    if not any(heading for heading, _ in sections):
+        return render_body_html(text)
+    parts: list[str] = []
+    for heading, body in sections:
+        if heading:
+            parts.append(f'<h4 class="moni-ctx-h">{html.escape(heading)}</h4>')
+        lead, items = _numbered_items(body)
+        if items:
+            if lead:
+                parts.append(f'<div class="moni-ctx-prose">{render_body_html(lead)}</div>')
+            parts.append(_render_numbered_items(items))
+        elif body:
+            parts.append(f'<div class="moni-ctx-prose">{render_body_html(body)}</div>')
+    return "".join(parts)
+
+
 def load_contexts(
     conn: sqlite3.Connection, article_ids: list[str]
 ) -> dict[str, list[dict[str, Any]]]:
@@ -290,7 +458,7 @@ def html_block(items: list[dict[str, Any]]) -> str:
         details_html = (
             '<details class="ctx-details">'
             '<summary class="ctx-summary">展开完整上下文</summary>'
-            f'<div class="ctx-body">{render_body_html(detail)}</div>'
+            f'<div class="ctx-body">{render_detail_html(detail)}</div>'
             "</details>"
             if detail
             else ""
@@ -341,17 +509,20 @@ def standalone_html_section(
 ) -> str:
     """Self-contained section for LLM-generated HTML with no moni CSS.
 
-    Design (approved 2026-11-26): the kind badge leads every item, article
-    titles are not repeated, and the block lives inside the content column
-    (not as a separate 860px document after the footer).
+    Design: the kind badge leads every item, the owning article's title sits
+    next to it (contexts from several articles share one list, so a card with
+    no title cannot be traced back), and the block lives inside the content
+    column (not as a separate 860px document after the footer).
     """
     contexts = load_contexts_db(db_path, article_ids)
     if not contexts:
         return ""
+    article_titles = _article_titles(db_path, article_ids)
     items_html: list[str] = []
     count = 0
     used = 0
     for aid in article_ids:
+        article_title = article_titles.get(str(aid), "")
         items = contexts.get(str(aid)) or []
         for item in items:
             body = str(item.get("body") or "").strip()
@@ -383,18 +554,27 @@ def standalone_html_section(
                 '<summary style="cursor:pointer;font-size:12px;color:#78716c;">'
                 "展开完整上下文</summary>"
                 '<div style="margin:8px 0 0;font-size:14px;line-height:1.75;'
-                f'color:#44403c;">{render_body_html(text)}'
+                f'color:#44403c;">{render_detail_html(text)}'
                 f"{'<span>…</span>' if truncated else ''}</div>"
                 "</details>"
                 if text
                 else ""
             )
+            article_html = (
+                '<span style="font-size:13px;font-weight:600;color:#44403c;">'
+                f"{html.escape(article_title)}</span>"
+                if article_title
+                else ""
+            )
             items_html.append(
                 '<div style="border:1px solid #e2e8f0;border-radius:10px;'
                 'padding:12px 14px;background:#ffffff;">'
+                '<div style="display:flex;align-items:baseline;gap:8px;'
+                'flex-wrap:wrap;margin:0 0 2px;">'
                 f'<span style="display:inline-block;font-size:11px;font-weight:600;'
                 'color:#3730a3;background:#e0e7ff;border-radius:4px;'
                 f'padding:1px 6px;">{html.escape(label)}</span>'
+                f"{article_html}</div>"
                 f'{title_html}'
                 '<div style="margin:6px 0 0;font-size:14px;line-height:1.7;'
                 'font-weight:600;color:#1c1917;">'
@@ -407,6 +587,7 @@ def standalone_html_section(
         '<section id="moni-user-contexts" class="moni-user-contexts" '
         'style="margin:48px 0 0;padding-top:24px;border-top:1px solid #e2e8f0;'
         'font-family:system-ui,-apple-system,\'PingFang SC\',sans-serif;color:#292524;">'
+        f"<style>{detail_css('#moni-user-contexts')}</style>"
         '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
         f'<h2 style="margin:0;font-size:1.15rem;color:#1a365d;">{html.escape(heading)}</h2>'
         f'<span style="font-size:12px;color:#78716c;">{count} 条 · 用户整理，未经事实核查</span>'
