@@ -5176,10 +5176,10 @@ body.has-float-layer .feat-tip { display: none !important; }
 }
 .queue-toolbar { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
 .queue-toolbar .icon { width: 15px; height: 15px; }
-/* 9 fixed columns sum to 696px; below that the artifact column would
-   collapse to 0 and its header would bleed into 特性, so keep a floor and
-   let narrow viewports scroll the table container instead. */
-.share-queue-table { table-layout: fixed; width: 100%; min-width: 900px; }
+/* 8 固定列合计 858px（简报链接 280 + 操作 120 + 创建时间 120 + 其余 6 列），
+   「特性」列 auto 吸收剩余；min-width 1034px 给特性列留 176px 底线，
+   再窄就横向滚动表格容器，不让表头互相挤压。 */
+.share-queue-table { table-layout: fixed; width: 100%; min-width: 1034px; }
 .share-queue-table th,
 .share-queue-table td { padding: 9px 6px; }
 .share-queue-table th {
@@ -5192,6 +5192,17 @@ body.has-float-layer .feat-tip { display: none !important; }
   overflow: hidden; text-overflow: ellipsis;
 }
 .share-queue-table .cell-progress { white-space: normal; }
+/* 「简报链接」列固定 280px：链接名过长时省略号截断，靠 title 悬浮看全文 */
+.share-queue-table .cell-artifact a,
+.share-queue-table .cell-artifact span {
+  display: inline-block; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  vertical-align: bottom;
+}
+/* 「操作」列放的是按钮（暂停/继续/丢弃），不能被 ellipsis 裁掉：
+   之前 96px 装不下「继续 + 丢弃」，td 的 overflow:hidden 把「丢弃」切掉，
+   行尾只剩一个省略号，看着像折叠菜单。 */
+.share-queue-table td:last-child { overflow: visible; text-overflow: clip; }
 
 /* 自定义分享「高级选项」折叠头 — 与其它 details 视觉统一 */
 .share-advanced summary {
