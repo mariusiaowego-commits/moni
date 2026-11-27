@@ -746,9 +746,9 @@ def p08(prs):
 
     # 左下：一条案例的字段（补满截屏下方空白，回答「案例长什么样」）
     fy0 = 1.62 + ih_ + 0.41
-    tb(s, BODY_X, fy0, iw_, 0.28, "案例卡片上有什么",
+    tb(s, BODY_X, fy0, iw_, 0.28, "一条案例背后记下六个字段",
        11, True, BLUE, exact=True)
-    fields = ["主体", "标题", "评价", "标签", "核验状态", "原文出处"]
+    fields = ["主体", "动作", "时间", "对手方", "原文出处", "核验状态"]
     for i, f in enumerate(fields):
         fx = BODY_X + (i % 3) * 1.79
         fy = fy0 + 0.32 + (i // 3) * 0.34
@@ -771,7 +771,7 @@ def p08(prs):
     shape(s, MSO_SHAPE.RECTANGLE, RX + 0.10, 1.70, cw_, ch_, fill=None, line=LINE,
           lw=0.75)
     tb(s, RX + 0.10, 1.70 + ch_ + 0.06, cw_, 0.40,
-       "案例卡片：主体 · 标题\n评价 · 标签 · 核验状态",
+       "卡片上看到的：标题 · 评价\n标签 · 核验状态",
        10, False, MUTED, exact=True)
 
     y0 = 1.70 + ch_ + 0.54
