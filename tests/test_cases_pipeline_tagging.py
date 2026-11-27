@@ -252,7 +252,7 @@ class TestKeywordsNormalizePipeline:
                 "reference_value": "high", "reference_rationale": "",
                 "summary": "招行上线跨境支付服务并设立实验室", "evidence_snippet": "",
                 "extraction_confidence": 90,
-                "keywords": ["跨境清算", "跨境结算", "跨境支付", "智能投顾"],
+                "keywords": ["跨境清算", "跨境结算", "跨境支付"],
             }],
         }, ensure_ascii=False)
 
@@ -260,13 +260,15 @@ class TestKeywordsNormalizePipeline:
             return mock_reply
 
         art = _get_article()
-        extract_cases_for_article(art, llm_call_fn=fake_llm)
+        result = extract_cases_for_article(art, llm_call_fn=fake_llm)
 
-        # 3 个 alias 词归一为 1 个 "跨境支付"，"智能投顾" 保留
+        # 3 个 alias 词归一为 1 个 "跨境支付"：单概念不能被质量闸误杀
+        assert result["status"] == "completed"
+        assert result["case_count"] == 1
         kws = [r["keyword"] for r in fresh_db.execute(
             "SELECT keyword FROM case_keywords ORDER BY keyword"
         ).fetchall()]
-        assert kws == ["智能投顾", "跨境支付"]
+        assert kws == ["跨境支付"]
 
 
 class TestParseKeywordsWithNestedBrackets:
