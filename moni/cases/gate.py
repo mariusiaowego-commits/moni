@@ -15,7 +15,9 @@ from typing import Any, Mapping
 
 MIN_CONFIDENCE = 60
 MIN_SUMMARY_CHARS = 12
-MIN_KEYWORDS = 2
+# 关键词在 normalize_case 已做别名归并（跨境清算/结算/支付 → 跨境支付），
+# 归并后只剩 1 个概念是正常结果；这里只拦「一个词都没有」的条目。
+MIN_KEYWORDS = 1
 
 # 只有「纯营销/纯栏目」才无条件拦；招聘、早晚报、直播、行情里经常藏着
 # 真实业务动作（如「汇丰设立 AI 中心并招聘 100 人」），必须先看业务信号。
