@@ -1,7 +1,7 @@
 ---
 type: sprint
 sprint: 26112701
-status: 进行中
+status: 已完成
 ---
 
 # Sprint 85 · 验收记录
@@ -53,8 +53,10 @@ launch|328  transform|49  scale|22  exit|14  pilot|19
 ## 4. failed / skipped
 
 - 无 failed。
-- `skipped`：生产库 `--apply` 未执行（等合并后单独授权）。
+- 生产库 `--apply` 已执行：候选 435 / 写入 282，终态
+  `launch 330 / transform 49 / scale 22 / pilot 20 / exit 14`。
 
 ## 5. CI
 
-合并前填 PR 的 `pytest · py3.12` 结果。
+- PR #358 → squash `0685f9f`；CI `pytest · py3.12` success（`6c33455`）。
+- 本地 `pytest -q -k "case or share"` → 405 passed。

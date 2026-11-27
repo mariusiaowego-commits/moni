@@ -1,7 +1,7 @@
 ---
 type: sprint
 sprint: 26112702
-status: 进行中
+status: 已完成
 ---
 
 # Sprint 86 · 验收记录
@@ -61,5 +61,7 @@ ok=2 failed=0 insufficient=1  20s
 ## 5. failed / skipped
 
 - 无 failed。
-- `skipped`：生产 8900 未重启、生产库未回填（等合并授权）。
-- `skipped`：全量 432 条回填未跑（约 5 小时，单独排期）。
+- 生产已重启（`v1.0.147` → `60a914d`），全量回填已跑完：
+  404 条 → `ok 401 / failed 3 / insufficient 104`，终态 `case_insights` 435 行、
+  可用 322 条、`cases.insight_id` 432、幂等重复 0。
+- `skipped`：3 条 failed 未重跑；110 条 insufficient 属预期；移动端 <768px 未逐项验收。
