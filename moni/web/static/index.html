@@ -29,7 +29,7 @@
        file:// open stalled until the request timed out before the
        system-ui fallback could apply.  No preconnect needed either —
        nothing is fetched from those hosts any more. -->
-  <link rel="stylesheet" href="css/main.css?v=20261127001">
+  <link rel="stylesheet" href="css/main.css?v=20261127002">
   <!-- v1.0.110: 信源管理页的两块独立样式（执行状态区 / 同步进度弹窗），
        放在 main.css 之后，同名选择器以它们为准，便于单独回滚。 -->
   <link rel="stylesheet" href="css/source-ops.css?v=20261120011">
@@ -2322,6 +2322,48 @@
                       <div class="mu">按可迁移性与证据强度</div>
                     </div>
                   </div>
+
+                  <template x-if="cvHasInsight(cvDetail)">
+                    <section class="cv-sec cv-deep" aria-labelledby="cv-deep-h">
+                      <h3 class="cv-sec-h" id="cv-deep-h">深度解读</h3>
+                      <p class="cv-deep-lead" x-show="cvDetail.insight.what" x-text="cvDetail.insight.what"></p>
+                      <div class="cv-deep-cols" :class="{ 'is-single': !(cvDetail.insight.how || []).length || !cvHasInsightSide(cvDetail) }">
+                        <div class="cv-deep-main" x-show="(cvDetail.insight.how || []).length">
+                          <h4 class="cv-deep-h2">具体做法</h4>
+                          <ol class="cv-deep-steps">
+                            <template x-for="(step, i) in (cvDetail.insight.how || [])" :key="'dstep-' + i">
+                              <li class="cv-deep-step">
+                                <span class="cv-deep-n" x-text="String(i + 1).padStart(2, '0')"></span>
+                                <p x-text="step"></p>
+                              </li>
+                            </template>
+                          </ol>
+                        </div>
+                        <div class="cv-deep-side" x-show="cvHasInsightSide(cvDetail)">
+                          <div class="cv-deep-block" x-show="(cvDetail.insight.risks || []).length">
+                            <h4 class="cv-deep-h2">落地风险</h4>
+                            <ul class="cv-deep-list">
+                              <template x-for="(risk, i) in (cvDetail.insight.risks || [])" :key="'drisk-' + i">
+                                <li x-text="risk"></li>
+                              </template>
+                            </ul>
+                          </div>
+                          <div class="cv-deep-block" x-show="(cvDetail.insight.reusable || []).length">
+                            <h4 class="cv-deep-h2">同行可复制</h4>
+                            <ul class="cv-deep-list">
+                              <template x-for="(item, i) in (cvDetail.insight.reusable || [])" :key="'dreu-' + i">
+                                <li x-text="item"></li>
+                              </template>
+                            </ul>
+                          </div>
+                          <div class="cv-deep-block" x-show="cvDetail.insight.fit">
+                            <h4 class="cv-deep-h2">适用条件</h4>
+                            <p class="cv-deep-fit" x-text="cvDetail.insight.fit"></p>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  </template>
 
                   <div class="cv-sec" x-show="cvDetail.reference_rationale">
                     <div class="cv-sec-h">为什么值得看</div>
@@ -5474,7 +5516,7 @@
        所以 window.safeHref / window.isSafeUrl 在 Alpine 求值表达式时已就位。 -->
   <script src="js/safe_url.js?v=20261023001"></script>
   <script src="js/calendar.js?v=20260810001"></script>
-  <script src="js/cases.js?v=20261127001"></script>
+  <script src="js/cases.js?v=20261127002"></script>
   <script src="js/stats.js?v=20261126001"></script>
   <script src="js/theme.js?v=20260813019"></script>
   <script src="vendor/marked-16.4.2.umd.js?v=20261116001"></script>

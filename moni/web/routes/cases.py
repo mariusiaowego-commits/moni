@@ -67,6 +67,7 @@ def _row_to_case(row: dict[str, Any]) -> dict[str, Any]:
         "last_error": row.get("last_error"),
         "extracted_at": row.get("extracted_at"),
         "normalize_version": row.get("normalize_version"),
+        "insight": row.get("insight"),
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),
     }

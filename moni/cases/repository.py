@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from datetime import datetime, timezone
@@ -17,6 +18,38 @@ from ..db.connection import get_db
 from .evidence import build_context, locate_evidence
 
 logger = logging.getLogger(__name__)
+
+
+def _load_case_insight(
+    conn: sqlite3.Connection,
+    case_id: str,
+    insight_id: int | None,
+) -> dict[str, Any] | None:
+    """单条点查：优先 cases.insight_id，回退该 case 最新 done 行；脏 JSON 降级 None."""
+    row = conn.execute(
+        """
+        SELECT body_json, prompt_version, model, created_at
+        FROM case_insights
+        WHERE case_id = ? AND status = 'done'
+        ORDER BY (id = COALESCE(?, -1)) DESC, id DESC
+        LIMIT 1
+        """,
+        (case_id, insight_id),
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        body = json.loads(row["body_json"] or "{}")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(body, dict) or not body:
+        return None
+    return {
+        **body,
+        "prompt_version": row["prompt_version"],
+        "model": row["model"],
+        "created_at": row["created_at"],
+    }
 
 
 def active_case_clause(alias: str = "", *, include_archived: bool = False) -> str:
@@ -940,6 +973,7 @@ class CaseRepository:
                 (case_id, item.get("subject")),
             ).fetchall()
         item["related"] = [dict(r) for r in related_rows]
+        item["insight"] = _load_case_insight(conn, case_id, item.get("insight_id"))
         return CaseRepository._attach_metrics(conn, [item])[0]
 
     @staticmethod
