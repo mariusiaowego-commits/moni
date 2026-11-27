@@ -7719,6 +7719,8 @@ function app() {
           .then(r => r.json())
           .then(detail => {
             if (!detail) return;
+            // 回包时弹窗可能已关闭或已切到另一条任务 —— 丢弃过期响应。
+            if (!self.jobDetail || self.jobDetail.id !== job.id) return;
             if (wantsCases) {
               self.jobDetail = Object.assign({}, detail);
             } else if (detail.fact_check) {
