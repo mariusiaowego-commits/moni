@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from moni.share.features import describe_features
+
 logger = logging.getLogger(__name__)
 
 # Queue directory relative to home
@@ -147,21 +149,42 @@ def write_manifest(
                 article_ids = _dedupe_case_article_ids(conn, case_ids)
                 validated_payload["article_ids"] = article_ids
                 manifest_doc["payload"] = validated_payload
+            extra_doc = describe_features(
+                validated_payload, format_name, created_by="case"
+            )
             conn.execute(
                 """
-                INSERT INTO share_tasks (id, format, article_ids, case_ids, item_kind, status, created_at)
-                VALUES (?, ?, ?, ?, 'case', 'pending', ?)
+                INSERT INTO share_tasks (id, format, article_ids, case_ids, item_kind, status, created_at, extra)
+                VALUES (?, ?, ?, ?, 'case', 'pending', ?, ?)
                 """,
-                (share_id, format_name, json.dumps(article_ids), json.dumps(case_ids), now),
+                (
+                    share_id,
+                    format_name,
+                    json.dumps(article_ids),
+                    json.dumps(case_ids),
+                    now,
+                    json.dumps(extra_doc, ensure_ascii=False),
+                ),
             )
         else:
             article_ids = validated_payload.get("article_ids", [])
+            extra_doc = describe_features(
+                validated_payload,
+                format_name,
+                created_by="brief" if validated_payload.get("brief") else "custom",
+            )
             conn.execute(
                 """
-                INSERT INTO share_tasks (id, format, article_ids, status, created_at)
-                VALUES (?, ?, ?, 'pending', ?)
+                INSERT INTO share_tasks (id, format, article_ids, status, created_at, extra)
+                VALUES (?, ?, ?, 'pending', ?, ?)
                 """,
-                (share_id, format_name, json.dumps(article_ids), now),
+                (
+                    share_id,
+                    format_name,
+                    json.dumps(article_ids),
+                    now,
+                    json.dumps(extra_doc, ensure_ascii=False),
+                ),
             )
         conn.commit()
         logger.info("share_tasks row created: id=%s format=%s kind=%s", share_id, format_name, kind)

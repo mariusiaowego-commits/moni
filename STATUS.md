@@ -1,3 +1,43 @@
+## 已部署: **分享页 v2：产出物特性快照 / 简报默认标题 / 上下文标记 / 工具栏重做** (2026-11-27 · PR #352 → `b7480f2` · tag `v1.0.144` · Sprint 84)
+
+**目标**：分享队列每个产出物能看出「带了哪些增强特性 / 用了什么生图方式」；新建简报默认标题
+按 `同业简报-YYMMDD-<格式>-NN` 自动生成并按格式当天自增；带 AI 对话上下文的文章在分享页有标记；
+自定义分享的选择器工具栏统一。
+
+**行为**
+
+- 入队时把 `features` / `generation_approach` / `options` / `title` 快照写进 `share_tasks.extra`；
+  历史行既无 extra 也无队列文件时标 `config_unknown`，不假装知道生成方式。
+- `GET /api/share/next-title?format=<id>` 预览默认标题：`同业简报-YYMMDD-<中文格式>-NN`，
+  序号按「格式 + 本地日」取当前最大值 +1；仅作标签，不占用唯一键。
+- 分享队列新增独立「特性」列：只展示前 2 项 + `+N`，悬浮显示全部；PNG 行展示生图方式
+  （生图·排版 / 生图·卡片 / 生图·信息图）。
+- 自定义分享卡片对带 AI 对话上下文的文章只显示一个图标标记（无文字），与右侧勾选框对齐。
+- `share-picker-toolbar` 重做：左侧筛选（全部/Pin + 来源 + 分类），右侧已选计数 + 全选本页 / 清空，
+  同高同圆角同字号。
+- 无新增 migration（复用 `share_tasks.extra`），零迁移与回滚风险。
+
+**实测（8900，部署后）**
+
+- `b7480f2` 部署：生产 checkout `ceeae3d → b7480f2`，8900 pid `50380 → 37218`，`/` 200。
+- 资源缓存键：`main.css?v=20261127001`、`app.js?v=20261127001`；首页含 share v2 标记 3 处。
+- `/api/share/next-title`：`html_landing → 同业简报-261127-网页-01`、
+  `info_graphic_png → 同业简报-261127-信息图-01`、`markdown → 同业简报-261127-Markdown-01`、
+  `pdf → 同业简报-261127-PDF-01`、`case_brief_html → 同业简报-261127-案例-01`。
+- 端点 200：`/`、`/cases`、`/stats`、`/api/share/tasks`。
+- Playwright 1440 实测：工具栏 `display:flex / gap:12px / wrap`，右侧按钮统一
+  `26.9px` 高 / `13px` / `4px` 圆角 / `5px 14px` 内距；上下文图标宽 `16px`（纯图标），
+  图标右缘 688 vs 勾选框 x 693（gap 5px）；队列表（API `total=129`，前端 20/页）
+  特性列前 2 + `+N`，横向溢出 0，console 0 error。
+
+**测试**
+
+- 定向 12 文件（含 #350 的 `test_cases_insights.py`）→ **183 passed**。
+- `test_brief.py -k "not TestEnrichment"` → **11 passed, 2 deselected**。
+- CI `pytest · py3.12`：分支 `9deba41` run `45912264999` success；main `b7480f2` run `45913272790` success。
+- 首轮 CI 曾因 `test_direction_clarification_api.py::test_research_is_refused_while_questions_are_unanswered`
+  断言 `running != passed` 失败；本地复跑 6 passed，判定为轮询无 sleep 的时序 flaky，与本 PR 改动面无交集。
+
 ## 已合并待部署: **案例深度解读（case_insights）生成与回填 CLI** (2026-11-27 · PR #350 → `ceeae3d` · Sprint 84)
 
 **目标**：Issue #346。`case_insights` 表自迁移 067 建好后从未跑过 LLM，详情页也没有消费方；

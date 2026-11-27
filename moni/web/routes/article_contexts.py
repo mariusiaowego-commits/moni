@@ -73,7 +73,11 @@ def _require_article(conn: Any, article_id: str) -> None:
 
 @router.get("/article-contexts/summary")
 def context_summary(article_ids: str = "") -> dict[str, Any]:
-    """Counts per article, for the share dialog's "N 条" badge."""
+    """Counts per article (and per kind), for the share picker's badges.
+
+    ``kinds`` lets the card show an AI-chat marker only when that article
+    actually has a saved AI answer; ``counts`` stays for "N 条可带".
+    """
     conn = get_db()
     ids = [x.strip() for x in article_ids.split(",") if x.strip()]
     sql = "SELECT article_id, COUNT(*) AS n FROM article_contexts"
@@ -90,10 +94,28 @@ def context_summary(article_ids: str = "") -> dict[str, Any]:
         "SELECT COUNT(*) FROM article_contexts c "
         "JOIN article_pins p ON p.article_id = c.article_id"
     ).fetchone()[0]
+    kinds_sql = "SELECT article_id, kind, COUNT(*) AS n FROM article_contexts"
+    kind_params: list[Any] = []
+    if ids:
+        kinds_sql += f" WHERE article_id IN ({','.join('?' * len(ids))})"
+        kind_params = ids
+    kinds_sql += " GROUP BY article_id, kind"
+    kinds: dict[str, dict[str, int]] = {}
+    for row in conn.execute(kinds_sql, kind_params).fetchall():
+        kinds.setdefault(str(row["article_id"]), {})[str(row["kind"])] = int(row["n"])
+    pinned_kinds: dict[str, int] = {}
+    for row in conn.execute(
+        "SELECT c.kind, COUNT(*) AS n FROM article_contexts c "
+        "JOIN article_pins p ON p.article_id = c.article_id "
+        "GROUP BY c.kind"
+    ).fetchall():
+        pinned_kinds[str(row["kind"])] = int(row["n"])
     return {
         "counts": counts,
+        "kinds": kinds,
         "total": sum(counts.values()),
         "pinned_total": int(pinned_total),
+        "pinned_by_kind": pinned_kinds,
     }
 
 
