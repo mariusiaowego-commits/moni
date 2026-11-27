@@ -247,6 +247,25 @@ class TestJobApiSurfaces:
         assert len(detail["extracted_cases"]) == 1
         assert detail["extracted_cases"][0]["subject"] == "招商银行"
 
+    def test_detail_empty_case_ids_does_not_fall_back(self, fresh_db):
+        """新版 no_cases/filtered 任务带空 case_ids：不能串同文的其它批次案例."""
+        from moni.web.routes.llm_jobs import get_llm_job
+
+        _seed_article(fresh_db)
+        with fresh_db:
+            CaseRepository.insert_cases(fresh_db, "art_86", [normalize_case(_case())])
+        now = datetime.now(timezone.utc).isoformat()
+        fresh_db.execute(
+            "INSERT INTO llm_jobs (id, task_type, article_id, status, attempts, created_at, result) "
+            "VALUES ('filtered', 'case_extract', 'art_86', 'done', 1, ?, ?)",
+            (now, json.dumps({
+                "outcome": "filtered", "case_count": 0, "dropped": 2, "case_ids": [],
+            })),
+        )
+        fresh_db.commit()
+
+        assert get_llm_job("filtered")["extracted_cases"] == []
+
 
 class TestStatsDualRanking:
     def test_recent_cases_and_high_value_limit(self, fresh_db):
@@ -268,3 +287,55 @@ class TestStatsDualRanking:
         assert len(data["recent_cases"]) == 20
         assert data["recent_cases"][0]["subject"] == "机构54"
         assert data["recent_cases"][0]["extracted_at"] > data["recent_cases"][1]["extracted_at"]
+
+
+class TestFrontendTemplateShape:
+    def test_every_x_for_template_has_single_root_element(self):
+        """Alpine 3.14 只克隆 ``content.firstElementChild``：并列双根会静默丢行."""
+        from html.parser import HTMLParser
+
+        void = {
+            "area", "base", "br", "col", "embed", "hr", "img", "input",
+            "link", "meta", "param", "source", "track", "wbr",
+        }
+
+        class _Roots(HTMLParser):
+            def __init__(self):
+                super().__init__(convert_charrefs=True)
+                self.depth = 0
+                self.ctx: list | None = None  # [start_depth, child_count]
+                self.counts: list[int] = []
+
+            def _count_child(self):
+                if self.ctx is not None and self.depth == self.ctx[0] + 1:
+                    self.ctx[1] += 1
+
+            def handle_starttag(self, tag, attrs):
+                self._count_child()
+                if tag == "template" and "x-for" in dict(attrs) and self.ctx is None:
+                    self.ctx = [self.depth, 0]
+                    self.depth += 1
+                    return
+                if tag in void:
+                    return
+                self.depth += 1
+
+            def handle_startendtag(self, tag, attrs):
+                self._count_child()
+
+            def handle_endtag(self, tag):
+                if tag in void:
+                    return
+                self.depth -= 1
+                if self.ctx is not None and self.depth == self.ctx[0]:
+                    self.counts.append(self.ctx[1])
+                    self.ctx = None
+
+        parser = _Roots()
+        parser.feed(
+            (Path(__file__).resolve().parents[1] / "moni/web/static/index.html").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert parser.counts, "no x-for template found — the scan is broken"
+        assert [c for c in parser.counts if c != 1] == []

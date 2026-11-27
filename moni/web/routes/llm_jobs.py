@@ -246,6 +246,7 @@ def _extracted_cases(job: dict[str, Any]) -> list[dict[str, Any]]:
 
     conn = get_db()
     case_ids: list[str] = []
+    has_case_ids = False
     raw = job.get("result") or ""
     if raw:
         try:
@@ -253,7 +254,12 @@ def _extracted_cases(job: dict[str, Any]) -> list[dict[str, Any]]:
         except (TypeError, json.JSONDecodeError):
             data = None
         if isinstance(data, dict):
-            case_ids = [str(x) for x in (data.get("case_ids") or []) if x]
+            # 新版记账总是带 case_ids（可能是空数组：被质量闸全丢或 0 案例）。
+            # 空数组表示"本次确实没有案例"，不能回落 article_id 兜底 ——
+            # 否则同文重试后会把其它批次的新案例串到这条旧任务上。
+            if "case_ids" in data:
+                has_case_ids = True
+                case_ids = [str(x) for x in (data.get("case_ids") or []) if x]
 
     cols = """
         c.case_id, c.subject, c.case_type, c.case_action,
@@ -261,6 +267,8 @@ def _extracted_cases(job: dict[str, Any]) -> list[dict[str, Any]]:
         (SELECT json_group_array(k.keyword) FROM case_keywords k
          WHERE k.case_id = c.case_id) AS keywords
     """
+    if has_case_ids and not case_ids:
+        return []
     if case_ids:
         marks = ",".join("?" * len(case_ids))
         rows = conn.execute(

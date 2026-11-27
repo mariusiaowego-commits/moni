@@ -7501,6 +7501,8 @@ function app() {
     llmJobsLoading: false,
     llmJobsPollHandle: null,
     llmJobsLastFetched: 0,
+    llmJobsReqSeq: 0,
+    llmJobsReloadQueued: false,
     llmType: 'all',
     llmTypeFilters: [
       { key: 'all', label: '全部', types: '' },
@@ -7516,6 +7518,8 @@ function app() {
       this.llmType = key;
       this.llmBatchOpen = {};
       this.llmJobs = [];
+      // 让在途的旧类型响应作废，避免旧数据覆盖新筛选结果。
+      this.llmJobsReqSeq = (this.llmJobsReqSeq || 0) + 1;
       this.loadLlmJobs();
     },
 
@@ -7573,8 +7577,15 @@ function app() {
 
     loadLlmJobs() {
       const self = this;
-      if (self.llmJobsLoading) return;
+      // 轮询 / 切筛选叠加时不能丢请求：记一个待重跑标记，
+      // 由当前请求的 finally 立刻补跑一次。
+      if (self.llmJobsLoading) {
+        self.llmJobsReloadQueued = true;
+        return;
+      }
       self.llmJobsLoading = true;
+      self.llmJobsReloadQueued = false;
+      const seq = ++self.llmJobsReqSeq;
       const active = self.llmTypeFilters.find((f) => f.key === self.llmType);
       const typeQuery = active && active.types
         ? '&task_type=' + encodeURIComponent(active.types)
@@ -7584,6 +7595,7 @@ function app() {
         fetch('/api/llm/jobs/stats/summary', { credentials: 'same-origin' }).then(r => r.json()),
       ])
         .then(([jobs, stats]) => {
+          if (seq !== self.llmJobsReqSeq) return;  // 已被更新的筛选取代
           self.llmJobs = Array.isArray(jobs) ? jobs : [];
           self.llmJobsStats = stats || self.llmJobsStats;
           self.llmJobsLastFetched = Date.now();
@@ -7591,6 +7603,11 @@ function app() {
         .catch(err => { console.error('loadLlmJobs failed:', err); })
         .finally(() => {
           self.llmJobsLoading = false;
+          if (self.llmJobsReloadQueued) {
+            self.llmJobsReloadQueued = false;
+            self.loadLlmJobs();
+            return;
+          }
           // Schedule the next poll.  Use a tighter interval while
           // there is in-flight work; back off when the queue is empty.
           const inFlight = (self.llmJobsStats.pending || 0) + (self.llmJobsStats.running || 0);
@@ -7690,20 +7707,27 @@ function app() {
       this.jobDetailFactCheck = null;
       // v1.0.35.13: 联网核查 done — 拉 detail 拿结构化证据 (fact_check 字段),
       // 用于用户友好的卡片渲染 (而非直接把 LLM 原始 JSON 甩给用户)。
-      if (job && job.task_type === 'fact_check_plus' && job.status === 'done' && job.id) {
+      // Sprint 86: 案例抽取 done 同样要拉 detail —— 列表行不带
+      // extracted_cases，只有详情接口才附本次抽到的案例清单。
+      const wantsFactCheck = job && job.task_type === 'fact_check_plus';
+      const wantsCases = job && job.task_type === 'case_extract';
+      if ((wantsFactCheck || wantsCases) && job.status === 'done' && job.id) {
         const self = this;
         fetch(`/api/llm/jobs/${encodeURIComponent(job.id)}`, {
           method: 'GET', credentials: 'same-origin',
         })
           .then(r => r.json())
           .then(detail => {
-            if (detail && detail.fact_check) {
+            if (!detail) return;
+            if (wantsCases) {
+              self.jobDetail = Object.assign({}, detail);
+            } else if (detail.fact_check) {
               self.jobDetailFactCheck = detail.fact_check;
             }
           })
           .catch(err => {
             // 非致命: 拿不到结构化数据就退回原始 JSON 展示
-            console.warn('load fact_check detail failed:', err);
+            console.warn('load llm job detail failed:', err);
           });
       }
     },

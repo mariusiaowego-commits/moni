@@ -1007,51 +1007,57 @@
           </thead>
           <tbody>
             <template x-for="g in llmJobsView()" :key="g.key">
-              <tr x-show="g.kind === 'job'" :class="'job-row job-' + g.job.status">
+              <tr :class="g.kind === 'batch' ? 'job-row job-batch' : 'job-row job-' + g.job.status">
                 <td>
-                  <span class="badge" :class="llmJobStatusBadge(g.job.status).cls"
-                        x-text="llmJobStatusBadge(g.job.status).label"></span>
+                  <template x-if="g.kind === 'batch'">
+                    <span class="badge" :class="g.badge" x-text="g.label"></span>
+                  </template>
+                  <template x-if="g.kind === 'job'">
+                    <span class="badge" :class="llmJobStatusBadge(g.job.status).cls"
+                          x-text="llmJobStatusBadge(g.job.status).label"></span>
+                  </template>
                 </td>
-                <td x-text="llmJobTypeLabel(g.job)"></td>
+                <td x-text="g.kind === 'batch' ? '案例抽取 · 批次' : llmJobTypeLabel(g.job)"></td>
                 <td>
-                  <!-- v1.0.35.14: 点击文章标题 → 打开文章详情 modal (不跳转) -->
-                  <a class="link" href="#" @click.prevent="showArticleDetail({ id: g.job.article_id })"
-                     x-text="(g.job.article_title || g.job.article_id).slice(0, 50)"></a>
+                  <template x-if="g.kind === 'batch'">
+                    <span x-text="g.jobs.length + ' 篇'"></span>
+                  </template>
+                  <template x-if="g.kind === 'job'">
+                    <!-- v1.0.35.14: 点击文章标题 → 打开文章详情 modal (不跳转) -->
+                    <a class="link" href="#" @click.prevent="showArticleDetail({ id: g.job.article_id })"
+                       x-text="(g.job.article_title || g.job.article_id || '').slice(0, 50)"></a>
+                  </template>
                 </td>
-                <td x-text="g.job.model || (g.job.provider === 'profile' ? '跟随 profile' : '-')"></td>
-                <td x-text="formatDuration(g.job.duration_ms)"></td>
-                <td x-text="g.job.attempts + (g.job.status === 'failed' ? '/' + 2 : '')"></td>
-                <td x-text="g.job.created_at ? g.job.created_at.slice(0, 19).replace('T', ' ') : '-'"></td>
-                <td class="job-id-cell" :title="g.job.id" x-text="g.job.id ? g.job.id.slice(0, 8) : '-'"></td>
-                <td class="result-cell">
-                  <span x-show="g.job.status === 'done'">
-                    <button class="link-btn" @click="openJobDetail(g.job)"
-                            x-text="'查看详情'"></button>
-                  </span>
-                  <span x-show="g.job.status === 'failed'">
-                    <button class="link-btn" @click="openJobDetail(g.job)"
-                            x-text="'查看错误'"></button>
-                  </span>
-                  <span x-show="['pending', 'running', 'cancelled'].includes(g.job.status)" class="muted">-</span>
-                </td>
-                <td>
-                  <button class="link-btn" x-show="['pending', 'running'].includes(g.job.status)"
-                          @click="cancelLlmJob(g.job.id)">取消</button>
-                </td>
-              </tr>
-              <tr x-show="g.kind === 'batch'" class="job-row job-batch">
-                <td><span class="badge" :class="g.badge" x-text="g.label"></span></td>
-                <td>案例抽取 · 批次</td>
-                <td><span x-text="g.jobs.length + ' 篇'"></span></td>
-                <td x-text="g.jobs[0]?.model || '-'"></td>
-                <td x-text="formatDuration(g.duration_ms)"></td>
-                <td class="muted">-</td>
+                <td x-text="g.kind === 'batch'
+                      ? (g.jobs[0]?.model || '-')
+                      : (g.job.model || (g.job.provider === 'profile' ? '跟随 profile' : '-'))"></td>
+                <td x-text="formatDuration(g.kind === 'batch' ? g.duration_ms : g.job.duration_ms)"></td>
+                <td :class="g.kind === 'batch' ? 'muted' : ''"
+                    x-text="g.kind === 'batch' ? '-' : (g.job.attempts + (g.job.status === 'failed' ? '/' + 2 : ''))"></td>
                 <td x-text="g.created_at ? g.created_at.slice(0, 19).replace('T', ' ') : '-'"></td>
-                <td class="job-id-cell" :title="g.batch_id" x-text="(g.batch_id || '').slice(-10)"></td>
+                <td class="job-id-cell"
+                    :title="g.kind === 'batch' ? g.batch_id : g.job.id"
+                    x-text="g.kind === 'batch' ? (g.batch_id || '').slice(-10) : (g.job.id ? g.job.id.slice(0, 8) : '-')"></td>
                 <td class="result-cell">
-                  <button class="link-btn" @click="openBatchDetail(g)">查看批次</button>
+                  <template x-if="g.kind === 'batch'">
+                    <button class="link-btn" @click="openBatchDetail(g)">查看批次</button>
+                  </template>
+                  <template x-if="g.kind === 'job' && (g.job.status === 'done' || g.job.status === 'failed')">
+                    <button class="link-btn" @click="openJobDetail(g.job)"
+                            x-text="g.job.status === 'failed' ? '查看错误' : '查看详情'"></button>
+                  </template>
+                  <template x-if="g.kind === 'job' && ['pending', 'running', 'cancelled'].includes(g.job.status)">
+                    <span class="muted">-</span>
+                  </template>
                 </td>
-                <td class="muted">-</td>
+                <td>
+                  <template x-if="g.kind === 'job' && ['pending', 'running'].includes(g.job.status)">
+                    <button class="link-btn" @click="cancelLlmJob(g.job.id)">取消</button>
+                  </template>
+                  <template x-if="g.kind === 'batch'">
+                    <span class="muted">-</span>
+                  </template>
+                </td>
               </tr>
             </template>
             <tr x-show="llmJobsView().length === 0">
@@ -4534,10 +4540,10 @@
               <b>成本:</b> <span x-text="'$' + Number(jobDetail?.cost_usd || 0).toFixed(4)"></span>
             </span>
             <span class="meta-chip" x-show="jobDetail?.created_at">
-              <b>创建:</b> <span x-text="jobDetail?.created_at.slice(0, 19).replace('T', ' ')"></span>
+              <b>创建:</b> <span x-text="(jobDetail?.created_at || '').slice(0, 19).replace('T', ' ')"></span>
             </span>
             <span class="meta-chip" x-show="jobDetail?.finished_at">
-              <b>完成:</b> <span x-text="jobDetail?.finished_at.slice(0, 19).replace('T', ' ')"></span>
+              <b>完成:</b> <span x-text="(jobDetail?.finished_at || '').slice(0, 19).replace('T', ' ')"></span>
             </span>
             <span class="meta-chip" x-show="jobDetail?.batch_id">
               <b>批次:</b> <span x-text="jobDetail?.batch_id"></span>
@@ -5629,7 +5635,7 @@
   <script src="js/safe_url.js?v=20261023001"></script>
   <script src="js/calendar.js?v=20260810001"></script>
   <script src="js/cases.js?v=20261127002"></script>
-  <script src="js/stats.js?v=20261127001"></script>
+  <script src="js/stats.js?v=20261127002"></script>
   <script src="js/theme.js?v=20260813019"></script>
   <script src="vendor/marked-16.4.2.umd.js?v=20261116001"></script>
   <script src="vendor/dompurify-3.4.17.min.js?v=20261116001"></script>
@@ -5637,7 +5643,7 @@
        本分支前置提交里的旧值。 -->
   <script src="js/job_view.js?v=20261120161"></script>
   <script src="js/desens-lab.js?v=20261126003"></script>
-  <script src="js/app.js?v=20261127002"></script>
+  <script src="js/app.js?v=20261127003"></script>
   <script src="js/reader.js?v=20261127001"></script>
   <script src="js/icons.js?v=1785000000"></script>
   <!-- v1.0.44: pin_anim.js rewritten — flash class no longer gated behind
